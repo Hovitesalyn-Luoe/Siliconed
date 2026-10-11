@@ -470,7 +470,11 @@ package enum MemoryPlan {
     /// `SILICONED_MAP_TAIL` (a forcing of measurement): that fraction, two buffers, at every size
     /// (the former guard, a tail only up to the area of a 1024², is lifted: its 1024×1536 swap was the
     /// decoder's). The decision is journaled in every case, the forcing's included.
-    package static func ditTail(artifact: Artifact, layerBlocks: [[String]]) -> (released: Int, slots: Int) {
+    ///
+    /// `fraction`: the model's own default plan, when it has measured one — the setting's (0.5)
+    /// otherwise. A `map_tail` set in the profile or the environment still wins.
+    package static func ditTail(artifact: Artifact, layerBlocks: [[String]],
+                                fraction preferred: Double? = nil) -> (released: Int, slots: Int) {
         let layers = layerBlocks.count
         let block = layerBlocks.map { artifact.span(of: $0) }.max() ?? 0
         func decide(_ tail: Tail, _ why: String) -> (released: Int, slots: Int) {
@@ -484,11 +488,15 @@ package enum MemoryPlan {
         if settings.provenance["map_tail"] == .environment {
             return decide(Tail(fraction: settings.mapTail, slots: 2), " (forced: SILICONED_MAP_TAIL)")
         }
-        guard let render = current else { return decide(Tail(fraction: settings.mapTail, slots: 2), "") }
+        let fraction = settings.provenance["map_tail"] == nil ? preferred ?? settings.mapTail : settings.mapTail
+        guard let render = current else { return decide(Tail(fraction: fraction, slots: 2), "") }
         if economical { return decide(.lean, " (lean plan, forced)") }
         if relieved("denoising") { return decide(.lean, " (lean plan: compressor short of room)") }
-        let tail = tail(budget: render.budget, floor: render.floor, blockBytes: block)
-        return decide(tail, tail == .lean ? " (lean plan: no room for the head)" : "")
+        let tail = tail(budget: render.budget, floor: render.floor, blockBytes: block, fraction: fraction)
+        // A model whose default is the whole map (`fraction` 1) gets `Tail.lean`'s value without being
+        // short: only a budget short of the buffers is the lean plan (the diagnostic reads the word).
+        let short = render.budget.available - render.floor < Tail.lean.slots * block
+        return decide(tail, tail == .lean && short ? " (lean plan: no room for the head)" : "")
     }
 
     /// **The text encoder's buffers**, as it starts. Outside a render, the reference (4).

@@ -101,4 +101,35 @@ final class QwenImage21Tests: XCTestCase {
             XCTAssertTrue((0..<chunks).allSatisfy { ($0 + 1) * n / chunks - $0 * n / chunks <= rows })
         }
     }
+
+    /// **The fused passes give the bits of the two they replace**: QK-Norm then RoPE
+    /// (`rmsNormRope` against `rmsNorm` + `rope`), LayerNorm then the modulation's scale
+    /// (`layerNorm(scale:)` against `layerNorm` + `scaleRows`) — on enough rows to split over the threads.
+    func testTheFusedNormsGiveTheSameBits() {
+        let rows = 96, heads = 4, headDim = 128, columns = heads * headDim
+        var generator = SystemRandomNumberGenerator()
+        let x = (0..<rows * columns).map { _ in Float.random(in: -3...3, using: &generator) }
+        let weight = (0..<headDim).map { _ in Float.random(in: 0.5...1.5, using: &generator) }
+        let freqs = (0..<rows * headDim).map { _ in Float.random(in: -1...1, using: &generator) }
+        let scale = (0..<columns).map { _ in Float.random(in: 0.5...1.5, using: &generator) }
+        var twoPasses = x, fused = x
+        twoPasses.withUnsafeMutableBufferPointer { t in
+            Ops.rmsNorm(t.baseAddress!, weight: weight, into: t.baseAddress!, rows: rows * heads, columns: headDim, eps: 1e-6)
+            Ops.rope(t.baseAddress!, freqs: freqs, sequence: rows, heads: heads, headDim: headDim)
+        }
+        fused.withUnsafeMutableBufferPointer {
+            Ops.rmsNormRope($0.baseAddress!, weight: weight, freqs: freqs, sequence: rows, heads: heads, headDim: headDim, eps: 1e-6)
+        }
+        XCTAssertEqual(twoPasses.map(\.bitPattern), fused.map(\.bitPattern))
+
+        var normed = [Float](repeating: 0, count: x.count), normedScaled = normed
+        normed.withUnsafeMutableBufferPointer { o in
+            Ops.layerNorm(x, into: o.baseAddress!, rows: rows, columns: columns, eps: 1e-6)
+            Ops.scaleRows(o.baseAddress!, by: scale, rows: rows, columns: columns)
+        }
+        normedScaled.withUnsafeMutableBufferPointer {
+            Ops.layerNorm(x, into: $0.baseAddress!, rows: rows, columns: columns, eps: 1e-6, scale: scale)
+        }
+        XCTAssertEqual(normed.map(\.bitPattern), normedScaled.map(\.bitPattern))
+    }
 }

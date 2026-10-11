@@ -29,7 +29,7 @@ public enum RemoteControlHelp {
 
     /// The topics in reading order (`help all` follows it).
     static let order = ["contract", "open", "models", "install", "add", "grid", "edit", "wait", "status", "follow",
-                        "cancel", "clear", "history", "save", "vary", "diagnose", "errors", "recipes"]
+                        "cancel", "clear", "history", "save", "vary", "subjects", "diagnose", "errors", "recipes"]
     static let aliases = ["examples": "recipes"]
 
     /// French when the user puts it before English. Not `Bundle.main.preferredLocalizations`: the app's
@@ -199,8 +199,8 @@ public enum RemoteControlHelp {
                       null while it is not installed
         formats     → the suggested formats; any valid WxH is accepted (help add)
         license_urls → the license file(s) on Hugging Face, at the revision the installation takes:
-                      the model's, then each component under a license of its own (Qwen-Image-2.1:
-                      the model, then the turbo LoRA). Z-Image has none: its model card, which
+                      the model's, then each component under a license of its own (a Compact: the
+                      publisher's, then each third party's model card). Z-Image has none: its model card, which
                       declares Apache 2.0.
         license_accepted → false: the first render of this model waits until the user accepts its
                       license in the app (a sheet shows it); declined, the job ends in "error"
@@ -283,8 +283,8 @@ public enum RemoteControlHelp {
                               displayed name, or a path). STRENGTH: 1 by default, 0.8 attenuates,
                               > 1 emphasizes.
           --steps N           number of steps, 1 to 50. Default: the model's "default_steps". A
-                              model may have a schedule for some counts only (Qwen-Image-2.1: 5,
-                              6, 7, 9).
+                              model may have a schedule for some counts only (Qwen-Image-2.1: 8
+                              only).
           --detail more|most  the rack's Detail: finer texture and small details, same time;
                               most can over-sharpen. Default: normal (the image as the model
                               makes it). Jobs and images say "detail" when it is not normal.
@@ -525,6 +525,28 @@ public enum RemoteControlHelp {
         Answer: {"ok": true, "jobs": [{"job": "t5", "seeds": [42], "variation": [{"seed": 81…, "strength": 0.1}], …}, …]}
         Then: silicontrol wait t5
         FAILURES: usage, unknown_image, model, queue_full, busy (an installation is running).
+        """,
+
+        "subjects": """
+        NAMED SUBJECTS (experimental) — silicontrol subjects [add … | remove NAME]
+
+        Off unless « Experimental → Named Subjects » is on in the app's menu (else: "disabled").
+        A subject is a picture (or two of the same subject) with a name, a kind and a frame; the
+        prompt cites it as @name, and its pictures go to the model as references, after the --ref
+        images. A model that reads images only (Qwen-Image-2.1); 3 images at most per render.
+
+          silicontrol subjects                                     the library
+          silicontrol subjects add IMAGE --name NAME --kind KIND [--frame x,y,w,h] [--second IMAGE2]
+          silicontrol subjects remove NAME                         deletes its folder and pictures
+          silicontrol add --model qwen-image-2.1 "@alice in @red-coat, posing in a library"
+
+        KIND: person, garment, object, place or style — what the model takes from the picture.
+        NAME: letters, digits, - and _ (« red-coat »); @Red-Coat cites it too (case is ignored).
+        --frame: the part of the image to look at, in fractions (0,0,1,1 = the whole image).
+        The model's prompt (each subject tied to its image) is the job's "model_prompt".
+
+        Answer: {"ok": true, "subjects": [{"name": "alice", "kind": "person", "pictures": [{"path": …, "frame": [0, 0, 1, 1]}]}]}
+        FAILURES: disabled, usage, ref (an image unreadable or missing), subject (unknown name, a name taken, too many images, a model that reads none).
         """,
 
         "save": """
@@ -780,7 +802,7 @@ public enum RemoteControlHelp {
         formats     → les formats conseillés ; tout WxH valide est accepté (help add)
         license_urls → le(s) fichier(s) de licence sur Hugging Face, à la révision que l'installation
                       prend : celui du modèle, puis chaque composant sous une licence propre
-                      (Qwen-Image-2.1 : le modèle, puis la LoRA turbo). Z-Image n'en a pas : sa
+                      (une Compact : celui de l'éditeur, puis la fiche de chaque tiers). Z-Image n'en a pas : sa
                       fiche, qui déclare Apache 2.0.
         license_accepted → false : le premier rendu de ce modèle attend que l'utilisateur accepte
                       sa licence dans l'app (une feuille la montre) ; refusée, le travail finit en
@@ -864,7 +886,7 @@ public enum RemoteControlHelp {
                               > 1 appuie.
           --steps N           nombre de pas, de 1 à 50. Défaut : "default_steps" du modèle. Un
                               modèle peut n'avoir de calendrier que pour certains (Qwen-Image-2.1 :
-                              5, 6, 7, 9).
+                              8 seulement).
           --detail more|most  le Détail du rack : texture fine et petits détails, même durée ;
                               most peut trop accentuer. Défaut : normal (l'image telle que le
                               modèle la fait). Travaux et images disent "detail" s'il n'est pas normal.
@@ -1112,6 +1134,29 @@ public enum RemoteControlHelp {
         Réponse : {"ok": true, "jobs": [{"job": "t5", "seeds": [42], "variation": [{"seed": 81…, "strength": 0.1}], …}, …]}
         Puis : silicontrol wait t5
         ÉCHECS : usage, unknown_image, model, queue_full, busy (une installation tourne).
+        """,
+
+        "subjects": """
+        SUJETS NOMMÉS (expérimental) — silicontrol subjects [add … | remove NOM]
+
+        Éteint tant que « Expérimental → Sujets nommés » n'est pas coché dans le menu de l'app
+        (sinon : "disabled"). Un sujet est une image (ou deux du même sujet) avec un nom, un genre et
+        un cadre ; le prompt le cite par @nom, et ses images vont au modèle comme références, après
+        celles des --ref. Un modèle qui lit les images seulement (Qwen-Image-2.1) ; 3 images au plus
+        par rendu.
+
+          silicontrol subjects                                     la bibliothèque
+          silicontrol subjects add IMAGE --name NOM --kind GENRE [--frame x,y,l,h] [--second IMAGE2]
+          silicontrol subjects remove NOM                          efface son dossier et ses images
+          silicontrol add --model qwen-image-2.1 "@alice in @red-coat, posing in a library"
+
+        GENRE : person, garment, object, place ou style — ce que le modèle prend de l'image.
+        NOM : lettres, chiffres, - et _ (« red-coat ») ; @Red-Coat le cite aussi (casse ignorée).
+        --frame : la partie de l'image à regarder, en fractions (0,0,1,1 = l'image entière).
+        Le prompt du modèle (chaque sujet relié à son image) est le "model_prompt" de la tâche.
+
+        Réponse : {"ok": true, "subjects": [{"name": "alice", "kind": "person", "pictures": [{"path": …, "frame": [0, 0, 1, 1]}]}]}
+        ÉCHECS : disabled, usage, ref (image illisible ou absente), subject (nom inconnu ou déjà pris, trop d'images, modèle qui n'en lit pas).
         """,
 
         "save": """

@@ -291,28 +291,41 @@ extension ModelCard {
 }
 
 /// **The forge's journal, as a line of the app**: the engine writes rows for a terminal (`↓ file
-/// (1.23 Go)`, `  … 40 %`, `forging the DiT → name`); the app shows what they mean.
+/// (1.23 Go)`, `  … 40 %`, `forging the DiT → name`, `  ✓ forged name in 9 s`); the app shows what they
+/// mean. Two steps can run at once — the DiT downloads while the encoder is forged
+/// (`Installer.install`) — and the line then says both; the forge says no percentage then, so a
+/// `… %` after a `↓` is always the download's.
 enum ForgeProgress {
     static func line(_ journal: [String]) -> String? {
-        var said: String?, downloading: String?
+        var said: String?
+        var downloading: String?, received: String?, preparing: String?, converted: String?
         for row in journal {
             let t = row.trimmingCharacters(in: .whitespaces)
             if t.hasPrefix("↓ ") {
                 let label = String(t.dropFirst(2).split(separator: " (").first ?? "")
-                let file = (label as NSString).lastPathComponent
-                downloading = file
-                said = String(localized: "Downloading \(file)")
+                downloading = (label as NSString).lastPathComponent
+                received = nil
             } else if t.hasPrefix("… "), let n = Int(t.dropFirst(2).prefix { $0.isNumber }) {
-                let p = Figures.percent(n)
-                said = downloading.map { String(localized: "Downloading \($0): \(p)") } ?? String(localized: "Converting: \(p)")
+                if downloading != nil { received = Figures.percent(n) } else { converted = Figures.percent(n) }
             } else if t.hasPrefix("✓ "), t.hasSuffix(" installed") {
                 said = String(localized: "Installed")
+                continue
+            } else if t.hasPrefix("✓ forged ") {
+                (preparing, converted) = (nil, nil)
             } else if t.hasPrefix("✓ ") {
-                downloading = nil
+                (downloading, received) = (nil, nil)
             } else if t.hasPrefix("forging "), let arrow = t.range(of: "→ ") {
-                downloading = nil
-                let name = String(t[arrow.upperBound...])
-                said = String(localized: "Preparing \(name)")
+                (preparing, converted) = (String(t[arrow.upperBound...]), nil)
+            } else {
+                continue
+            }
+            switch (downloading, received, preparing) {
+            case let (file?, p?, name?): said = String(localized: "Downloading \(file): \(p) — preparing \(name)")
+            case let (file?, nil, name?): said = String(localized: "Downloading \(file) — preparing \(name)")
+            case let (file?, p?, nil): said = String(localized: "Downloading \(file): \(p)")
+            case let (file?, nil, nil): said = String(localized: "Downloading \(file)")
+            case let (nil, _, name?): said = converted.map { String(localized: "Converting: \($0)") } ?? String(localized: "Preparing \(name)")
+            case (nil, _, nil): break
             }
         }
         return said

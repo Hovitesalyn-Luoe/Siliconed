@@ -93,7 +93,8 @@ extension Library {
             return .init(family: f, components: Self.size(i.componentsFolder(f)) - partialBytes(in: i.componentsFolder(f)),
                          encoder: (own || neighbors.isEmpty ? Self.size(map(encoderMap(f))) : 0) + otherEncoder,
                          encoderSharedWith: neighbors,
-                         dit: Self.size(dit) + Self.size(adapterPath(fromMap: dit)) + otherDiT,
+                         dit: Self.size(dit) + Self.size(adapterPath(fromMap: dit)) + otherDiT
+                            + (f == .qwenImage21 ? Family.supersededQwenImage21Maps.reduce(0) { $0 + Self.size(map($1)) } : 0),
                          variant: own ? variant(of: f) : nil,
                          isReady: i.isReady(f))
         }
@@ -114,7 +115,7 @@ extension Library {
     /// enough for an imported model).
     public func uninstall(_ f: Family) throws(EngineError) {
         let fm = FileManager.default
-        var targets = [Installer(library: self).componentsFolder(f)]
+        var targets = [Installer(library: self).componentsFolder(f)] + Installer(library: self).supersededFiles(f)
         for v in f.variants {
             let dit = map(f.ditMap(v))
             targets += [dit, adapterPath(fromMap: dit)]
@@ -406,8 +407,9 @@ extension Family {
         case .krea2: return (26_284_982_272, 7_845_068_800, 531_697_664)
         case .klein4b: return (7_752_122_368, 7_845_068_800, 196_112_384)
         case .ernie: return (16_068_853_760, 6_625_787_904, 186_089_472)
-        // Measured on the maps of 2026-10-03; the components include the turbo LoRA (1.36 GB).
-        case .qwenImage21: return (14_231_355_392, 16_295_034_880, 2_721_627_752)
+        // The maps measured on 2026-10-03 (the Turbo's DiT has the base's shapes and dtypes, its encoder
+        // the base's tensors); the components summed from the Turbo's published files (VAE in bf16).
+        case .qwenImage21: return (14_231_355_392, 16_295_034_880, 686_958_986)
         }
     }
 }

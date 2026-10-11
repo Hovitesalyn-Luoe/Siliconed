@@ -53,6 +53,7 @@ struct MainView: View {
         .sheet(isPresented: $app.managementOpen) { ModelManagement(app: app) }
         .sheet(item: $app.licenseRequest) { request in LicenseSheet(app: app, card: request.card) }
         .sheet(isPresented: $app.diagnosticOpen) { DiagnosticSheet(app: app) }
+        .sheet(item: $app.subjectDraft) { draft in SubjectSheet(app: app, draft: draft) }
         .overlay {
             if app.fullScreen, let image = app.selectedImage?.image { FullScreen(app: app, image: image) }
         }
@@ -595,6 +596,15 @@ private struct Details: View {
         let r = entry.settings, c = entry.timings, m = entry.footprints
         VStack(alignment: .leading, spacing: 12) {
             Text(r.prompt).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            // Named subjects: what the model read, under what was typed — to understand a miss.
+            if let model = r.modelPrompt {
+                DisclosureGroup("Model Prompt") {
+                    Text(model).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption)
+            }
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
                 rowLine("Model", r.modelName)
                 rowLine("Size", "\(entry.width) × \(entry.height)")
@@ -606,7 +616,8 @@ private struct Details: View {
                 } else {
                     rowLine("Evaluations", String(localized: "\(entry.evaluations) of \(r.steps) steps"))
                 }
-                if r.editing { rowLine("References", String(r.references)) }
+                if r.editing { rowLine("References", String(r.references - r.subjectImages)) }
+                if r.subjectImages > 0 { rowLine("Subject images", String(r.subjectImages)) }
                 // The variation seeds, in the order they turned the noise, each with its strength.
                 if r.isVariation {
                     rowLine("Variation", r.variations.map { "\($0.seed) · \(VariationWords.label($0.strength))" }

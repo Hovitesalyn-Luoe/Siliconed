@@ -14,9 +14,6 @@ import Synchronization
 ///     store/<encoder>.silicon      the forged text encoder
 ///     store/<dit>.silicon           the forged vendor DiT (optional: a user who only brings their
 ///                                   own checkpoint does not need it)
-///     store/composants/<famille>/<turbo>.lora.silicon
-///                                   a LoRA the family cannot do without (Qwen-Image-2.1's turbo),
-///                                   forged at installation like the maps
 ///
 /// Downloads live under `<racine>/telechargements/` for the duration of a forge, then go away.
 package struct Installer {
@@ -46,17 +43,22 @@ package struct Installer {
     static let krea2 = Repository(name: "krea/Krea-2-Turbo", revision: "98e0fe118d17c9e3547fbb2e25acdbae2cadf7c7")
     static let klein4b = Repository(name: "black-forest-labs/FLUX.2-klein-4B", revision: "e7b7dc27f91deacad38e78976d1f2b499d76a294")
     static let ernie = Repository(name: "baidu/ERNIE-Image-Turbo", revision: "bc68c81e2a1730a394d5fc9fae70713dee940140")
-    static let qwenImage21 = Repository(name: "Qwen/Qwen-Image-2.1", revision: "d26bb61231c349cf6b7896fa83353113880e1ba3")
-    static let viggleTurbo = Repository(name: "Viggle/Qwen-Image-2.1-viggle-turbo", revision: "009a44a895ef85f7e643c80fdca9543795248867")
+    /// The official Turbo, the Standard's every file: DiT, encoder, VAE, `processor/`, configs, schedule —
+    /// and the Compact's and the Light's but their DiT and their encoder's weights. No recipe reads
+    /// the base model (`Qwen/Qwen-Image-2.1`) any more.
+    static let qwenImage21Turbo = Repository(name: "Qwen/Qwen-Image-2.1-Turbo", revision: "d65dbc9a7e8f6b5479e33dee6030eaab2a906509")
     // The Compacts' third parties: 8-bit weights of the same models, read by `Range` and
     // judged before being recipes.
     static let zImageGGUF = Repository(name: "unsloth/Z-Image-Turbo-GGUF", revision: "6c80814333b7b6a70a2e5b469a7c6437ce65de0f")
     static let zImageSDNQ = Repository(name: "Disty0/Z-Image-Turbo-SDNQ-int8", revision: "43d0947f91c14b93da75704be27565ee30694f21")
-    static let qwenImage21Comfy = Repository(name: "Comfy-Org/Qwen-Image-2.1", revision: "cb504a4090723e43f17ad01cec0359490e2de613")
+    // Qwen: the Compact's DiT is Comfy-Org's int8 convrot of the Turbo (the repository holds the base's
+    // too); the 8-bit encoder is unsloth's of the base model's, which is the Turbo's to the bit (750
+    // tensors) — no 8-bit encoder of the Turbo is published, and none is needed.
+    static let qwenImage21Comfy = Repository(name: "Comfy-Org/Qwen-Image-2.1", revision: "df94239739eef7205973a145ffa6f441f7b64e84")
     static let qwenImage21Unsloth = Repository(name: "unsloth/Qwen-Image-2.1-FP8", revision: "bb21a8ba7f0371c19ad1f72c82a5e8fc10f39939")
     // The Light's DiT: unsloth's GGUF Q4_K_M, judged whole at the bit.
     // Z-Image's is in the Compact's repository (`zImageGGUF`), at the same revision.
-    static let qwenImage21GGUF = Repository(name: "unsloth/Qwen-Image-2.1-GGUF", revision: "2c31ccd392b367a6637841a143813320a02dff55")
+    static let qwenImage21GGUF = Repository(name: "unsloth/Qwen-Image-2.1-Turbo-GGUF", revision: "5d1f9f759ea877ae556cda88dbec958b62ad3809")
 
     /// The small files read at render time, and their place under `store/composants/<famille>/`.
     static func components(_ f: Family) -> [File] {
@@ -85,25 +87,20 @@ package struct Installer {
                     File(repository: ernie, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
                     File(repository: ernie, path: "transformer/config.json", destination: "transformer.json")]
         case .qwenImage21:
-            // `processor/` as published, minus what `tokenizer.json` already holds (`vocab.json`,
-            // `merges.txt`, `added_tokens.json`, `special_tokens_map.json`) and the video. The VAE's
-            // config carries `latents_mean`/`latents_std`. Two schedules: the base one, and Viggle's,
-            // whose `shift_terminal` is null (the base's 0.02 wrecks the turbo's last step).
-            return ["tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "preprocessor_config.json"]
-                .map { File(repository: qwenImage21, path: "processor/" + $0, destination: "processor/" + $0) }
-                + [File(repository: qwenImage21, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
-                   File(repository: qwenImage21, path: "vae/config.json", destination: "vae.json"),
-                   File(repository: qwenImage21, path: "transformer/config.json", destination: "transformer.json"),
-                   File(repository: qwenImage21, path: "scheduler/scheduler_config.json", destination: "scheduler.json"),
-                   File(repository: viggleTurbo, path: "scheduler/scheduler_config.json", destination: "scheduler-turbo.json")]
+            // `processor/` as published (transformers 5's serialization: `tokenizer.json` holds the
+            // vocabulary, `processor_config.json` the image processor's values). The engine reads
+            // `tokenizer.json` alone — the same tokens as the base's — and has the image values in code
+            // (`Qwen3VLImages`). The VAE is published in bf16 (the base's fp32 rounded to nearest):
+            // widened to fp32 at load, computed in fp32; its config carries `latents_mean`/`latents_std`.
+            // The schedule: `sample_sigmas` in `model_index.json`, checked against the scheduler config.
+            return ["tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "processor_config.json"]
+                .map { File(repository: qwenImage21Turbo, path: "processor/" + $0, destination: "processor/" + $0) }
+                + [File(repository: qwenImage21Turbo, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
+                   File(repository: qwenImage21Turbo, path: "vae/config.json", destination: "vae.json"),
+                   File(repository: qwenImage21Turbo, path: "transformer/config.json", destination: "transformer.json"),
+                   File(repository: qwenImage21Turbo, path: "scheduler/scheduler_config.json", destination: "scheduler.json"),
+                   File(repository: qwenImage21Turbo, path: "model_index.json", destination: "model_index.json")]
         }
-    }
-
-    /// The published LoRA that `Family.turboLoRA` is forged from.
-    static func turbo(_ f: Family) -> File? {
-        f == .qwenImage21
-            ? File(repository: viggleTurbo, path: "Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors", destination: nil)
-            : nil
     }
 
     /// **The license files a user reads before the first byte**, at the pinned revisions: the model's
@@ -114,10 +111,11 @@ package struct Installer {
     ///   VAE and tokenizers from the Diffusers repository, which carries its own file (v1.0).
     /// - Krea 2 is gated: `LICENSE.pdf` answers 401 until the Hub's gate is accepted (the card's
     ///   `license_link` points to the same PDF outside the Hub).
-    /// - Qwen-Image-2.1 and Viggle's turbo LoRA carry the same Qwen Research text (same git blob).
+    /// - Qwen-Image-2.1-Turbo carries the base model's Qwen Research text (same git blob): one file.
     /// - **A Compact also downloads from third parties**, which publish no license file: their model
     ///   card (`README.md`) declares it — Apache 2.0 for unsloth's and Disty0's Z-Image, Qwen
-    ///   Research (`license_link` to Qwen's file) for Comfy-Org's and unsloth's Qwen-Image-2.1. They
+    ///   Research (`license_link` to Qwen's file) for Comfy-Org's and unsloth's Qwen-Image-2.1 (the
+    ///   Turbo's DiT; the encoder, the base's, the same tensors). They
     ///   come after the Standard's: the license is the publisher's, the cards say whose bytes.
     /// - **A Light** links the card of its DiT's repository (unsloth's GGUF: Apache 2.0 for Z-Image,
     ///   Qwen Research for Qwen-Image-2.1), then the card of its encoder's, the Compact's.
@@ -141,8 +139,7 @@ package struct Installer {
         case .krea2: return [File(repository: krea2, path: "LICENSE.pdf", destination: nil)]
         case .klein4b: return [File(repository: klein4b, path: "LICENSE.md", destination: nil)]
         case .ernie: return [File(repository: ernie, path: "LICENSE", destination: nil)]
-        case .qwenImage21: return [File(repository: qwenImage21, path: "LICENSE", destination: nil),
-                                   File(repository: viggleTurbo, path: "LICENSE", destination: nil)]
+        case .qwenImage21: return [File(repository: qwenImage21Turbo, path: "LICENSE", destination: nil)]
         }
     }
 
@@ -163,7 +160,8 @@ package struct Installer {
                     File(repository: zImageSDNQ, path: "text_encoder/model.safetensors", destination: nil,
                          sha256: "21a5e09e4d05ddb2900dc5c51db5e2bc7bc8b3fa08ba10b372798fba3c594677")]
         case (.qwenImage21, .compact), (.qwenImage21, .light):
-            return [File(repository: qwenImage21, path: "text_encoder/config.json", destination: nil),
+            // The Turbo's `config.json` (the base's but `pad_token_id: null`), the base's 8-bit weights.
+            return [File(repository: qwenImage21Turbo, path: "text_encoder/config.json", destination: nil),
                     File(repository: qwenImage21Unsloth, path: "Qwen-Image-2.1-text_encoder-INT8-ConvRot.safetensors",
                          destination: nil, sha256: "0cb5ed0653e2ec8065f25a6cfb2ab6a89b6c8f143a500acea19f0e36214814b7")]
         default: break
@@ -185,30 +183,31 @@ package struct Installer {
         case .ernie:
             return ["config.json", "model.safetensors"].map { File(repository: ernie, path: "text_encoder/" + $0, destination: nil) }
         case .qwenImage21:
-            return (["config.json", "model.safetensors.index.json"] + (1...4).map { "model-0000\($0)-of-00004.safetensors" })
-                .map { File(repository: qwenImage21, path: "text_encoder/" + $0, destination: nil) }
+            // One file, the base's four shards to the bit (750 tensors): the map's tensors are the same.
+            return ["config.json", "model.safetensors"].map { File(repository: qwenImage21Turbo, path: "text_encoder/" + $0, destination: nil) }
         }
     }
 
     /// The vendor's DiT — or a Compact's single 8-bit file: unsloth's GGUF Q8_0 of Z-Image,
-    /// Comfy-Org's int8 convrot of Qwen-Image-2.1, both kept 8-bit by `ForgeDiT` — or a
+    /// Comfy-Org's int8 convrot of Qwen-Image-2.1-Turbo, both kept 8-bit by `ForgeDiT` — or a
     /// Light's single GGUF Q4_K_M from unsloth, its blocks kept whole. Neither
-    /// Q4_K_M carries a type under 4 bits: Z-Image's Q4_K, Q5_K, Q6_K; Qwen's Q4_K, Q5_K, Q6_K and
-    /// Q8_0 (its Q4_K_S, which carries Q3_K, would be refused whole).
+    /// Q4_K_M carries a type under 4 bits: Z-Image's Q4_K, Q5_K, Q6_K; Qwen-Turbo's Q4_K, Q5_K, Q6_K
+    /// and Q8_0 (the base's types and offsets, two metadata keys more).
     static func dit(_ f: Family, _ v: Variant = .standard) -> [File] {
         switch (f, v) {
         case (.zImage, .light):
             return [File(repository: zImageGGUF, path: "z-image-turbo-Q4_K_M.gguf", destination: nil,
                          sha256: "e6494f87de6abaf6a561924f50317a5f271fc34bb4222aabbd801197df8f7daa")]
         case (.qwenImage21, .light):
-            return [File(repository: qwenImage21GGUF, path: "qwen-image-2.1-Q4_K_M.gguf", destination: nil,
-                         sha256: "631d532e7ca71e8d90a87c71d3699761a812039d22e3370e87498d87754660fe")]
+            return [File(repository: qwenImage21GGUF, path: "qwen-image-2.1-turbo-Q4_K_M.gguf", destination: nil,
+                         sha256: "8940e8b522af886e0c0f5afddf720e82dd223cb9a43580b5f61c4d740452ac20")]
         case (.zImage, .compact):
             return [File(repository: zImageGGUF, path: "z-image-turbo-Q8_0.gguf", destination: nil,
                          sha256: "f163d60b0eb427469510b8226243d196574a18139a2e40c017409cfbda95ecfe")]
         case (.qwenImage21, .compact):
-            return [File(repository: qwenImage21Comfy, path: "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
-                         destination: nil, sha256: "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d")]
+            // Its 31 `comfy_attention.config` (ComfyUI's attention preference) are ignored by the forge.
+            return [File(repository: qwenImage21Comfy, path: "diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors",
+                         destination: nil, sha256: "8144a0182964aa8403ad6dbc011db837304167d235161b9aabaa8532e967314c")]
         default: break
         }
         switch f {
@@ -226,8 +225,14 @@ package struct Installer {
             return (["diffusion_pytorch_model.safetensors.index.json"] + (1...2).map { "diffusion_pytorch_model-0000\($0)-of-00002.safetensors" })
                 .map { File(repository: ernie, path: "transformer/" + $0, destination: nil) }
         case .qwenImage21:
-            return (["diffusion_pytorch_model.safetensors.index.json"] + (1...2).map { "diffusion_pytorch_model-0000\($0)-of-00002.safetensors" })
-                .map { File(repository: qwenImage21, path: "transformer/" + $0, destination: nil) }
+            // The Turbo's two shards, pinned: the base's names, shapes, dtypes and sizes, other values.
+            let shards = ["6cccd922767f01694461bdcf1f34ea7b771f3442e4d5e338ea9aa55277431cc0",
+                          "69f53ebb063d2f606bdaff7e22e0e2144f28d978d73dc75e6e4293fc5982eab5"]
+            return [File(repository: qwenImage21Turbo, path: "transformer/diffusion_pytorch_model.safetensors.index.json", destination: nil)]
+                + shards.enumerated().map {
+                    File(repository: qwenImage21Turbo, path: "transformer/diffusion_pytorch_model-0000\($0.offset + 1)-of-00002.safetensors",
+                         destination: nil, sha256: $0.element)
+                }
         }
     }
 
@@ -242,12 +247,42 @@ package struct Installer {
         downloads + "/" + file.repository.name.replacingOccurrences(of: "/", with: "--") + "/" + file.path
     }
 
-    /// Are a family's components there (without its DiT or its encoder)? Its turbo LoRA counts.
+    /// Are a family's components there (without its DiT or its encoder)? A superseded installation's are not.
     package func presentComponents(_ f: Family) -> Bool {
         let fm = FileManager.default
         return Self.components(f).allSatisfy { fm.fileExists(atPath: componentsFolder(f) + "/" + $0.destination!) }
             && fm.fileExists(atPath: componentsFolder(f) + "/dit.json")
-            && (f.turboLoRA.map { fm.fileExists(atPath: componentsFolder(f) + "/" + $0) } ?? true)
+            && supersededFiles(f).isEmpty
+    }
+
+    /// **What a superseded installation of the family left**: Qwen-Image-2.1 installed from the base
+    /// model (Standard, or a third party's 8-bit or GGUF DiT of it in Compact or Light), with a third
+    /// party's turbo LoRA and its schedule — its DiT map, and its whole components folder, whose files
+    /// have the names of the Turbo's (`vae.safetensors`, `scheduler.json`) and not their content.
+    /// Marked by one of its DiT maps, the LoRA, its schedule or the base's `preprocessor_config.json`.
+    /// Removed by the next installation before its first byte — that version no longer renders
+    /// (`Family.supersededQwenImage21Kind`) — and by an uninstallation; nothing is kept. The encoder
+    /// maps stay: the Turbo's encoder is the base's to the bit, and the Compact's 8-bit encoder is
+    /// still the one the Compact and the Light read.
+    package func supersededFiles(_ f: Family) -> [String] {
+        guard f == .qwenImage21 else { return [] }
+        let folder = componentsFolder(f), maps = Family.supersededQwenImage21Maps.map(library.map)
+        let marks = maps + [folder + "/viggle-turbo-v0.3.lora.silicon", folder + "/scheduler-turbo.json",
+                            folder + "/processor/preprocessor_config.json"]
+        guard marks.contains(where: Library.exists) else { return [] }
+        return (maps + [folder]).filter(Library.exists)
+    }
+
+    /// The version a superseded installation of the family was in, read from its DiT map — what its
+    /// reinstallation keeps when none is asked (`install`): the `variant` file goes with the folder,
+    /// and the Compact's encoder alone would make a Light look like a Compact.
+    func supersededVariant(_ f: Family) -> Variant? {
+        guard f == .qwenImage21 else { return nil }
+        let names = Family.supersededQwenImage21Maps
+        if Library.exists(library.map(names[2])) { return .light }
+        if Library.exists(library.map(names[1])) { return .compact }
+        if Library.exists(library.map(names[0])) { return .standard }
+        return nil
     }
 
     /// What is missing for a family to be able to render with **a** DiT (its own or an imported one):
@@ -268,8 +303,22 @@ package struct Installer {
     /// a refused file leave it whole. Only when the disk cannot hold both at once does the old one
     /// go before the first byte (`Library.InstallPlan.removesFirst`, said before the user accepts),
     /// after a check that counts the space it gives back.
+    ///
+    /// **What overlaps**: each large file's sha256 runs behind its download; the DiT downloads
+    /// while the encoder is forged, when the disk holds both at once (else one after the other, the
+    /// plan's peak). Not the DiT's forge with its download, shard by shard: the map is one file in
+    /// execution order behind one SHA-256 in that order, and its forge now takes ~10 s against
+    /// minutes of download — what it would hide is not worth a second order of things.
     package func install(_ f: Family, variant: Variant? = nil, baseDiT: Bool = true) throws {
         let fm = FileManager.default
+        let superseded = supersededFiles(f)
+        let variant = variant ?? (superseded.isEmpty ? nil : supersededVariant(f) ?? library.installedVariant(of: f))
+        if !superseded.isEmpty {
+            let bytes = superseded.reduce(0) { $0 + Library.size($1) }
+            journal(String(format: "  the superseded installation removed first (base model and third-party turbo LoRA): %.2f GB freed",
+                           Double(bytes) / 1e9))
+            for path in superseded { try fm.removeItem(atPath: path) }
+        }
         let plan = try library.installPlan(f, variant: variant, baseDiT: baseDiT, free: library.freeSpace())
         let v = plan.variant
         journal("── \(f.name)" + (f.variants.count > 1 ? " (\(v.rawValue))" : ""))
@@ -300,49 +349,51 @@ package struct Installer {
         }
         let config = try OrderedJSON.read(componentsFolder(f) + "/transformer.json")
 
-        // Checked against the family's DiT names (`dit.json`): needed even with an imported DiT.
-        if let name = f.turboLoRA, let x = Self.turbo(f), !fm.fileExists(atPath: componentsFolder(f) + "/" + name) {
-            try checkSpace([x])
-            try download(x)
-            journal("forging the turbo LoRA → \(name)")
-            let r = try ForgeLoRA.forge(file: source(x), to: componentsFolder(f) + "/" + name, family: f,
-                                         reference: { try readReference($0) })
-            r.rows.forEach { journal("  " + $0) }
-            if !keepSources { try? fm.removeItem(atPath: source(x)) }
-        }
-
-        let encoderName = f.encoderMap(v)
-        let encoderMap = library.map(encoderName)
+        let encoderName = f.encoderMap(v), ditName = f.ditMap(v)
+        let encoderMap = library.map(encoderName), ditMap = library.map(ditName)
+        let ditPresent = fm.fileExists(atPath: ditMap)
+            && (f != .anima || fm.fileExists(atPath: adapterPath(fromMap: ditMap)))
+        let ditFiles = Self.dit(f, v)
+        /// The DiT's sources downloaded and verified while the encoder was forged.
+        var verified: Set<String> = []
         if !fm.fileExists(atPath: encoderMap) {
             let files = Self.encoder(f, v)
             try checkSpace(files)
             for x in files { try download(x) }
+            // **The DiT downloads while the encoder is forged** — when the disk holds, at once, the
+            // encoder's sources, its map, and the DiT's sources and map (`checkSpace(_:alsoWriting:)`);
+            // otherwise one after the other, as the plan the user accepted counts it. The forge
+            // then says no percentages: the app shows the download, and that a map is being prepared.
             journal("forging the encoder → \(encoderName)")
-            let b: MapWriter.Tally
-            if v == .standard {
-                b = try ForgeText.forge(folder: (source(files[0]) as NSString).deletingLastPathComponent, family: f,
-                                        to: encoderMap, progressHandler: progressHandler)
-            } else {
+            let begin = Date()
+            let beside = baseDiT && !ditPresent
+                ? startDownloads(ditFiles, alsoWriting: files.reduce(0) { $0 + Library.size(source($1)) }) : nil
+            let forged = Result { () throws -> MapWriter.Tally in
+                if v == .standard {
+                    return try ForgeText.forge(folder: (source(files[0]) as NSString).deletingLastPathComponent, family: f,
+                                               to: encoderMap, progressHandler: beside == nil ? progressHandler : nil)
+                }
                 // Two repositories: the publisher's config, the third party's weights.
                 let weights = files.dropFirst()
-                b = try ForgeText.forge(source: TensorSource(paths: weights.map(source)), published: OrderedJSON.read(source(files[0])),
-                                        family: f, to: encoderMap,
-                                        directory: weights[weights.startIndex].repository.name + "@" + weights[weights.startIndex].repository.revision,
-                                        progressHandler: progressHandler)
+                return try ForgeText.forge(source: TensorSource(paths: weights.map(source)), published: OrderedJSON.read(source(files[0])),
+                                           family: f, to: encoderMap,
+                                           directory: weights[weights.startIndex].repository.name + "@" + weights[weights.startIndex].repository.revision,
+                                           progressHandler: beside == nil ? progressHandler : nil)
             }
+            if case .failure = forged, let beside { beside.stop(); _ = try? beside.wait() }
+            let b = try forged.get()
             journal(String(format: "  %.2f GB, %d tensors, %d values rounded", Double(b.bytes) / 1e9, b.tensors, b.inexact))
+            journal(String(format: "  ✓ forged %@ in %.0f s", encoderName, Date().timeIntervalSince(begin)))
             if !keepSources { for x in files { try? fm.removeItem(atPath: source(x)) } }
+            if let beside { verified = try beside.wait() }
         }
 
-        let ditName = f.ditMap(v)
-        let ditMap = library.map(ditName)
-        let ditPresent = fm.fileExists(atPath: ditMap)
-            && (f != .anima || fm.fileExists(atPath: adapterPath(fromMap: ditMap)))
         if baseDiT && !ditPresent {
-            let files = Self.dit(f, v)
-            try checkSpace(files)
-            for x in files { try download(x) }
+            let files = ditFiles
+            if verified.isEmpty { try checkSpace(files) }
+            for x in files where !verified.contains(source(x)) { try download(x) }
             journal("forging the DiT → \(ditName)")
+            let begin = Date()
             let sourceDiT: TensorSource
             let description: OrderedJSON
             if f == .anima {
@@ -364,6 +415,7 @@ package struct Installer {
             let r = try ForgeDiT.forge(source: sourceDiT, family: f, config: config, to: ditMap,
                                         reference: try readReference(f), descriptionSource: description, progressHandler: progressHandler)
             r.rows.forEach { journal("  " + $0) }
+            journal(String(format: "  ✓ forged %@ in %.0f s", ditName, Date().timeIntervalSince(begin)))
             if !keepSources { for x in files { try? fm.removeItem(atPath: source(x)) } }
         }
         // The new version is complete: only now does the other one go.
@@ -379,7 +431,9 @@ package struct Installer {
     /// sources**: never wider, never narrower than published (bf16 stays bf16, 8-bit stays 8-bit)
     /// — so the sources weigh about their map (a little more when the forge drops tensors:
     /// `lm_head`, the layers past the one read). The exact figure is checked again before each
-    /// download, from the Hub's headers (`checkSpace(_:)`).
+    /// download, from the Hub's headers (`checkSpace(_:)`). The DiT downloaded while the encoder is
+    /// forged — both sources and both maps on disk at once — is not part of it: that happens only when
+    /// the disk holds it then (`startDownloads`), never as a condition of the installation.
     package func spaceNeeded(_ f: Family, variant v: Variant = .standard, baseDiT: Bool) -> Int {
         let fm = FileManager.default
         let size = f.installedSize(v)
@@ -398,15 +452,51 @@ package struct Installer {
 
     /// **The space needed before downloading**: the sources (minus what is already there) and the
     /// forged map, no larger than its sources (never wider than published), plus its page alignment
-    /// (16 KB per tensor: under 1 %, 2 % kept). Read from the Hub's headers.
-    func checkSpace(_ files: [File]) throws {
+    /// (16 KB per tensor: under 1 %, 2 % kept). Read from the Hub's headers. `alsoWriting`: another
+    /// map being written meanwhile, by its sources' size (the encoder's, beside the DiT's download).
+    func checkSpace(_ files: [File], alsoWriting: Int = 0) throws {
         var toDownload = 0, sources = 0
         for x in files where x.path.hasSuffix(".safetensors") || x.path.hasSuffix(".gguf") {
             let size = try Downloader.announcedFootprint(Downloader.url(x.repository.name, revision: x.repository.revision, path: x.path)).size ?? 0
             sources += size
             if Library.size(source(x)) != size { toDownload += size }
         }
-        try library.checkSpace(toDownload + sources + sources / 50)
+        let other = alsoWriting + alsoWriting / 50
+        try library.checkSpace(toDownload + sources + sources / 50 + other)
+    }
+
+    /// Downloads running on a thread of their own, beside a forge.
+    final class Downloads: @unchecked Sendable {
+        let stopping: Cancellation
+        private let finished = DispatchSemaphore(value: 0)
+        private var outcome: Result<Set<String>, Error> = .success([])
+        init(stopping: Cancellation) { self.stopping = stopping }
+        func run(_ body: @escaping @Sendable () throws -> Set<String>) {
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                outcome = Result { try body() }
+                finished.signal()
+            }
+        }
+        /// Stops them (the forge beside them failed); `wait` still has to be called.
+        func stop() { stopping.cancel() }
+        /// The sources downloaded and verified, once all are; the first failure otherwise.
+        func wait() throws -> Set<String> { finished.wait(); return try outcome.get() }
+    }
+
+    /// **Starts downloading `files` beside the forge about to run**, when the disk holds them with
+    /// the map that forge writes (`alsoWriting`); `nil` — and nothing started — when it does not.
+    /// A Stop reaches them through the installation's token; a failed forge, through their own.
+    func startDownloads(_ files: [File], alsoWriting: Int) -> Downloads? {
+        guard (try? checkSpace(files, alsoWriting: alsoWriting)) != nil else { return nil }
+        let downloads = Downloads(stopping: Cancellation(following: cancellation))
+        var copy = self
+        copy.cancellation = downloads.stopping
+        let beside = copy
+        downloads.run {
+            for x in files { try beside.download(x) }
+            return Set(files.map(beside.source))
+        }
+        return downloads
     }
 
     func cleanDownloads() {
@@ -698,14 +788,20 @@ package enum Downloader {
         }
         // Held while written: `Library.emptyDownloads` leaves a locked `.partiel` alone.
         _ = flock(fd, LOCK_EX | LOCK_NB)
+        // Written past the page cache, like a map (`MapWriter.write`): tens of GB of sources, read
+        // back once by the hash and once by the forge, have no business filling memory meanwhile.
+        _ = fcntl(fd, F_NOCACHE, 1)
         defer { close(fd) }
         guard let ledger = FileHandle(forWritingAtPath: ledgerPath) else { throw EngineError.fileUnreadable(path: ledgerPath) }
         _ = flock(ledger.fileDescriptor, LOCK_EX | LOCK_NB)
         defer { try? ledger.close() }
         _ = try? ledger.seekToEnd()
 
-        let run = ChunkRun(fd: fd, ledger: ledger, size: size, label: label,
+        let run = ChunkRun(fd: fd, ledger: ledger, size: size, label: label, whole: done,
                            already: done.reduce(0) { $0 + all[$1].count }, cancellation: cancellation, journal: journal)
+        // The sha256 runs behind the download, on the chunks already whole in file order — the
+        // pass that followed the last byte is gone (it cost 6 s per 10 GB).
+        let hash = sha == nil ? nil : RunningHash(path: partial, chunks: all, run: run)
         let pending = all.indices.filter { !done.contains($0) }
         let next = Atomic<Int>(0)
         DispatchQueue.concurrentPerform(iterations: min(parallelChunks, pending.count)) { _ in
@@ -715,14 +811,56 @@ package enum Downloader {
                 run.fetch(u, chunk: pending[k], range: all[pending[k]])
             }
         }
-        if let e = run.failure { throw e }
+        if let e = run.failure { _ = try? hash?.result(); throw e }
+        if cancellation?.isCancelled == true { _ = try? hash?.result(); throw EngineError.cancelled }
         try? ledger.close()
         try? fm.removeItem(atPath: ledgerPath)
         if let sha {
-            let received = try sha256(partial)
+            let received = try hash?.result()
             guard received == sha else { try? fm.removeItem(atPath: partial); throw EngineError.downloadCorrupt(file: label) }
         }
         try fm.moveItem(atPath: partial, toPath: destination)
+    }
+
+    /// **The sha256 of a chunked download, computed while it downloads**: chunk i is hashed once
+    /// it and every chunk before it are whole (resumed chunks are whole from the start), read back
+    /// from `.partiel` (at the disk's speed, many times the network's). Stops, without a digest,
+    /// when the run stops.
+    final class RunningHash: @unchecked Sendable {
+        private let finished = DispatchSemaphore(value: 0)
+        private var digest: String?, error: EngineError?
+
+        init(path: String, chunks: [Range<Int>], run: ChunkRun) {
+            DispatchQueue.global(qos: .utility).async { [self] in
+                defer { finished.signal() }
+                let fd = open(path, O_RDONLY)
+                guard fd >= 0 else { error = .fileUnreadable(path: path); return }
+                defer { close(fd) }
+                _ = fcntl(fd, F_NOCACHE, 1)
+                let block = 8 << 20
+                let buffer = UnsafeMutableRawPointer.allocate(byteCount: block, alignment: 16384)
+                defer { buffer.deallocate() }
+                var h = SHA256()
+                for (i, r) in chunks.enumerated() {
+                    guard run.waitWhole(i) else { return }
+                    var at = r.lowerBound
+                    while at < r.upperBound {
+                        let n = pread(fd, buffer, min(block, r.upperBound - at), off_t(at))
+                        guard n > 0 else { error = .fileUnreadable(path: path); return }
+                        h.update(bufferPointer: UnsafeRawBufferPointer(start: buffer, count: n))
+                        at += n
+                    }
+                }
+                digest = h.finalize().map { String(format: "%02x", $0) }.joined()
+            }
+        }
+
+        /// The digest, once every chunk is hashed; `nil`: the run stopped first.
+        func result() throws -> String? {
+            finished.wait()
+            if let error { throw error }
+            return digest
+        }
     }
 
     /// The state the chunks of one file share: the descriptor they write to, the ledger, the bytes
@@ -730,19 +868,32 @@ package enum Downloader {
     final class ChunkRun: @unchecked Sendable {
         let fd: Int32, ledger: FileHandle, size: Int, label: String
         let cancellation: Cancellation?, journal: @Sendable (String) -> Void
-        private let lock = NSLock()
+        private let lock = NSCondition()
         private var received: Int, reported = 0, _failure: EngineError?
+        /// The chunks written whole, resumed ones included — what `RunningHash` waits for.
+        private var whole: Set<Int>
 
-        init(fd: Int32, ledger: FileHandle, size: Int, label: String, already: Int,
+        init(fd: Int32, ledger: FileHandle, size: Int, label: String, whole: Set<Int>, already: Int,
              cancellation: Cancellation?, journal: @escaping @Sendable (String) -> Void) {
-            self.fd = fd; self.ledger = ledger; self.size = size; self.label = label
+            self.fd = fd; self.ledger = ledger; self.size = size; self.label = label; self.whole = whole
             self.received = already; self.cancellation = cancellation; self.journal = journal
             reported = Int(already * 100 / size) / 20 * 20
         }
 
         var failure: EngineError? { lock.withLock { _failure } }
-        func fail(_ e: EngineError) { lock.withLock { if _failure == nil { _failure = e } } }
+        func fail(_ e: EngineError) { lock.withLock { if _failure == nil { _failure = e }; lock.broadcast() } }
         var stopped: Bool { cancellation?.isCancelled == true || failure != nil }
+
+        /// Waits until chunk `k` is whole; `false`: the run stopped first (a cancellation is seen
+        /// within half a second — the token has no way to wake anyone).
+        func waitWhole(_ k: Int) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            while !whole.contains(k) {
+                if _failure != nil || cancellation?.isCancelled == true { return false }
+                _ = lock.wait(until: Date().addingTimeInterval(0.5))
+            }
+            return true
+        }
 
         func add(_ n: Int) {
             let line: String? = lock.withLock {
@@ -778,16 +929,30 @@ package enum Downloader {
                     if idle > 0 { Thread.sleep(forTimeInterval: Double(1 << min(idle, 4))) }
                 }
             }
-            let line = Data("\(chunk)\n".utf8)
-            lock.withLock { try? ledger.write(contentsOf: line) }
+            written(chunk)
+        }
+
+        /// Chunk `k` is whole: in the ledger (for a resumption), and to the running hash.
+        func written(_ k: Int) {
+            let line = Data("\(k)\n".utf8)
+            lock.withLock {
+                try? ledger.write(contentsOf: line)
+                whole.insert(k)
+                lock.broadcast()
+            }
         }
     }
 
     /// One request for `[at, end)`: the bytes written at their offset as they arrive.
+    /// One request for `[at, end)`: the bytes gathered in memory and written at their offset by 8 MB
+    /// (`F_NOCACHE`: a write as small as the network hands it, past the cache, scattered a file in
+    /// tiny extents, read back at 0.5 GB/s by the forge). `at` is what is on disk.
     final class ChunkAttempt: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         let run: ChunkRun, end: Int
         var at: Int, refused: Int?
         let finished = DispatchSemaphore(value: 0)
+        static let block = 8 << 20
+        private var gathered = Data()
         init(run: ChunkRun, at: Int, end: Int) { self.run = run; self.at = at; self.end = end }
 
         func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
@@ -805,31 +970,74 @@ package enum Downloader {
 
         func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             if run.stopped { dataTask.cancel(); return }
-            let n = min(data.count, end - at)
-            let written = data.withUnsafeBytes { pwrite(run.fd, $0.baseAddress, n, off_t(at)) }
-            guard written == n else { run.fail(.fileUnreadable(path: run.label)); dataTask.cancel(); return }
-            at += n
+            let n = min(data.count, end - at - gathered.count)
+            gathered.append(data.prefix(n))
             run.add(n)
+            if gathered.count >= Self.block, !flush() { dataTask.cancel() }
         }
 
         func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            _ = flush()
             finished.signal()
+        }
+
+        /// The gathered bytes to disk, at `at`; `false`: the write failed (the run fails).
+        private func flush() -> Bool {
+            guard !gathered.isEmpty else { return true }
+            let n = gathered.count
+            let written = gathered.withUnsafeBytes { b -> Int in
+                var done = 0
+                while done < n {
+                    let r = pwrite(run.fd, b.baseAddress! + done, n - done, off_t(at + done))
+                    if r <= 0 { break }
+                    done += r
+                }
+                return done
+            }
+            gathered.removeAll(keepingCapacity: true)
+            guard written == n else { run.fail(.fileUnreadable(path: run.label)); return false }
+            at += n
+            return true
         }
     }
 
+    /// A whole file's sha256. Read by `pread` into two buffers, the next block read while this one
+    /// is hashed: measured on the M1 Pro, 1.7 GB/s for read-then-hash, the hash alone ≈ 2.4. (Before that,
+    /// `FileHandle.read(upToCount:)` with no autorelease pool kept every chunk alive: 31 GB and 25 GB
+    /// of swap for Z-Image, 2026-10-06 — nothing here is autoreleased.)
     package static func sha256(_ path: String) throws -> String {
-        guard let f = FileHandle(forReadingAtPath: path) else { throw EngineError.fileUnreadable(path: path) }
-        defer { try? f.close() }
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { throw EngineError.fileUnreadable(path: path) }
+        defer { close(fd) }
+        _ = fcntl(fd, F_NOCACHE, 1)
+        let block = 8 << 20
+        let buffers = (0..<2).map { _ in UnsafeMutableRawPointer.allocate(byteCount: block, alignment: 16384) }
+        defer { buffers.forEach { $0.deallocate() } }
+        /// A full block from `at`, or less at the end; −1: an error.
+        @Sendable func fill(_ b: UnsafeMutableRawPointer, _ at: Int) -> Int {
+            var n = 0
+            while n < block {
+                let r = pread(fd, b + n, block - n, off_t(at + n))
+                if r < 0 { return -1 }
+                if r == 0 { break }
+                n += r
+            }
+            return n
+        }
+        final class Next: @unchecked Sendable { var count = 0 }
         var h = SHA256()
-        // **A pool per chunk**: `read(upToCount:)` hands back an autoreleased buffer, and a caller
-        // with no pool that drains (the CLI's main thread, one long `install` call) kept every
-        // chunk — all the sources' bytes in dirty "Malloc Large", 31 GB and 25 GB of swap for
-        // Z-Image (2026-10-06). With the pool: 69 MB, whatever the file's size.
-        while try autoreleasepool(invoking: {
-            let d = try f.read(upToCount: 64 << 20) ?? Data()
-            h.update(data: d)
-            return !d.isEmpty
-        }) {}
+        var at = 0, k = 0
+        var count = fill(buffers[0], 0)
+        while count > 0 {
+            let next = Next(), group = DispatchGroup()
+            nonisolated(unsafe) let target = buffers[(k + 1) % 2]
+            let from = at + count
+            DispatchQueue.global(qos: .utility).async(group: group) { next.count = fill(target, from) }
+            h.update(bufferPointer: UnsafeRawBufferPointer(start: buffers[k % 2], count: count))
+            group.wait()
+            (at, count, k) = (from, next.count, k + 1)
+        }
+        guard count == 0 else { throw EngineError.fileUnreadable(path: path) }
         return h.finalize().map { String(format: "%02x", $0) }.joined()
     }
 

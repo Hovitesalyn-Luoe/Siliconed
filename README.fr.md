@@ -11,7 +11,7 @@ Siliconed est une app macOS libre et gratuite pour la **génération d'images à
 l'édition d'images par IA, en local**, sur les Mac Apple silicon (M1 et suivants). Elle fait tourner
 des modèles de diffusion récents —
 [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) et
-[Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) — en natif, en Swift et Metal : ni
+[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) — en natif, en Swift et Metal : ni
 Python, ni serveur, ni cloud, rien ne quitte votre Mac. Elle marche hors ligne une fois le modèle
 installé.
 
@@ -32,7 +32,7 @@ comic book style with cel shading »), comparées sous le rideau, filmé à vi
   pas livré.
 - **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en ~82 s sur un M1 Pro, là où
   Draw Things met 144 à 163 s avec des poids 8 bits sur la même machine.
-- **33 Go de modèle sur un Mac de 16 Go, zéro swap.** Les poids sont lus depuis le disque au moment
+- **31 Go de modèle sur un Mac de 16 Go, zéro swap.** Les poids sont lus depuis le disque au moment
   où ils servent. Le pic mémoire et le swap sont mesurés au pire cas (1024×1536, trois images de
   référence), et les deux modèles y tiennent avec 0 octet swappé.
 - **Fait pour être piloté par une IA.** `silicontrol` pilote l'app ouverte depuis un terminal, en
@@ -53,7 +53,7 @@ Diffusion, ni SDXL, ni Flux.1.
 | Modèle | Éditeur | Ce qu'il fait | Licence |
 |---|---|---|---|
 | [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tongyi-MAI | texte vers image, image vers image, LoRA | Apache 2.0 |
-| [Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1), avec la [LoRA turbo de Viggle](https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo) | Qwen | texte vers image, édition par instruction avec 1 à 3 images, LoRA | Qwen Research (non commerciale) |
+| [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) | Qwen | texte vers image, édition par instruction avec 1 à 3 images, LoRA | Qwen Research (non commerciale) |
 
 Les versions Compact utilisent des poids 8 bits publiés par des tiers :
 [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF),
@@ -61,7 +61,7 @@ Les versions Compact utilisent des poids 8 bits publiés par des tiers :
 [unsloth/Qwen-Image-2.1-FP8](https://huggingface.co/unsloth/Qwen-Image-2.1-FP8),
 [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) ; les versions Légères, le
 GGUF Q4_K_M de [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF) et
-d'[unsloth/Qwen-Image-2.1-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF) avec l'encodeur de
+d'[unsloth/Qwen-Image-2.1-Turbo-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-Turbo-GGUF) avec l'encodeur de
 texte de la Compact. Chaque fichier est figé à
 une révision et vérifié par sha256 (`Sources/Siliconed/Forge/Installation.swift`).
 
@@ -112,10 +112,10 @@ rend la case choisie jusqu'au bout avec la même graine : l'image que son esqui
   est figé à une révision et vérifié par sha256.
 - **Standard, Compact ou Légère.** Z-Image et Qwen-Image-2.1 s'installent avec les poids de
   l'éditeur (Standard, le défaut), avec des poids 8 bits publiés par des tiers pour le transformer et
-  l'encodeur de texte (Compact : 11,7 Go au lieu de 20,4 pour Z-Image, 19,4 Go au lieu de 33,2 pour
+  l'encodeur de texte (Compact : 11,7 Go au lieu de 20,4 pour Z-Image, 17,3 Go au lieu de 31,2 pour
   Qwen-Image-2.1, une image légèrement différente, à peu près aussi rapide), ou avec le transformer
   en 4 à 6 bits tel qu'un tiers le publie (GGUF Q4_K_M) et l'encodeur de texte de la Compact
-  (Légère : 9,5 Go et 16,2 Go, le moins lu sur le disque à chaque pas ; un autre jeu de poids, une
+  (Légère : 9,5 Go et 14,2 Go, le moins lu sur le disque à chaque pas ; un autre jeu de poids, une
   image qui peut se composer autrement). La Légère est présélectionnée sur un Mac de 8 Go de
   mémoire, la Standard ailleurs ; vous choisissez avant d'installer. Une version à la
   fois : passer à l'autre la remplace ; l'installée continue de rendre jusqu'à ce que la nouvelle
@@ -152,9 +152,9 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. 1
 
 | | Z-Image Turbo | Qwen-Image-2.1 Turbo |
 |---|---|---|
-| 1024², Standard | ~82 s (8 pas ; 1024×1536 ~153 s) | ~134 s (6 pas) ; une édition à 1 image ~190 s, à 2 images ~263 s |
-| 1024², Légère (4 à 6 bits) | ~85 s | ~133 s ; une édition à 1 image ~190 s |
-| écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 2,3·10⁻⁶ de l'exact fp64 (512²) |
+| 1024², Standard | ~82 s (8 pas ; 1024×1536 ~153 s) | ~120 s (8 pas) ; une édition à 1 image ~210 s, à 2 images ~285 s |
+| 1024², Légère (4 à 6 bits) | ~85 s | ~120 s ; une édition à 1 image ~210 s |
+| écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) |
 
 À titre de comparaison, Draw Things sur la même machine, Z-Image `q8p` : 144 s au premier rendu,
 163 s au quatrième. Les ~82 s de Siliconed sont en fp32 ; la comparaison porte sur le temps écoulé,
@@ -194,7 +194,7 @@ Les rapports remplissent ce tableau, une ligne par puce :
 
 | Puce | Cœurs CPU | Cœurs GPU | Mémoire | Z-Image Turbo 1024² | Qwen-Image-2.1 Turbo 1024² | Source |
 |---|---|---|---|---|---|---|
-| M1 Pro | 8 | 14 | 16 Go | ~82 s | ~134 s | machine de référence |
+| M1 Pro | 8 | 14 | 16 Go | ~82 s | ~120 s | machine de référence |
 | *votre ligne ici* | | | | | | [rapport](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
 
 ## Pour les agents IA et les scripts : silicontrol

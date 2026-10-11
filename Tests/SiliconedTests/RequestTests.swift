@@ -48,12 +48,12 @@ final class RequestTests: XCTestCase {
         XCTAssertEqual(plan.sketched(99).evaluations, 7)
     }
 
-    /// **Qwen-Image-2.1 does not sketch** (its x̂₀ at 4 and 5 of 6 is blurred and grainy): its
+    /// **Qwen-Image-2.1 does not sketch** (its noise leaves in the last evaluations: an early x̂₀ is blurred and grainy): its
     /// « automatic » stop is the plan's end, a finished image; Z-Image still stops at 3.
     func testQwenSketchesAreFinishedImages() {
         let qwen = Model(card: .qwenImage21, chain: try! Chain(
             text: QwenImage21TextModule(map: "", tokenizer: ""),
-            denoising: QwenImage21DenoisingModule(map: "", turbo: "", scheduler: .init()),
+            denoising: QwenImage21DenoisingModule(map: "", scheduler: .init()),
             decoding: QwenImage21DecodingModule(path: ""), encoding: QwenImage21EncodingModule(path: "")))
         let d = qwen.chain.denoising
         XCTAssertFalse(d.sketches)

@@ -127,6 +127,33 @@ final class PureFunctionsTests: XCTestCase {
         XCTAssertEqual(Spectral.steps(height: 132, width: 132, schedule: s), 2)
     }
 
+    /// **Qwen-Image-2.1's cell is 16 px**: its 1024² latent is 64², whose half (32² = 512²) is at the
+    /// floor — read in 8-px cells it would never go down. 832×1216 (52 × 76) cannot halve.
+    func testQwenSpectralCountsSixteenPixelCells() {
+        XCTAssertEqual(Spectral.floor(factor: 8), Spectral.minimumSide)
+        XCTAssertEqual(Spectral.floor(factor: 16), 32)
+        XCTAssertTrue(Spectral.divisible(height: 64, width: 64, by: 2, floor: 32))
+        XCTAssertFalse(Spectral.divisible(height: 64, width: 64, by: 2))
+        XCTAssertFalse(Spectral.divisible(height: 76, width: 52, by: 2, floor: 32))
+        XCTAssertFalse(Spectral.divisible(height: 32, width: 32, by: 2, floor: 32))
+    }
+
+    /// **Qwen-Image-2.1's plan**: two half-size steps for a generation whose half grid stays at
+    /// 512 px, none under a LoRA or Detail (`withLoRA`), from a start past 0, or at 512².
+    func testQwenSpectralPlan() throws {
+        try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
+        let module = QwenImage21DenoisingModule(map: "", scheduler: .init())
+        let full = module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false)
+        XCTAssertEqual(full.reduced, 2)
+        XCTAssertEqual([full.reducedHeight, full.reducedWidth], [32, 32])
+        XCTAssertEqual(full.unreduced.reduced, 0)
+        XCTAssertEqual(module.plan(height: 96, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 2)
+        XCTAssertEqual(module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: true).reduced, 0)
+        XCTAssertEqual(module.plan(height: 64, width: 64, steps: 8, start: 1, withLoRA: false).reduced, 0)
+        XCTAssertEqual(module.plan(height: 32, width: 32, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        XCTAssertEqual(module.plan(height: 76, width: 52, steps: 8, start: 0, withLoRA: false).reduced, 0)
+    }
+
     // ── the formats ───────────────────────────────────────────────────────────────────────
 
     func testFormatFloorPerSide() {

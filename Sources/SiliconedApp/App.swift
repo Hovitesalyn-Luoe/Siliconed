@@ -55,10 +55,14 @@ private struct AppCommands: Commands {
                     .disabled(true)
             }
         }
-        // The app's one setting, in its menu rather than a Settings window (whose frame SwiftUI would
+        // The app's settings, in its menu rather than a Settings window (whose frame SwiftUI would
         // remember: incognito).
         CommandGroup(replacing: .appSettings) {
             Toggle("Developer Mode", isOn: Binding(get: { app.developerMode }, set: { app.developerMode = $0 }))
+            // What is not finished, off by default (`Subjects.swift`).
+            Menu("Experimental") {
+                Toggle("Named Subjects", isOn: Binding(get: { app.subjects.enabled }, set: { app.subjects.enabled = $0 }))
+            }
         }
         CommandGroup(replacing: .help) {
             Button("Report My Configuration…") { app.openDiagnostic() }
@@ -233,12 +237,20 @@ final class MainWindow: NSObject, NSWindowDelegate {
         // (`Welcome`, MainView.swift) — no sheet thrown at the user before they have seen the window.
     }
 
-    /// "About": what the app is, and the library it reads.
+    /// The project's page: each new version and its notes (there is no updater in the app).
+    static let website = URL(string: "https://gwenn-ha-dev.github.io/Siliconed/")!
+
+    /// "About": what the app is, the library it reads, and where a new version is found.
     func about() {
-        let credits = NSAttributedString(
-            string: String(localized: "An image engine for Apple silicon, in Swift and Metal — fp32 end to end, verified stage by stage against the reference.\n\nLibrary: \(app.library.displayPath)"),
-            attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                         .foregroundColor: NSColor.secondaryLabelColor])
+        let style: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                                                    .foregroundColor: NSColor.secondaryLabelColor]
+        let credits = NSMutableAttributedString(
+            string: String(localized: "An image engine for Apple silicon, in Swift and Metal — fp32 end to end, verified stage by stage against the reference.\n\nLibrary: \(app.library.displayPath)")
+                + "\n\n" + String(localized: "New versions:") + " ",
+            attributes: style)
+        var link = style
+        link[.link] = Self.website
+        credits.append(NSAttributedString(string: "gwenn-ha-dev.github.io/Siliconed", attributes: link))
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: String(localized: "Siliconed"),
             .credits: credits,
@@ -293,7 +305,8 @@ final class MainWindow: NSObject, NSWindowDelegate {
             guard let self, let w = window, event.window === w, w.attachedSheet == nil, !app.fullScreen else { return event }
             // Esc leaves the field being typed in: the keys go back to the strip.
             if w.firstResponder is NSText {
-                guard event.keyCode == 53, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else { return event }
+                // The subjects' completion list, open under the caret, takes Esc itself (`PromptField`).
+                guard event.keyCode == 53, !SubjectCompletion.isOpen, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else { return event }
                 w.makeFirstResponder(nil)
                 return nil
             }

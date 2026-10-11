@@ -1,8 +1,9 @@
 import Accelerate
 import Foundation
 
-/// **The forge's conversions** — everything goes through fp32, where every published format fits
-/// exactly.
+/// **The forge's conversions** — everything that computes goes through fp32, where every published
+/// format fits exactly; a 16-bit or 8-bit weight that is only moved (transposed, rows permuted) is
+/// moved as its published bits, which the fp32 round trip would give back unchanged.
 ///
 /// bf16, fp16 and fp8 E4M3 are all subsets of fp32: widening them is exact, and a
 /// transformation (transpose, permute, fold `1 +`, multiply by an fp8's scale) is done on values
@@ -105,10 +106,40 @@ package enum Numerics {
         return low == 0
     }
 
-    /// `[rows, columns]` → `[columns, rows]`, in fp32.
+    /// `[rows, columns]` → `[columns, rows]`, in fp32 (`vDSP_mtrans`).
     package static func transpose(_ source: UnsafePointer<Float>, rows: Int, columns: Int,
                                    to destination: UnsafeMutablePointer<Float>) {
         vDSP_mtrans(source, 1, destination, 1, vDSP_Length(columns), vDSP_Length(rows))
+    }
+
+    /// `[rows, columns]` → `[columns, rows]` for any element — the 8- and 16-bit bytes the forge
+    /// moves without converting them. By 32 × 32 tiles, over the cores: a job writes whole rows of
+    /// the result, so no two jobs share an output line but at their two ends.
+    package static func transpose<T: BitwiseCopyable>(_ source: UnsafePointer<T>, rows: Int, columns: Int,
+                                                       to destination: UnsafeMutablePointer<T>) {
+        let tile = 32
+        nonisolated(unsafe) let (s, d) = (source, destination)
+        let bands = (columns + tile - 1) / tile
+        let band: @Sendable (Int) -> Void = { b in
+            let c0 = b * tile, c1 = min(c0 + tile, columns)
+            for r0 in stride(from: 0, to: rows, by: tile) {
+                let r1 = min(r0 + tile, rows)
+                for c in c0..<c1 {
+                    let out = d + c * rows
+                    for r in r0..<r1 { out[r] = s[r * columns + c] }
+                }
+            }
+        }
+        if bands * rows < 1 << 16 { for b in 0..<bands { band(b) } } else { DispatchQueue.concurrentPerform(iterations: bands, execute: band) }
+    }
+
+    /// The largest |x| of bf16 (`half` false) or fp16 bits, read on the bits: magnitude orders as
+    /// `bits & 0x7FFF` does, so it is `absMax` of the widened values exactly. `nil`: a NaN.
+    package static func absMax16(_ bits: UnsafePointer<UInt16>, count: Int, half: Bool) -> Float? {
+        var m: UInt16 = 0
+        for i in 0..<count { m = max(m, bits[i] & 0x7FFF) }
+        if m > (half ? 0x7C00 : 0x7F80) { return nil }
+        return half ? Float(Float16(bitPattern: m)) : Float(bitPattern: UInt32(m) << 16)
     }
 
     /// The largest |x| — `float(t.abs().max())`.

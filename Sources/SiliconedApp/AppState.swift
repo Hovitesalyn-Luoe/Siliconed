@@ -3,10 +3,12 @@
 // **Incognito by default**: the history lives in memory and dies with the
 // process. Nothing is written to disk without an explicit gesture — "Save", "Copy" —,
 // no temporary file, no preference, no log: nothing that Spotlight or recent items
-// could find. **Three exceptions, and only three**, each a gesture of the user: two preferences —
-// the « Developer Mode » switch and the comparison's curtain or side by side (`Curtain.preferred`),
-// like the system language the app follows — and the licenses accepted, which the library keeps
-// itself (`<root>/accepted-licenses.json`) because its engine refuses a render without them.
+// could find. **The exceptions**, each a gesture of the user: three preferences — the « Developer
+// Mode » switch, the comparison's curtain or side by side (`Curtain.preferred`) and the experimental
+// « Named Subjects » switch (`SubjectLibrary.enabledKey`), like the system language the app follows —,
+// the licenses accepted, which the library keeps itself (`<root>/accepted-licenses.json`) because its
+// engine refuses a render without them, and the named subjects the user creates (`<root>/subjects/`,
+// `Subjects.swift`), each written by its sheet's « Create » and deleted with its picture.
 //
 // **Two models in front**: Z-Image Turbo and Qwen-Image-2.1 Turbo. The four
 // other families (Anima, Krea 2, FLUX.2 [klein] 4B, ERNIE-Image) exist and render, but the list, the
@@ -46,7 +48,8 @@ struct LoRASlot: Identifiable, Equatable {
 ///
 /// `@unchecked Sendable`: immutable; the thumbnail (`NSImage`) is read only by the view.
 struct ReferenceImage: Identifiable, @unchecked Sendable {
-    enum Source { case file(URL), image(CGImage) }
+    /// `framed`: a named subject's picture, cropped to its frame at render time (`Subjects.swift`).
+    enum Source { case file(URL), image(CGImage), framed(URL, NamedSubjects.Frame) }
     let id = UUID()
     let source: Source
     let vignette: NSImage
@@ -58,6 +61,7 @@ struct ReferenceImage: Identifiable, @unchecked Sendable {
         let image: CGImage?
         switch source {
         case .image(let cg): image = cg
+        case .framed(let url, let frame): image = SubjectPictures.upright(url).flatMap { SubjectPictures.crop($0, frame) }
         case .file(let url):
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                             kCGImageSourceThumbnailMaxPixelSize: max(self.width, self.height),
@@ -77,6 +81,11 @@ struct ReferenceImage: Identifiable, @unchecked Sendable {
         switch source {
         case .file(let url): return try ImageRGB(contentsOf: url)
         case .image(let cg): return try ImageRGB(cgImage: cg)
+        case .framed(let url, let frame):
+            guard let cg = SubjectPictures.upright(url).flatMap({ SubjectPictures.crop($0, frame) }) else {
+                throw EngineError.imageUnreadable(file: url.path)
+            }
+            return try ImageRGB(cgImage: cg)
         }
     }
 
@@ -121,12 +130,18 @@ struct RenderSettings {
     var format: RecommendedFormat
     var steps: Int
     var loras: [LoRASlot]
-    /// How many references the edit read (0: no edit).
+    /// How many references the render read — the edit's and the named subjects' (0: none).
     var references = 0
+    /// **The prompt the model read**, when it is not `prompt`: the named subjects' rewrite
+    /// (`NamedSubjects.rewrite`). `prompt` stays the one typed — what « Reuse These Settings » gives back.
+    var modelPrompt: String? = nil
+    /// Of `references`, those that are named subjects' pictures, after the edit's own.
+    var subjectImages = 0
     /// **The variations its noise was turned by** (`Request.variations`), in order: empty for an
     /// ordinary image. The seed stays the origin's.
     var variations: [Variation] = []
-    var editing: Bool { references > 0 }
+    /// An edit: images of its own, not only subjects (a subject's picture is no original to compare with).
+    var editing: Bool { references - subjectImages > 0 }
     /// **More detail** (`Request.detail`): the rack's Normal · More · Most.
     var detail: Detail = .normal
     var isVariation: Bool { !variations.isEmpty }
@@ -214,8 +229,9 @@ struct FinishedImage: @unchecked Sendable {
     let image: CGImage
     let vignette: CGImage
 
-    init(_ renderResult: Engine.Render) throws {
-        png = try renderResult.png()
+    /// `metadata`: the render's own unless named subjects rewrote its prompt (`NamedSubjects.metadata`).
+    init(_ renderResult: Engine.Render, metadata: [String: String]? = nil) throws {
+        png = try metadata.map { try renderResult.image.png(metadata: $0) } ?? renderResult.png()
         image = renderResult.image.cgImage()
         vignette = Self.reduce(image, side: 240) ?? image
     }
@@ -459,6 +475,10 @@ final class AppState {
     var variations: [Variation] = []
     var batch = 1
     var previews = true
+    /// **The named subjects** (`Subjects.swift`, experimental): the library, its switch — and the sheet
+    /// that names or edits one, while it is open.
+    let subjects: SubjectLibrary
+    var subjectDraft: SubjectDraft?
     /// **The exploration's form** (`Exploration.swift`): its own prompt, a small format, the two axes.
     var explorePrompt = ""
     var exploreShape = ExploreShape.square
@@ -650,6 +670,7 @@ final class AppState {
 
     init(library: Library) {
         self.library = library
+        subjects = SubjectLibrary(library: library)
         // The machine profile, read in THIS library, once per process and before
         // any render: the app builds only one `AppState` (see `App.swift`).
         do {
@@ -745,6 +766,7 @@ final class AppState {
         case .failure(let e): return Problem(e).text
         case .success(let a): n = a.count
         }
+        if let refusal = subjectsBlocker { return refusal }
         if file.count >= Self.maxQueueLength { return String(localized: "The queue is full.") }
         if file.count + n > Self.maxQueueLength {
             let room = Self.maxQueueLength - file.count
@@ -803,8 +825,8 @@ final class AppState {
     }
 
     /// **The step counts the chosen model has a schedule for**, asked of its denoiser
-    /// (`DenoisingModule.check`) rather than known here: all of them for most, Viggle's 5, 6, 7 and 9
-    /// for Qwen-Image-2.1. Read when "Generate" is greyed out for that reason, never at each drawing.
+    /// (`DenoisingModule.check`) rather than known here: all of them for most, 8 alone for
+    /// Qwen-Image-2.1-Turbo. Read when "Generate" is greyed out for that reason, never at each drawing.
     var acceptedSteps: [Int] {
         guard let denoising = chain?.denoising else { return [] }
         return (1...50).filter { (try? denoising.check(steps: $0, startImage: false)) != nil }
@@ -880,8 +902,10 @@ final class AppState {
     var plannedCost: Double? {
         let withLoRA = loras.contains { !$0.path.isEmpty }
         let format = outputFormat
-        guard let v = speeds[Speed.key(identifier, format, references: references.count, lora: withLoRA)] else { return nil }
-        guard let plan = expectedPlan(steps: steps, format: format, withLoRA: withLoRA || detail != .normal) else { return nil }
+        let images = references.count + subjectImageCount
+        guard let v = speeds[Speed.key(identifier, format, references: images, lora: withLoRA)] else { return nil }
+        guard let plan = expectedPlan(steps: steps, format: format, withLoRA: withLoRA || detail != .normal,
+                                      references: images) else { return nil }
         // One render per alternative, each the cost of one: same model, format, plan and batch.
         return Double(variantCount) * v.duration(plan, images: max(1, batch))
     }
@@ -891,13 +915,15 @@ final class AppState {
     func stageEstimate(_ stage: Engine.Stage) -> Double? {
         let withLoRA = loras.contains { !$0.path.isEmpty }
         let format = outputFormat
-        guard let v = speeds[Speed.key(identifier, format, references: references.count, lora: withLoRA)] else { return nil }
+        let images = references.count + subjectImageCount
+        guard let v = speeds[Speed.key(identifier, format, references: images, lora: withLoRA)] else { return nil }
         switch stage {
         case .text: return v.text
         case .image: return v.image
         case .decoding: return v.decoding
         case .denoising:
-            guard let plan = expectedPlan(steps: steps, format: format, withLoRA: withLoRA || detail != .normal) else { return nil }
+            guard let plan = expectedPlan(steps: steps, format: format, withLoRA: withLoRA || detail != .normal,
+                                      references: images) else { return nil }
             let reduced = min(plan.reduced, plan.evaluations)
             return Double(plan.evaluations - reduced) * v.full + Double(reduced) * (v.reducedAverage ?? v.full)
         }
@@ -1073,16 +1099,19 @@ final class AppState {
         let firstNumber = imposedSeed ?? (fixedSeed ? seed : UInt64.random(in: 0...UInt64(UInt32.max)))
         let format = imposedFormat ?? outputFormat
         guard let prompts = try? alternatives.get().prompts else { return }
-        let plan = expectedPlan(steps: steps, format: format, withLoRA: loras.contains { !$0.path.isEmpty } || detail != .normal)
         // **One job per alternative, all at the same seeds**: a series compares the prompts, so
-        // nothing else may differ. Each keeps the batch. Its history images carry the expanded prompt.
+        // nothing else may differ. Each keeps the batch. Its history images carry the expanded prompt
+        // — and, citing named subjects, the model's prompt and their pictures after the edit's.
         enqueue(prompts.map { expanded in
-            let settings = RenderSettings(identifier: identifier, modelName: card?.name ?? identifier, prompt: expanded,
+            var settings = RenderSettings(identifier: identifier, modelName: card?.name ?? identifier, prompt: expanded,
                                           format: format, steps: steps, loras: loras.filter { !$0.path.isEmpty },
                                           references: references.count, variations: variations, detail: detail)
+            let used = namedJob(expanded, settings: &settings, references: references)
+            let plan = expectedPlan(steps: steps, format: format, withLoRA: loras.contains { !$0.path.isEmpty } || detail != .normal,
+                                    references: used.count)
             return Job(ordinal: nextJobNumber(), settings: settings,
                        seeds: (0..<max(1, batch)).map { firstNumber &+ UInt64($0) },
-                       references: references, previews: previews,
+                       references: used, previews: previews,
                        defaultSteps: card?.defaultSteps, plan: plan)
         })
     }
@@ -1108,8 +1137,9 @@ final class AppState {
             let model = try? Model.named(s.identifier, in: library)
             var plan = model.map { m in
                 let f = m.chain.denoising.space.factor
-                return m.chain.denoising.plan(height: s.format.height / f, width: s.format.width / f, steps: s.steps,
-                                              start: 0, withLoRA: !s.loras.isEmpty || s.detail != .normal)
+                let plan = m.chain.denoising.plan(height: s.format.height / f, width: s.format.width / f, steps: s.steps,
+                                                  start: 0, withLoRA: !s.loras.isEmpty || s.detail != .normal)
+                return s.references > 0 ? plan.unreduced : plan
             }
             // A stop at or past the plan's count is a finished image — kept by the exploration all the same.
             let stop = !sketch ? nil : stopAfter > 0 ? min(stopAfter, plan?.evaluations ?? stopAfter)
@@ -1331,7 +1361,7 @@ final class AppState {
             let references = try await Task.detached(priority: .userInitiated) {
                 try sources.map { try $0.imageRGB() }
             }.value
-            var request = Request(settings.prompt, width: settings.format.width,
+            var request = Request(settings.modelPrompt ?? settings.prompt, width: settings.format.width,
                                   height: settings.format.height, seed: job.seeds[0],
                                   steps: settings.steps == job.defaultSteps ? nil : settings.steps,
                                   loras: loraEntries, previews: job.previews)
@@ -1367,13 +1397,20 @@ final class AppState {
                     stageStates[.decoding] = .done
                     // The PNG and the thumbnail are made off the main thread; the engine has already
                     // moved on to the next image of the batch.
-                    let finished = try await Task.detached(priority: .userInitiated) { try FinishedImage(renderResult) }.value
+                    // Named subjects: the PNG keeps the prompt typed, the model's beside it. Nobody
+                    // cited (the switch off among others): the engine's metadata, untouched.
+                    let named = settings.modelPrompt.map {
+                        NamedSubjects.metadata(renderResult.metadata, typed: settings.prompt, modelPrompt: $0)
+                    }
+                    let finished = try await Task.detached(priority: .userInitiated) {
+                        try FinishedImage(renderResult, metadata: named)
+                    }.value
                     lastImage += 1
                     let entry = Entry(ordinal: lastImage, job: job.ordinal, png: finished.png, vignette: finished.vignette,
                                         width: renderResult.image.width, height: renderResult.image.height,
                                         seed: renderResult.seed, timings: renderResult.timings, footprints: renderResult.footprints,
                                         evaluations: renderResult.evaluations, settings: settings,
-                                        metadata: renderResult.metadata, references: job.references,
+                                        metadata: named ?? renderResult.metadata, references: job.references,
                                         sketch: renderResult.sketch)
                     // A sketch belongs to its exploration, not to the history.
                     if job.sketch != nil, let at = gridCells[job.ordinal] {
@@ -1426,12 +1463,13 @@ final class AppState {
     }
 
     /// The per-image plan that the chosen model's denoiser foresees for these settings.
-    /// `withLoRA`: a LoRA or a Detail — either turns Z-Image's spectral schedule off.
-    private func expectedPlan(steps: Int, format: RecommendedFormat, withLoRA: Bool) -> DenoisingPlan? {
+    /// `withLoRA`: a LoRA or a Detail — either turns the spectral schedule off; so do references (an edit).
+    private func expectedPlan(steps: Int, format: RecommendedFormat, withLoRA: Bool, references: Int) -> DenoisingPlan? {
         guard let chain else { return nil }
         let f = chain.denoising.space.factor
-        return chain.denoising.plan(height: format.height / f, width: format.width / f,
-                                      steps: steps, start: 0, withLoRA: withLoRA)
+        let plan = chain.denoising.plan(height: format.height / f, width: format.width / f,
+                                        steps: steps, start: 0, withLoRA: withLoRA)
+        return references > 0 ? plan.unreduced : plan
     }
 
     /// The remaining time of the running render at instant `date`, counted down from the last event.
@@ -1516,8 +1554,10 @@ final class AppState {
         let card = cards.first { $0.id == entry.settings.identifier }
         let plan = (try? Model.named(entry.settings.identifier, in: library)).map { m in
             let f = m.chain.denoising.space.factor
-            return m.chain.denoising.plan(height: entry.settings.format.height / f, width: entry.settings.format.width / f,
-                                          steps: entry.settings.steps, start: 0, withLoRA: !entry.settings.loras.isEmpty || entry.settings.detail != .normal)
+            let plan = m.chain.denoising.plan(height: entry.settings.format.height / f, width: entry.settings.format.width / f,
+                                              steps: entry.settings.steps, start: 0,
+                                              withLoRA: !entry.settings.loras.isEmpty || entry.settings.detail != .normal)
+            return entry.settings.references > 0 ? plan.unreduced : plan
         }
         let jobs = (0..<(count ?? batch)).map { _ in
             var settings = entry.settings

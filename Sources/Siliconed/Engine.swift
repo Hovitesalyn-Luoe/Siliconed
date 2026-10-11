@@ -387,6 +387,17 @@ package enum Spectral {
     /// steps, or changing the `shift`, moves the σs — and so `k` — without redoing the campaign.
     package static let threshold: Float = 0.10
 
+    /// `SILICONED_SPECTRAL`, via `EngineSettings` — read at render time, never at construction; `nil`
+    /// when nothing forces it. A forced `k` keeps the last word over the rule (a measurement forces it).
+    package static var forced: Int? {
+        EngineSettings.effective.provenance["spectral"] != nil ? EngineSettings.effective.spectral : nil
+    }
+
+    /// **The 512-px floor in the cells of a latent of `factor` px per cell**: 64 for the 8-px VAEs,
+    /// 32 for Qwen-Image-2.1's 16-px one. The floor is a pixel rule (the model's domain), not a
+    /// cell count: read in 8-px cells, a 1024² Qwen latent (64²) would never go down.
+    package static func floor(factor: Int) -> Int { minimumSide * 8 / factor }
+
     /// **The smallest latent side an evaluation is allowed to reach: 64, i.e. 512 px.**
     /// Project owner's decision, 2026-09-22: below 512² the model is out of its domain, so nothing
     /// evaluated there — neither image nor timing — means anything. **Per side**, since
@@ -406,8 +417,10 @@ package enum Spectral {
     /// (`Format.maxSurface`, 1024×1536), that leaves only 1024², 1024×1536 and its
     /// transpose — the latter through the rectangular path (half-grid `h ≠ w`), `k = 2`, rendered
     /// clean by Z-Image.
-    static func divisible(height: Int, width: Int, by d: Int) -> Bool {
-        height / d >= minimumSide && width / d >= minimumSide
+    ///
+    /// `floor`: the per-side floor **in this latent's cells** (`floor(factor:)`).
+    static func divisible(height: Int, width: Int, by d: Int, floor: Int = minimumSide) -> Bool {
+        height / d >= floor && width / d >= floor
             && height % (2 * d) == 0 && width % (2 * d) == 0
     }
 

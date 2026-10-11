@@ -191,20 +191,79 @@ package struct QuantizedTensor {
         let (n, k) = (rows, columns)
         return [UInt8](unsafeUninitializedCapacity: n * k) { b, c in
             c = n * k
-            let d = b.baseAddress!
-            values.withUnsafeBufferPointer { v in
-                let s = v.baseAddress!
-                // By tiles, so that both sides stay in cache.
-                let tile = 64
-                for r0 in stride(from: 0, to: n, by: tile) {
-                    for c0 in stride(from: 0, to: k, by: tile) {
-                        for r in r0..<min(r0 + tile, n) {
-                            for col in c0..<min(c0 + tile, k) { d[col * n + r] = s[r * k + col] }
-                        }
+            values.withUnsafeBufferPointer { Numerics.transpose($0.baseAddress!, rows: n, columns: k, to: b.baseAddress!) }
+        }
+    }
+
+    /// **The largest |w| once dequantized** (`weight_absmax`), exactly `absMax(dequantized())`
+    /// without the fp32 tensor wherever the arithmetic allows it: `w = Float(q) · s` is one IEEE
+    /// multiplication, whose rounding is symmetric in sign and monotonic in |q|, so the largest |w|
+    /// of a row (a block, the tensor) sharing one scale is `Float(max |q|) · |s|`, rounded the same
+    /// way. A packed GGUF type (`d·sc·q − m`), a convrot (inputs mixed), a NaN or an infinite scale:
+    /// dequantized whole, as before.
+    package func absMax() -> Float {
+        func whole() -> Float { dequantized().withUnsafeBufferPointer { Numerics.absMax($0.baseAddress!, count: $0.count) } }
+        guard !kind.isPacked, rotation == nil, kind == .int8 || kind == .float8_e4m3 else { return whole() }
+        let n = rows * columns
+        guard n > 0 else { return 0 }
+        // |Float(q)| for each byte: int8 −128…127, fp8 E4M3 (`0x7F`, `0xFF`: NaN).
+        let magnitude: [Float] = (0..<256).map { b in
+            kind == .int8 ? Float(abs(Int(Int8(truncatingIfNeeded: b)))) : abs(Numerics.e4m3[b])
+        }
+        if kind == .float8_e4m3, values.contains(where: { $0 & 0x7F == 0x7F }) { return whole() }
+        // The scales widened exactly, as `Widen.dequantize` does; one per group of `width` values.
+        let groups: Int, width: Int
+        if let block { (groups, width) = (n / block, block) }
+        else if perRow { (groups, width) = (rows, columns) }
+        else { (groups, width) = (1, n) }
+        let scales: [Float]
+        if scale.isEmpty { scales = [Float](repeating: 1, count: groups) }   // an fp8 cast: w = Float(q)
+        else {
+            let type = block != nil ? Artifact.DType.float16 : scaleType
+            let available = scale.count / type.size
+            scales = scale.withUnsafeBytes { s in
+                (0..<groups).map { g in
+                    let i = perRow || block != nil ? g : 0
+                    precondition(i < available)
+                    switch type {
+                    case .bfloat16: return Float(bitPattern: UInt32(s.loadUnaligned(fromByteOffset: 2 * i, as: UInt16.self)) << 16)
+                    case .float16: return Float(Float16(bitPattern: s.loadUnaligned(fromByteOffset: 2 * i, as: UInt16.self)))
+                    default: return s.loadUnaligned(fromByteOffset: 4 * i, as: Float.self)
                     }
                 }
             }
         }
+        if scales.contains(where: { !$0.isFinite }) { return whole() }
+        var m: Float = 0
+        values.withUnsafeBufferPointer { v in
+            magnitude.withUnsafeBufferPointer { table in
+                for g in 0..<groups {
+                    var top: Float = 0
+                    for i in (g * width)..<((g + 1) * width) { top = max(top, table[Int(v[i])]) }
+                    m = max(m, top * abs(scales[g]))
+                }
+            }
+        }
+        return m
+    }
+
+    /// A convrot weight's largest |w|, from its values already in the map's `[K, N]` layout
+    /// (`transposedValues`): `Widen.dequantizeRotated`, the engine's routine, then `absMax` — the
+    /// values `dequantized()` gives, in another order, so the same maximum.
+    package func absMaxRotated(mapLayout: [UInt8]) -> Float {
+        guard let rotation, kind == .int8, block == nil, mapLayout.count == rows * columns else { return absMax() }
+        let n = rows * columns
+        let w = [Float](unsafeUninitializedCapacity: n) { b, c in
+            c = n
+            mapLayout.withUnsafeBytes { v in
+                scale.withUnsafeBytes { s in
+                    Widen.dequantizeRotated(v.baseAddress!, rows: columns, columns: rows, group: rotation,
+                                            scale: s.baseAddress!, scaleType: scaleType,
+                                            layout: perRow ? .columns(rows) : .tensor, into: b.baseAddress!)
+                }
+            }
+        }
+        return w.withUnsafeBufferPointer { Numerics.absMax($0.baseAddress!, count: $0.count) }
     }
 }
 
@@ -231,31 +290,29 @@ struct QuantizedGroup {
         block != nil ? .float16 : scale.flatMap { QuantizedGroup.scaleType($0.entry.dtype) }
     }
 
+    /// Read by `pread` (`Safetensors.copy`), never by page faults on the mapping.
     func read() throws -> QuantizedTensor {
-        guard let p = values.file.pointer(values.entry.name) else {
-            throw Numerics.Failure(description: "\(values.entry.name) unreadable")
-        }
+        let (file, entry) = values
+        let raw = try file.bytes(entry)
         if kind.isPacked {
             // A packed type: the blocks as published, nothing taken apart. Their scales are checked
             // here, where the bytes are read anyway, not at recognition: blocks of 18–210 bytes put a
             // scale on every page, and a scan there faulted in the whole 4–6 GB file at each open.
-            try QuantizedLayouts.checkPacked(values, kind: kind)
-            return QuantizedTensor(kind: kind, rows: rows, columns: columns,
-                                   values: [UInt8](UnsafeRawBufferPointer(start: p, count: values.entry.bytes)),
+            try raw.withUnsafeBytes { try QuantizedLayouts.checkPacked($0.baseAddress!, entry, kind: kind) }
+            return QuantizedTensor(kind: kind, rows: rows, columns: columns, values: raw,
                                    scale: [], scaleType: .float32, perRow: false)
         }
         if let block {
-            let (v, s) = GGUF.deinterleaveQ8_0(p, rows: rows, columns: columns)
+            let (v, s) = raw.withUnsafeBytes { GGUF.deinterleaveQ8_0($0.baseAddress!, rows: rows, columns: columns) }
             return QuantizedTensor(kind: kind, rows: rows, columns: columns, values: v, scale: s,
                                    scaleType: .float16, perRow: false, block: block)
         }
-        let v = [UInt8](UnsafeRawBufferPointer(start: p, count: values.entry.bytes))
         var s: [UInt8] = [], type: Artifact.DType = .float32
         if let scale {
-            s = [UInt8](UnsafeRawBufferPointer(start: scale.file.pointer(scale.entry.name)!, count: scale.entry.bytes))
+            s = try scale.file.bytes(scale.entry)
             type = QuantizedGroup.scaleType(scale.entry.dtype)!
         }
-        return QuantizedTensor(kind: kind, rows: rows, columns: columns, values: v, scale: s, scaleType: type, perRow: perRow,
+        return QuantizedTensor(kind: kind, rows: rows, columns: columns, values: raw, scale: s, scaleType: type, perRow: perRow,
                                rotation: rotation)
     }
 
@@ -341,9 +398,8 @@ enum QuantizedLayouts {
     /// **A packed block's fp16 scales must be finite** (`d`, and `dmin` or `m`). No published file
     /// has another; a forged one would give NaN weights whose payload the CPU and the GPU need not
     /// agree on. (Subnormals cannot arise: every nonzero term is a multiple of 2⁻²⁴ — `Widen.dequantizePacked`.)
-    static func checkPacked(_ tensor: (Safetensors, Safetensors.Entry), kind: Artifact.DType) throws {
-        let (f, e) = tensor
-        guard let bytes = kind.packedBlock?.bytes, let p = f.pointer(e.name) else { return }
+    static func checkPacked(_ p: UnsafeRawPointer, _ e: Safetensors.Entry, kind: Artifact.DType) throws {
+        guard let bytes = kind.packedBlock?.bytes else { return }
         // Q6_K: `d` at the end; Q4_K, Q5_K, Q4_1, Q5_1: `d` then `dmin`/`m`; Q4_0, Q5_0: `d` alone.
         let offsets = kind == .q6_k ? [208] : [.q4_0, .q5_0].contains(kind) ? [0] : [0, 2]
         for b in 0..<(e.bytes / bytes) {
@@ -389,6 +445,23 @@ enum QuantizedLayouts {
             comfy[String(name.dropLast(".comfy_quant".count))] = json
             r.consumed.insert(name)
         }
+        // ComfyUI's attention backend preference (Comfy-Org's Qwen-Image-2.1-Turbo int8 convrot: U8
+        // `<block>.attn.comfy_attention.config` = `{"attention": "comfy_kitchen_int8"}`, an int8 SDPA
+        // kernel of comfy-kitchen on CUDA). Not a weight, nothing the computation reads: recognized by
+        // its exact content and ignored. Any other content stays refused, below, as an unknown U8.
+        var attentionPreferences = 0
+        for name in order where name.hasSuffix(".comfy_attention.config") && raw[name]!.1.dtype == "U8" {
+            let (f, e) = raw[name]!
+            let bytes = Data(bytes: f.pointer(name)!, count: e.bytes)
+            guard let json = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any], json.count == 1,
+                  json["attention"] as? String == "comfy_kitchen_int8" else { continue }
+            r.consumed.insert(name)
+            attentionPreferences += 1
+        }
+        if attentionPreferences > 0 {
+            r.notes.append("\(attentionPreferences) ComfyUI attention preference(s) (`comfy_attention.config`, "
+                           + "comfy_kitchen_int8) ignored: attention stays in fp32")
+        }
 
         // ── What is refused, before anything is accepted: one 4-bit layer refuses the file ──
         func fourBit(_ name: String, _ what: String) -> Numerics.Failure {
@@ -398,7 +471,7 @@ enum QuantizedLayouts {
         for name in order {
             let e = raw[name]!.1
             if name.hasSuffix(".weight_scale_2") { throw fourBit(name, "a second-level scale, nvfp4") }
-            if e.dtype == "U8" && !name.hasSuffix(".comfy_quant") {
+            if e.dtype == "U8" && !name.hasSuffix(".comfy_quant") && !r.consumed.contains(name) {
                 throw refuse("\(name): U8 (4-bit packed, or asymmetric uint8) not supported; a file that holds "
                              + "such a layer is refused in its entirety")
             }

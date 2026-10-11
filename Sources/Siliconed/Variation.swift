@@ -45,7 +45,9 @@ public struct Variation: Sendable, Hashable {
     ///     at 0.2 another outfit, while 0.03 · 0.05 · 0.07 kept the same person on eight seeds out of
     ///     eight (PSNR to the original 23–25 · 21–23.5 · 20–22 dB). Qwen takes 0.05, with that margin
     ///     on both sides; Z-Image keeps 0.1 (at 0.05 it already moves a hand: no strength keeps every
-    ///     detail). The other families, never calibrated, take Z-Image's.
+    ///     detail). The other families, never calibrated, take Z-Image's. ⚠️ Qwen's figures were read
+    ///     on the third-party turbo LoRA the family carried before the official Turbo; the Turbo's fixed
+    ///     schedule lingers near σ = 1 longer still (1 · 0.978 · 0.954 · 0.927): not re-judged.
     ///   - `strong` 0.5: the same idea (a woman in a library, the same kind of shot) with the pose,
     ///     the clothes and the framing that move. Z-Image keeps its framing longer (its seeds vary
     ///     little), at 0.7 it starts to change shot; Qwen at 0.7 is nearly another image.

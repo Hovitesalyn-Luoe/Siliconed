@@ -83,6 +83,10 @@ extension AppState {
         if let reason = installBlocker { return reason }
         if !exploresModels, missing != nil { return String(localized: "This model isn't installed.") }
         if explorePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Write a prompt.") }
+        // Named subjects are rewritten for « Generate » only: a grid would read `@alice` as text.
+        if subjects.enabled, !NamedSubjects.mentions(in: explorePrompt).isEmpty {
+            return String(localized: "The exploration doesn't cite named subjects yet.")
+        }
         let g: RenderGrid
         switch grid {
         case .failure(let e): return Problem(e).text
@@ -113,7 +117,7 @@ extension AppState {
             let withLoRA = stack || cell.addedLoRA != nil
             let refs = cell.image != nil ? 1 : references.count
             guard let plan = c.plan, let v = speeds[Speed.key(c.model, exploreFormat, references: refs, lora: withLoRA)] else { return nil }
-            total += v.duration(plan, images: 1)
+            total += v.duration(refs > 0 ? plan.unreduced : plan, images: 1)   // an edit: no half-size steps
         }
         return total
     }

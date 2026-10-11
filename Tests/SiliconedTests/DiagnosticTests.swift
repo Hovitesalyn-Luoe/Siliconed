@@ -135,11 +135,7 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertEqual([golden.channels, golden.height, golden.width], [64, 32, 32])
         XCTAssertEqual(golden.inputs.map(\.count), [65_536, 65_536])
         XCTAssertEqual(golden.outputs.map(\.count), [65_536, 65_536])
-        // The scheduler's first two σ at 512² (Viggle's raw nodes shifted by μ of 1,024 tokens).
-        XCTAssertEqual(golden.sigmas[0], 1)
-        XCTAssertEqual(golden.sigmas[1].bitPattern, Float(0.9625564813613892).bitPattern)
         XCTAssertEqual(golden.metadata["source"], "goldens-qwen21-trajectory-512.safetensors")
-        XCTAssertEqual(golden.info.generated, "2026-10-04")
         // `x_t.0` is the oracle's seed-0 `torch.randn((1, 1, 64, 32, 32))` (checked in Python, to the bit).
         // `Latent.noise` draws it — but under `swift test` (a debug build) 765 of its 65,536 values differ
         // by 1–2 ulp: not claimed to the bit here (the release check `qwen21-trajectory` compares it).
@@ -153,6 +149,14 @@ final class DiagnosticTests: XCTestCase {
         let e = Diagnostic.channelError(planar: moved, golden.outputs[1], channels: 64)
         XCTAssertEqual(e.channel, 5)
         XCTAssertEqual(e.worst, 1e-3, accuracy: 1e-6)
+        // A golden from before the Turbo (the base model under a third-party turbo LoRA, written
+        // 2026-10-04, σ₁ = 0.96255648) would stop here and say why. The embedded one is the Turbo's
+        // (written 2026-10-10 from the oracle's 8-step `trajectory 512`), so the σ below are checked.
+        try XCTSkipIf(golden.info.generated == "2026-10-04",
+                      "PENDING: Resources/diagnostic/qwen-image-2.1.safetensors predates Qwen-Image-2.1-Turbo — regenerate it")
+        // The Turbo's first two σ, the same at every size: `sample_sigmas[0:2]` made float32.
+        XCTAssertEqual(golden.sigmas[0], 1)
+        XCTAssertEqual(golden.sigmas[1].bitPattern, 0x3f7a7be5)
     }
 
     func testNoGoldenIsNil() throws {

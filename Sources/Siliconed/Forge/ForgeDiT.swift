@@ -173,8 +173,8 @@ package enum ForgeDiT {
 
     /// Row `l` of the result = row `order[l]` of `v` (`columns` values per row) — what
     /// `QuantizedTensor.selectingRows` does to an 8-bit weight, on fp32 values.
-    static func permutingRows(_ v: [Float], _ order: [Int], columns: Int) -> [Float] {
-        var output = [Float](repeating: 0, count: v.count)
+    static func permutingRows<T: BitwiseCopyable>(_ v: [T], _ order: [Int], columns: Int) -> [T] {
+        var output = [T](unsafeUninitializedCapacity: v.count) { _, n in n = v.count }
         v.withUnsafeBufferPointer { s in
             output.withUnsafeMutableBufferPointer { d in
                 for (l, origin) in order.enumerated() {
@@ -338,6 +338,9 @@ package enum ForgeDiT {
         package var rowOrder: [Int]? = nil
         /// A zero-centered norm's `+ 1` folded: arithmetic, so written in fp32, never 8-bit.
         package var foldsOne = false
+        /// Is the largest |w| of an 8-bit weight wanted (`weight_absmax`, a DiT's header)? An
+        /// encoder's header has none: its 8-bit weights are then never dequantized at all.
+        package var measuresAbsMax = true
     }
 
     /// A DiT's rule: its family's transposition, dtypes, folded norms and RoPE permutation.
@@ -354,8 +357,9 @@ package enum ForgeDiT {
     }
 
     /// **One tensor of the map — never wider, never narrower than given.** An 8-bit weight stays
-    /// 8-bit (bytes and scales copied, rows moved, transposed); an fp16 one stays fp16; anything else
-    /// goes through fp32 and is written in the dtype its name gives — unless that would round it.
+    /// 8-bit (bytes and scales copied, rows moved, transposed); a bf16 or fp16 one that is only moved
+    /// keeps its published bits (moved); anything else goes through fp32 and is written in the dtype
+    /// its name gives — unless that would round it.
     /// Shared by the DiT's forge and the text encoder's (`ForgeText`).
     package static func tensor(_ mapName: String, _ p: Provenance, _ rule: Rule) throws -> (MapWriter.Tensor, Outcome) {
         let tr = rule.transposed
@@ -380,6 +384,7 @@ package enum ForgeDiT {
                     ?? MapWriter.Scale(dtype: type, shape: q.perRow ? [p.shape[0]] : [])
             }
             let rows = p.shape[0]
+            let measuring = rule.measuresAbsMax
             var t = MapWriter.Tensor(name: mapName, shape: finalShape, dtype: dtype, scale: scale, transposed: tr) {
                 var t = try readQuantized()
                 guard t.rows * t.columns == count, !tr || (t.rows == p.shape[0] && t.columns == p.shape[1]) else {
@@ -390,16 +395,17 @@ package enum ForgeDiT {
                     if !tr { (t.rows, t.columns) = (rows, count / rows) }
                     t = t.selectingRows(order)
                 }
-                let w = t.dequantized()
-                let absMax = w.withUnsafeBufferPointer { Numerics.absMax($0.baseAddress!, count: $0.count) }
                 guard t.block == q.block, t.rotation == q.rotation, t.kind == q.kind else {
                     throw Numerics.Failure(description: "\(mapName) : scale blocks, rotation or type changed")
                 }
                 // A packed type's blocks keep their published rows: the map says `[K, N]`, the bytes
                 // stay `[N][K/b]` (`Artifact.DType.q4_k`).
-                if packed != nil { return .init(values: t.values, scale: [], absMax: absMax) }
-                return .init(values: tr ? t.transposedValues() : t.values,
-                             scale: t.block != nil ? t.transposedBlockScales() : t.scale, absMax: absMax)
+                if packed != nil { return .init(values: t.values, scale: [], absMax: measuring ? t.absMax() : 0) }
+                let values = tr ? t.transposedValues() : t.values
+                // convrot: the rotation mixes a group's inputs, so its largest |w| is only known
+                // dequantized — done on the map's `[K, N]` bytes just transposed, not on a second copy.
+                let absMax = !measuring ? 0 : tr && t.rotation != nil ? t.absMaxRotated(mapLayout: values) : t.absMax()
+                return .init(values: values, scale: t.block != nil ? t.transposedBlockScales() : t.scale, absMax: absMax)
             }
             // ComfyUI's convrot: `q` and its scale as published, the rotation said in the entry
             // (`Artifact.Rotation`); the engine undoes it when it widens (`Widen.dequantizeRotated`).
@@ -422,6 +428,34 @@ package enum ForgeDiT {
             return t
         }
         let named: MapWriter.DType = norm ? .float32 : rule.named
+        // ── A 16-bit weight that is only moved stays in 16 bits ──
+        // Published bf16 written bf16, published fp16 kept fp16: the fp32 round trip below gives
+        // these very bits (widening is exact, and so is the rounding back), so the forge moves the
+        // published bits instead — transposed, rows permuted — and reads |w| on them. Measured: three
+        // passes over 4-byte values (widen, transpose, round back) were a third of a DiT's forge. A NaN
+        // (whose payload the round trip may change) takes the fp32 path, as before.
+        if let read16 = p.read16, p.quantization == nil, p.dequantizedBecause == nil, !norm, named == .bfloat16,
+           p.dtypeSource == "BF16" || p.dtypeSource == "F16" {
+            let half = p.dtypeSource == "F16"
+            var t = MapWriter.Tensor(name: mapName, shape: finalShape, dtype: half ? .float16 : .bfloat16,
+                                     transposed: tr, produce: produce)
+            t.produceBits = {
+                guard var b = try read16(), b.count == count,
+                      let m = b.withUnsafeBufferPointer({ Numerics.absMax16($0.baseAddress!, count: $0.count, half: half) })
+                else { return nil }
+                if let order = rule.rowOrder { b = permutingRows(b, order, columns: count / p.shape[0]) }
+                if tr {
+                    b = [UInt16](unsafeUninitializedCapacity: count) { d, n in
+                        b.withUnsafeBufferPointer {
+                            Numerics.transpose($0.baseAddress!, rows: p.shape[0], columns: p.shape[1], to: d.baseAddress!)
+                        }
+                        n = count
+                    }
+                }
+                return .init(values: b, absMax: m)
+            }
+            return (t, half ? .kept16bit : .asNamed)
+        }
         if p.quantization != nil || p.dequantizedBecause != nil {
             // An arithmetic transformation (a folded `1 +`), a per-row or per-block scale on a tensor
             // that is not a transposed Linear, a column share that cuts a block: its exact values are

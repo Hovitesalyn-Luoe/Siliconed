@@ -26,14 +26,20 @@ import Synchronization
 /// Swift's `CancellationError` folds into the same case at the door (`EngineError(_:)`).
 public final class Cancellation: Sendable {
     private let flag = Atomic<Bool>(false)
+    /// A token this one also obeys: raised, it raises this one — never the reverse.
+    private let parent: Cancellation?
 
-    public init() {}
+    public init() { parent = nil }
+
+    /// A token raised by its own `cancel()` **or** by `parent`'s: what stops one part of a job
+    /// (an installation's download running beside a forge) without stopping the whole.
+    package init(following parent: Cancellation?) { self.parent = parent }
 
     /// Raises the flag. Idempotent, lock-free, callable from any thread (a signal handler
     /// included: a relaxed atomic store).
     public func cancel() { flag.store(true, ordering: .relaxed) }
 
-    public var isCancelled: Bool { flag.load(ordering: .relaxed) }
+    public var isCancelled: Bool { flag.load(ordering: .relaxed) || parent?.isCancelled == true }
 
     /// Throws `EngineError.cancelled` if the flag is raised.
     public func check() throws(EngineError) {

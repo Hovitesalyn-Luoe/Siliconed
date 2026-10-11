@@ -496,6 +496,35 @@ final class QuantizedMapTests: XCTestCase {
         XCTAssertTrue(subnormal.contains("subnormal"), subnormal)
     }
 
+    /// **ComfyUI's attention preference** (Comfy-Org's Qwen-Image-2.1-Turbo int8 convrot: a U8
+    /// `<block>.attn.comfy_attention.config` per block, `{"attention": "comfy_kitchen_int8"}`) is
+    /// recognized by its content and ignored: no model tensor, no name for the strict recipe, a note.
+    /// Any other content, or a JSON that is not that one, stays refused as an unknown U8.
+    func testComfyAttentionPreferenceIsIgnored() throws {
+        let layer = convrotLayer("transformer_blocks.1.attn.to_q", n: 8, k: 256, group: 256)
+        func config(_ text: String, block: Int = 1) -> Piece {
+            let b = Array(text.utf8)
+            return Piece(name: "transformer_blocks.\(block).attn.comfy_attention.config", dtype: "U8", shape: [b.count], bytes: b)
+        }
+        let published = #"{"attention": "comfy_kitchen_int8"}"#
+        XCTAssertEqual(published.utf8.count, 35, "the published tensor's size")
+        let path = try write(layer.pieces + [config(published), config(published, block: 7)], as: "turbo-convrot.safetensors")
+        let source = try TensorSource(paths: [path])
+        XCTAssertFalse(source.names.contains { $0.contains("comfy_attention") }, "\(source.names)")
+        XCTAssertTrue(source.notes.contains { $0.contains("2 ComfyUI attention preference(s)") }, "\(source.notes)")
+        let (map, outcomes) = try forge(source, family: .qwenImage21)
+        XCTAssertEqual(Set(map.order), ["transformer_blocks.1.attn.to_q.weight"])
+        XCTAssertEqual(outcomes["transformer_blocks.1.attn.to_q.weight"], .kept8bit)
+
+        for other in [#"{"attention": "sage"}"#, #"{"attention": "comfy_kitchen_int8", "x": 1}"#, "not json"] {
+            XCTAssertTrue(try refusal(layer.pieces + [config(other)]).contains("U8"), other)
+        }
+        // The same content under another name is not this marker.
+        let b = Array(published.utf8)
+        XCTAssertTrue(try refusal(layer.pieces + [Piece(name: "transformer_blocks.1.attn.config", dtype: "U8", shape: [b.count], bytes: b)])
+            .contains("U8"))
+    }
+
     /// A map whose rotation is of an unknown kind is refused by the reader.
     func testUnknownRotationRefusesTheMap() throws {
         let layer = convrotLayer("transformer_blocks.0.attn.to_q", n: 8, k: 256, group: 256)

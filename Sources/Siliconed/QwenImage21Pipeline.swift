@@ -1,28 +1,38 @@
 import Accelerate
 import Foundation
 
-/// **Qwen-Image-2.1's pipeline** — `QwenImage21Pipeline.__call__` under Viggle's turbo, in fp32: what
-/// happens between the request and the DiT, and the loop around it.
+/// **Qwen-Image-2.1-Turbo's pipeline** — `QwenImage21Pipeline.__call__` with the Turbo's checkpoint
+/// (`Qwen/Qwen-Image-2.1-Turbo@d65dbc9a`), in fp32: what happens between the request and the DiT, and
+/// the loop around it.
 ///
 ///     references ─ RGB8 ─ Pillow Lanczos to ~R² (sides ×32) ─┬─ Qwen3-VL (with the prompt) ─ hidden [T, 4096] + slots
 ///                  (one copy, `preparedReferences`)          └─ VAE encoder (RGBA) ─ reference latents [64, hᵢ, wᵢ]
 ///     seed ─ torch.randn(1, 1, 64, h, w) (`TorchNoise`) ─ target latent [64, h, w]
-///     μ(h·w) ─ Viggle's raw σ nodes, exponential shift, no terminal stretch ─ σ₀ … σₙ₋₁, 0
+///     model_index.json `sample_sigmas` ─ float32, as is ─ σ₀ … σ₇, then 0
 ///
-///     prefill once (text + references, K/V kept) ─▶ n × { v = DiT(x, σᵢ);  x += (σᵢ₊₁ − σᵢ)·v }   no CFG
-///     9-step mode: 7 steps under the turbo, then the turbo off, a NEW prefill, the last 2 steps
+///     prefill once (text + references, K/V kept) ─▶ 8 × { v = DiT(x, σᵢ);  x += (σᵢ₊₁ − σᵢ)·v }   no CFG
+///     a generation whose half grid stays ≥ 512 px: steps 0 and 1 are  v = 𝓘 DiT½(𝓟 x, σᵢ)  (own DiT, own prefill)
 ///
-/// What the reference does that a port by analogy would miss (read in `pipeline_qwenimage21.py`,
-/// diffusers `80c7ed26`, Viggle's README and scheduler, and the oracle's 19 traps):
+/// What the reference does that a port by analogy would miss (read in `pipeline_qwenimage21.py` of
+/// diffusers 0.41.0 — PR #14950, which differs from `80c7ed26` by `sample_sigmas` alone in the path
+/// rendered —, the Turbo's `model_index.json`, `scheduler_config.json` and card):
 ///
-///   - **the σ nodes are raw**: `[1, 0.9375, 0.875, 0.75, 0.5, 0.25]` are passed as `sigmas=` and the
-///     scheduler SHIFTS them, `e^μ / (e^μ + (1/σ − 1))`, in **float32** (NumPy: `e^μ` rounded to
-///     float32 first). Viggle's scheduler has `shift_terminal: null` — the base one's 0.02 wrecks the
-///     last step — and `max_image_seq_len` 8192, `max_shift` 0.9 (not FLUX's 4096 / 1.15);
-///   - **μ counts the TARGET's tokens only** (`latents.shape[1]`): the references, prepended to the
-///     sequence, do not move the schedule;
-///   - the DiT receives `t = σ·1000` (float32) **divided by 1000** — a round trip that does not give
-///     σ back to the bit (`QwenImage21DiT.timestep`);
+///   - **the schedule lives in `model_index.json`** (`sample_sigmas`, 8 nodes), not in the scheduler's
+///     config: the pipeline passes it as `sigmas=` and `set_timesteps` keeps it **as is** —
+///     `np.array(sigmas).astype(np.float32)` (Python's doubles, then float32: two roundings), then
+///     `shift·s/(1 + (shift − 1)·s)` with `shift = 1`, the identity to the bit, then **a 0 appended**.
+///     The last step jumps from 0.4146 to 0;
+///   - **`use_dynamic_shifting: false`**: the pipeline still computes μ from the target's tokens and
+///     passes it, and the scheduler ignores it. No dependence on the size or on the references — a
+///     generation and an edit at any size get the same eight σ. `max_image_seq_len`/`max_shift` are
+///     still in the config and serve nothing;
+///   - `num_inference_steps` alone does not override the schedule: 8 is the only count published,
+///     any other is refused (`acceptedSteps`);
+///   - the DiT is the turbo — a full distillation from the base (`time_text_embed` moved the most,
+///     2.3·10⁻²), **not the base plus a LoRA**: no LoRA under the user's, the conditions' K/V depend on
+///     the map (and on a user LoRA), one prefill per render;
+///   - the DiT receives `t = σ·1000` (float32) **divided by 1000**: for these eight nodes the round
+///     trip gives σ back to the bit, kept anyway (`QwenImage21DiT.timestep`);
 ///   - **the noise is drawn `(1, 1, 64, h, w)`** — frame axis before channels — and packed raster
 ///     `[h·w, 64]`: planar `[64, h, w]` is exactly its draw order (`TorchNoise`);
 ///   - the scheduler steps in float32, `x + (σ_next − σ)·v`, two roundings (no FMA);
@@ -32,9 +42,20 @@ import Foundation
 ///   - the output follows the **last** reference without `height`/`width`. **The product's rule is
 ///     the first** (`outputSize`: the image one edits), at ~R², each side ≥ 512, under `Format`'s
 ///     ceiling; an explicit size wins. The checks pass the oracle's sizes explicitly;
-///   - the VAE returns RGBA; the product writes the RGB planes, alpha dropped (`QwenImage21DecodingModule`);
-///   - the turbo is a LoRA on the modulation path too: **the cache depends on it**. The 9-step
-///     mode's base tail (`disable_lora()` in Viggle's README) recomputes the prefill.
+///   - the VAE returns RGBA; the product writes the RGB planes, alpha dropped (`QwenImage21DecodingModule`).
+///     The Turbo publishes its VAE in bf16, exactly the base's fp32 rounded to nearest: the product
+///     reads that file as published, widened to fp32 at load (never below the precision published).
+///     Its encoder is the base's to the bit, its `processor/` another set of files with the same tokens.
+///
+/// What is ours, not the reference's — **the spectral schedule** (`QwenImage21DenoisingModule.plan`):
+/// a generation evaluates its first **two** steps on the half grid, as Z-Image does, −18 % at 1024²
+/// (~160 → ~131 s). The rule is a fixed `k = 2`, not Z-Image's threshold: under the former 6-step
+/// turbo LoRA that threshold gave `k = 3` and patchwork faces; on the Turbo's 8 steps `k = 2` was
+/// judged clean on two prompts × three seeds. **Off (`k = 0`) wherever Z-Image turns it off** — a
+/// user LoRA, Detail, a start past 0 — **and in every edit**, and wherever the half grid would fall
+/// under 512 px on a side (`Spectral.floor`, counted in 16-px cells): every check at 512² runs
+/// without it, the engine reproduces the reference there. How the half-size phase is built, and why
+/// it is a phase and not a flag, is `QwenImage21Sampler`'s.
 ///
 /// ## Memory: what the K/V cache costs, and where it lives
 ///
@@ -43,86 +64,76 @@ import Foundation
 package enum QwenImage21Pipeline {
     /// `output_resolution`: the pipeline's default, and the product's — references at ~1 MP.
     package static let outputResolution = 1024
-    /// The turbo's step count (Viggle's card) and the 9-step mode's turbo part.
-    package static let defaultSteps = 6
-    package static let nineStepTurbo = 7
+    /// The Turbo's step count: the length of its published schedule.
+    package static let defaultSteps = 8
 
     // ── the schedule ────────────────────────────────────────────────────────────────────
 
-    /// The parts of `FlowMatchEulerDiscreteScheduler`'s config the turbo reads — Viggle's
-    /// `scheduler/scheduler_config.json` (`scheduler-turbo.json` in the store). Defaults: as published.
+    /// **The Turbo's schedule**: `model_index.json`'s `sample_sigmas`, checked against the parts of
+    /// `FlowMatchEulerDiscreteScheduler`'s config (`scheduler.json` in the store) that would change
+    /// them. Defaults: as published.
     package struct Scheduler: Equatable, Sendable {
-        package var baseSequence = 256, maxSequence = 8192
-        package var baseShift = 0.5, maxShift = 0.9
-        package var terminal: Double? = nil
+        /// `sample_sigmas` as `set_timesteps` keeps them: each a Python double made float32.
+        package var nodes: [Float] = Scheduler.published
+        /// `model_index.json` of `d65dbc9a`, as written there.
+        package static let publishedNodes: [Double] = [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568]
+        package static let published: [Float] = publishedNodes.map { Float($0) }
         package init() {}
 
-        package init(json: Data) throws {
-            guard let c = try JSONSerialization.jsonObject(with: json) as? [String: Any] else {
+        /// - Parameters:
+        ///   - config: `scheduler/scheduler_config.json`. Anything that would move the published σ —
+        ///     a dynamic or non-unit shift, a terminal stretch, inverted or Karras/exponential/beta σ,
+        ///     stochastic steps — is refused: the engine has no such schedule.
+        ///   - modelIndex: `model_index.json`, whose `sample_sigmas` are the schedule.
+        package init(config: Data, modelIndex: Data) throws {
+            guard let c = try JSONSerialization.jsonObject(with: config) as? [String: Any] else {
                 throw Artifact.Failure.badHeader("scheduler config: not a JSON object")
             }
-            guard c["use_dynamic_shifting"] as? Bool ?? true, c["time_shift_type"] as? String ?? "exponential" == "exponential",
-                  c["invert_sigmas"] as? Bool != true else {
-                throw Artifact.Failure.badHeader("scheduler config: the turbo expects a dynamic exponential shift")
-            }
+            func flag(_ key: String) -> Bool { c[key] as? Bool ?? false }
             func number(_ key: String) -> Double? { (c[key] as? NSNumber)?.doubleValue }
-            baseSequence = number("base_image_seq_len").map(Int.init) ?? baseSequence
-            maxSequence = number("max_image_seq_len").map(Int.init) ?? maxSequence
-            baseShift = number("base_shift") ?? baseShift
-            maxShift = number("max_shift") ?? maxShift
-            terminal = number("shift_terminal")
-            // Viggle's README: "the base config's `shift_terminal: 0.02` wrecks the last step".
-            guard terminal == nil || terminal == 0 else {
-                throw Artifact.Failure.badHeader("scheduler config: shift_terminal \(terminal!) — the turbo's is null")
+            guard !flag("use_dynamic_shifting") else {
+                throw Artifact.Failure.badHeader("scheduler config: use_dynamic_shifting — the Turbo's schedule is fixed")
             }
+            guard number("shift") ?? 1 == 1, number("shift_terminal") ?? 0 == 0 else {
+                throw Artifact.Failure.badHeader("scheduler config: a shift (\(c["shift"] ?? "?"), terminal \(c["shift_terminal"] ?? "null")) — the Turbo's is 1, terminal null")
+            }
+            for key in ["invert_sigmas", "use_karras_sigmas", "use_exponential_sigmas", "use_beta_sigmas", "stochastic_sampling"]
+            where flag(key) {
+                throw Artifact.Failure.badHeader("scheduler config: \(key) — not the Turbo's schedule")
+            }
+            guard let index = try JSONSerialization.jsonObject(with: modelIndex) as? [String: Any],
+                  let raw = index["sample_sigmas"] as? [NSNumber] else {
+                throw Artifact.Failure.badHeader("model_index.json: no sample_sigmas — not Qwen-Image-2.1-Turbo's")
+            }
+            let nodes = raw.map { Float($0.doubleValue) }
+            guard nodes.count == defaultSteps, nodes.first == 1, zip(nodes, nodes.dropFirst()).allSatisfy({ $0 > $1 }),
+                  nodes.last! > 0 else {
+                throw Artifact.Failure.badHeader("model_index.json: sample_sigmas \(nodes) — \(defaultSteps) decreasing σ from 1 expected")
+            }
+            self.nodes = nodes
         }
 
-        package static func file(_ path: String) throws -> Scheduler {
-            try Scheduler(json: Data(contentsOf: URL(fileURLWithPath: path)))
+        package static func files(config: String, modelIndex: String) throws -> Scheduler {
+            try Scheduler(config: Data(contentsOf: URL(fileURLWithPath: config)),
+                          modelIndex: Data(contentsOf: URL(fileURLWithPath: modelIndex)))
         }
 
-        /// `calculate_shift`: linear in the target's token count, extrapolated beyond `maxSequence`.
-        package func mu(imageTokens: Int) -> Double {
-            let m = (maxShift - baseShift) / Double(maxSequence - baseSequence)
-            let b = baseShift - m * Double(baseSequence)
-            return Double(imageTokens) * m + b
-        }
+        /// **`set_timesteps(sigmas=sample_sigmas, mu=μ)`**: the nodes as they are (μ ignored), then a zero σ.
+        package var sigmas: [Float] { nodes + [0] }
     }
 
-    /// The step counts Viggle's turbo has a schedule for (and the 9-step mode).
-    package static let acceptedSteps = [5, 6, 7, 9]
+    /// The step counts the Turbo has a schedule for.
+    package static let acceptedSteps = [defaultSteps]
 
-    /// **Viggle's raw nodes.** 6 steps by default; 5 and 7 add or remove nodes at the high-noise end
-    /// only (README, "Rules that matter"); 9 is the 9-step mode, whose last two nodes run without the
-    /// turbo. Another count has no published schedule: refused (`QwenImage21Pipeline.Failure.steps`).
-    package static func nodes(steps: Int) throws -> [Float] {
-        switch steps {
-        case 5: return [1, 0.875, 0.75, 0.5, 0.25]
-        case 6: return [1, 0.9375, 0.875, 0.75, 0.5, 0.25]
-        case 7: return [1, 0.9583, 0.9167, 0.875, 0.75, 0.5, 0.25]
-        // `[1.0, 0.9583, 0.9167, 0.875, 0.75, 0.5, 0.25, 1 / 6, 1 / 12]`: Python's `1/6` is a double, made
-        // float32 by `np.array(sigmas).astype(np.float32)`.
-        case 9: return [1, 0.9583, 0.9167, 0.875, 0.75, 0.5, 0.25, Float(1.0 / 6.0), Float(1.0 / 12.0)]
-        default: throw Failure.steps(steps)
-        }
+    /// Another count has no published schedule: refused (`QwenImage21Pipeline.Failure.steps`).
+    package static func check(steps: Int) throws {
+        guard acceptedSteps.contains(steps) else { throw Failure.steps(steps) }
     }
 
-    /// The steps that run under the turbo: all but the 9-step mode's last two.
-    package static func turboSteps(_ steps: Int) -> Int { steps == 9 ? nineStepTurbo : steps }
-
-    /// **`set_timesteps(sigmas=nodes, mu=μ)`**: the exponential shift in float32 as NumPy does it
-    /// (`math.exp(μ)` is a Python float, made float32 against the float32 array), then a zero σ.
-    package static func sigmas(nodes: [Float], mu: Double) -> [Float] {
-        let e = Float(exp(mu))
-        return nodes.map { t in
-            let r: Float = 1 / t - 1
-            return e / (e + r)
-        } + [0]
-    }
-
-    /// The full schedule of `steps` steps for a target of `imageTokens` latent cells.
-    package static func sigmas(steps: Int, imageTokens: Int, scheduler: Scheduler) throws -> [Float] {
-        sigmas(nodes: try nodes(steps: steps), mu: scheduler.mu(imageTokens: imageTokens))
+    /// The full schedule of `steps` steps — the same at every size.
+    package static func sigmas(steps: Int, scheduler: Scheduler) throws -> [Float] {
+        try check(steps: steps)
+        return scheduler.sigmas
     }
 
     /// `scheduler.timesteps`: `σ · 1000` in float32 — what the oracle records.
@@ -184,8 +195,7 @@ package enum QwenImage21Pipeline {
         package var description: String {
             switch self {
             case .steps(let n):
-                return "\(n) steps: Qwen-Image-2.1's turbo has Viggle's schedules for 5, 6 (default) and 7 steps, "
-                    + "and the 9-step mode (7 turbo + 2 base)"
+                return "\(n) steps: Qwen-Image-2.1-Turbo publishes a schedule for \(QwenImage21Pipeline.defaultSteps) steps only"
             case .imageToImage:
                 return "Qwen-Image-2.1 does no img2img (its pipeline has none): pass the image as a reference (--ref) "
                     + "and say what to change"
@@ -194,97 +204,143 @@ package enum QwenImage21Pipeline {
     }
 }
 
-/// **The denoising of one render** — the loop of `__call__` around `QwenImage21DiT`, phase by phase:
-/// one phase under the turbo, plus the base tail in the 9-step mode, each with its own DiT (the LoRA
-/// stack sizes its arenas) and its own prefill (the cache depends on the stack).
+/// **The denoising of one render** — the loop of `__call__` around `QwenImage21DiT`: one DiT (the user's
+/// LoRAs, if any, size its arenas), one prefill, the steps.
+///
+/// **The spectral schedule** (`reduced`, generation only; the header) is one more phase in
+/// front: the first `k` steps on a DiT built for the half grid, `x += dt · 𝓘 v(𝓟 x)` with Z-Image's two
+/// operators (`Resample`, as `Sampler`): the state stays at full size, only the evaluation goes down.
+/// What makes it a phase rather than a flag on the DiT, and what a port by analogy would miss:
+///
+///   - **the target's grid is built into the joint sequence** (`QwenImage21Sequence`: its slots, its
+///     RoPE rows, the arenas' `S`), where Z-Image's DiT takes a grid per call: the half-size steps
+///     need their own DiT, hence their own prefill;
+///   - **that prefill gives the same K/V as the full one**: the conditions come first and never see
+///     the target (block-causal), and the RoPE lays the target out *after* them, its `(y, x)` centred
+///     on its own grid (`QwenImage21Rope.forward` in diffusers). A half-size evaluation is exactly a
+///     native 512² evaluation of the same conditions; for a generation the prefix is a few dozen
+///     text rows, fused into the first step: the second prefill costs nearly nothing;
+///   - **the latent has no 2×2 packing** (`_pack_latents` is a flatten): 𝓟 and 𝓘 work on the planar
+///     `[64, h, w]` as on Z-Image's `[16, h, w]`;
+///   - **the schedule stays the full grid's**: the half-size evaluation is told the same σ;
+///   - **the floor counts 16-px cells**: a 1024² latent is 64², its half 32² = 512² (`Spectral.floor`).
 package struct QwenImage21Sampler {
     /// What a step hands back: its absolute index, σᵢ, the seconds, the latent after the update and
-    /// the velocity, both planar `[64, h, w]`.
+    /// the velocity, both planar `[64, h, w]` at full size (the velocity up-sampled after a half-size
+    /// evaluation), and the grid the DiT evaluated.
     package typealias Step = (index: Int, sigma: Float, seconds: Double, latent: UnsafePointer<Float>,
-                              velocity: UnsafePointer<Float>)
+                              velocity: UnsafePointer<Float>, evaluatedHeight: Int, evaluatedWidth: Int)
 
     package let artifact: Artifact
-    /// The stack of the turbo steps (the turbo, then the user's LoRAs) and of the base tail (the
-    /// user's alone, `nil` without).
-    package let turbo: LoRA?
-    package let base: LoRA?
+    /// The user's LoRA stack, `nil` without: the Turbo is the map itself.
+    package let lora: LoRA?
     /// Where the K/V cache lives: `nil`, the policy's choice for the render's prefix
     /// (`QwenImage21CachePolicy`); forced by the checks that measure the three.
     package var storage: QwenImage21DiT.CacheStorage?
     /// The storage the last `run` used.
     package private(set) var used: QwenImage21DiT.CacheStorage = .memory
-    /// **The render cache's K/V files, one per phase** (`RenderCache.kvPath`): when the conditions
-    /// go to a file, it is this one — read back without a prefill if a previous render left it whole,
-    /// kept for the next one otherwise. `nil`: the unlinked file, gone with the render.
-    package var kept: [(path: String, key: String)]?
+    /// **The render cache's K/V file** (`RenderCache.kvPath`): when the conditions go to a file, it is
+    /// this one — read back without a prefill if a previous render left it whole, kept for the next one
+    /// otherwise. `nil`: the unlinked file, gone with the render.
+    package var kept: (path: String, key: String)?
     /// What a kept file must leave free on its volume (`RenderCache.keptReserve`).
     package var keptReserve: Int64 = RenderCache.defaultKeptReserve
     package var freezeCut = EngineSettings.effective.frozenCut
     package var cancellation: Cancellation?
-    /// Seconds per phase: `prefill`, `steps`, and the DiT's own breakdown (`dit …`).
+    /// Seconds: `prefill`, `steps`, and the DiT's own breakdown (`dit …`).
     package private(set) var timings: [String: Double] = [:]
-    /// **The DiT of the previous image of a batch, reused** when the run has one phase (no user LoRA):
-    /// same sequence, stack and storage, so building it again would only be a fresh allocation wave
-    /// (`Context.keptDenoiser`). With two phases each image already alternates two DiTs; nothing is kept.
+    /// **The DiT of the previous image of a batch, reused**: same sequence, LoRA stack and storage —
+    /// every image of a request has them —, so building it again would only be a fresh allocation wave
+    /// (`Context.keptDenoiser`). A user LoRA included: the stack is the request's, the same per image.
     package var reusable: QwenImage21DiT?
-    /// The DiT a one-phase run used, for the next image; `nil` after a two-phase run.
+    /// The DiT the run used, for the next image.
     package private(set) var reused: QwenImage21DiT?
 
-    package init(artifact: Artifact, turbo: LoRA?, base: LoRA?) {
-        self.artifact = artifact; self.turbo = turbo; self.base = base
+    package init(artifact: Artifact, lora: LoRA?) {
+        self.artifact = artifact; self.lora = lora
     }
 
     /// - Parameters:
     ///   - latent: the target `[64, h, w]`, updated in place.
     ///   - hidden: the encoder's `[T, 4096]`; `slots`: its `image_pad_mask` (`T` entries).
     ///   - references: each `[64, hᵢ, wᵢ]`, in prompt order.
-    ///   - sigmas: the full schedule (`steps + 1` values); `turboSteps`: how many run under `turbo`.
+    ///   - sigmas: the full schedule (`steps + 1` values).
     ///   - told: the σ the DiT is told at each step (`Detail.modelSigmas`); `nil`: `sigmas`.
+    ///   - reduced: the first steps evaluated at half size (the spectral schedule); 0 with references.
     package mutating func run(latent: inout [Float], height: Int, width: Int,
                               hidden: [Float], slots: [Bool], references: [Latent],
-                              sigmas: [Float], told: [Float]? = nil, turboSteps: Int,
+                              sigmas: [Float], told: [Float]? = nil, reduced: Int = 0,
                               onStep: (Step) throws -> Void) throws {
         let steps = sigmas.count - 1
         let told = told ?? sigmas
-        let target = height * width
-        guard height % 2 == 0, width % 2 == 0 else {
-            throw Artifact.Failure.misuse("Qwen-Image-2.1: a target grid \(width)×\(height) not made of 2×2 slots")
+        let half = references.isEmpty ? min(max(0, reduced), steps) : 0
+        guard height % 2 == 0, width % 2 == 0, half == 0 || (height % 4 == 0 && width % 4 == 0) else {
+            throw Artifact.Failure.misuse("Qwen-Image-2.1: a target grid \(width)×\(height) not made of 2×2 slots"
+                                          + (half > 0 ? " at half size" : ""))
         }
-        let sequence = try QwenImage21Sequence(
-            slots: slots + [Bool](repeating: true, count: target / 4),
-            images: references.map { .init(height: $0.height, width: $0.width) } + [.init(height: height, width: width)])
-        let phases = [(0..<min(turboSteps, steps), turbo), (min(turboSteps, steps)..<steps, base)].filter { !$0.0.isEmpty }
+        func sequence(_ d: Int) throws -> QwenImage21Sequence {
+            try QwenImage21Sequence(
+                slots: slots + [Bool](repeating: true, count: height / d * (width / d) / 4),
+                images: references.map { .init(height: $0.height, width: $0.width) }
+                    + [.init(height: height / d, width: width / d)])
+        }
+        let channels = latent.count / (height * width)
+        let pointers = references.map { reference -> UnsafeMutablePointer<Float> in
+            let p = UnsafeMutablePointer<Float>.allocate(capacity: reference.values.count)
+            p.update(from: reference.values, count: reference.values.count)
+            return p
+        }
+        defer { pointers.forEach { $0.deallocate() } }
         timings = [:]
-        for (phase, (range, lora)) in phases.enumerated() {
+        let phases: [(range: Range<Int>, divisor: Int)] = [(0..<half, 2), (half..<steps, 1)].filter { !$0.range.isEmpty }
+        for (range, divisor) in phases {
             try cancellation.check()
-            // Its own scope: the previous phase's DiT (arenas, cache, LoRA) is gone before this one asks.
+            let sequence = try sequence(divisor)
+            // Its own scope: the half-size DiT (arenas, cache) is gone before the full one asks. It is
+            // never kept for a batch's next image, nor does it take the render cache's K/V file.
             used = storage ?? QwenImage21CachePolicy.storage(prefix: sequence.prefix)
-            let file = kept.flatMap { phase < $0.count ? $0[phase] : nil }
-            let dit = try (phases.count == 1 ? reusable : nil)
+            let dit = try (divisor == 1 ? reusable : nil)
                 ?? QwenImage21DiT(artifact: artifact, sequence: sequence, lora: lora, storage: used,
-                                  kept: file.map { ($0.path, $0.key, keptReserve) }, freezeCut: freezeCut)
-            reused = phases.count == 1 ? dit : nil
+                                  kept: divisor == 1 ? kept.map { ($0.path, $0.key, keptReserve) } : nil,
+                                  freezeCut: freezeCut)
+            if divisor == 1 { reused = dit }
             if dit.reusedPrefill { timings["kv reused", default: 0] += 1 }
             if dit.keepsPrefill { timings["kv kept", default: 0] += 1 }
             dit.cancellation = cancellation
-            try dit.tabulateModulation(sigmas: Array(told[range]))
+            try dit.tabulateModulation(sigmas: Array(told[0..<steps]))
             var started = Date()
-            let pointers = references.map { reference -> UnsafeMutablePointer<Float> in
-                let p = UnsafeMutablePointer<Float>.allocate(capacity: reference.values.count)
-                p.update(from: reference.values, count: reference.values.count)
-                return p
-            }
-            defer { pointers.forEach { $0.deallocate() } }
             try hidden.withUnsafeBufferPointer {
                 // The conditions' layers run inside the first step (`QwenImage21DiT.prefillPending`): its
                 // seconds include them, `prefill` keeps only `txt_in` and `img_in`.
                 try dit.prefill(hidden: $0.baseAddress!, references: pointers.map { UnsafePointer($0) }, intoFirstStep: true)
             }
             timings["prefill", default: 0] += Date().timeIntervalSince(started)
+            let (evaluatedHeight, evaluatedWidth) = (height / divisor, width / divisor)
+            var low = [Float](repeating: 0, count: divisor > 1 ? channels * evaluatedHeight * evaluatedWidth : 0)
             for i in range {
                 try cancellation.check()
                 started = Date()
-                let v = try latent.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
+                let v: [Float]
+                if divisor > 1 {
+                    // 𝓟: the odd samples (`nearest-exact`), then 𝓘: bilinear ×2 — `Sampler`'s operators.
+                    latent.withUnsafeBufferPointer { x in
+                        low.withUnsafeMutableBufferPointer {
+                            Resample.decimate(x.baseAddress!, into: $0.baseAddress!, channels: channels,
+                                              height: evaluatedHeight, width: evaluatedWidth)
+                        }
+                    }
+                    let down = try low.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
+                    var up = [Float](repeating: 0, count: latent.count)
+                    down.withUnsafeBufferPointer { d in
+                        up.withUnsafeMutableBufferPointer {
+                            Resample.bilinearDouble(d.baseAddress!, into: $0.baseAddress!, channels: channels,
+                                                    height: evaluatedHeight, width: evaluatedWidth)
+                        }
+                    }
+                    v = up
+                } else {
+                    v = try latent.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
+                }
                 // `scheduler.step`: `dt = σ_next − σ` in float32, then `x + dt·v` — two roundings.
                 let dt = sigmas[i + 1] - sigmas[i]
                 latent.withUnsafeMutableBufferPointer { x in
@@ -293,7 +349,9 @@ package struct QwenImage21Sampler {
                 let seconds = Date().timeIntervalSince(started)
                 timings["steps", default: 0] += seconds
                 try latent.withUnsafeBufferPointer { x in
-                    try v.withUnsafeBufferPointer { try onStep((i, sigmas[i], seconds, x.baseAddress!, $0.baseAddress!)) }
+                    try v.withUnsafeBufferPointer {
+                        try onStep((i, sigmas[i], seconds, x.baseAddress!, $0.baseAddress!, evaluatedHeight, evaluatedWidth))
+                    }
                 }
             }
             for (name, seconds) in dit.timings { timings["dit " + name, default: 0] += seconds }
@@ -302,8 +360,8 @@ package struct QwenImage21Sampler {
 }
 
 /// **The LoRA stack expanded one layer ahead, not all at once.** `CacheLoRA` keeps the whole stack in
-/// fp32 for the render: Viggle's rank-256 turbo on 224 modules is 2.68 GB resident, the largest single
-/// item of the denoising stage. Here only two layers live (2 × 84 MB): layer `l` being read by the GPU
+/// fp32 for the render: a rank-256 LoRA on the 224 modules of the blocks is 2.68 GB resident, more than
+/// any other item of the denoising stage. Here only two layers live (2 × 84 MB): layer `l` being read by the GPU
 /// and layer `l + 1` being expanded on a background thread meanwhile — the same `LoRA.materialize`, so
 /// the same bits, redone at each evaluation (~5 s of CPU per evaluation, hidden behind the GEMMs).
 ///

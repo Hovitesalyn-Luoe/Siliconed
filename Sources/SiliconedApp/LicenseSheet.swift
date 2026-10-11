@@ -46,15 +46,13 @@ struct LicenseTerms: View {
                         Text("Siliconed ships no weights. The Compact version is the publisher's model republished in 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
                     } else if variant == .light && !card.isImported {
                         Text("Siliconed ships no weights. The Light version is the publisher's model republished in 4 to 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
-                    } else if card.family.hasThirdPartyTurbo && !card.isImported {
-                        Text("Siliconed ships no weights: the model is downloaded from its publisher, and its turbo LoRA from the third party that made it, each under its own license.")
                     } else {
                         Text("Siliconed ships no weights: the model is downloaded from its publisher, under the publisher's license.")
                     }
                 }
                 .foregroundStyle(.secondary)
                 // The license file(s) on Hugging Face, at the revision the installation takes. Several:
-                // each named by its repository (Qwen-Image-2.1: the model, then the turbo LoRA).
+                // each named by its repository (Anima: its DiT's, then its Diffusers one).
                 let urls = self.urls
                 ForEach(urls, id: \.self) { url in
                     Group {

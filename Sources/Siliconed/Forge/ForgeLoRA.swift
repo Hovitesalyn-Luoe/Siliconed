@@ -205,8 +205,8 @@ package enum ForgeLoRA {
         case .qwenImage21:
             // Diffusers names, published as is (PEFT): nothing to split. Unlike ERNIE and FLUX.2,
             // the modulation (`modulation.1`) and the σ embedding (`time_text_embed.*`) are
-            // **accepted**: Viggle's turbo adapts both, and refusing them would leave a base model
-            // that is not a turbo. The engine has to apply them.
+            // **accepted**: a LoRA trained on this family may adapt both (turbo LoRAs of the base
+            // model do), and the engine applies them, in double (`QwenImage21DiT.exactModules`).
             // ai-toolkit (and ComfyUI) fuse the SwiGLU's two inputs: `img_mlp.gate_up` is
             // `[gate_layer; proj]` by rows — `gate, up = gate_up(x).chunk(2)`, `silu(gate) * up`.
             if module.hasSuffix(".img_mlp.gate_up") {

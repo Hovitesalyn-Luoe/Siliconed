@@ -1,46 +1,64 @@
 import XCTest
 @testable import Siliconed
 
-/// Qwen-Image-2.1's pipeline without a byte of weights: the schedule, the noise, the sizes, the wire.
-/// The expected bits are diffusers' (`FlowMatchEulerDiscreteScheduler` with Viggle's config) and
-/// PyTorch 2.14's (`torch.randn` on a CPU generator), printed by the venv.
+/// Qwen-Image-2.1-Turbo's pipeline without a byte of weights: the schedule, the noise, the sizes, the wire.
+/// The expected bits are diffusers 0.41.0's (`retrieve_timesteps(sigmas=sample_sigmas, mu=μ)` with the
+/// Turbo's `scheduler_config.json`, run in the venv: `tools/turbo_survey.py schedule`) and PyTorch 2.14's
+/// (`torch.randn` on a CPU generator), printed by the venv.
 final class QwenImage21PipelineTests: XCTestCase {
     private func bits(_ v: [Float]) -> [UInt32] { v.map(\.bitPattern) }
 
+    /// The Turbo's `d65dbc9a` files, as published.
+    private let config = #"""
+        {"_class_name": "FlowMatchEulerDiscreteScheduler", "_diffusers_version": "0.41.0.dev0", "base_image_seq_len": 256,
+         "base_shift": 0.5, "invert_sigmas": false, "max_image_seq_len": 8192, "max_shift": 0.9, "num_train_timesteps": 1000,
+         "shift": 1.0, "shift_terminal": null, "stochastic_sampling": false, "time_shift_type": "exponential",
+         "use_beta_sigmas": false, "use_dynamic_shifting": false, "use_exponential_sigmas": false, "use_karras_sigmas": false}
+        """#
+    private let modelIndex = #"""
+        {"_class_name": "QwenImage21Pipeline", "scheduler": ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+         "sample_sigmas": [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568]}
+        """#
+
+    /// **σ and timesteps to the bit, as diffusers gives them** — the same in generation and editing, at
+    /// 512², 1024², 1024×1536 (μ is computed and ignored): `float32(sample_sigmas)`, then 0.
     func testTheTurboScheduleIsDiffusersToTheBit() throws {
-        let s = QwenImage21Pipeline.Scheduler()
-        XCTAssertEqual(s.mu(imageTokens: 1024), 0.5387096774193548, accuracy: 1e-15)
-        XCTAssertEqual(bits(try QwenImage21Pipeline.sigmas(steps: 6, imageTokens: 1024, scheduler: s)),
-                       [0x3f800000, 0x3f766a1a, 0x3f6c4d6f, 0x3f5650c9, 0x3f21aac8, 0x3eba25d8, 0])
-        let σ4096 = try QwenImage21Pipeline.sigmas(steps: 6, imageTokens: 4096, scheduler: s)
-        XCTAssertEqual(bits(σ4096), [0x3f800000, 0x3f77bec2, 0x3f6ef092, 0x3f5b70ee, 0x3f2ab082, 0x3eccd96c, 0])
-        XCTAssertEqual(bits(QwenImage21Pipeline.timesteps(σ4096)),
-                       [0x447a0000, 0x4471f049, 0x446956ef, 0x44564c48, 0x4426b05f, 0x43c80c53])
-        // μ beyond `max_image_seq_len` is extrapolated (1024×1536: 6,144 tokens).
-        XCTAssertEqual(bits(try QwenImage21Pipeline.sigmas(steps: 6, imageTokens: 6144, scheduler: s)),
-                       [0x3f800000, 0x3f7887f9, 0x3f708300, 0x3f5e8eee, 0x3f3074eb, 0x3ed9a7c8, 0])
-        // The 9-step mode's nodes, `1/6` and `1/12` as Python's doubles made float32.
-        XCTAssertEqual(bits(try QwenImage21Pipeline.sigmas(steps: 9, imageTokens: 4056, scheduler: s)),
-                       [0x3f800000, 0x3f7a8a44, 0x3f74db65, 0x3f6ee858, 0x3f5b60be, 0x3f2a9324, 0x3ecc9a02,
-                        0x3e921df6, 0x3e1d52c4, 0])
-        // At 512² (1,024 tokens), the oracle's `trajectory9 512` (Viggle's README recipe, run): σ and timesteps.
-        let σ9 = try QwenImage21Pipeline.sigmas(steps: 9, imageTokens: 1024, scheduler: s)
-        XCTAssertEqual(bits(σ9), [0x3f800000, 0x3f79a931, 0x3f731c18, 0x3f6c4d6f, 0x3f5650c9, 0x3f21aac8, 0x3eba25d8,
-                                  0x3e82b20b, 0x3e0a087d, 0])
-        XCTAssertEqual(bits(QwenImage21Pipeline.timesteps(σ9)),
-                       [0x447a0000, 0x4473cf3a, 0x446d696f, 0x4466c39e, 0x44514ae4, 0x441de0c7, 0x43b5c8f5,
-                        0x437f43bd, 0x4306cc4a])
-        // The README switches the LoRA off after step index 6: 7 turbo steps, then 2 of the base model.
-        XCTAssertEqual(QwenImage21Pipeline.turboSteps(9), 7)
-        XCTAssertEqual(QwenImage21Pipeline.turboSteps(6), 6)
-        XCTAssertThrowsError(try QwenImage21Pipeline.nodes(steps: 8))
+        let s = try QwenImage21Pipeline.Scheduler(config: Data(config.utf8), modelIndex: Data(modelIndex.utf8))
+        XCTAssertEqual(s, QwenImage21Pipeline.Scheduler(), "the published defaults")
+        let σ = try QwenImage21Pipeline.sigmas(steps: 8, scheduler: s)
+        XCTAssertEqual(bits(σ), [0x3f800000, 0x3f7a7be5, 0x3f744524, 0x3f6d375d, 0x3f6523f6, 0x3f585b9f, 0x3f345c57,
+                                 0x3ed44242, 0])
+        XCTAssertEqual(bits(QwenImage21Pipeline.timesteps(σ)),
+                       [0x447a0000, 0x44749cfe, 0x446e8b85, 0x4467a811, 0x445fc51e, 0x44534979, 0x4430222d, 0x43cf48b4])
+        // `scheduler.step`'s `dt = σ_next − σ`, in float32.
+        XCTAssertEqual(bits(zip(σ.dropFirst(), σ).map { $0 - $1 }),
+                       [0xbcb08360, 0xbcc6d820, 0xbce1b8e0, 0xbd013670, 0xbd4c8570, 0xbe0ffd20, 0xbe94766c, 0xbed44242])
+        // The round trip the pipeline makes, `(σ·1000)/1000`, gives σ back to the bit for these nodes.
+        for x in σ.dropLast() { XCTAssertEqual((x * 1000 / 1000).bitPattern, x.bitPattern) }
+        // The module: the same schedule at every size (no μ), 8 steps only.
+        let module = QwenImage21DenoisingModule(map: "", scheduler: s)
+        XCTAssertEqual(module.defaultSteps, 8)
+        for (h, w) in [(32, 32), (64, 64), (96, 64), (52, 78)] {
+            XCTAssertEqual(bits(module.sigmas(steps: 8, height: h, width: w)), bits(σ))
+        }
+        XCTAssertEqual(QwenImage21Pipeline.acceptedSteps, [8])
+        for n in [5, 6, 7, 9] { XCTAssertThrowsError(try QwenImage21Pipeline.sigmas(steps: n, scheduler: s), "\(n)") }
     }
 
-    func testTheSchedulerConfigRefusesTheBaseTerminalShift() {
+    /// The configs that would move the published σ are refused: the base model's dynamic shift and
+    /// terminal stretch, a non-unit shift, Karras σ; and a `model_index.json` without `sample_sigmas`.
+    func testTheSchedulerRefusesWhatWouldMoveTheSchedule() {
+        func scheduler(_ c: String, _ m: String? = nil) throws -> QwenImage21Pipeline.Scheduler {
+            try QwenImage21Pipeline.Scheduler(config: Data(c.utf8), modelIndex: Data((m ?? modelIndex).utf8))
+        }
         let base = #"{"use_dynamic_shifting": true, "time_shift_type": "exponential", "shift_terminal": 0.02}"#
-        XCTAssertThrowsError(try QwenImage21Pipeline.Scheduler(json: Data(base.utf8)))
-        let turbo = #"{"use_dynamic_shifting": true, "time_shift_type": "exponential", "shift_terminal": null, "max_image_seq_len": 8192, "max_shift": 0.9}"#
-        XCTAssertEqual(try QwenImage21Pipeline.Scheduler(json: Data(turbo.utf8)), QwenImage21Pipeline.Scheduler())
+        XCTAssertThrowsError(try scheduler(base))
+        XCTAssertThrowsError(try scheduler(#"{"use_dynamic_shifting": false, "shift": 3.0}"#))
+        XCTAssertThrowsError(try scheduler(#"{"use_dynamic_shifting": false, "shift_terminal": 0.02}"#))
+        XCTAssertThrowsError(try scheduler(#"{"use_dynamic_shifting": false, "use_karras_sigmas": true}"#))
+        XCTAssertThrowsError(try scheduler(#"{"use_dynamic_shifting": false}"#, #"{"_class_name": "QwenImage21Pipeline"}"#))
+        XCTAssertThrowsError(try scheduler(#"{"use_dynamic_shifting": false}"#, #"{"sample_sigmas": [1.0, 0.5]}"#))
+        XCTAssertNoThrow(try scheduler(#"{"use_dynamic_shifting": false, "shift": 1.0, "shift_terminal": null}"#))
     }
 
     func testTheNoiseIsTorchRandn() {

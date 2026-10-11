@@ -9,7 +9,7 @@ English · [Français](README.fr.md)
 Siliconed is a free, open-source macOS app for **local text-to-image generation and AI image
 editing** on Apple silicon Macs (M1 and later). It runs recent diffusion models —
 [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) and
-[Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) — natively in Swift and Metal: no
+[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) — natively in Swift and Metal: no
 Python, no server, no cloud, nothing leaves your Mac. It works offline once a model is installed.
 
 ![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)
@@ -29,7 +29,7 @@ comic book style with cel shading”), compared under the curtain, filmed at rea
   ship.
 - **Full fp32, still fast.** Z-Image Turbo at 1024² in ~82 s on an M1 Pro, where Draw Things takes
   144 to 163 s with 8-bit weights on the same machine.
-- **33 GB of model on a 16 GB Mac, zero swap.** Weights are read from disk as they are needed.
+- **31 GB of model on a 16 GB Mac, zero swap.** Weights are read from disk as they are needed.
   The peak memory and the swap are measured at the worst case (1024×1536, three reference images),
   and both models fit with 0 bytes swapped.
 - **Built to be driven by an AI.** `silicontrol` drives the running app from a terminal, with JSON
@@ -49,7 +49,7 @@ Only recent models whose text encoder is a language model — no Stable Diffusio
 | Model | Publisher | What it does | License |
 |---|---|---|---|
 | [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tongyi-MAI | text-to-image, image-to-image, LoRA | Apache 2.0 |
-| [Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1), with the [Viggle turbo LoRA](https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo) | Qwen | text-to-image, editing by instruction with 1 to 3 images, LoRA | Qwen Research (non-commercial) |
+| [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) | Qwen | text-to-image, editing by instruction with 1 to 3 images, LoRA | Qwen Research (non-commercial) |
 
 The Compact versions use 8-bit weights published by third parties:
 [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF),
@@ -57,7 +57,7 @@ The Compact versions use 8-bit weights published by third parties:
 [unsloth/Qwen-Image-2.1-FP8](https://huggingface.co/unsloth/Qwen-Image-2.1-FP8),
 [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1); the Light versions, the
 GGUF Q4_K_M of [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF) and
-[unsloth/Qwen-Image-2.1-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF) with the Compact's
+[unsloth/Qwen-Image-2.1-Turbo-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-Turbo-GGUF) with the Compact's
 text encoder. Every file is pinned to a
 revision and checked by sha256 (`Sources/Siliconed/Forge/Installation.swift`).
 
@@ -108,10 +108,10 @@ chosen cell to the end with the same seed: the image its sketch announced.
   revision and checked by sha256.
 - **Standard, Compact or Light.** Z-Image and Qwen-Image-2.1 install with the publisher's weights
   (Standard, the default), with 8-bit weights published by third parties for the transformer and
-  the text encoder (Compact: 11.7 GB instead of 20.4 for Z-Image, 19.4 GB instead of 33.2 for
+  the text encoder (Compact: 11.7 GB instead of 20.4 for Z-Image, 17.3 GB instead of 31.2 for
   Qwen-Image-2.1, an image slightly different, about as fast), or with the transformer in 4 to 6 bits
   as a third party publishes it (GGUF Q4_K_M) and the Compact's text encoder (Light: 9.5 GB and
-  16.2 GB, the least read from disk at each step; another set of weights, an image that may compose
+  14.2 GB, the least read from disk at each step; another set of weights, an image that may compose
   differently). The Light is preselected on a Mac with 8 GB of memory, the Standard elsewhere; you
   choose before installing. One version at a time:
   switching replaces the other, which keeps rendering until the new one is complete, then frees its
@@ -146,9 +146,9 @@ Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. 1024², se
 
 | | Z-Image Turbo | Qwen-Image-2.1 Turbo |
 |---|---|---|
-| 1024², Standard | ~82 s (8 steps; 1024×1536 ~153 s) | ~134 s (6 steps); an edit with 1 image ~190 s, with 2 images ~263 s |
-| 1024², Light (4 to 6 bits) | ~85 s | ~133 s; an edit with 1 image ~190 s |
-| deviation from the fp32 reference (`model_out`) | 1.2·10⁻⁵ | 2.3·10⁻⁶ from the fp64 exact (512²) |
+| 1024², Standard | ~82 s (8 steps; 1024×1536 ~153 s) | ~120 s (8 steps); an edit with 1 image ~210 s, with 2 images ~285 s |
+| 1024², Light (4 to 6 bits) | ~85 s | ~120 s; an edit with 1 image ~210 s |
+| deviation from the fp32 reference (`model_out`) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) |
 
 For comparison, Draw Things on the same machine, Z-Image `q8p`: 144 s for the first render, 163 s
 for the fourth. Siliconed's ~82 s is in fp32; the comparison is about wall-clock time, not about
@@ -187,7 +187,7 @@ The reports fill this table, one line per chip:
 
 | Chip | CPU cores | GPU cores | Memory | Z-Image Turbo 1024² | Qwen-Image-2.1 Turbo 1024² | Source |
 |---|---|---|---|---|---|---|
-| M1 Pro | 8 | 14 | 16 GB | ~82 s | ~134 s | reference machine |
+| M1 Pro | 8 | 14 | 16 GB | ~82 s | ~120 s | reference machine |
 | *your line here* | | | | | | [report](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
 
 ## For AI agents and scripts: silicontrol

@@ -156,11 +156,50 @@ package final class Safetensors {
     deinit {
         munmap(UnsafeMutableRawPointer(mutating: base), size)
         close(descriptor)
+        if let fd = uncachedOpened, fd >= 0 { close(fd) }
     }
 
     package func pointer(_ name: String) -> UnsafeRawPointer? {
         guard let e = entries[name] else { return nil }
         return base.advanced(by: e.offset)
+    }
+
+    /// **A tensor's bytes read with `pread`, not through the mapping** — what the forge reads a
+    /// source with, once. Measured on a cold file on the M1 Pro: a fault per 16 KB page of the mapping reads
+    /// 0.56 GB/s on one thread, 0.95 on eight; `pread` by 8 MB, 4.5 GB/s on one. The descriptor is
+    /// `F_NOCACHE`: a source read once (tens of GB at an installation) does not push the user's
+    /// pages out of memory for nothing — a page already in the cache is still read from it.
+    package func copy(_ e: Entry, into destination: UnsafeMutableRawPointer) throws {
+        let fd = uncachedDescriptor
+        guard fd >= 0 else { throw Failure.cannotOpen(path, errno) }
+        var done = 0
+        while done < e.bytes {
+            let n = pread(fd, destination + done, min(e.bytes - done, Safetensors.readBlock), off_t(e.offset + done))
+            guard n > 0 else { throw Failure.badHeader("\(path): \(e.name) cut short at byte \(done) of \(e.bytes)") }
+            done += n
+        }
+    }
+
+    /// The same into a new array.
+    package func bytes(_ e: Entry) throws -> [UInt8] {
+        try [UInt8](unsafeUninitializedCapacity: e.bytes) { b, n in
+            try copy(e, into: b.baseAddress!)
+            n = e.bytes
+        }
+    }
+
+    static let readBlock = 8 << 20
+    /// Opened at the first `copy`, from any thread (the forge produces several tensors at once).
+    private var uncachedOpened: Int32?
+    private let opening = NSLock()
+    private var uncachedDescriptor: Int32 {
+        opening.withLock {
+            if let fd = uncachedOpened { return fd }
+            let fd = open(path, O_RDONLY)
+            if fd >= 0 { _ = fcntl(fd, F_NOCACHE, 1) }
+            uncachedOpened = fd
+            return fd
+        }
     }
 
     /// Materializes a tensor as fp32, whatever its dtype on disk. The VAE is published in

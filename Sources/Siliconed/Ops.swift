@@ -93,6 +93,37 @@ package enum Ops {
         vDSP_vsadd(x, 1, &v, x, 1, vDSP_Length(count))
     }
 
+    /// **QK-Norm then RoPE, one sequence row at a time** (`rmsNorm` over each head, then `rope`): the
+    /// same operations in the same order on each head as the two passes, while the row is in cache.
+    ///
+    /// - Parameters:
+    ///   - x: `[S, H, Dh]`, modified in place
+    ///   - weight: `[Dh]`
+    ///   - freqs: `[S, Dh/2, 2]`
+    package static func rmsNormRope(_ x: UnsafeMutablePointer<Float>, weight: UnsafePointer<Float>, freqs: UnsafePointer<Float>,
+                                   sequence: Int, heads: Int, headDim: Int, eps: Float) {
+        let pairs = headDim / 2, n = vDSP_Length(headDim)
+        Parallel.rows(sequence, width: heads * headDim) { first, howMany in
+            for s in first..<(first + howMany) {
+                let f = freqs + s * pairs * 2
+                for h in 0..<heads {
+                    let row = x + (s * heads + h) * headDim
+                    var sumOfSquares: Float = 0
+                    vDSP_svesq(row, 1, &sumOfSquares, n)
+                    var scale = 1 / (sumOfSquares / Float(headDim) + eps).squareRoot()
+                    vDSP_vsmul(row, 1, &scale, row, 1, n)
+                    vDSP_vmul(row, 1, weight, 1, row, 1, n)
+                    for p in 0..<pairs {
+                        let re = row[2 * p], im = row[2 * p + 1]
+                        let fr = f[2 * p], fi = f[2 * p + 1]
+                        row[2 * p]     = re * fr - im * fi
+                        row[2 * p + 1] = re * fi + im * fr
+                    }
+                }
+            }
+        }
+    }
+
     /// RoPE, on **adjacent pairs** `(2i, 2i+1)` and not by halves.
     ///
     /// This is pitfall 3.1, and it does not show: a LLaMA-style port, which pairs `i` and `i+D/2`,
@@ -146,8 +177,11 @@ extension Ops {
     /// `LayerNorm` **without affine**: `(x − mean) / √(variance + eps)`, biased variance.
     /// Z-Image's `FinalLayer` uses it (the only LayerNorm of that model, everything else being
     /// RMSNorm); so do other families (Qwen-Image-2.1's DiT and vision tower, Anima, Klein, ERNIE).
+    ///
+    /// `scale`: then `out[s, d] *= scale[d]` (`scaleRows`), on each row while it is in cache — the
+    /// same multiplication, one pass instead of two.
     package static func layerNorm(_ x: UnsafePointer<Float>, into out: UnsafeMutablePointer<Float>,
-                                 rows: Int, columns: Int, eps: Float) {
+                                 rows: Int, columns: Int, eps: Float, scale: UnsafePointer<Float>? = nil) {
         let n = vDSP_Length(columns)
         Parallel.rows(rows, width: columns) { first, howMany in
             for row in first..<(first + howMany) {
@@ -158,8 +192,9 @@ extension Ops {
                 vDSP_vsadd(source, 1, &negativeMean, destination, 1, n)
                 var sumOfSquares: Float = 0
                 vDSP_svesq(destination, 1, &sumOfSquares, n)
-                var scale = 1 / (sumOfSquares / Float(columns) + eps).squareRoot()
-                vDSP_vsmul(destination, 1, &scale, destination, 1, n)
+                var inverse = 1 / (sumOfSquares / Float(columns) + eps).squareRoot()
+                vDSP_vsmul(destination, 1, &inverse, destination, 1, n)
+                if let scale { vDSP_vmul(destination, 1, scale, 1, destination, 1, n) }
             }
         }
     }

@@ -16,7 +16,7 @@ public struct License: Sendable, Hashable, CustomStringConvertible {
     public let requiredFilter: Bool
     /// **Where to read it**: the license file(s) on Hugging Face, at the revision the installation
     /// downloads (`https://huggingface.co/<repo>/blob/<sha>/<file>`) — the model's first, then each
-    /// component under a license of its own (Qwen-Image-2.1: the model, then Viggle's turbo LoRA).
+    /// component under a license of its own (Anima: its DiT's repository, then its Diffusers one).
     /// Z-Image publishes no license file: its model card (`README.md`), which declares Apache 2.0.
     /// Krea 2's repository is gated: its file opens once the Hub's gate is accepted.
     /// An imported model: its family's, the architecture it derives from.
@@ -72,7 +72,7 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
     /// Imported by the user, rather than published by the family's publisher.
     public var isImported: Bool { map != nil }
     public let license: License
-    /// The denoiser's (Z-Image 8, Qwen-Image-2.1 6, FLUX.2 [klein] 4); the test target checks that they agree.
+    /// The denoiser's (Z-Image 8, Qwen-Image-2.1 8, FLUX.2 [klein] 4); the test target checks that they agree.
     public let defaultSteps: Int
     public let space: LatentSpace
     /// The square first, then portraits and landscapes, from stockiest to most elongated.
@@ -119,8 +119,8 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
         license: License(text: "Apache 2.0", commercial: true, requiredFilter: false, urls: Installer.licenseURLs(.ernie)),
         defaultSteps: 8, space: .flux2, formats: recommendedFormats)
 
-    /// **Qwen-Image-2.1 (Qwen) under Viggle's turbo LoRA v0.3**: 6 steps (5, 7, and a 9-step mode
-    /// ending on the base model are accepted; any other count is refused), no CFG.
+    /// **Qwen-Image-2.1-Turbo (Qwen)**: 8 steps on its published schedule (any other count is
+    /// refused), no CFG.
     ///
     /// - **What it is for**: generation, and **editing by instruction** — 1 to 3 reference images
     ///   (`maxReferences`) that its Qwen3-VL-8B encoder *sees*, so the prompt can name them
@@ -128,16 +128,14 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
     ///   the output's format (`editFormat`). No img2img: a starting image is refused, pass it as image 1.
     /// - ⚠️ **License**: Qwen Research — non-commercial. Never a product's default.
     /// - **Weights** (`Family.installedSize(.standard)`, bf16 maps): DiT 14.2 GB, encoder with its vision tower
-    ///   16.3 GB, components 2.7 GB (VAE, processor, the turbo LoRA 1.36 GB) — 33.2 GB on disk.
-    /// - **Cost** (M1 Pro 16 GB): one DiT evaluation at 1024² takes ~19 s bare, ~22 s under the turbo
-    ///   LoRA the product always applies. Measured in series: generation 1024²
-    ///   134–137 s, an edit at 1248×832 190–193 s with one reference, 262–264 s with two; the worst
-    ///   case (1024×1536, 3 references) 523 s at a 4.58 GB peak, zero swap-out.
+    ///   16.3 GB, components 0.69 GB (the VAE in bf16, the processor) — 31.2 GB on disk.
+    /// - **Cost** (M1 Pro 16 GB): one DiT evaluation at 1024² takes ~17 s; a 1024² generation ~120 s
+    ///   (8 steps, the first two at half size), an edit at 1248×832 with one reference ~210 s.
     public static let qwenImage21 = ModelCard(
         id: "qwen-image-2.1", name: "Qwen-Image-2.1 Turbo", family: .qwenImage21, map: nil,
         license: License(text: "Qwen Research (non-commercial)", commercial: false, requiredFilter: false,
                          urls: Installer.licenseURLs(.qwenImage21)),
-        defaultSteps: 6, space: .qwenImage21, formats: recommendedFormats)
+        defaultSteps: 8, space: .qwenImage21, formats: recommendedFormats)
 
     /// The repository's models, in the order of `Model.identifiers`.
     public static let allCards: [ModelCard] = [zImage, anima, krea2, klein4b, ernie, qwenImage21]
@@ -239,8 +237,11 @@ extension Library {
     /// **All known models**: the publisher's, then the imported ones.
     public func cards() -> [ModelCard] { ModelCard.allCards + importedCards() }
 
-    /// The DiTs of `store/importes/*.silicon`, read by their header (`name`, `kind`).
+    /// The DiTs of `store/importes/*.silicon`, read by their header (`name`, `kind`). An import of a
+    /// superseded kind is removed first (`removeSupersededImports`): no file stays on disk that the
+    /// app does not show.
     public func importedCards() -> [ModelCard] {
+        removeSupersededImports()
         let names = (try? FileManager.default.contentsOfDirectory(atPath: imported.path)) ?? []
         return names.filter { $0.hasSuffix(".silicon") }.sorted().compactMap { name in
             let path = imported.appendingPathComponent(name).path
@@ -249,6 +250,31 @@ extension Library {
             let slug = String(name.dropLast(".silicon".count))
             return ModelCard(isImported: header["nom"] as? String ?? slug, slug: slug, family: family, map: path)
         }
+    }
+
+    /// **Removes the imported DiTs of a superseded kind** — Qwen-Image-2.1 checkpoints forged while the
+    /// family rendered the base model under a third-party turbo LoRA (`Family.supersededQwenImage21Kind`,
+    /// the kind of every Qwen map then, Standard, Compact, Light or imported). The engine refuses them
+    /// and the catalog does not list them (`Family(ditKind:)` is nil): kept, they would occupy the disk
+    /// out of sight. Their map and what goes with it (`adapterPath(fromMap:)`) are removed, one journal
+    /// line each (stderr by default). Returns the maps removed.
+    @discardableResult
+    package func removeSupersededImports(journal: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }) -> [String] {
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: imported.path)) ?? []
+        var removed: [String] = []
+        for name in names.sorted() where name.hasSuffix(".silicon") {
+            let path = imported.appendingPathComponent(name).path
+            guard let header = try? Artifact.header(path), header["kind"] as? String == Family.supersededQwenImage21Kind else { continue }
+            let bytes = Self.size(path) + Self.size(adapterPath(fromMap: path))
+            do { try fm.removeItem(atPath: path) } catch { continue }
+            try? fm.removeItem(atPath: adapterPath(fromMap: path))
+            removed.append(path)
+            journal(String(format: "removed the imported model \"%@\" (%@): forged for Qwen-Image-2.1's base model and its "
+                           + "third-party turbo LoRA, which the family no longer renders (%.2f GB freed)",
+                           header["nom"] as? String ?? String(name.dropLast(".silicon".count)), name, Double(bytes) / 1e9))
+        }
+        return removed
     }
 
     /// **The forged LoRAs of `store/*.lora.silicon`**, read by their header — `for`: only those

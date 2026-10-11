@@ -100,6 +100,25 @@ final class CompactTests: XCTestCase {
         }
     }
 
+    /// **Qwen's three versions are the Turbo's**: no file of any recipe — components, encoder, DiT,
+    /// license — comes from the base model's repository; the Compact's and the Light's DiTs are the
+    /// third parties' Turbo files (V5a), their encoder's `config.json` the Turbo's.
+    func testNoQwenRecipeReadsTheBaseModel() throws {
+        for v in Family.qwenImage21.variants {
+            let files = Installer.components(.qwenImage21) + Installer.encoder(.qwenImage21, v) + Installer.dit(.qwenImage21, v)
+                + Installer.licenseFiles(.qwenImage21, v)
+            XCTAssertFalse(files.contains { $0.repository.name == "Qwen/Qwen-Image-2.1" }, v.rawValue)
+            XCTAssertTrue(Family.qwenImage21.ditMap(v).hasPrefix("qwen-image-2.1-turbo-dit"), v.rawValue)
+            XCTAssertFalse(Family.supersededQwenImage21Maps.contains(Family.qwenImage21.ditMap(v)), v.rawValue)
+        }
+        XCTAssertEqual(Installer.dit(.qwenImage21, .compact).map(\.path), ["diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors"])
+        XCTAssertEqual(Installer.dit(.qwenImage21, .compact).compactMap(\.sha256), ["8144a0182964aa8403ad6dbc011db837304167d235161b9aabaa8532e967314c"])
+        XCTAssertEqual(Installer.dit(.qwenImage21, .light).map(\.path), ["qwen-image-2.1-turbo-Q4_K_M.gguf"])
+        XCTAssertEqual(Installer.dit(.qwenImage21, .light).compactMap(\.sha256), ["8940e8b522af886e0c0f5afddf720e82dd223cb9a43580b5f61c4d740452ac20"])
+        XCTAssertEqual(Installer.encoder(.qwenImage21, .light).compactMap(\.sha256),
+                       ["0cb5ed0653e2ec8065f25a6cfb2ab6a89b6c8f143a500acea19f0e36214814b7"], "the 8-bit encoder is unchanged")
+    }
+
     /// The fixture judged in H/C1 for each Compact file — same repository, revision and path.
     private func fixture(_ x: Installer.File) throws -> (folder: String, manifest: [String: Any]) {
         let slugs = try FileManager.default.contentsOfDirectory(atPath: Self.fixtures)
@@ -129,7 +148,7 @@ final class CompactTests: XCTestCase {
             let ditBytes = try XCTUnwrap(d.manifest["file_bytes"] as? Int), encoderBytes = try XCTUnwrap(e.manifest["file_bytes"] as? Int)
             XCTAssertEqual(Double(size.dit), Double(ditBytes), accuracy: 0.02 * Double(ditBytes), "\(f.name) DiT")
             XCTAssertEqual(Double(size.encoder), Double(encoderBytes), accuracy: 0.03 * Double(encoderBytes), "\(f.name) encoder")
-            XCTAssertEqual(size.components, standard.components, "tokenizers, VAE, turbo LoRA: the Standard's")
+            XCTAssertEqual(size.components, standard.components, "tokenizers, VAE: the Standard's")
             let total = { (s: (dit: Int, encoder: Int, components: Int)) in s.dit + s.encoder + s.components }
             XCTAssertLessThan(Double(total(size)), 0.6 * Double(total(standard)), "\(f.name): Compact is the smaller one")
         }
@@ -148,6 +167,10 @@ final class CompactTests: XCTestCase {
         let qwenDiT = try fixture(Installer.dit(.qwenImage21, .compact)[0])
         let ditSource = try TensorSource(paths: [try sparse(qwenDiT.folder, scratch)])
         XCTAssertEqual(Recipes.family(fromNames: ditSource.names), .qwenImage21)
+        // The Turbo's: its 31 `comfy_attention.config` (ComfyUI's attention preference) are ignored,
+        // never a name the strict recipe sees.
+        XCTAssertTrue(ditSource.notes.contains { $0.hasPrefix("31 ComfyUI attention preference(s)") }, "\(ditSource.notes)")
+        XCTAssertFalse(ditSource.names.contains { $0.contains("comfy_attention") })
         let n = try Recipes.normalize(ditSource, family: .qwenImage21)
         XCTAssertEqual(n.dit.count, 297, "M114: 297/297 names")
         var kept = 0
@@ -180,7 +203,7 @@ final class CompactTests: XCTestCase {
     }
 
     /// The published header over a sparse file of the published size, ComfyUI's `comfy_quant`
-    /// texts written in (`QuantCheck.swift`, `sparseSource`).
+    /// texts and other U8 texts (`comfy_other_u8`) written in (`QuantCheck.swift`, `sparseSource`).
     private func sparse(_ folder: String, _ scratch: URL) throws -> String {
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: folder + "/header.json"))) as! [String: Any]
         var json = try JSONSerialization.data(withJSONObject: object)
@@ -192,7 +215,8 @@ final class CompactTests: XCTestCase {
         try file.write(to: URL(fileURLWithPath: path))
         XCTAssertEqual(truncate(path, off_t(8 + json.count + end)), 0)
         let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: folder + "/manifest.json"))) as! [String: Any]
-        if let texts = manifest["comfy_quant"] as? [String: String] {
+        if let quant = manifest["comfy_quant"] as? [String: String] {
+            let texts = quant.merging(manifest["comfy_other_u8"] as? [String: String] ?? [:]) { a, _ in a }
             let handle = try XCTUnwrap(FileHandle(forWritingAtPath: path))
             defer { try? handle.close() }
             for (name, text) in texts {

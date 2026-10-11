@@ -57,7 +57,7 @@ final class ChainTests: XCTestCase {
         XCTAssertEqual([ZImageDenoisingModule(map: "").model, AnimaDenoisingModule(map: "").model,
                         Krea2DenoisingModule(map: "").model, KleinDenoisingModule(map: "").model,
                         ErnieDenoisingModule(map: "").model,
-                        QwenImage21DenoisingModule(map: "", turbo: "", scheduler: .init()).model], Model.identifiers)
+                        QwenImage21DenoisingModule(map: "", scheduler: .init()).model], Model.identifiers)
     }
 
     func testALoRAOfTheRightTargetIsAccepted() throws {

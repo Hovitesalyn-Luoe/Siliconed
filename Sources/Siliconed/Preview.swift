@@ -59,8 +59,10 @@ extension Engine {
 /// image, hence not independent.
 ///
 /// **Qwen-Image-2.1**: 64 channels, seven pairs at ~512² (the generation in 6 and 9 steps,
-/// two edits, the encoder's two references), the latent *before* its per-channel denormalization,
-/// RGB of the RGBA decode. One pair held out: 26.2 to 29.1 dB — optimistic, the pairs go by twos;
+/// two edits, the encoder's two references — fitted on goldens of the base model under the
+/// third-party turbo LoRA the family carried before the official Turbo; the latent space and the VAE
+/// are the same, the Turbo's VAE being the base's rounded to bf16, so the fit was not redone), the
+/// latent *before* its per-channel denormalization, RGB of the RGBA decode. One pair held out: 26.2 to 29.1 dB — optimistic, the pairs go by twos;
 /// both generations held out together, judged on them: **23.9 dB**. ComfyUI publishes nothing for
 /// this space.
 package struct PreviewProjection: Sendable, Equatable {

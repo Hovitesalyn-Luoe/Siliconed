@@ -149,7 +149,9 @@ package enum ForgeText {
         let order = rope ? ForgeDiT.interleaveOrder(rows: shape[0], head: plan.headDim)
             : visionRope ? plan.visionHead.map { qkOrder(rows: shape[0], head: $0) } : nil
         let p = Provenance(shape: shape, dtypeSource: dtype) { try source.read(published) }.quantized(source, published) { $0 }
-        return try ForgeDiT.tensor(name, p, .init(transposed: shape.count == 2 && !table, named: .bfloat16, rowOrder: order))
+            .bits { try source.read16(published) }
+        return try ForgeDiT.tensor(name, p, .init(transposed: shape.count == 2 && !table, named: .bfloat16, rowOrder: order,
+                                                  measuresAbsMax: false))
     }
 
     /// Forges the map of a published encoder: its tensors, its config (`config.json`, whole).

@@ -3,17 +3,17 @@ internal import AMXLegacy
 import Foundation
 import Metal
 import MetalPerformanceShadersGraph
-import Synchronization
 
 /// **The SDPA cut by heads between the GPU and the AMX** — Z-Image's only SDPA path at
-/// S ≥ 1024 (judged at threshold on its goldens; md5 of the 512² seed-42 render `798d5497`).
+/// S ≥ 1024 (judged at threshold on its goldens; md5 of the 512² seed-42 render `798d5497`), and
+/// Qwen-Image-2.1's for its target's queries on all the keys (judged at the fp64 witness).
 ///
-///     q, k, v   [S, H·Dh] fp32, as the GEMMs wrote them (unified memory, no copy)
+///     q [S, H·Dh], k, v [K, H·Dh] fp32, as the GEMMs wrote them (unified memory, no copy)
 ///        │
 ///        ├─ heads [0, g)  GPU   MPSGraph: slice heads → [g, S, Dh] → SDPA → [S, g, Dh] → pad a zero heads ─► out [S, H·Dh]
 ///        │
-///        └─ heads [g, H)  CPU   per block of `rows` queries of one head, any thread:              ─► spill [S, a·Dh]
-///                                 scores = Q_b · Kᵀ                    BNNSMatMul, 1 thread (AMX)
+///        └─ heads [g, H)  CPU   per block of `rows` queries of one head, Q_b, K_h, V_h packed:    ─► spill [S, a·Dh]
+///                                 scores = Q_b · K_hᵀ                  BNNSMatMul, 1 thread (AMX)
 ///                                 p = exp(scale·s − scale·max s)       vDSP_maxv, vDSP_vsmsa, vvexpf
 ///                                 O_b = (P · V) / Σp                   BNNSMatMul, then vDSP_vsdiv on rows × Dh only
 ///        then, both engines done: spill → the CPU heads' columns of out
@@ -29,8 +29,14 @@ import Synchronization
 ///   engine would then read all of `K`/`V` for all heads; by head, each engine reads only its own.
 ///   Each head is computed entirely by one engine, so no sum is re-associated: the fraction can be
 ///   frozen and the render stays reproducible bit for bit (as for the frozen GPU/AMX cut).
-/// - **The CPU's block boundaries are fixed by position** (`rows`-multiples), not by thread: a block
-///   is handed to whichever thread is free, and the bits do not depend on which one took it.
+/// - **The CPU's block boundaries are fixed by position** (`rows`-multiples), not by thread, and each
+///   thread takes a contiguous run of blocks (bounds by endpoints): the bits do not depend on which
+///   thread computed a block, and a thread packs each head's `K_h`/`V_h` once for its run.
+/// - **The operands are packed, never read in place.** In place, a row of one head is `Dh` floats every
+///   `H·Dh`; at Qwen's 32 × 128 that stride is 16 KB, a power of two, and every row lands in the same
+///   cache sets: a CPU head cost 15 ms at 32 heads against 7.9 at 30 (same S and K) — the "~14 ms,
+///   cause unknown" that once kept Qwen off this path. Packed: 8.5 ms at both, and the copy is
+///   `rows·Dh` floats for `Q_b`, `keys·Dh` for `K_h` and `V_h` once per head of a thread's run.
 /// - **`MPSGraph` cannot write a strided result**, so the GPU writes the whole `[S, H·Dh]` (its heads,
 ///   then zeros) and the CPU heads wait in a spill until the GPU is done. The copy is `a/H` of the
 ///   output, ~27 MB at 1024² — a few ms against the ~60 ms saved.
@@ -44,6 +50,9 @@ import Synchronization
 package final class HeadSplitAttention {
     package let heads: Int
     package let sequence: Int
+    /// The rows of `k` and `v`: `sequence` for a self-attention (Z-Image), more for a query block
+    /// that also reads a prefix (Qwen-Image-2.1's target on the conditions' keys).
+    package let keys: Int
     package let headDim: Int
     /// Heads `[0, gpuHeads)` go to the GPU, `[gpuHeads, heads)` to the CPU.
     package let gpuHeads: Int
@@ -81,23 +90,32 @@ package final class HeadSplitAttention {
     private let q, k, v, out: MPSGraphTensor
     private let threads: Int
     private let work: [(head: Int, row: Int, rows: Int)]
-    private let next = Atomic<Int>(0)
     /// The CPU heads' output, `[S, a·Dh]`, copied into `out` once the GPU is done.
     private let spill: UnsafeMutablePointer<Float>
     private let scratch: [Scratch]
 
-    /// One thread's scores block and BNNS workspace.
+    /// One thread's scores block, BNNS workspace, and its **packed** operands: the queries of its block
+    /// and the keys and values of the head it is on, each contiguous at `Dh` floats a row.
     private final class Scratch {
         let scores: UnsafeMutablePointer<Float>
         let sums: UnsafeMutablePointer<Float>
+        let packedQ, packedK, packedV: UnsafeMutablePointer<Float>
+        /// The head whose keys and values `packedK`/`packedV` hold, `-1` for none (set per `run`).
+        var packedHead = -1
         var workspace: UnsafeMutableRawPointer?
         var workspaceBytes = 0
         var failures = 0
-        init(rows: Int, keys: Int) {
+        init(rows: Int, keys: Int, headDim: Int) {
             scores = .allocate(capacity: rows * keys)
             sums = .allocate(capacity: rows)
+            packedQ = .allocate(capacity: rows * headDim)
+            packedK = .allocate(capacity: keys * headDim)
+            packedV = .allocate(capacity: keys * headDim)
         }
-        deinit { scores.deallocate(); sums.deallocate(); workspace?.deallocate() }
+        deinit {
+            scores.deallocate(); sums.deallocate(); workspace?.deallocate()
+            packedQ.deallocate(); packedK.deallocate(); packedV.deallocate()
+        }
         func space(_ bytes: Int) -> UnsafeMutableRawPointer? {
             if bytes > workspaceBytes {
                 workspace?.deallocate()
@@ -115,25 +133,28 @@ package final class HeadSplitAttention {
 
     /// - Parameter cpuFraction: the share of heads handed to the CPU; the product's is `cpuFraction`,
     ///   other values serve the `sdpa` check's sweep.
+    /// - Parameter keys: the rows of `k`/`v`, `nil` for `sequence`.
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
-                 cpuFraction: Double = HeadSplitAttention.cpuFraction,
+                 keys: Int? = nil, cpuFraction: Double = HeadSplitAttention.cpuFraction,
                  threads: Int = EngineSettings.effective.machine.performanceCores) {
         let (gpu, cpu) = HeadSplitAttention.partition(heads: heads, fraction: cpuFraction)
         self.queue = queue
-        self.heads = heads; self.sequence = sequence; self.headDim = headDim
+        let keys = keys ?? sequence
+        self.heads = heads; self.sequence = sequence; self.keys = keys; self.headDim = headDim
         self.gpuHeads = gpu.count
         self.threads = max(1, threads)
         work = HeadSplitAttention.items(cpu: cpu, sequence: sequence, rows: HeadSplitAttention.blockRows)
         spill = .allocate(capacity: max(1, sequence * cpu.count * headDim))
-        scratch = (0..<max(1, threads)).map { _ in Scratch(rows: HeadSplitAttention.blockRows, keys: sequence) }
+        scratch = (0..<max(1, threads)).map { _ in Scratch(rows: HeadSplitAttention.blockRows, keys: keys, headDim: headDim) }
 
         let graph = MPSGraph()
         self.graph = graph
         let n = { (x: Int) in NSNumber(value: x) }
         let shape: [NSNumber] = [1, n(sequence), n(heads), n(headDim)]
+        let kvShape: [NSNumber] = [1, n(keys), n(heads), n(headDim)]
         let q = graph.placeholder(shape: shape, dataType: .float32, name: "q")
-        let k = graph.placeholder(shape: shape, dataType: .float32, name: "k")
-        let v = graph.placeholder(shape: shape, dataType: .float32, name: "v")
+        let k = graph.placeholder(shape: kvShape, dataType: .float32, name: "k")
+        let v = graph.placeholder(shape: kvShape, dataType: .float32, name: "v")
         self.q = q; self.k = k; self.v = v
         func gpuPart(_ t: MPSGraphTensor) -> MPSGraphTensor {
             let sliced = cpu.isEmpty ? t : graph.sliceTensor(t, dimension: 2, start: 0, length: gpu.count, name: nil)
@@ -155,6 +176,7 @@ package final class HeadSplitAttention {
                      out outPointer: UnsafeMutablePointer<Float>) -> (gpu: Double, cpu: Double) {
         let n = { (x: Int) in NSNumber(value: x) }
         let shape: [NSNumber] = [1, n(sequence), n(heads), n(headDim)]
+        let kvShape: [NSNumber] = [1, n(keys), n(heads), n(headDim)]
         func data(_ b: MTLBuffer, _ s: [NSNumber]) -> MPSGraphTensorData { MPSGraphTensorData(b, shape: s, dataType: .float32) }
         // **The graph may commit by itself** (`commitAndContinue`, as in `Attention.run`): at
         // 1024×1536 it does, and committing a wrapped `MTLCommandBuffer` afterwards was the fatal
@@ -166,18 +188,18 @@ package final class HeadSplitAttention {
         outPointer[probe] = Float(bitPattern: sentinel)
         let commands = MPSCommandBuffer(from: queue)
         graph.encode(to: commands,
-                     feeds: [q: data(qBuffer, shape), k: data(kBuffer, shape), v: data(vBuffer, shape)],
+                     feeds: [q: data(qBuffer, shape), k: data(kBuffer, kvShape), v: data(vBuffer, kvShape)],
                      targetOperations: nil, resultsDictionary: [out: data(outBuffer, shape)], executionDescriptor: nil)
         commands.commit()
 
         let started = DispatchTime.now().uptimeNanoseconds
         if !work.isEmpty {
-            next.store(0, ordering: .relaxed)
+            // A thread takes a contiguous run of items (bounds by endpoints), hence one or two heads,
+            // each packed once; a free-for-all would repack a head at nearly every item.
             HeadSplitAttention.perform(threads) { t in
                 let s = scratch[t]
-                while true {
-                    let i = next.wrappingAdd(1, ordering: .relaxed).oldValue
-                    guard i < work.count else { return }
+                s.packedHead = -1
+                for i in (t * work.count / threads)..<((t + 1) * work.count / threads) {
                     block(work[i], s, q: qPointer, k: kPointer, v: vPointer)
                 }
             }
@@ -229,28 +251,36 @@ package final class HeadSplitAttention {
                        q: UnsafePointer<Float>, k: UnsafePointer<Float>, v: UnsafePointer<Float>) {
         let width = heads * headDim, column = item.head * headDim
         let spilledWidth = cpuHeads * headDim, spilledColumn = (item.head - gpuHeads) * headDim
-        let qBlock = UnsafeMutablePointer(mutating: q) + item.row * width + column
-        let kHead = UnsafeMutablePointer(mutating: k) + column
-        let vHead = UnsafeMutablePointer(mutating: v) + column
         let o = spill + item.row * spilledWidth + spilledColumn
-        // scores [rows, S] = Q_b [rows, Dh] · K_hᵀ, K_h being [S, Dh] at a row stride of H·Dh
-        multiply(s, a: qBlock, aRows: item.rows, aColumns: headDim, aStride: width,
-                 b: kHead, bRows: sequence, bColumns: headDim, bStride: width, transposeB: true,
-                 c: s.scores, cColumns: sequence, cStride: sequence)
-        let scale = 1 / Float(headDim).squareRoot()
-        var count = Int32(sequence)
-        for r in 0..<item.rows {
-            let row = s.scores + r * sequence
-            var maximum: Float = 0
-            vDSP_maxv(row, 1, &maximum, vDSP_Length(sequence))
-            var a = scale, b = -scale * maximum
-            vDSP_vsmsa(row, 1, &a, &b, row, 1, vDSP_Length(sequence))
-            vvexpf(row, row, &count)
-            vDSP_sve(row, 1, s.sums + r, vDSP_Length(sequence))
+        // Packed, not read in place: at Qwen's 32 × 128 the row stride is 16 KB, and in place every row
+        // of `K_h` falls in the same cache sets (see the header).
+        func pack(_ source: UnsafePointer<Float>, rows: Int, into destination: UnsafeMutablePointer<Float>) {
+            for r in 0..<rows { (destination + r * headDim).update(from: source + r * width, count: headDim) }
         }
-        // O_b [rows, Dh] = P [rows, S] · V_h [S, Dh], then each row divided by its Σp
-        multiply(s, a: s.scores, aRows: item.rows, aColumns: sequence, aStride: sequence,
-                 b: vHead, bRows: sequence, bColumns: headDim, bStride: width, transposeB: false,
+        pack(q + item.row * width + column, rows: item.rows, into: s.packedQ)
+        if s.packedHead != item.head {
+            pack(k + column, rows: keys, into: s.packedK)
+            pack(v + column, rows: keys, into: s.packedV)
+            s.packedHead = item.head
+        }
+        // scores [rows, K] = Q_b [rows, Dh] · K_hᵀ
+        multiply(s, a: s.packedQ, aRows: item.rows, aColumns: headDim, aStride: headDim,
+                 b: s.packedK, bRows: keys, bColumns: headDim, bStride: headDim, transposeB: true,
+                 c: s.scores, cColumns: keys, cStride: keys)
+        let scale = 1 / Float(headDim).squareRoot()
+        var count = Int32(keys)
+        for r in 0..<item.rows {
+            let row = s.scores + r * keys
+            var maximum: Float = 0
+            vDSP_maxv(row, 1, &maximum, vDSP_Length(keys))
+            var a = scale, b = -scale * maximum
+            vDSP_vsmsa(row, 1, &a, &b, row, 1, vDSP_Length(keys))
+            vvexpf(row, row, &count)
+            vDSP_sve(row, 1, s.sums + r, vDSP_Length(keys))
+        }
+        // O_b [rows, Dh] = P [rows, K] · V_h [K, Dh], then each row divided by its Σp
+        multiply(s, a: s.scores, aRows: item.rows, aColumns: keys, aStride: keys,
+                 b: s.packedV, bRows: keys, bColumns: headDim, bStride: headDim, transposeB: false,
                  c: o, cColumns: headDim, cStride: spilledWidth)
         for r in 0..<item.rows {
             vDSP_vsdiv(o + r * spilledWidth, 1, s.sums + r, o + r * spilledWidth, 1, vDSP_Length(headDim))

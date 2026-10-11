@@ -453,11 +453,11 @@ struct VersionChoice: View {
         case (.compact, .zImage):
             String(localized: "8-bit weights published by third parties: the image model from unsloth (GGUF Q8_0), the text encoder from Disty0 (SDNQ int8). Tokenizer and VAE are the publisher's.")
         case (.compact, .qwenImage21):
-            String(localized: "8-bit weights published by third parties: the image model from Comfy-Org (int8 convrot), the text encoder from unsloth (int8 convrot). Processor, VAE and turbo LoRA are the publisher's.")
+            String(localized: "8-bit weights published by third parties: the image model from Comfy-Org (int8 convrot), the text encoder from unsloth (int8 convrot). Processor and VAE are the publisher's.")
         case (.light, .zImage):
             String(localized: "The image model in 4 to 6 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from Disty0 (SDNQ int8). Tokenizer and VAE are the publisher's.")
         case (.light, .qwenImage21):
-            String(localized: "The image model in 4 to 8 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from unsloth (int8 convrot). Processor, VAE and turbo LoRA are the publisher's.")
+            String(localized: "The image model in 4 to 8 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from unsloth (int8 convrot). Processor and VAE are the publisher's.")
         default:
             String(localized: "The image model and the text encoder in the publisher's precision (bf16).")
         }

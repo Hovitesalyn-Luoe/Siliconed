@@ -26,7 +26,7 @@ import Metal
 /// compiled. The second is what every later step costs. One alone would mix the two; their ratio is
 /// itself a figure of the machine (an 8 GB Mac re-reading its map at each step shows it here).
 ///
-/// **Why the full render is derived, not measured.** At 512², a Qwen render is 6 evaluations and a
+/// **Why the full render is derived, not measured.** At 512², a Qwen render is 8 evaluations and a
 /// Z-Image one 7: running them would triple the diagnostic for figures the derivation gives within the
 /// noise of a run (M1 Pro: a step varies by a few %, the machine drifts 4–13 % over a few renders).
 /// The JSON says it: `estimatedRenderSeconds`, never "render seconds".
@@ -41,16 +41,19 @@ import Metal
 /// A model without a golden (the four families the diagnostic does not drive, every imported
 /// DiT) still runs — timings, machine, peak, swap — and says `"golden": null`, `"deviation": null`.
 ///
-/// **The golden of Qwen-Image-2.1** (`Resources/diagnostic/qwen-image-2.1.safetensors`, 1.05 MB):
-///   - from the oracle's `goldens-qwen21-trajectory-512.safetensors` (sha256 `bf46a1089c03340e…`,
-///     written on 03/10/2026: diffusers fp32 on CPU, base `d26bb612`, Viggle turbo
-///     `009a44a8` at strength 1, prompt « a 30 year old woman posing in a library », seed 0, 6 steps);
+/// **The golden of Qwen-Image-2.1** (`Resources/diagnostic/qwen-image-2.1.safetensors`, 1.05 MB,
+/// sha256 `db216b9064312ab7…`):
+///   - from the oracle's `goldens-qwen21-trajectory-512.safetensors` (sha256 `25d35d9cb533b936…`,
+///     written on 10/10/2026: diffusers 0.41.0 fp32 on CPU, transformers 5.19.0,
+///     `Qwen/Qwen-Image-2.1-Turbo@d65dbc9a`, prompt « a 30 year old woman posing in a library »,
+///     512², seed 0, 8 steps on `sample_sigmas`);
 ///   - keys `latent_init` → `x_t.0`, `velocity_0` → `model_out.0`, `latent_1` → `x_t.1`, `velocity_1` →
 ///     `model_out.1` (the transformer's output on the target rows, packed `[1024, 64]`, stored planar
-///     `[64, 32, 32]`), `sigmas[0:2]` → `sigma` = [1.0, 0.96255648] (the scheduler's σ, which
+///     `[64, 32, 32]`), `sigmas[0:2]` → `sigma` = [1, 0.978453] (`0x3f800000`, `0x3f7a7be5`: the
+///     Turbo's first two `sample_sigmas` made float32, the same at every size, which
 ///     `QwenImage21DiT.forward` receives);
-///   - step 0 is bit for bit `goldens-qwen21-dit-lora-512`'s `model_out` (the input of the turbo LoRA check at 512²);
-///   - regenerated on 04/10/2026 from the oracle's goldens.
+///   - step 0 is bit for bit `goldens-qwen21-dit-512`'s `model_out` (the DiT check at 512²);
+///   - its metadata say where it comes from (`model`, `source_sha256`, `generated` 2026-10-10).
 ///
 /// **The golden of Z-Image Turbo** (`Resources/diagnostic/z-image.safetensors`, 1.05 MB):
 ///   - from the oracle's `goldens-trajectory-512.safetensors` (sha256 `c3157e2da4be5b0a…`, written
@@ -385,7 +388,10 @@ public enum Diagnostic {
 
     /// **The threshold on the second `model_out`'s worst channel**, at the user's own conditioning.
     ///
-    /// Qwen-Image-2.1, measured on the M1 Pro on 04/10/2026 (the diagnostic, also run on the oracle's conditioning):
+    /// Qwen-Image-2.1, measured on the M1 Pro on 04/10/2026 (the diagnostic, also run on the oracle's conditioning).
+    /// ⚠️ These figures predate Qwen-Image-2.1-Turbo: they were read on the base model under the
+    /// third-party turbo LoRA the family carried until 10/10/2026, at its σ₁ = 0.9626; the Turbo's
+    /// golden (σ₁ = 0.978453) has not been read against them yet. The threshold does not move.
     ///
     ///                                        step 0 (σ = 1)    step 1 (σ = 0.9626, judged)
     ///     at the oracle's conditioning        3.65·10⁻⁶         8.22·10⁻⁶      ← step 0 is the turbo LoRA check's figure
@@ -612,19 +618,17 @@ public enum Diagnostic {
         }
     }
 
-    /// **`QwenImage21Sampler.run`'s turbo phase, two steps of it, on the given latents**: the same
-    /// LoRA stack (the turbo alone, `LoRA(layers:)`), the same cache policy, the prefill folded into the
-    /// first step. The sampler itself is not used because it chains its own latent (`x + Δσ·v`): the
+    /// **`QwenImage21Sampler.run`, two steps of it, on the given latents**: the same DiT (no LoRA: the
+    /// Turbo is the map), the same cache policy, the prefill folded into the first step. The sampler itself is not used because it chains its own latent (`x + Δσ·v`): the
     /// second evaluation must read the oracle's `x_t.1`, not ours. `--same-bits` checks the two agree.
     package static func evaluateQwen(_ module: QwenImage21DenoisingModule, text: Conditioning, inputs: [[Float]],
                                      sigmas: [Float], height: Int, width: Int, context: Context) throws -> Evaluations {
         guard text.format == module.entry, text.imageSlots.count == text.rows else {
             throw Chain.Failure.incompatibleText(output: text.format, entry: module.entry)
         }
-        let turbo = try LoRA(layers: try LoRA(paths: [(path: module.turbo, strength: 1)]).layers)
         let sequence = try QwenImage21Sequence(slots: text.imageSlots + [Bool](repeating: true, count: height * width / 4),
                                                images: [.init(height: height, width: width)])
-        let dit = try QwenImage21DiT(artifact: try Artifact(path: module.map), sequence: sequence, lora: turbo,
+        let dit = try QwenImage21DiT(artifact: try Artifact(path: module.map), sequence: sequence, lora: nil,
                                      storage: module.storage ?? QwenImage21CachePolicy.storage(prefix: sequence.prefix),
                                      kept: nil, freezeCut: context.reproducible)
         dit.cancellation = context.cancellation

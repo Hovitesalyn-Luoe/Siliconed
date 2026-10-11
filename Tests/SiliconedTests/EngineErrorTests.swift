@@ -160,8 +160,7 @@ final class EngineErrorTests: XCTestCase {
         for f in Family.allCases {
             let card = ModelCard.of(f), urls = card.license.urls
             XCTAssertFalse(urls.isEmpty, "\(f): no license URL")
-            let downloaded = Set((Installer.components(f) + Installer.encoder(f) + Installer.dit(f)
-                                  + [Installer.turbo(f)].compactMap { $0 })
+            let downloaded = Set((Installer.components(f) + Installer.encoder(f) + Installer.dit(f))
                 .map { "\($0.repository.name)@\($0.repository.revision)" })
             for (i, url) in urls.enumerated() {
                 let s = url.absoluteString
@@ -174,7 +173,7 @@ final class EngineErrorTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(ModelCard.qwenImage21.license.urls.map(\.lastPathComponent), ["LICENSE", "LICENSE"])
+        XCTAssertEqual(ModelCard.qwenImage21.license.urls.map(\.lastPathComponent), ["LICENSE"])
         let imported = ModelCard(isImported: "x", slug: "x", family: .krea2, map: "/tmp/x.silicon")
         XCTAssertEqual(imported.license.urls, ModelCard.krea2.license.urls, "an imported model reads its family's")
     }

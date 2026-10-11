@@ -2,6 +2,73 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.5
+
+### Qwen-Image-2.1 is now Qwen's official Turbo
+
+- **One model, from its publisher.** Qwen-Image-2.1 now runs Qwen's own distilled model,
+  [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo). Until 0.4, the app ran
+  the base model under a third party's turbo LoRA (Viggle's); that LoRA and the base model are
+  gone. Text-to-image, editing by instruction with 1 to 3 images and your own LoRAs work as before.
+- **8 steps, on the schedule Qwen publishes.** The step count is fixed at 8: the 9-step mode is
+  gone, and any other count is refused.
+- **Compact and Light follow.** The Compact takes Comfy-Org's 8-bit (int8 convrot) Turbo, the
+  Light unsloth's GGUF Q4_K_M Turbo; the Compact's 8-bit text encoder is unchanged. On disk:
+  31.2 GB in Standard, 17.3 GB in Compact, 14.2 GB in Light (33.2, 19.4 and 16.2 GB before: the
+  turbo LoRA is no longer stored).
+- **An existing installation is recognized.** The Models window asks you to “Finish
+  Installing…”: the old transformer and small files are removed, the Turbo's are downloaded in
+  the same version (Standard, Compact or Light). The text encoder is kept: the Turbo's is the base
+  model's, bit for bit, so it is not downloaded again. Fine-tunes of Qwen-Image-2.1 imported for
+  the base model can no longer render and are removed.
+- **Same license**: Qwen Research, non-commercial — the Turbo carries the base model's text.
+- **Checked like the rest.** Every stage is compared with Qwen's reference implementation; the
+  engine stays within 3.0·10⁻⁶ of the exact (fp64) computation.
+
+### Faster than 0.4 for an image, slower for an edit
+
+The Turbo takes 8 steps where the third-party LoRA took 6. We chose it anyway: it is the quality Qwen
+publishes and checks, with no third-party piece in between that could change or disappear. Then we
+made its steps cheaper, without lowering the precision: everything is still computed in fp32 and
+checked against the exact computation.
+
+- **The first two steps at half size.** At 1024² and above, a generation computes its first two
+  steps at 512², then enlarges, as Z-Image already does. The image changes (the same seed gives
+  another composition) but stays clean. Not under a LoRA or Detail, nor in an edit.
+- **Attention shared between the GPU and the CPU.** In every layer, 13 of the 32 attention heads
+  go to the CPU's matrix unit while the GPU computes the others.
+- **Smaller savings**, with the same bits: the model is read in one stream, and normalizations are
+  fused.
+
+On the reference Mac:
+
+- 1024² generation: ~120 s (~134 s in 0.4, ~160 s for the Turbo without these savings);
+- an edit with 1 reference: ~210 s (~190 s), with 2 references ~285 s;
+- the worst case, 1024×1536 with 3 references: ~515 s, 4.7 GB of memory at the peak, without any
+  swap;
+- the Light takes the same time as the Standard.
+
+### Installation
+
+- **Faster, and lighter on memory.** Preparing a downloaded model for the engine now takes seconds
+  instead of minutes, and the next file downloads while the previous one is prepared. On a fast
+  connection (85 MB/s), Qwen-Image-2.1 installs in ~6½ min in Standard (~8 min in 0.4), ~3½ min in
+  Compact (~5½) and ~3 min in Light (~4); the network is now what sets the time. The installed
+  model is the same, byte for byte.
+- **No swap while installing.** The installation's memory peak goes from 4.6 GB to 2.2–2.5 GB, and
+  freshly downloaded files no longer crowd the rest of your Mac out of memory: an installation
+  that could swap on a busy Mac no longer does.
+
+### Batches
+
+- **Batches no longer swap.** Each image of a batch used to rebuild the model, and on a busy Mac a
+  batch could end up swapping. Now every image is computed with the same model, then every image
+  is decoded: the same images, with no swap, on Z-Image and Qwen-Image-2.1.
+- **Including with your own LoRA.** On Qwen-Image-2.1, a batch with a LoRA of yours keeps the
+  model, LoRA applied, from one image to the next.
+
+Timings are measured on a MacBook Pro M1 Pro with 16 GB.
+
 ## 0.4
 
 ### Installation

@@ -5,6 +5,8 @@
 //   │ └─────────────────────────┘
 //   │ ┌ Images ─────────────────┐   only if the model edits: 1 to 3 numbered thumbnails
 //   │ └────┬──────────────┬─────┘
+//   │ ┌ Subjects ───────────────┐   only with « Named Subjects » on (experimental, `Subjects.swift`):
+//   │ └────┬──────────────┬─────┘   the pictures `@name` cites, after the edit's images
 //   │      │image         │image
 //   │ ┌Text encoder┐ ┌Image encoder┐
 //   └▶│ (sees them)│ │             │
@@ -44,7 +46,7 @@ import SwiftUI
 // MARK: - The nodes and the wires
 
 /// The places of the rack: each reports its frame, and the wires are drawn between them.
-private enum Node: Hashable { case prompt, images, textEncoder, imageEncoder, dit, vae }
+private enum Node: Hashable { case prompt, images, subjects, textEncoder, imageEncoder, dit, vae }
 
 private struct NodeFrames: PreferenceKey {
     static let defaultValue: [Node: Anchor<CGRect>] = [:]
@@ -186,6 +188,7 @@ struct RackView: View {
             header
             PromptNode(app: app).node(.prompt)
             if app.editingPossible { ImagesNode(app: app).node(.images) }
+            if app.subjectsActive { SubjectsNode(app: app).node(.subjects) }
             HStack(alignment: .top, spacing: 10) {
                 textEncoder.node(.textEncoder)
                 if encodesImages { imageEncoder.node(.imageEncoder) }
@@ -206,7 +209,7 @@ struct RackView: View {
     private var encodesImages: Bool { app.editingPossible && app.chain?.encoding != nil }
 
     private var edges: [Edge] {
-        let live = !app.references.isEmpty
+        let live = !app.references.isEmpty || app.subjectImageCount > 0
         var e = [Edge(from: .prompt, to: .textEncoder, kind: .text, stage: .text, rail: app.editingPossible)]
         if app.editingPossible {
             // Qwen-Image-2.1's encoder sees the images (`TextFormat.readsImages`): one more wire.
@@ -215,6 +218,12 @@ struct RackView: View {
                 e.append(Edge(from: .images, to: .imageEncoder, kind: .image, stage: .image, live: live))
                 e.append(Edge(from: .imageEncoder, to: .dit, kind: .latent, stage: .denoising, live: live))
             }
+        }
+        // Named subjects: their pictures go where an edit's do — the encoder that sees them, the VAE encoder.
+        if app.subjectsActive {
+            let cited = app.subjectImageCount > 0
+            e.append(Edge(from: .subjects, to: .textEncoder, kind: .image, stage: .text, live: cited))
+            if encodesImages { e.append(Edge(from: .subjects, to: .imageEncoder, kind: .image, stage: .image, live: cited)) }
         }
         e += [Edge(from: .textEncoder, to: .dit, kind: .text, stage: .denoising),
               Edge(from: .dit, to: .vae, kind: .latent, stage: .decoding)]
@@ -268,7 +277,7 @@ struct RackView: View {
     private var imageEncoder: some View {
         StageBox(title: "Image encoder", symbol: "photo", state: app.state(of: .image)) {
             ModuleSlot(name: app.chain?.encoding?.name)
-            Cost(seconds: app.references.isEmpty ? nil : app.stageEstimate(.image))
+            Cost(seconds: app.references.isEmpty && app.subjectImageCount == 0 ? nil : app.stageEstimate(.image))
         }
     }
 
@@ -355,7 +364,7 @@ extension View {
 
 /// **A box the signal starts in** — the prompt, an edit's images: its chip in the color of the wire
 /// it sends; its edge takes the accent while it is being typed in (`focused`).
-private struct PortBox<Trailing: View, Content: View>: View {
+struct PortBox<Trailing: View, Content: View>: View {
     let title: LocalizedStringKey
     let symbol: String
     let kind: WireKind
@@ -473,19 +482,26 @@ private struct Cost: View {
 private struct PromptNode: View {
     @Bindable var app: AppState
     @FocusState private var typing: Bool
+    /// The named subjects' field says itself when it has the keyboard (`PromptField`).
+    @State private var fieldTyping = false
     @State private var height: CGFloat = 72
     @GestureState private var stretch: CGFloat = 0
     private static let heights: ClosedRange<CGFloat> = 44...480
 
     var body: some View {
-        PortBox(title: "Prompt", symbol: "text.quote", kind: .text, focused: typing) {
+        PortBox(title: "Prompt", symbol: "text.quote", kind: .text, focused: typing || fieldTyping) {
             VStack(spacing: 0) {
                 ZStack(alignment: .topLeading) {
-                    TextEditor(text: $app.prompt)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .scrollIndicators(.automatic)
-                        .focused($typing)
+                    // Named subjects on: the field that draws `@name` as chips. Off: the app as it was.
+                    if app.subjects.enabled {
+                        PromptField(app: app, focused: $fieldTyping)
+                    } else {
+                        TextEditor(text: $app.prompt)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
+                            .scrollIndicators(.automatic)
+                            .focused($typing)
+                    }
                     if app.prompt.isEmpty {
                         Text(app.references.isEmpty ? "Describe the image…" : "Say what changes…")
                             .font(.body).foregroundStyle(.tertiary)
@@ -495,6 +511,7 @@ private struct PromptNode: View {
                 }
                 .frame(height: min(max(height + stretch, Self.heights.lowerBound), Self.heights.upperBound))
                 grip
+                if app.subjects.enabled, let rewrite = app.shownRewrite { ModelPromptRow(app: app, rewrite: rewrite) }
             }
         }
     }

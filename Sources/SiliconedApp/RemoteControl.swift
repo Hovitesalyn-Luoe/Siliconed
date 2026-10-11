@@ -289,6 +289,7 @@ final class RemoteControl {
             case "history": finish(c, try history(arguments))
             case "save": finish(c, try save(arguments, cwd: cwd))
             case "vary": finish(c, try vary(arguments))
+            case "subjects": finish(c, try subjects(arguments, cwd: cwd))
             default:
                 throw Refusal("usage", String(localized: "unknown command: \"\(command)\""),
                             help: "silicontrol help")
@@ -308,10 +309,13 @@ final class RemoteControl {
         let r = t.settings
         return ["job": t.name, "model": r.identifier, "prompt": r.prompt,
                 "width": r.format.width, "height": r.format.height, "steps": r.steps,
-                "seeds": t.seeds.map { NSNumber(value: $0) }, "edit": !t.references.isEmpty,
+                // A subject's pictures are references, not images to edit (`RenderSettings.editing`).
+                "seeds": t.seeds.map { NSNumber(value: $0) }, "edit": r.editing,
                 "references": t.references.count,
                 "loras": r.loras.map { ["lora": Self.shortName($0.path), "strength": Response.number($0.strength)] }]
             .merging(gridPlace(t)) { a, _ in a }
+            // Only a job that cites named subjects has it: with the switch off, the answer is unchanged.
+            .merging(r.modelPrompt.map { ["model_prompt": $0, "subject_images": r.subjectImages] } ?? [:]) { a, _ in a }
             .merging(r.isVariation ? ["variation": Self.json(r.variations)] : [:]) { a, _ in a }
             .merging(r.detail == .normal ? [:] : ["detail": r.detail.rawValue]) { a, _ in a }
     }
@@ -791,7 +795,7 @@ final class RemoteControl {
 
         let defaultSteps = card?.defaultSteps ?? model.chain.denoising.defaultSteps
         let steps = d.steps ?? defaultSteps
-        // A step count the denoiser has no schedule for (Qwen-Image-2.1: Viggle's 5, 6, 7, 9) would
+        // A step count the denoiser has no schedule for (Qwen-Image-2.1-Turbo: 8 alone) would
         // fail in the queue: refused here, like everything else an accepted request cannot fail on.
         if (try? model.chain.denoising.check(steps: steps, startImage: false)) == nil {
             let accepted = (1...50).filter { (try? model.chain.denoising.check(steps: $0, startImage: false)) != nil }
@@ -805,20 +809,35 @@ final class RemoteControl {
         // One seed for the whole series, drawn once: the alternatives are compared at the same seeds.
         let firstNumber = d.seed ?? UInt64.random(in: 0...UInt64(UInt32.max))
         if grid {
+            if alternatives.variants.contains(where: { app.rewrite($0.prompt, model: model) != nil }) {
+                throw Refusal("subject", String(localized: "a grid does not cite named subjects yet"),
+                              help: "silicontrol add")
+            }
             let format = RecommendedFormat(width, height)
             try addGrid(d, prompt: prompt, model: model, card: card, format: format, steps: steps, stack: stack,
                         references: references, seed: firstNumber, defaultSteps: defaultSteps, folder: folder, cwd: cwd, c)
             return
         }
         let variants = alternatives.variants
+        // Named subjects (experimental, `Subjects.swift`): each expanded prompt rewritten, its
+        // subjects' pictures after the --ref images — refused whole if one expansion is.
+        for v in variants {
+            if case .failure(let f)? = app.rewrite(v.prompt, model: model, editImages: references.count) {
+                let p = Problem(f)
+                throw Refusal("subject", p.title, help: p.suggestion ?? "silicontrol subjects")
+            }
+        }
         let jobs = variants.map { v in
-            Job(ordinal: app.nextJobNumber(),
-                settings: RenderSettings(identifier: model.identifier, modelName: card?.name ?? model.name,
-                                         prompt: v.prompt, format: RecommendedFormat(width, height), steps: steps,
-                                         loras: stack, references: references.count, detail: d.detail),
-                seeds: (0..<d.batch).map { firstNumber &+ UInt64($0) },
-                references: references, previews: d.previews ?? app.previews,
-                defaultSteps: defaultSteps, plan: plan)
+            var settings = RenderSettings(identifier: model.identifier, modelName: card?.name ?? model.name,
+                                          prompt: v.prompt, format: RecommendedFormat(width, height), steps: steps,
+                                          loras: stack, references: references.count, detail: d.detail)
+            let used = app.namedJob(v.prompt, settings: &settings, references: references, model: model)
+            return Job(ordinal: app.nextJobNumber(), settings: settings,
+                       seeds: (0..<d.batch).map { firstNumber &+ UInt64($0) },
+                       references: used, previews: d.previews ?? app.previews,
+                       // Subjects' pictures make the plan unreduced (as `AppState.expectedPlan`); without
+                       // them, the plan as it was.
+                       defaultSteps: defaultSteps, plan: used.count > references.count ? plan.unreduced : plan)
         }
         app.enqueue(jobs)
         // The form takes what the job computes, as after a click: settings, edit images, seed — and
@@ -849,6 +868,100 @@ final class RemoteControl {
             let total: Any = estimates.contains { $0 == nil } ? NSNull()
                 : Response.number(estimates.compactMap { $0 }.reduce(0, +), 1)
             finish(c, ["ok": true, "jobs": added, "estimate_s": total])
+        }
+    }
+
+    // ── subjects ──
+
+    /// **`subjects`** (experimental, `Subjects.swift`): list, name, delete — the Subjects box's
+    /// gestures. Citing one is `add "@alice in a library"`. Refused while the app's switch is off.
+    ///
+    ///     subjects                                              the library
+    ///     subjects add IMAGE --name N --kind K [--frame x,y,w,h] [--second IMAGE2]
+    ///     subjects remove NAME
+    private func subjects(_ arguments: [String], cwd: String) throws -> [String: Any] {
+        guard app.subjects.enabled else {
+            throw Refusal("disabled", String(localized: "named subjects are off"),
+                          help: String(localized: "turn on Experimental → Named Subjects in the app's menu"))
+        }
+        app.subjects.reload()
+        func json(_ s: NamedSubjects.Subject) -> [String: Any] {
+            ["name": s.name, "kind": s.kind.rawValue,
+             "pictures": s.pictures.map { p -> [String: Any] in
+                 ["path": app.subjects.url(s, p).path,
+                  "frame": [p.frame.x, p.frame.y, p.frame.width, p.frame.height].map { Response.number($0, 4) }]
+             }]
+        }
+        switch arguments.first {
+        case nil:
+            return ["ok": true, "subjects": app.subjects.all.map(json)]
+        case "remove":
+            guard arguments.count == 2, let s = app.subjects.subject(named: arguments[1]) else {
+                let name = arguments.dropFirst().first ?? ""
+                throw Refusal("subject", String(localized: "No subject is called @\(name)."), help: "silicontrol subjects")
+            }
+            if let p = app.subjects.delete(s) { throw Refusal("subject", p.title) }
+            return ["ok": true, "removed": s.name]
+        case "add":
+            var images: [String] = [], first: String?, name: String?, kind: NamedSubjects.Kind?
+            var frames: [NamedSubjects.Frame] = []
+            var i = 1
+            func value(_ flag: String) throws -> String {
+                guard i + 1 < arguments.count else { throw Refusal("usage", String(localized: "\(flag) expects a value")) }
+                i += 1
+                return arguments[i]
+            }
+            while i < arguments.count {
+                let a = arguments[i]
+                switch a {
+                case "--name": name = try value(a)
+                case "--kind":
+                    let v = try value(a)
+                    guard let k = NamedSubjects.Kind(rawValue: v.lowercased()) else {
+                        let kinds = NamedSubjects.Kind.allCases.map(\.rawValue).joined(separator: ", ")
+                        throw Refusal("usage", String(localized: "--kind expects one of \(kinds), not \"\(v)\""))
+                    }
+                    kind = k
+                case "--frame":
+                    let v = try value(a)
+                    let n = v.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+                    guard n.count == 4, n.allSatisfy({ (0...1).contains($0) }), n[2] > 0, n[3] > 0 else {
+                        throw Refusal("usage", String(localized: "--frame expects x,y,width,height in fractions of the image, not \"\(v)\""))
+                    }
+                    frames.append(NamedSubjects.Frame(x: n[0], y: n[1], width: n[2], height: n[3]))
+                case "--second": images.append(try value(a))
+                default:
+                    if a.hasPrefix("--") { throw Refusal("usage", String(localized: "unknown flag: \(a)")) }
+                    // One IMAGE, first wherever it is written; a second one is `--second`'s.
+                    guard first == nil else {
+                        throw Refusal("usage", String(localized: "subjects add IMAGE --name NAME --kind KIND"), help: "silicontrol help subjects")
+                    }
+                    first = a
+                }
+                i += 1
+            }
+            if let first { images.insert(first, at: 0) }
+            guard let name, let kind, first != nil, (1...NamedSubjects.maxPictures).contains(images.count) else {
+                throw Refusal("usage", String(localized: "subjects add IMAGE --name NAME --kind KIND"), help: "silicontrol help subjects")
+            }
+            let sources = try images.enumerated().map { n, path in
+                let url = URL(fileURLWithPath: absolute(path, cwd))
+                // Checked as the sheet does (it decodes the picture): a file ImageIO cannot read would
+                // otherwise make a subject that fails every render citing it.
+                guard ReferenceImage.size(of: url) != nil else {
+                    let path = url.path
+                    throw Refusal("ref", String(localized: "image unreadable or missing: \(path)"))
+                }
+                return (source: NamedSubjectStore.Source.file(url),
+                        frame: frames.indices.contains(n) ? frames[n] : NamedSubjects.Frame.whole)
+            }
+            if let p = app.subjects.create(name: name, kind: kind, pictures: sources) {
+                throw Refusal("subject", p.title, help: p.suggestion)
+            }
+            guard let s = app.subjects.subject(named: name) else { throw Refusal("subject", String(localized: "No subject is called @\(name).")) }
+            return ["ok": true, "subject": json(s)]
+        default:
+            throw Refusal("usage", String(localized: "unknown subcommand: \(arguments[0])"), help: "silicontrol help subjects")
         }
     }
 

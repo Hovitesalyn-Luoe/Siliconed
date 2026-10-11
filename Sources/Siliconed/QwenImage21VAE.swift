@@ -329,7 +329,8 @@ package final class QwenImage21VAEDecoder {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
 
-    /// - Parameter path: the published `vae/diffusion_pytorch_model.safetensors` (fp32), read as is;
+    /// - Parameter path: the published `vae/diffusion_pytorch_model.safetensors` (the Turbo's in bf16),
+    ///   each tensor widened to fp32 as it is read (`Safetensors.materialize`), computed in fp32;
     ///   its `vae.json`, if it lies beside, gives the config.
     package init(path: String, latentHeight: Int, latentWidth: Int, config: QwenImage21VAE.Config? = nil) throws {
         let config = try config ?? QwenImage21VAE.Config.beside(path)

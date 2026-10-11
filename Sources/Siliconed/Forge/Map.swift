@@ -96,14 +96,31 @@ package final class TensorSource {
     /// The tensor in fp32 — an 8-bit one dequantized (`w = Float(q) · s`, exact or one rounding).
     package func read(_ name: String) throws -> [Float] {
         if let g = groups[name] { return try g.read().dequantized() }
-        guard let (f, e) = index[name], let p = f.pointer(e.name) else {
+        guard let (f, e) = index[name] else {
             throw Numerics.Failure(description: "\(name) absent from the source")
         }
         var v = [Float](unsafeUninitializedCapacity: e.count) { buffer, n in n = e.count }
-        try v.withUnsafeMutableBufferPointer {
-            try Numerics.toFloat32(p, dtype: e.dtype, count: e.count, to: $0.baseAddress!)
+        try v.withUnsafeMutableBytes { d in
+            if e.dtype == "F32" { return try f.copy(e, into: d.baseAddress!) }
+            // Read whole, then widened from memory: the file is read by `pread`, never by page faults.
+            let raw = try f.bytes(e)
+            try raw.withUnsafeBytes {
+                try Numerics.toFloat32($0.baseAddress!, dtype: e.dtype, count: e.count,
+                                       to: d.baseAddress!.assumingMemoryBound(to: Float.self))
+            }
         }
         return v
+    }
+
+    /// **A 16-bit tensor's bits as published** (`BF16`, `F16`), nothing widened: what the forge
+    /// writes as is when its rule moves values without computing (`ForgeDiT.tensor`). `nil`: any
+    /// other dtype, or an 8-bit weight.
+    package func read16(_ name: String) throws -> [UInt16]? {
+        guard groups[name] == nil, let (f, e) = index[name], e.dtype == "BF16" || e.dtype == "F16" else { return nil }
+        return try [UInt16](unsafeUninitializedCapacity: e.count) { b, n in
+            try f.copy(e, into: UnsafeMutableRawPointer(b.baseAddress!))
+            n = e.count
+        }
     }
 
     /// An 8-bit weight's description (`kind`, scale type, per row, by block), without reading it.
@@ -123,11 +140,13 @@ package final class TensorSource {
     }
 }
 
-/// **A `SILICON\x03` map to write**: the header, then tensors produced one at a time.
+/// **A `SILICON\x03` map to write**: the header, then the tensors, produced several at a time and
+/// hashed in file order.
 ///
 /// Same rules as the Python forges it replaces: each tensor starts on a 16 KiB page, the prologue
-/// takes a whole number of pages, the table offsets are absolute, and peak memory is **one**
-/// tensor — the first pass only places shapes.
+/// takes a whole number of pages, the table offsets are absolute, and peak memory is bounded — the
+/// first pass only places shapes, the second holds at most `inFlight` bytes of tensors being
+/// produced or waiting for the hash (one larger tensor alone).
 package enum MapWriter {
     package static let signature: [UInt8] = Array("SILICON".utf8) + [3]
     package static let page = 16384
@@ -165,6 +184,13 @@ package enum MapWriter {
         }
     }
 
+    /// A 16-bit tensor's bits in the map's layout, and its largest |w| (`weight_absmax`).
+    package struct Bits {
+        package let values: [UInt16]
+        package let absMax: Float
+        package init(values: [UInt16], absMax: Float) { self.values = values; self.absMax = absMax }
+    }
+
     package struct Tensor {
         package let name: String
         package let shape: [Int]
@@ -181,6 +207,11 @@ package enum MapWriter {
         /// "group": G}`; `nil`: not written.
         package var rotation: Int? = nil
 
+        /// A bf16 or fp16 tensor's final bits, moved from the published ones without going through
+        /// fp32 (`ForgeDiT.tensor`): the same bytes as `produce` then rounded, which is exact on
+        /// them. `nil` result: `produce` (a NaN, whose payload the fp32 round trip may change).
+        package var produceBits: (() throws -> Bits?)? = nil
+
         package init(name: String, shape: [Int], dtype: DType, transposed: Bool?,
                      produce: @escaping () throws -> [Float]) {
             self.name = name; self.shape = shape; self.dtype = dtype; self.transposed = transposed
@@ -196,6 +227,15 @@ package enum MapWriter {
 
         var count: Int { shape.reduce(1, *) }
         var quantized: Bool { produceQuantized != nil }
+        /// What producing it holds at most, its output included — what the pipeline budgets
+        /// (`write`): 16-bit bits read then moved (2 + 2 bytes a value); 8-bit bytes read then moved,
+        /// and an fp32 dequantization for `weight_absmax` (convrot, GGUF 4–6 bits); otherwise read
+        /// (≤ 4), widened (4), moved (4), written (≤ 4).
+        var working: Int {
+            if produceBits != nil { return count * 4 }
+            if quantized { return 2 * bytes + 4 * count }
+            return 16 * count
+        }
         /// The bytes of the values alone: one per 8-bit value, or a packed type's blocks.
         var valueBytes: Int {
             dtype.packedBlock.map { count / $0.values * $0.bytes } ?? count
@@ -279,89 +319,60 @@ package enum MapWriter {
 
         try reserve?(begin + end)
 
-        // ── Pass 2: produce, convert, write, one tensor at a time ─────────────────────
+        // ── Pass 2: produce over the cores, hash in order ───────────────────────────────
+        // **The fingerprint is one SHA-256 over the tensors in file order** (`content_sha256`):
+        // it alone stays sequential. The tensors are produced several at a time — read, moved,
+        // converted, written at their own offset — while this thread hashes them in order as they
+        // come. Before, a forge was one tensor at a time, the source read by page faults (0.5–0.9 GB/s)
+        // and every step on one core; the hash is now its floor (≈ 2.4 GB/s).
         let temporary = path + ".partiel"
         let fd = open(temporary, O_CREAT | O_TRUNC | O_WRONLY, 0o644)
         guard fd >= 0 else { throw Numerics.Failure(description: "cannot write \(temporary)") }
         // Locked while it is written: `Library.emptyDownloads` purges only the `.partiel` nobody holds.
         _ = flock(fd, LOCK_EX | LOCK_NB)
+        // **Written past the page cache.** Produced over the cores, a 14 GB map was written
+        // faster than the cache flushes it, and its dirty pages pushed other processes' memory to
+        // swap (+1448 swapouts on a quiet machine, in 11 s). Read once, by the engine, later:
+        // nothing is lost by not keeping it.
+        _ = fcntl(fd, F_NOCACHE, 1)
         var closed = false
         defer { if !closed { close(fd); unlink(temporary) } }
         guard ftruncate(fd, off_t(begin + end)) == 0 else {
             throw Numerics.Failure(description: "\(temporary) : ftruncate — disk full?")
         }
+        let pipeline = Pipeline(tensors: tensors)
+        nonisolated(unsafe) let unsafeTensors = tensors
+        let (start, offsets) = (begin, relativeOffsets)
+        let workers = DispatchGroup()
+        for _ in 0..<min(producers, tensors.count) {
+            DispatchQueue.global(qos: .userInitiated).async(group: workers) {
+                while let k = pipeline.take() {
+                    do {
+                        let made = try produce(unsafeTensors[k])
+                        for (bytes, at) in made.parts {
+                            try bytes.withBytes { try put(fd, $0, at: start + offsets[k] + at, temporary) }
+                        }
+                        pipeline.done(k, made)
+                    } catch { pipeline.fail(error) }
+                }
+            }
+        }
         var sha256 = SHA256()
         var inexact = 0, parameters = 0
         var absMax: Float = 0
-        func put(_ raw: UnsafeRawBufferPointer, at offset: Int) throws {
-            var remaining = raw.count, pos = 0
-            while remaining > 0 {
-                let n = pwrite(fd, raw.baseAddress! + pos, min(remaining, 1 << 30), off_t(offset + pos))
-                guard n > 0 else { throw Numerics.Failure(description: "\(temporary) : write — disk full?") }
-                remaining -= n; pos += n
-            }
-        }
+        var failure: Error?
         for (k, t) in tensors.enumerated() {
+            guard let made = pipeline.wait(k) else { failure = pipeline.failure; break }
             progressHandler?(k, tensors.count, t.name)
-            if let produceQuantized = t.produceQuantized {
-                // The published bytes, as they came: nothing converted, nothing rounded.
-                let q = try produceQuantized()
-                guard q.values.count == t.valueBytes, q.scale.count == (t.scale?.bytes ?? 0) else {
-                    throw Numerics.Failure(description: "\(t.name) : \(q.values.count) values and \(q.scale.count) "
-                                           + "scale bytes for \(t.shape)")
-                }
-                parameters += t.count
-                absMax = max(absMax, q.absMax)
-                sha256.update(data: Data(t.name.utf8))
-                try q.values.withUnsafeBytes { v in
-                    sha256.update(bufferPointer: v)
-                    try put(v, at: begin + relativeOffsets[k])
-                }
-                try q.scale.withUnsafeBytes { s in
-                    guard s.count > 0 else { return }
-                    sha256.update(bufferPointer: s)
-                    try put(s, at: begin + relativeOffsets[k] + t.scaleOffset)
-                }
-                continue
-            }
-            let values = try t.produce()
-            guard values.count == t.shape.reduce(1, *) else {
-                throw Numerics.Failure(description: "\(t.name) : \(values.count) values for \(t.shape)")
-            }
-            parameters += values.count
-            try values.withUnsafeBufferPointer { v in
-                absMax = max(absMax, Numerics.absMax(v.baseAddress!, count: v.count))
-                let written: (UnsafeRawBufferPointer) throws -> Void = { raw in
-                    sha256.update(data: Data(t.name.utf8))
-                    sha256.update(bufferPointer: raw)
-                    var remaining = raw.count, pos = 0
-                    while remaining > 0 {
-                        let n = pwrite(fd, raw.baseAddress! + pos, min(remaining, 1 << 30),
-                                       off_t(begin + relativeOffsets[k] + pos))
-                        guard n > 0 else { throw Numerics.Failure(description: "\(temporary) : write — disk full?") }
-                        remaining -= n; pos += n
-                    }
-                }
-                switch t.dtype {
-                case .int8, .float8_e4m3, .q4_0, .q4_1, .q5_0, .q5_1, .q4_k, .q5_k, .q6_k:
-                    throw Numerics.Failure(description: "\(t.name) : a quantized tensor without its bytes")
-                case .float32:
-                    try written(UnsafeRawBufferPointer(v))
-                case .float16:
-                    var h = [UInt16](unsafeUninitializedCapacity: v.count) { _, n in n = v.count }
-                    try h.withUnsafeMutableBufferPointer { hb in
-                        inexact += Numerics.toFloat16(v.baseAddress!, count: v.count, to: hb.baseAddress!)
-                        try written(UnsafeRawBufferPointer(hb))
-                    }
-                case .bfloat16:
-                    var h = [UInt16](unsafeUninitializedCapacity: v.count) { _, n in n = v.count }
-                    try h.withUnsafeMutableBufferPointer { hb in
-                        inexact += Numerics.toBFloat16(v.baseAddress!, count: v.count, to: hb.baseAddress!)
-                        try written(UnsafeRawBufferPointer(hb))
-                    }
-                }
-            }
+            parameters += t.count
+            inexact += made.inexact
+            absMax = max(absMax, made.absMax)
+            sha256.update(data: Data(t.name.utf8))
+            for (bytes, _) in made.parts { bytes.withBytes { if $0.count > 0 { sha256.update(bufferPointer: $0) } } }
+            pipeline.release(k)
         }
+        workers.wait()
+        if let failure { throw failure }
         let measurements = Measures(absMax: absMax, sha256: sha256.finalize().map { String(format: "%02x", $0) }.joined())
         let actual = prologue(begin, measurements)
         guard actual.count <= begin else { throw Numerics.Failure(description: "prologue longer than its space") }
@@ -375,7 +386,126 @@ package enum MapWriter {
         return Tally(path: path, bytes: begin + end, parameters: parameters, tensors: tensors.count,
                      inexact: inexact, absMax: absMax, sha256: measurements.sha256)
     }
+    /// Tensors produced at once; and the bytes they may hold together (`Tensor.working`) — one
+    /// larger than that is produced alone. Measured on Qwen's DiT: 1 GB in flight peaked at 0.9–1.0 GB
+    /// and 9–14 s, 512 MB at 0.7–0.8 GB and 9 s, 256 MB at 0.55 GB and 16 s; the encoder's peak is
+    /// its embedding table (1.24 GB, alone) whatever the budget.
+    static let producers = 4
+    static let inFlight = 512 << 20
+
+    /// What producing a tensor gives: its bytes, each at its offset from the tensor's start.
+    struct Produced {
+        var parts: [(Bytes, Int)]
+        var absMax: Float
+        var inexact = 0
+    }
+
+    enum Bytes {
+        case u8([UInt8]), u16([UInt16]), f32([Float])
+        func withBytes<R>(_ body: (UnsafeRawBufferPointer) throws -> R) rethrows -> R {
+            switch self {
+            case .u8(let a): return try a.withUnsafeBytes(body)
+            case .u16(let a): return try a.withUnsafeBytes(body)
+            case .f32(let a): return try a.withUnsafeBytes(body)
+            }
+        }
+    }
+
+    /// One tensor in the map's bytes — the work a producer does, on any thread.
+    static func produce(_ t: Tensor) throws -> Produced {
+        if let produceQuantized = t.produceQuantized {
+            // The published bytes, as they came: nothing converted, nothing rounded.
+            let q = try produceQuantized()
+            guard q.values.count == t.valueBytes, q.scale.count == (t.scale?.bytes ?? 0) else {
+                throw Numerics.Failure(description: "\(t.name) : \(q.values.count) values and \(q.scale.count) "
+                                       + "scale bytes for \(t.shape)")
+            }
+            return Produced(parts: [(.u8(q.values), 0)] + (q.scale.isEmpty ? [] : [(.u8(q.scale), t.scaleOffset)]),
+                            absMax: q.absMax)
+        }
+        if let produceBits = t.produceBits, let b = try produceBits() {
+            guard b.values.count == t.count, t.dtype == .bfloat16 || t.dtype == .float16 else {
+                throw Numerics.Failure(description: "\(t.name) : \(b.values.count) 16-bit values for \(t.shape) \(t.dtype)")
+            }
+            return Produced(parts: [(.u16(b.values), 0)], absMax: b.absMax)
+        }
+        let values = try t.produce()
+        guard values.count == t.count else {
+            throw Numerics.Failure(description: "\(t.name) : \(values.count) values for \(t.shape)")
+        }
+        let m = values.withUnsafeBufferPointer { Numerics.absMax($0.baseAddress!, count: $0.count) }
+        switch t.dtype {
+        case .int8, .float8_e4m3, .q4_0, .q4_1, .q5_0, .q5_1, .q4_k, .q5_k, .q6_k:
+            throw Numerics.Failure(description: "\(t.name) : a quantized tensor without its bytes")
+        case .float32:
+            return Produced(parts: [(.f32(values), 0)], absMax: m)
+        case .float16, .bfloat16:
+            var inexact = 0
+            let h = [UInt16](unsafeUninitializedCapacity: values.count) { hb, n in
+                values.withUnsafeBufferPointer { v in
+                    inexact = t.dtype == .float16
+                        ? Numerics.toFloat16(v.baseAddress!, count: v.count, to: hb.baseAddress!)
+                        : Numerics.toBFloat16(v.baseAddress!, count: v.count, to: hb.baseAddress!)
+                }
+                n = values.count
+            }
+            return Produced(parts: [(.u16(h), 0)], absMax: m, inexact: inexact)
+        }
+    }
+
+    static func put(_ fd: Int32, _ raw: UnsafeRawBufferPointer, at offset: Int, _ temporary: String) throws {
+        var remaining = raw.count, pos = 0
+        while remaining > 0 {
+            let n = pwrite(fd, raw.baseAddress! + pos, min(remaining, 1 << 30), off_t(offset + pos))
+            guard n > 0 else { throw Numerics.Failure(description: "\(temporary) : write — disk full?") }
+            remaining -= n; pos += n
+        }
+    }
+
+    /// **The producers' bookkeeping**: a tensor is taken in file order, when the bytes in flight
+    /// leave room for it (or nothing else is in flight); its result waits for the hash. Taking in
+    /// order is what makes the budget deadlock-free: the tensor the hash waits for always got its
+    /// room before any later one did.
+    final class Pipeline: @unchecked Sendable {
+        private let cost: [Int]
+        private let condition = NSCondition()
+        private var next = 0, inFlight = 0
+        private var results: [Int: Produced] = [:]
+        private(set) var failure: Error?
+
+        init(tensors: [Tensor]) { cost = tensors.map(\.working) }
+
+        func take() -> Int? {
+            condition.lock(); defer { condition.unlock() }
+            while failure == nil, next < cost.count, inFlight > 0, inFlight + cost[next] > MapWriter.inFlight { condition.wait() }
+            guard failure == nil, next < cost.count else { return nil }
+            defer { next += 1 }
+            inFlight += cost[next]
+            return next
+        }
+
+        func done(_ k: Int, _ p: Produced) {
+            condition.lock(); results[k] = p; condition.broadcast(); condition.unlock()
+        }
+
+        func fail(_ e: Error) {
+            condition.lock(); if failure == nil { failure = e }; condition.broadcast(); condition.unlock()
+        }
+
+        /// Tensor `k`'s result, once produced; `nil`: a producer failed.
+        func wait(_ k: Int) -> Produced? {
+            condition.lock(); defer { condition.unlock() }
+            while results[k] == nil, failure == nil { condition.wait() }
+            return failure == nil ? results[k] : nil
+        }
+
+        /// Hashed: its bytes go, its room goes back.
+        func release(_ k: Int) {
+            condition.lock(); results[k] = nil; inFlight -= cost[k]; condition.broadcast(); condition.unlock()
+        }
+    }
 }
+
 
 /// **Do two maps say the same thing?** Same tensors, same shapes, same dtypes, same bytes — and
 /// the same header, apart from what describes where and when it was forged (`source`,

@@ -52,7 +52,7 @@ final class AppTests: XCTestCase {
         let denoisers: [String: any DenoisingModule] = [
             "z-image": ZImageDenoisingModule(map: ""), "anima": AnimaDenoisingModule(map: ""), "krea2": Krea2DenoisingModule(map: ""),
             "klein-4b": KleinDenoisingModule(map: ""), "ernie-image": ErnieDenoisingModule(map: ""),
-            "qwen-image-2.1": QwenImage21DenoisingModule(map: "", turbo: "", scheduler: .init())]
+            "qwen-image-2.1": QwenImage21DenoisingModule(map: "", scheduler: .init())]
         // Qwen-Image-2.1 joins last when the zero swap holds at its worst case (`ModelCard.qwenImage21`):
         // both states pass, nothing else does.
         let published = ["z-image", "anima", "krea2", "klein-4b", "ernie-image"]
@@ -138,7 +138,7 @@ final class AppTests: XCTestCase {
             (Sampler.Failure.belowFloor(side: 32), .imageTooSmall(side: 256, minimum: 512)),
             (Request.Failure.emptyPrompt, .emptyPrompt),
             (Request.Failure.steps(0), .invalidSteps(steps: 0, allowed: [])),
-            (QwenImage21Pipeline.Failure.steps(8), .invalidSteps(steps: 8, allowed: [5, 6, 7, 9])),
+            (QwenImage21Pipeline.Failure.steps(6), .invalidSteps(steps: 6, allowed: [8])),
             (EngineSettings.Failure.alreadyRead(profileRead: "/a", requested: "/b"),
              .settingsAlreadyLoaded(loaded: "/a", requested: "/b")),
             (CancellationError(), .cancelled),

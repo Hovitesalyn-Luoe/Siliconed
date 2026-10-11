@@ -151,6 +151,12 @@ public struct DenoisingPlan: Sendable {
     public let reducedHeight: Int
     public let reducedWidth: Int
 
+    /// The same plan at full size from its first evaluation: an edit's (no spectral schedule).
+    public var unreduced: DenoisingPlan {
+        DenoisingPlan(startStep: startStep, startSigma: startSigma, evaluations: evaluations,
+                      reduced: 0, reducedHeight: reducedHeight, reducedWidth: reducedWidth)
+    }
+
     /// **The same plan, stopped as a sketch** (`Request.sketch`): its first `n` evaluations — what an
     /// app estimates a sketch's duration from. `n` at or past `evaluations`: the plan itself.
     public func sketched(_ n: Int) -> DenoisingPlan {
@@ -171,7 +177,9 @@ public struct DenoisingPlan: Sendable {
 ///                                                                         composition, soft
 ///
 /// A step count is no rule — Qwen's schedule keeps σ high longer, and at 3 of 6 its estimate is a
-/// blur (17 dB); σ is. Under a LoRA, Z-Image's pose still moved between 3 and 4: a sketch shows
+/// blur (17 dB); σ is. (Qwen's line was measured on the 6-step third-party turbo the family carried
+/// before the official Turbo; the Turbo's 8 fixed steps reach 0.8 only after the 6th evaluation,
+/// σ 0.705.) Under a LoRA, Z-Image's pose still moved between 3 and 4: a sketch shows
 /// where the image goes, the finished render is the judge.
 ///
 /// **Qwen-Image-2.1 does not sketch** (`DenoisingModule.sketches`, 2026-10-06): its « soft » at 4 is,
@@ -818,8 +826,11 @@ extension Engine {
         }
         try chain.denoising.check(steps: steps, startImage: request.image != nil)
         // Detail, like a LoRA, turns Z-Image's spectral schedule off (`ZImageDenoisingModule.plan`).
-        let plan = chain.denoising.plan(height: height, width: width, steps: steps, start: start,
+        // An edit has none either (`QwenImage21DenoisingModule.plan`): the plan cannot see the
+        // references, the chain can.
+        var plan = chain.denoising.plan(height: height, width: width, steps: steps, start: start,
                                           withLoRA: stack != nil || request.detail != .normal)
+        if !request.references.isEmpty { plan = plan.unreduced }
         guard plan.evaluations > 0 else {
             // The floor: the last start that keeps an evaluation, `d`, is reached as soon as
             // `N − N·s < d + 1`, i.e. `s > (N − d − 1)/N`.
@@ -832,8 +843,9 @@ extension Engine {
         }
         // A forced spectral schedule (`ZImageDenoisingModule(spectral:)`, `SILICONED_SPECTRAL`) that
         // would go below the floor is refused here, not in `Sampler.run` after a minute of text.
-        if plan.reduced > 0, min(plan.reducedHeight, plan.reducedWidth) < Spectral.minimumSide {
-            throw Sampler.Failure.belowFloor(side: min(plan.reducedHeight, plan.reducedWidth))
+        // The floor in this latent's cells (`Spectral.floor(factor:)`); the error counts 8-px cells.
+        if plan.reduced > 0, min(plan.reducedHeight, plan.reducedWidth) < Spectral.floor(factor: space.factor) {
+            throw Sampler.Failure.belowFloor(side: min(plan.reducedHeight, plan.reducedWidth) * space.factor / 8)
         }
         // The machine's profile is read HERE, at render time — never at request construction.
         let reproducible = request.reproducible ?? EngineSettings.effective.frozenCut

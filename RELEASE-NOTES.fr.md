@@ -2,6 +2,74 @@
 
 # Siliconed — notes de version
 
+## 0.5
+
+### Qwen-Image-2.1 est désormais le Turbo officiel de Qwen
+
+- **Un seul modèle, de son éditeur.** Qwen-Image-2.1 fait maintenant tourner le modèle distillé
+  de Qwen lui-même, [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo).
+  Jusqu'à la 0.4, l'app faisait tourner le modèle de base sous la LoRA turbo d'un tiers (celle de
+  Viggle) ; cette LoRA et le modèle de base disparaissent. Texte vers image, édition par
+  instruction avec 1 à 3 images et vos propres LoRA marchent comme avant.
+- **8 pas, sur le calendrier que Qwen publie.** Le nombre de pas est fixé à 8 : le mode à 9 pas
+  disparaît, et tout autre nombre est refusé.
+- **La Compact et la Légère suivent.** La Compact prend le Turbo 8 bits (int8 convrot) de
+  Comfy-Org, la Légère le Turbo GGUF Q4_K_M d'unsloth ; l'encodeur de texte 8 bits de la Compact
+  ne change pas. Sur le disque : 31,2 Go en Standard, 17,3 Go en Compact, 14,2 Go en Légère
+  (33,2, 19,4 et 16,2 Go avant : la LoRA turbo n'est plus stockée).
+- **Une installation existante est reconnue.** La fenêtre Modèles propose de « Finir
+  l’installation… » : l'ancien transformer et les petits fichiers sont effacés, ceux du Turbo
+  sont téléchargés dans la même version (Standard, Compact ou Légère). L'encodeur de texte est
+  gardé : celui du Turbo est celui du modèle de base, au bit près, il ne se retélécharge donc pas.
+  Les fine-tunes de Qwen-Image-2.1 importés pour le modèle de base ne peuvent plus rendre et sont
+  effacés.
+- **Même licence** : Qwen Research, non commerciale — le Turbo porte le texte du modèle de base.
+- **Vérifié comme le reste.** Chaque étage est comparé à l'implémentation de référence de Qwen ;
+  le moteur reste à 3,0·10⁻⁶ du calcul exact (fp64).
+
+### Plus rapide que la 0.4 pour une image, plus lent pour une édition
+
+Le Turbo prend 8 pas là où la LoRA tierce en prenait 6. Nous l'avons choisi quand même : c'est la
+qualité que Qwen publie et vérifie, sans pièce tierce entre les deux qui pourrait changer ou
+disparaître. Puis nous avons rendu ses pas moins chers, sans baisser la précision : tout est
+toujours calculé en fp32 et vérifié contre le calcul exact.
+
+- **Les deux premiers pas à demi-taille.** À partir de 1024², une génération calcule ses deux
+  premiers pas en 512², puis agrandit, comme Z-Image le fait déjà. L'image change (la même graine
+  donne une autre composition) mais reste propre. Pas sous une LoRA ni Détail, ni en édition.
+- **L'attention partagée entre le GPU et le CPU.** Dans chaque couche, 13 des 32 têtes d'attention
+  vont à l'unité matricielle du CPU pendant que le GPU calcule les autres.
+- **De plus petits gains**, aux mêmes bits : le modèle est lu d'un seul flux, et des normalisations
+  sont fusionnées.
+
+Sur le Mac de référence :
+
+- génération 1024² : ~120 s (~134 s en 0.4, ~160 s pour le Turbo sans ces gains) ;
+- une édition avec 1 référence : ~210 s (~190 s), avec 2 références ~285 s ;
+- le pire cas, 1024×1536 avec 3 références : ~515 s, 4,7 Go de mémoire au pic, sans aucun swap ;
+- la Légère prend le même temps que la Standard.
+
+### Installation
+
+- **Plus rapide, et plus légère en mémoire.** La préparation d'un modèle téléchargé prend maintenant
+  quelques secondes au lieu de plusieurs minutes, et le fichier suivant se télécharge pendant que le
+  précédent se prépare. Sur une connexion rapide (85 Mo/s), Qwen-Image-2.1 s'installe en ~6 min 30 en
+  Standard (~8 min en 0.4), ~3 min 30 en Compact (~5 min 30) et ~3 min en Légère (~4 min) : c'est
+  désormais le réseau qui fixe la durée. Le modèle installé est le même, à l'octet près.
+- **Pas de swap pendant l'installation.** Le pic de mémoire passe de 4,6 Go à 2,2–2,5 Go, et les
+  fichiers fraîchement téléchargés ne poussent plus le reste du Mac hors de la mémoire : une
+  installation qui pouvait swapper sur un Mac chargé ne le fait plus.
+
+### Lots
+
+- **Les lots ne swappent plus.** Chaque image d'un lot reconstruisait le modèle, et sur un Mac
+  chargé un lot pouvait finir par swapper. Désormais toutes les images se calculent avec le même
+  modèle, puis toutes se décodent : les mêmes images, sans swap, sur Z-Image et Qwen-Image-2.1.
+- **Y compris avec votre LoRA.** Sur Qwen-Image-2.1, un lot avec une LoRA à vous garde le
+  modèle, LoRA appliquée, d'une image à l'autre.
+
+Temps mesurés sur un MacBook Pro M1 Pro, 16 Go.
+
 ## 0.4
 
 ### Installation

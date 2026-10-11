@@ -2,7 +2,8 @@ import Metal
 import Accelerate
 import Foundation
 
-/// The Qwen-Image-2.1 DiT — `QwenImage21Transformer2DModel`, 7.1 G parameters —, in fp32.
+/// The Qwen-Image-2.1-Turbo DiT — `QwenImage21Transformer2DModel`, 7.1 G parameters —, in fp32. The
+/// Turbo's checkpoint has the base's architecture to the name, shape and dtype, and other values.
 ///
 ///     Qwen3-VL last layer [T, 4096] (image slots included) ─ text rows only ─ txt_in ─┐
 ///     reference latents [64, hᵢ, wᵢ] ─ tokens ─ img_in ──────────────────────────────┤ prefix P
@@ -34,8 +35,8 @@ import Foundation
 ///     all the keys. Two **adjacent** references stay two blocks (`image_ids`, not runs of slots);
 ///   - **the conditions are modulated by `t = 0`** (`causal_condition`, `_select_modulation_rows`):
 ///     the modulation is computed for two timesteps, and the text/references take the second row —
-///     in every layer AND in `norm_out`. Viggle's LoRA adapts the σ embedding and the modulation:
-///     `temb(0)` changes with it, and so do the conditions' K/V;
+///     in every layer AND in `norm_out`. A LoRA that adapts the σ embedding or the modulation
+///     changes `temb(0)`, hence the conditions' K/V;
 ///   - the modulation has **no shift**: `[scale₁, gate₁, scale₂, gate₂]`, gates through **tanh**;
 ///     `norm_out` is scale only (`QwenImage21AdaLayerNormContinuous`, `linear` → d, not 2d);
 ///   - the image tokens are **substituted into the encoder's sequence**: each Qwen3-VL image slot
@@ -53,8 +54,7 @@ import Foundation
 ///   - no bias anywhere; `img_in` and `proj_out` work at 64 channels, `patch_size` 1.
 ///
 /// The cache costs `2 · 32 · P · d` floats — 1.05 GB per 1 000 condition tokens; at 512² with two
-/// references (P = 2 072), 2.2 GB. It belongs to the DiT, hence to its LoRA stack: the turbo
-/// changes `temb(0)`, so a step without the LoRA (the 9-step mode's last two) needs a new prefill.
+/// references (P = 2 072), 2.2 GB. It belongs to the DiT, hence to its map and its LoRA stack.
 /// The step copies the cached prefix into `keys`/`values` before attending (0.64 s per evaluation
 /// at P = 2 072, measured): the price of not holding `P + S` rows per layer.
 package final class QwenImage21DiT {
@@ -107,6 +107,12 @@ package final class QwenImage21DiT {
     /// The bytes of `h1` + `h2` (`2 · rows · hidden · 4`) one MLP chunk may hold: a 1024² generation
     /// (4 096 rows, 403 MB) in one chunk, 1024×1536 (6 144 rows, 604 MB) in two.
     package static let mlpBudget = 512 << 20
+    /// **A generation streams its whole map beside the page cache** (`MemoryPlan.ditTail`), not the
+    /// half the other DiTs keep: 14.2 GB of map, of which the cache held too little of the head to
+    /// pay its sweep — at 0.5, 90–140 k major faults and 0.45–1.75 s of widening per 1024² step,
+    /// 7.2–10.7 GB read; at 1, no fault, 0.41 s, 9.7 GB, the same peak (the two staging buffers
+    /// either way) and the same bits.
+    package static let generationTail = 1.0
 
     /// The rows of one MLP chunk for `scratch` rows: the fewest equal chunks whose two buffers fit
     /// `budget` — `ceil(scratch / chunks)`, at least one row.
@@ -127,6 +133,8 @@ package final class QwenImage21DiT {
     private let groups: [(start: Int, end: Int, segments: [QwenImage21Sequence.Segment])]
     private let allowsFullPass: Bool
     private var attentions: [String: Attention] = [:]
+    /// The target's SDPA cut by heads between the GPU and the CPU (`HeadSplitAttention`), by shape.
+    private var headSplits: [String: HeadSplitAttention] = [:]
 
     /// `merged` (the SDPA's output) **is** `normed`: the norm's output is consumed by q/k/v before the
     /// attention writes, and rewritten after `to_out` has read it. `q` **is** `h1`: the queries die with
@@ -162,7 +170,7 @@ package final class QwenImage21DiT {
     private var reserved: [UnsafeMutablePointer<Float>: Int] = [:]
     private let arenas: [Arena]
 
-    /// **Viggle's turbo** (and any LoRA of the family), on the 224 `Linear`s of the blocks: merged into
+    /// **A user's LoRA stack**, on the 224 `Linear`s of the blocks: merged into
     /// the fp32 widened weight beyond `LoRA.merges`' rows, applied after the GEMM (`gemm.lora`) below;
     /// and unmerged, in double, on the modules of the modulation path
     /// (`time_text_embed.timestep_embedder.linear_1/2`, `modulation.1`, `norm_out.linear`) — see `exactLinears`.
@@ -196,6 +204,10 @@ package final class QwenImage21DiT {
                  storage: CacheStorage = .memory, kept: (path: String, key: String, reserve: Int64)? = nil,
                  freezeCut: Bool = EngineSettings.effective.frozenCut) throws {
         guard let kind = artifact.header["kind"] as? String, Family(ditKind: kind) == .qwenImage21 else {
+            if artifact.header["kind"] as? String == Family.supersededQwenImage21Kind {
+                throw Artifact.Failure.badHeader("map \(artifact.path): forged from the base model of Qwen-Image-2.1, which "
+                    + "rendered under a third-party turbo LoRA; the family now installs Qwen-Image-2.1-Turbo — reinstall it")
+            }
             throw Artifact.Failure.badHeader("map \(artifact.header["kind"] ?? "?"): a Qwen-Image-2.1 DiT expected")
         }
         guard artifact.linearWeightsTransposed else {
@@ -400,13 +412,14 @@ package final class QwenImage21DiT {
         // **And it is faster so**: a 1-reference edit at 1024² with the tail streamed, as the
         // budget once allowed, read less (~14 against 19.63 GB per step) yet took 28.2 s a step against
         // 26.0 — 208.1 against 195.5 s, same bits. A generation's tail is the render's to decide
-        // (`MemoryPlan.ditTail`: half by default, the whole map in the lean plan); an edit's
+        // (`MemoryPlan.ditTail`): **the whole map** (`generationTail`), the lean plan's; an edit's
         // stays off in the lean plan too — its map through the cache is what was timed fastest, and
         // its own K/V reader is already beside the cache.
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: "transformer_blocks.\($0).") }
         var (released, slots) = (config.layers, 0)
         if storage == .memory {
-            (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks)
+            (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
+                                                   fraction: QwenImage21DiT.generationTail)
         } else {
             MemoryPlan.noteOnce("map tail none (edit: K/V in a file)")
         }
@@ -455,9 +468,9 @@ package final class QwenImage21DiT {
 
         // ── norm_out: LN without affine, × (1 + scale), each band its row; then proj_out ───
         timed("norm") {
-            Ops.layerNorm(xs, into: normed, rows: n, columns: d, eps: Float(config.eps))
             for band in bands {
-                Ops.scaleRows(normed + band.row * d, by: band.modulation + 4 * d, rows: band.count, columns: d)
+                Ops.layerNorm(xs + band.row * d, into: normed + band.row * d, rows: band.count, columns: d,
+                              eps: Float(config.eps), scale: band.modulation + 4 * d)
             }
         }
         record("norm_out", normed, n * d)
@@ -499,13 +512,10 @@ package final class QwenImage21DiT {
         if !keysOnly { try linearGPU(prefix + "attn.to_q.weight", a: normed, into: q, m: n, k: d, n: d) }
         try linearGPU(prefix + "attn.to_k.weight", a: normed, into: k, m: n, k: d, n: d)
         try linearGPU(prefix + "attn.to_v.weight", a: normed, into: v, m: n, k: d, n: d)
-        if !keysOnly { try headNorm(prefix + "attn.norm_q.weight", q, rows: n) }
-        try headNorm(prefix + "attn.norm_k.weight", k, rows: n)
-        timed("rope") {
-            let table = freqs + first * config.headDim
-            if !keysOnly { Ops.rope(q, freqs: table, sequence: n, heads: config.heads, headDim: config.headDim) }
-            Ops.rope(k, freqs: table, sequence: n, heads: config.heads, headDim: config.headDim)
-        }
+        // QK-Norm and RoPE in one pass per row (`Ops.rmsNormRope`).
+        let table = freqs + first * config.headDim
+        if !keysOnly { try headNormRope(prefix + "attn.norm_q.weight", q, rows: n, freqs: table) }
+        try headNormRope(prefix + "attn.norm_k.weight", k, rows: n, freqs: table)
         if kind == .step, !fused {
             try timed("kv cache") {
                 if let cache {
@@ -524,7 +534,7 @@ package final class QwenImage21DiT {
             try attend(queries: segment.start, count: segment.end - segment.start, keys: segment.end,
                        causal: segment.isText, first: first)
         }
-        if kind != .prefill { try attend(queries: p, count: all - p, keys: all, causal: false, first: first) }
+        if kind != .prefill { try attend(queries: p, count: all - p, keys: all, causal: false, first: first, target: true) }
         // The prefix rows of `keys`/`values` are free from here: the next layer's K/V come in from
         // disk while this one finishes — after the last layer, layer 0 of the next step. Not while the
         // prefill is fused: layer `l + 1` is not on disk yet, and its prefill is about to write those rows.
@@ -672,9 +682,9 @@ package final class QwenImage21DiT {
                                bands: [(row: Int, count: Int, modulation: UnsafeMutablePointer<Float>)], scale: Int) {
         let d = config.dim
         timed("norm") {
-            Ops.layerNorm(xs, into: normed, rows: n, columns: d, eps: Float(config.eps))
             for band in bands {
-                Ops.scaleRows(normed + band.row * d, by: band.modulation + scale, rows: band.count, columns: d)
+                Ops.layerNorm(xs + band.row * d, into: normed + band.row * d, rows: band.count, columns: d,
+                              eps: Float(config.eps), scale: band.modulation + scale)
             }
         }
     }
@@ -693,11 +703,14 @@ package final class QwenImage21DiT {
         }
     }
 
-    /// QK-Norm: RMSNorm over `head_dim`, eps 1e-6, ordinary weight.
-    private func headNorm(_ name: String, _ tensor: UnsafeMutablePointer<Float>, rows: Int) throws {
+    /// QK-Norm (RMSNorm over `head_dim`, eps 1e-6, ordinary weight), then RoPE on each head.
+    private func headNormRope(_ name: String, _ tensor: UnsafeMutablePointer<Float>, rows: Int,
+                              freqs table: UnsafePointer<Float>) throws {
         try artifact.materialize(name, into: reserve, capacity: reserveCapacity)
-        timed("norm") { Ops.rmsNorm(tensor, weight: reserve, into: tensor, rows: rows * config.heads,
-                                    columns: config.headDim, eps: Float(config.eps)) }
+        timed("qk norm + rope") {
+            Ops.rmsNormRope(tensor, weight: reserve, freqs: table, sequence: rows, heads: config.heads,
+                            headDim: config.headDim, eps: Float(config.eps))
+        }
     }
 
     private func copyRows(_ source: UnsafePointer<Float>, into destination: UnsafeMutablePointer<Float>, rows: Int) {
@@ -712,7 +725,12 @@ package final class QwenImage21DiT {
     /// beyond `Attention.maxMatrix` (exact: the softmax is per row; a causal slice keeps its own keys).
     /// A lower ceiling was measured and refuted: 1 GB or 512 MB per call cost 3 to 6 % of the SDPA at
     /// 1024² and left the Metal peak of the 1-reference edit where it was (2.7–3.3 GB either way).
-    private func attend(queries: Int, count: Int, keys keyCount: Int, causal: Bool, first: Int) throws {
+    ///
+    /// **The target's call is cut by heads** (`HeadSplitAttention`, as Z-Image's blocks): 13 of the 32
+    /// heads on the AMX and the P cores, which sleep during the SDPA. Not the prefix segments: a causal text
+    /// triangle has no CPU path, and the conditions run once per render.
+    private func attend(queries: Int, count: Int, keys keyCount: Int, causal: Bool, first: Int,
+                        target: Bool = false) throws {
         let d = config.dim, heads = config.heads
         let slices = max(1, Int((Double(heads * count * keyCount) * 4 / Double(Attention.maxMatrix)).rounded(.up)))
         let kb = try slice(keys), vb = try slice(values)
@@ -721,14 +739,29 @@ package final class QwenImage21DiT {
             let rows = end - begin
             let visible = causal ? keyCount - count + end : keyCount
             let key = "\(rows)×\(visible)\(causal ? "c" : "")"
+            let local = queries + begin - first
+            let (qb, ob) = (try slice(q + local * d), try slice(merged + local * d))
+            if target, !Attention.useHalfPrecision, rows >= HeadSplitAttention.minimumSequence {
+                let split: HeadSplitAttention
+                if let existing = headSplits[key] { split = existing } else {
+                    split = HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: rows,
+                                               headDim: config.headDim, keys: visible)
+                    headSplits[key] = split
+                }
+                timed("sdpa wall") {
+                    let (gpu, cpu) = split.run(q: qb, k: kb, v: vb, into: ob, q: q + local * d, k: keys, v: values,
+                                               out: merged + local * d)
+                    timings["sdpa GPU", default: 0] += gpu
+                    timings["sdpa CPU", default: 0] += cpu
+                }
+                continue
+            }
             let attention: Attention
             if let a = attentions[key] { attention = a } else {
                 attention = Attention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: rows,
                                       headDim: config.headDim, causal: causal, keySequence: visible)
                 attentions[key] = attention
             }
-            let local = queries + begin - first
-            let (qb, ob) = (try slice(q + local * d), try slice(merged + local * d))
             timed("sdpa wall") { timings["sdpa GPU", default: 0] += attention.run(q: qb, k: kb, v: vb, into: ob) }
         }
     }
@@ -746,7 +779,7 @@ package final class QwenImage21DiT {
     /// accumulated into the output after the GEMM (`gemm.lora`) — whichever costs fewer FLOPs at these
     /// rows (`LoRA.merges`). `reserve` is widened afresh at every call, so a merge never outlives its
     /// GEMM: the next call, at other rows, decides again (the prefill's text rows stay applied). Measured:
-    /// at 1024² the turbo's application cost 2.0 s per evaluation, ∝ rows; the merge, a constant.
+    /// at 1024² a rank-256 stack applied after the GEMM cost 2.0 s per evaluation, ∝ rows; the merge, a constant.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int) throws {
         let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }

@@ -7,8 +7,8 @@ import Foundation
 ///     <racine>/cache/conditioning/<key>.bin   the text stage's output (every model) and the image
 ///                                             encoder's latents (img2img start, editing references):
 ///                                             a small header, then the floats — LRU by mtime under `budget`
-///     <racine>/cache/kv/<key>.kv              Qwen-Image-2.1's conditions K/V of the LAST edit (one per
-///                                             phase: two in the 9-step mode), the file the prefill wrote
+///     <racine>/cache/kv/<key>.kv              Qwen-Image-2.1's conditions K/V of the LAST edit, the file
+///                                             the prefill wrote
 ///
 /// **Bit for bit, by construction**: what comes back is the floats that were written, and a key
 /// names everything that determined them — the module's type and parameters, each file it reads

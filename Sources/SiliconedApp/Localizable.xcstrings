@@ -2173,6 +2173,68 @@
         }
       }
     },
+    "--frame expects x,y,width,height in fractions of the image, not \"%@\"" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--frame erwartet x,y,Breite,Höhe in Bruchteilen des Bildes, nicht „%@“"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--frame espera x,y,ancho,alto en fracciones de la imagen, no «%@»"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--frame attend x,y,largeur,hauteur en fractions de l’image, pas « %@ »"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--frame richiede x,y,larghezza,altezza in frazioni dell’immagine, non «%@»"
+          }
+        }
+      }
+    },
+    "--kind expects one of %@, not \"%@\"" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--kind erwartet eines von %@, nicht „%@“"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "--kind expects one of %1$@, not \"%2$@\""
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--kind espera uno de %@, no «%@»"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--kind attend l’un de %@, pas « %@ »"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--kind richiede uno tra %@, non «%@»"
+          }
+        }
+      }
+    },
     "--out expects a folder" : {
       "localizations" : {
         "de" : {
@@ -2487,30 +2549,30 @@
         }
       }
     },
-    "8-bit weights published by third parties: the image model from Comfy-Org (int8 convrot), the text encoder from unsloth (int8 convrot). Processor, VAE and turbo LoRA are the publisher's." : {
+    "8-bit weights published by third parties: the image model from Comfy-Org (int8 convrot), the text encoder from unsloth (int8 convrot). Processor and VAE are the publisher's." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "8-Bit-Gewichte, von Dritten veröffentlicht: das Bildmodell von Comfy-Org (int8 convrot), der Text-Encoder von unsloth (int8 convrot). Prozessor, VAE und Turbo-LoRA stammen vom Herausgeber."
+            "value" : "8-Bit-Gewichte, von Dritten veröffentlicht: das Bildmodell von Comfy-Org (int8 convrot), der Text-Encoder von unsloth (int8 convrot). Prozessor und VAE stammen vom Herausgeber."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pesos de 8 bits publicados por terceros: el modelo de imagen, de Comfy-Org (int8 convrot); el codificador de texto, de unsloth (int8 convrot). El procesador, el VAE y el LoRA turbo son los del editor."
+            "value" : "Pesos de 8 bits publicados por terceros: el modelo de imagen, de Comfy-Org (int8 convrot); el codificador de texto, de unsloth (int8 convrot). El procesador y el VAE son los del editor."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Poids 8 bits publiés par des tiers : le modèle d’image de Comfy-Org (int8 convrot), l’encodeur de texte d’unsloth (int8 convrot). Processeur, VAE et LoRA turbo sont ceux de l’éditeur."
+            "value" : "Poids 8 bits publiés par des tiers : le modèle d’image de Comfy-Org (int8 convrot), l’encodeur de texte d’unsloth (int8 convrot). Processeur et VAE sont ceux de l’éditeur."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pesi a 8 bit pubblicati da terzi: il modello d’immagine da Comfy-Org (int8 convrot), l’encoder di testo da unsloth (int8 convrot). Processore, VAE e LoRA turbo sono quelli dell’editore."
+            "value" : "Pesi a 8 bit pubblicati da terzi: il modello d’immagine da Comfy-Org (int8 convrot), l’encoder di testo da unsloth (int8 convrot). Processore e VAE sono quelli dell’editore."
           }
         }
       }
@@ -2539,6 +2601,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pesi a 8 bit pubblicati da terzi: il modello d’immagine da unsloth (GGUF Q8_0), l’encoder di testo da Disty0 (SDNQ int8). Tokenizer e VAE sono quelli dell’editore."
+          }
+        }
+      }
+    },
+    "@%@ deleted" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@%@ gelöscht"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@%@ eliminado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@%@ supprimé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@%@ eliminato"
           }
         }
       }
@@ -2739,6 +2829,62 @@
         }
       }
     },
+    "A name has %lld characters at most." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Name hat höchstens %lld Zeichen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nombre tiene %lld caracteres como máximo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nom a %lld caractères au plus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nome ha al massimo %lld caratteri."
+          }
+        }
+      }
+    },
+    "A picture of this subject can't be read. Its file is kept as it is: Show in Finder to replace it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Bild dieses Motivs kann nicht gelesen werden. Seine Datei bleibt unverändert: „Im Finder zeigen“, um es zu ersetzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede leer una imagen de este sujeto. Su archivo se conserva tal cual: «Mostrar en el Finder» para sustituirla."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image de ce sujet ne peut pas être lue. Son fichier est gardé tel quel : « Afficher dans le Finder » pour la remplacer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’immagine di questo soggetto non può essere letta. Il suo file resta com’è: «Mostra nel Finder» per sostituirla."
+          }
+        }
+      }
+    },
     "A render is in progress." : {
       "localizations" : {
         "de" : {
@@ -2853,6 +2999,90 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un’intensità di %@ non lascia alcun passo su %lld."
+          }
+        }
+      }
+    },
+    "A subject already has this name." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Motiv trägt diesen Namen bereits."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya hay un sujeto con este nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un sujet porte déjà ce nom."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un soggetto ha già questo nome."
+          }
+        }
+      }
+    },
+    "A subject has one or two pictures." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Motiv hat ein oder zwei Bilder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un sujeto tiene una o dos imágenes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un sujet a une ou deux images."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un soggetto ha una o due immagini."
+          }
+        }
+      }
+    },
+    "A subject with two pictures counts twice, and so do the edit's images." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Motiv mit zwei Bildern zählt doppelt, ebenso die Bilder der Bearbeitung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un sujeto con dos imágenes cuenta dos veces, y también cuentan las imágenes de la edición."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un sujet à deux images compte deux fois, et les images de l’édition comptent aussi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un soggetto con due immagini conta due volte, e contano anche le immagini della modifica."
           }
         }
       }
@@ -3077,6 +3307,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aggiungi una LoRA alla pila (massimo 3) — la pila del rack: un asse LoRA ne fa poi variare l’intensità"
+          }
+        }
+      }
+    },
+    "Add a Second Picture…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zweites Bild hinzufügen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir una segunda imagen…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter une seconde image…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiungi una seconda immagine…"
           }
         }
       }
@@ -3417,6 +3675,34 @@
         }
       }
     },
+    "An image to name: a person, a garment, an object, a place or a style." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Bild zum Benennen: eine Person, ein Kleidungsstück, ein Objekt, ein Ort oder ein Stil."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una imagen a la que dar nombre: una persona, una prenda, un objeto, un lugar o un estilo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image à nommer : une personne, un vêtement, un objet, un lieu ou un style."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’immagine da nominare: una persona, un capo, un oggetto, un luogo o uno stile."
+          }
+        }
+      }
+    },
     "An installation is running: renders can start once it is done." : {
       "localizations" : {
         "de" : {
@@ -3497,6 +3783,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un’altra immagine a cui il prompt può attingere («il cane dell’immagine 2»)."
+          }
+        }
+      }
+    },
+    "Another picture of the same subject." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein weiteres Bild desselben Motivs."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otra imagen del mismo sujeto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une autre image du même sujet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’altra immagine dello stesso soggetto."
           }
         }
       }
@@ -4173,6 +4487,34 @@
         }
       }
     },
+    "Cite in the Prompt" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Prompt nennen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Citar en el prompt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Citer dans le prompt"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cita nel prompt"
+          }
+        }
+      }
+    },
     "Clear History" : {
       "localizations" : {
         "de" : {
@@ -4309,6 +4651,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Svuota la coda e interrompi il rendering in corso"
+          }
+        }
+      }
+    },
+    "Click a subject to cite it. A render takes 3 images at most." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Klick auf ein Motiv nennt es. Ein Bild nimmt höchstens 3 Bilder auf."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haz clic en un sujeto para citarlo. Un render admite 3 imágenes como máximo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cliquez sur un sujet pour le citer. Un rendu prend 3 images au plus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fai clic su un soggetto per citarlo. Un render accetta al massimo 3 immagini."
           }
         }
       }
@@ -4929,6 +5299,34 @@
         }
       }
     },
+    "Create" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erstellen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crear"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Créer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crea"
+          }
+        }
+      }
+    },
     "Current Render" : {
       "localizations" : {
         "de" : {
@@ -5009,6 +5407,118 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Decodifica"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Löschen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elimina"
+          }
+        }
+      }
+    },
+    "Delete @%@?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@%@ löschen?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Eliminar @%@?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer @%@ ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminare @%@?"
+          }
+        }
+      }
+    },
+    "Delete Subject…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Motiv löschen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar el sujeto…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer le sujet…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elimina il soggetto…"
+          }
+        }
+      }
+    },
+    "Delete…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Löschen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elimina…"
           }
         }
       }
@@ -5349,6 +5859,40 @@
         }
       }
     },
+    "Downloading %@ — preparing %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ wird geladen — %2$@ wird vorbereitet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Downloading %1$@ — preparing %2$@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargando %1$@ — preparando %2$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargement de %1$@ — préparation de %2$@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download di %1$@ — preparazione di %2$@"
+          }
+        }
+      }
+    },
     "Downloading %@: %@" : {
       "localizations" : {
         "de" : {
@@ -5383,6 +5927,40 @@
         }
       }
     },
+    "Downloading %@: %@ — preparing %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ wird geladen: %2$@ — %3$@ wird vorbereitet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Downloading %1$@: %2$@ — preparing %3$@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargando %1$@: %2$@ — preparando %3$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargement de %1$@ : %2$@ — préparation de %3$@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download di %1$@: %2$@ — preparazione di %3$@"
+          }
+        }
+      }
+    },
     "Drag the line, or press ← →, to reveal one image or the other" : {
       "localizations" : {
         "de" : {
@@ -5407,6 +5985,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trascina la linea, o premi ← →, per mostrare l’una o l’altra immagine"
+          }
+        }
+      }
+    },
+    "Drag to frame what the model should look at: inside to move, an edge to resize, outside to draw another frame." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziehen, um zu rahmen, was das Modell ansehen soll: innen zum Verschieben, an einer Kante zum Ändern der Größe, außen für einen neuen Rahmen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrastra para encuadrar lo que el modelo debe mirar: dentro para mover, en un borde para cambiar el tamaño, fuera para trazar otro encuadre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faites glisser pour cadrer ce que le modèle doit regarder : à l’intérieur pour déplacer, sur un bord pour redimensionner, à l’extérieur pour tracer un autre cadre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trascina per inquadrare ciò che il modello deve guardare: all’interno per spostare, su un bordo per ridimensionare, all’esterno per tracciare un’altra cornice."
           }
         }
       }
@@ -5491,6 +6097,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trascina qui un’immagine per modificarla."
+          }
+        }
+      }
+    },
+    "Drop an image to name a person, a garment, an object, a place or a style, then write @name in the prompt." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Bild hier ablegen, um eine Person, ein Kleidungsstück, ein Objekt, einen Ort oder einen Stil zu benennen, dann @name in den Prompt schreiben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suelta una imagen para dar nombre a una persona, una prenda, un objeto, un lugar o un estilo, y escribe @nombre en el prompt."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déposez une image pour nommer une personne, un vêtement, un objet, un lieu ou un style, puis écrivez @nom dans le prompt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trascina un’immagine per nominare una persona, un capo, un oggetto, un luogo o uno stile, poi scrivi @nome nel prompt."
           }
         }
       }
@@ -5603,6 +6237,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Modifica"
+          }
+        }
+      }
+    },
+    "Edit @%@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@%@ bearbeiten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar @%@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifier @%@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifica @%@"
           }
         }
       }
@@ -5775,6 +6437,34 @@
         }
       }
     },
+    "Edit…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bearbeiten…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifier…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifica…"
+          }
+        }
+      }
+    },
     "Empty cells" : {
       "localizations" : {
         "de" : {
@@ -5939,6 +6629,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tutte le immagini sono state salvate. Puoi annullare con ⌘Z."
+          }
+        }
+      }
+    },
+    "Experimental" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Experimentell"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Experimental"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expérimental"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sperimentale"
           }
         }
       }
@@ -6513,6 +7231,34 @@
         }
       }
     },
+    "Frame" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rahmen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encuadre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cadre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cornice"
+          }
+        }
+      }
+    },
     "Full Screen" : {
       "localizations" : {
         "de" : {
@@ -6565,6 +7311,35 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schermo intero (Spazio)"
+          }
+        }
+      }
+    },
+    "Garment" : {
+      "comment" : "Kind of named subject",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kleidungsstück"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prenda"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vêtement"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capo"
           }
         }
       }
@@ -6677,6 +7452,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dai a ogni asse i suoi valori: un gruppo del prompt, semi, passi, una LoRA della pila, modelli o le immagini della modifica."
+          }
+        }
+      }
+    },
+    "Give it a name." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib ihm einen Namen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dale un nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donnez-lui un nom."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dagli un nome."
           }
         }
       }
@@ -7303,6 +8106,34 @@
         }
       }
     },
+    "In the prompt:" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Prompt:"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En el prompt:"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dans le prompt :"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nel prompt:"
+          }
+        }
+      }
+    },
     "Incomplete installation — it will resume where it stopped" : {
       "localizations" : {
         "de" : {
@@ -7611,6 +8442,34 @@
         }
       }
     },
+    "Its folder and its pictures are deleted from the library. Prompts that cite it will be refused." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sein Ordner und seine Bilder werden aus der Bibliothek gelöscht. Prompts, die es nennen, werden abgelehnt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su carpeta y sus imágenes se borran de la biblioteca. Los prompts que lo citen serán rechazados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son dossier et ses images sont effacés de la bibliothèque. Les prompts qui le citent seront refusés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sua cartella e le sue immagini vengono eliminate dalla libreria. I prompt che lo citano saranno rifiutati."
+          }
+        }
+      }
+    },
     "Its forged card is deleted. To get it back, import its file again." : {
       "localizations" : {
         "de" : {
@@ -7691,6 +8550,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tieni solo l’immagine mostrata (Esc)"
+          }
+        }
+      }
+    },
+    "Kind" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Art"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tipo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tipo"
           }
         }
       }
@@ -7859,6 +8746,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lascia il numero di passi predefinito del modello."
+          }
+        }
+      }
+    },
+    "Letters, digits, - and _ only, without spaces." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Buchstaben, Ziffern, - und _, ohne Leerzeichen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo letras, cifras, - y _, sin espacios."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lettres, chiffres, - et _ seulement, sans espace."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo lettere, cifre, - e _, senza spazi."
           }
         }
       }
@@ -8507,6 +9422,34 @@
         }
       }
     },
+    "Model Prompt" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompt des Modells"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompt del modelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompt du modèle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompt del modello"
+          }
+        }
+      }
+    },
     "Model imported: %@" : {
       "localizations" : {
         "de" : {
@@ -8701,6 +9644,174 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sposta a destra"
+          }
+        }
+      }
+    },
+    "Name" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nome"
+          }
+        }
+      }
+    },
+    "Name a Subject" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Motiv benennen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dar nombre a un sujeto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nommer un sujet"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nomina un soggetto"
+          }
+        }
+      }
+    },
+    "Name a subject from an image — or drop it here" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Motiv aus einem Bild benennen – oder es hier ablegen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dar nombre a un sujeto a partir de una imagen, o soltarla aquí"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nommer un sujet à partir d’une image — ou la déposer ici"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nomina un soggetto da un’immagine — o trascinala qui"
+          }
+        }
+      }
+    },
+    "Name it first: drop an image on the Subjects box." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benenne es zuerst: ein Bild auf die Box „Motive“ ziehen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dale nombre primero: suelta una imagen en la caja Sujetos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nommez-le d’abord : déposez une image sur la boîte Sujets."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prima dagli un nome: trascina un’immagine sul riquadro Soggetti."
+          }
+        }
+      }
+    },
+    "Named Subjects" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benannte Motive"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sujetos con nombre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sujets nommés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soggetti con nome"
+          }
+        }
+      }
+    },
+    "New versions:" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neue Versionen:"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuevas versiones:"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelles versions :"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuove versioni:"
           }
         }
       }
@@ -8925,6 +10036,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ancora nessun rendering."
+          }
+        }
+      }
+    },
+    "No subject is called @%@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Motiv heißt @%@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ningún sujeto se llama @%@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun sujet ne s’appelle @%@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun soggetto si chiama @%@."
           }
         }
       }
@@ -9390,6 +10529,35 @@
         }
       }
     },
+    "Object" : {
+      "comment" : "Kind of named subject",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Objekt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Objeto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Objet"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oggetto"
+          }
+        }
+      }
+    },
     "One image was never saved." : {
       "localizations" : {
         "de" : {
@@ -9554,6 +10722,92 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Originale"
+          }
+        }
+      }
+    },
+    "Person" : {
+      "comment" : "Kind of named subject",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Person"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persona"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personne"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persona"
+          }
+        }
+      }
+    },
+    "Picture" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagine"
+          }
+        }
+      }
+    },
+    "Place" : {
+      "comment" : "Kind of named subject",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ort"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lugar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lieu"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luogo"
           }
         }
       }
@@ -10482,6 +11736,34 @@
         }
       }
     },
+    "Remove This Picture" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild entfernen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar esta imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer cette image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rimuovi questa immagine"
+          }
+        }
+      }
+    },
     "Remove a group, or some alternatives." : {
       "localizations" : {
         "de" : {
@@ -11190,6 +12472,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Riusa questa griglia"
+          }
+        }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sichern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salva"
           }
         }
       }
@@ -11946,34 +13256,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Siliconed non include alcun peso. La versione Leggera è il modello dell’editore ripubblicato a 4–8 bit da terzi, e scaricato da loro; si applica la licenza dell’editore, e la scheda di ciascun terzo indica cosa ha cambiato."
-          }
-        }
-      }
-    },
-    "Siliconed ships no weights: the model is downloaded from its publisher, and its turbo LoRA from the third party that made it, each under its own license." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Siliconed enthält keine Gewichte: Das Modell wird vom Herausgeber geladen und seine Turbo-LoRA von dem Dritten, der sie erstellt hat, jeweils unter eigener Lizenz."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Siliconed no incluye ningún peso: el modelo se descarga de su editor, y su LoRA turbo del tercero que lo creó, cada uno con su propia licencia."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Siliconed ne livre aucun poids : le modèle est téléchargé chez son éditeur, et sa LoRA turbo chez le tiers qui l’a faite, chacun sous sa propre licence."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Siliconed non include alcun peso: il modello viene scaricato dal suo editore, e la sua LoRA turbo dal terzo che l’ha realizzata, ciascuno con la propria licenza."
           }
         }
       }
@@ -12852,6 +14134,91 @@
         }
       }
     },
+    "Style" : {
+      "comment" : "Kind of named subject",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stil"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estilo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Style"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stile"
+          }
+        }
+      }
+    },
+    "Subject images" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Motivbilder"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imágenes de sujetos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images de sujets"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagini dei soggetti"
+          }
+        }
+      }
+    },
+    "Subjects" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Motive"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sujetos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sujets"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soggetti"
+          }
+        }
+      }
+    },
     "Subtle" : {
       "localizations" : {
         "de" : {
@@ -13542,6 +14909,34 @@
         }
       }
     },
+    "The exploration doesn't cite named subjects yet." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Erkundung nennt noch keine benannten Motive."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La exploración aún no cita sujetos con nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’exploration ne cite pas encore de sujets nommés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’esplorazione non cita ancora soggetti con nome."
+          }
+        }
+      }
+    },
     "The exploration's grid" : {
       "localizations" : {
         "de" : {
@@ -13594,6 +14989,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il pannello dell’esplorazione (⌥⌘G)"
+          }
+        }
+      }
+    },
+    "The garment alone — not who wears it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur das Kleidungsstück – nicht, wer es trägt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo la prenda, no quien la lleva."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le vêtement seul — pas qui le porte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo il capo — non chi lo indossa."
           }
         }
       }
@@ -13766,30 +15189,30 @@
         }
       }
     },
-    "The image model in 4 to 8 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from unsloth (int8 convrot). Processor, VAE and turbo LoRA are the publisher's." : {
+    "The image model in 4 to 8 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from unsloth (int8 convrot). Processor and VAE are the publisher's." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das Bildmodell in 4 bis 8 Bit, veröffentlicht von unsloth (GGUF Q4_K_M); der 8-Bit-Text-Encoder der Compact, von unsloth (int8 convrot). Processor, VAE und Turbo-LoRA stammen vom Herausgeber."
+            "value" : "Das Bildmodell in 4 bis 8 Bit, veröffentlicht von unsloth (GGUF Q4_K_M); der 8-Bit-Text-Encoder der Compact, von unsloth (int8 convrot). Prozessor und VAE stammen vom Herausgeber."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El modelo de imagen en 4 a 8 bits, publicado por unsloth (GGUF Q4_K_M); el codificador de texto de 8 bits de la Compacta, de unsloth (int8 convrot). El procesador, el VAE y la LoRA turbo son los del editor."
+            "value" : "El modelo de imagen en 4 a 8 bits, publicado por unsloth (GGUF Q4_K_M); el codificador de texto de 8 bits de la Compacta, de unsloth (int8 convrot). El procesador y el VAE son los del editor."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le modèle d’image en 4 à 8 bits, publié par unsloth (GGUF Q4_K_M) ; l’encodeur de texte 8 bits de la Compact, d’unsloth (int8 convrot). Processeur, VAE et LoRA turbo sont ceux de l’éditeur."
+            "value" : "Le modèle d’image en 4 à 8 bits, publié par unsloth (GGUF Q4_K_M) ; l’encodeur de texte 8 bits de la Compact, d’unsloth (int8 convrot). Processeur et VAE sont ceux de l’éditeur."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il modello d’immagine a 4–8 bit, pubblicato da unsloth (GGUF Q4_K_M); l’encoder di testo a 8 bit della Compact, da unsloth (int8 convrot). Processor, VAE e LoRA turbo sono quelli dell’editore."
+            "value" : "Il modello d’immagine a 4–8 bit, pubblicato da unsloth (GGUF Q4_K_M); l’encoder di testo a 8 bit della Compact, da unsloth (int8 convrot). Processore e VAE sono quelli dell’editore."
           }
         }
       }
@@ -13930,6 +15353,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La licenza richiede un filtro dei contenuti ovunque il modello venga distribuito."
+          }
+        }
+      }
+    },
+    "The look: medium, palette, lighting — not the content." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Look: Technik, Palette, Licht – nicht der Inhalt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El aspecto: técnica, paleta, luz; no el contenido."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le rendu : technique, palette, lumière — pas le contenu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’aspetto: tecnica, tavolozza, luce — non il contenuto."
           }
         }
       }
@@ -14126,6 +15577,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il prossimo rendering è una variazione dell’immagine del seme, come l’immagine da cui proviene"
+          }
+        }
+      }
+    },
+    "The object alone, its exact design." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur das Objekt, sein genaues Design."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo el objeto, su diseño exacto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’objet seul, son dessin exact."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo l’oggetto, il suo design esatto."
           }
         }
       }
@@ -14550,6 +16029,34 @@
         }
       }
     },
+    "The setting and its light — not its people." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Umgebung und ihr Licht – nicht die Menschen darin."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El escenario y su luz, no su gente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le décor et sa lumière — pas ses gens."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’ambiente e la sua luce — non le sue persone."
+          }
+        }
+      }
+    },
     "The silicontrol command is installed." : {
       "localizations" : {
         "de" : {
@@ -14774,6 +16281,90 @@
         }
       }
     },
+    "The subject @%@ has no picture." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Motiv @%@ hat kein Bild."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El sujeto @%@ no tiene imagen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le sujet @%@ n’a pas d’image."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il soggetto @%@ non ha immagini."
+          }
+        }
+      }
+    },
+    "The subject couldn't be written." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Motiv konnte nicht geschrieben werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo escribir el sujeto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le sujet n’a pas pu être écrit."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non è stato possibile scrivere il soggetto."
+          }
+        }
+      }
+    },
+    "The subject's two pictures: each has its own frame" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die zwei Bilder des Motivs: jedes hat seinen eigenen Rahmen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las dos imágenes del sujeto: cada una tiene su encuadre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les deux images du sujet : chacune a son cadre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le due immagini del soggetto: ognuna ha la sua cornice"
+          }
+        }
+      }
+    },
     "The text encoder stays: %@ uses it too." : {
       "localizations" : {
         "de" : {
@@ -14826,6 +16417,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le due immagini non hanno la stessa dimensione: si possono solo mostrare affiancate"
+          }
+        }
+      }
+    },
+    "The wording is provisional: it will be settled by eye on a series of renders." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Formulierung ist vorläufig: Sie wird nach Augenmaß an einer Reihe von Bildern festgelegt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La redacción es provisional: se fijará a ojo sobre una serie de renders."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La formulation est provisoire : elle sera fixée à l’œil sur une série de rendus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La formulazione è provvisoria: sarà fissata a occhio su una serie di render."
+          }
+        }
+      }
+    },
+    "Their face, hair and build — not the clothes or the background." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesicht, Haare und Statur – nicht die Kleidung oder der Hintergrund."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cara, pelo y complexión; no la ropa ni el fondo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visage, cheveux et silhouette — pas les vêtements ni le fond."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viso, capelli e corporatura — non i vestiti né lo sfondo."
           }
         }
       }
@@ -15112,6 +16759,34 @@
         }
       }
     },
+    "This image can't be read: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild kann nicht gelesen werden: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede leer esta imagen: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image ne peut pas être lue : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile leggere questa immagine: %@"
+          }
+        }
+      }
+    },
     "This image can't be read: %@." : {
       "localizations" : {
         "de" : {
@@ -15192,6 +16867,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Questo modello non modifica immagini."
+          }
+        }
+      }
+    },
+    "This model doesn't read images: its prompt can't cite subjects." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Modell liest keine Bilder: Sein Prompt kann keine Motive nennen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este modelo no lee imágenes: su prompt no puede citar sujetos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce modèle ne lit pas d’images : son prompt ne peut pas citer de sujets."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo modello non legge immagini: il suo prompt non può citare soggetti."
           }
         }
       }
@@ -15338,6 +17041,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Questo modello legge al massimo %lld immagini"
+          }
+        }
+      }
+    },
+    "This prompt takes %@ images: a render takes %@ at most." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Prompt nimmt %@ Bilder auf: ein Bild nimmt höchstens %@ auf."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This prompt takes %1$@ images: a render takes %2$@ at most."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este prompt usa %@ imágenes: un render admite %@ como máximo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce prompt prend %@ images : un rendu en prend %@ au plus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo prompt usa %@ immagini: un render ne accetta al massimo %@."
           }
         }
       }
@@ -15636,6 +17373,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Riprova; se il problema persiste, segnalalo (Aiuto ▸ Segnala la mia configurazione…)."
+          }
+        }
+      }
+    },
+    "Two pictures of the same subject: the model sees one subject, from two views" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwei Bilder desselben Motivs: Das Modell sieht ein Motiv aus zwei Ansichten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dos imágenes del mismo sujeto: el modelo ve un solo sujeto, desde dos vistas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deux images du même sujet : le modèle voit un seul sujet, sous deux angles"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Due immagini dello stesso soggetto: il modello vede un solo soggetto, da due viste"
           }
         }
       }
@@ -16150,6 +17915,62 @@
         }
       }
     },
+    "What the Model Reads" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was das Modell liest"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que lee el modelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce que lit le modèle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa legge il modello"
+          }
+        }
+      }
+    },
+    "What the model reads: the prompt rewritten, each subject tied to its image" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was das Modell liest: der umgeschriebene Prompt, jedes Motiv mit seinem Bild verknüpft"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que lee el modelo: el prompt reescrito, cada sujeto unido a su imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce que lit le modèle : le prompt réécrit, chaque sujet relié à son image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa legge il modello: il prompt riscritto, ogni soggetto legato alla sua immagine"
+          }
+        }
+      }
+    },
     "What varies from one column (X) or row (Y) to the next" : {
       "localizations" : {
         "de" : {
@@ -16178,6 +17999,34 @@
         }
       }
     },
+    "Whole Image" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ganzes Bild"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagen entera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image entière"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagine intera"
+          }
+        }
+      }
+    },
     "Width × height: each side 512 at least and a multiple of 16, 1024 × 1536 at most." : {
       "localizations" : {
         "de" : {
@@ -16202,6 +18051,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Larghezza × altezza: ogni lato almeno 512 e multiplo di 16, al massimo 1024 × 1536."
+          }
+        }
+      }
+    },
+    "Write @ and a subject's name to cite it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schreibe @ und den Namen eines Motivs, um es zu nennen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe @ y el nombre de un sujeto para citarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écrivez @ et le nom d’un sujet pour le citer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scrivi @ e il nome di un soggetto per citarlo."
+          }
+        }
+      }
+    },
+    "Write @%@ in the prompt to cite it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schreibe @%@ in den Prompt, um es zu nennen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe @%@ en el prompt para citarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écrivez @%@ dans le prompt pour le citer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scrivi @%@ nel prompt per citarlo."
           }
         }
       }
@@ -16370,6 +18275,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Adatta alla finestra"
+          }
+        }
+      }
+    },
+    "a grid does not cite named subjects yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ein Raster nennt noch keine benannten Motive"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "una cuadrícula aún no cita sujetos con nombre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "une grille ne cite pas encore de sujets nommés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "una griglia non cita ancora soggetti con nome"
           }
         }
       }
@@ -17980,6 +19913,34 @@
         }
       }
     },
+    "named subjects are off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "benannte Motive sind ausgeschaltet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "los sujetos con nombre están desactivados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "les sujets nommés sont éteints"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "i soggetti con nome sono disattivati"
+          }
+        }
+      }
+    },
     "never rendered here: no estimate" : {
       "localizations" : {
         "de" : {
@@ -18848,6 +20809,34 @@
         }
       }
     },
+    "subjects add IMAGE --name NAME --kind KIND" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "subjects add BILD --name NAME --kind ART"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "subjects add IMAGEN --name NOMBRE --kind TIPO"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "subjects add IMAGE --name NOM --kind GENRE"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "subjects add IMMAGINE --name NOME --kind TIPO"
+          }
+        }
+      }
+    },
     "switch the publisher's model first: %@" : {
       "localizations" : {
         "de" : {
@@ -19364,6 +21353,34 @@
         }
       }
     },
+    "turn on Experimental → Named Subjects in the app's menu" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Experimentell → Benannte Motive im Menü der App einschalten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "activa Experimental → Sujetos con nombre en el menú de la app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cochez Expérimental → Sujets nommés dans le menu de l’app"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "attiva Sperimentale → Soggetti con nome nel menu dell’app"
+          }
+        }
+      }
+    },
     "two DiT evaluations" : {
       "localizations" : {
         "de" : {
@@ -19472,6 +21489,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "modello sconosciuto: \"%@\""
+          }
+        }
+      }
+    },
+    "unknown subcommand: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "unbekannter Unterbefehl: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "subcomando desconocido: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sous-commande inconnue : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sottocomando sconosciuto: %@"
           }
         }
       }

@@ -81,8 +81,8 @@ bibliothèques existantes restent valides.)
 
 | dossier | contenu | taille (installation Standard, `Family.installedSize`) |
 |---|---|---|
-| `<root>/store/` | cartes forgées (`*.silicon` : DiT, encodeurs de texte), LoRA forgées (`*.lora.silicon`), `profil.json` | Z-Image : 12,3 Go de DiT + 7,8 Go d'encodeur ; Qwen-Image-2.1 : 14,2 Go de DiT + 16,3 Go d'encodeur (Compact : 11,7 et 19,4 Go en tout ; Légère : 9,5 et 16,2 Go, §3.11) |
-| `<root>/store/composants/<famille>/` | les petits fichiers publiés d'une famille, lus tels quels : tokenizers, VAE, `transformer.json`, `dit.json` (noms et formes du DiT de l'éditeur, contre lesquels un import se vérifie) | 0,18 Go pour Z-Image, 2,7 Go pour Qwen-Image-2.1 (sa LoRA turbo, 1,36 Go, comprise) |
+| `<root>/store/` | cartes forgées (`*.silicon` : DiT, encodeurs de texte), LoRA forgées (`*.lora.silicon`), `profil.json` | Z-Image : 12,3 Go de DiT + 7,8 Go d'encodeur ; Qwen-Image-2.1 : 14,2 Go de DiT + 16,3 Go d'encodeur (Compact : 11,7 et 17,3 Go en tout ; Légère : 9,5 et 14,2 Go, §3.11) |
+| `<root>/store/composants/<famille>/` | les petits fichiers publiés d'une famille, lus tels quels : tokenizers, VAE, `transformer.json`, `dit.json` (noms et formes du DiT de l'éditeur, contre lesquels un import se vérifie) | 0,18 Go pour Z-Image, 0,69 Go pour Qwen-Image-2.1 (son VAE tel que publié, en bf16) |
 | `<root>/store/importes/` | les DiT importés (`<nom>.silicon`) | la taille d'un DiT de la famille |
 | `<root>/telechargements/` | les sources d'une installation, le temps de la forger | vide au repos |
 | `<root>/cache/` | **le cache de rendu** : ce que les rendus gardent d'un rendu à l'autre pour ne pas le refaire (ci-dessous) | jusqu'à ~0,5 Go, plus les K/V d'une édition Qwen-Image-2.1 (2 à 6,4 Go) |
@@ -101,7 +101,7 @@ même édition (même instruction, mêmes images), ne refait pas ce qui ne dépe
   à 0,01 s ;
 - `cache/kv/` : les conditions de Qwen-Image-2.1 (instruction et références) telles que son DiT les
   relit à chaque pas — les clés et valeurs que calcule son premier pas. **Une seule édition** (la
-  dernière, ses deux phases en mode 9 pas), 2 à 6,4 Go sur disque (6,4 Go à 1024×1536 avec trois
+  dernière), 2 à 6,4 Go sur disque (6,4 Go à 1024×1536 avec trois
   références) ; elle n'est pas gardée si elle laissait moins de 8 Go libres sur le volume. Une
   génération (sans référence) ne garde rien ici : ses conditions ne coûtent presque rien.
 
@@ -171,7 +171,7 @@ let loras: [LoRACard] = library.loras(for: "z-image")  // store/*.lora.silicon, 
 
 `ModelCard` (`Identifiable`, `Hashable` : utilisable telle quelle en `tag` d'un `Picker`) :
 `id`, `name`, `family: Family`, `isImported`, `license: License` (`text`, `commercial`,
-`requiredFilter`, `urls`), `defaultSteps` (8 pour Z-Image, 6 pour Qwen-Image-2.1), `space`,
+`requiredFilter`, `urls`), `defaultSteps` (8 pour Z-Image et Qwen-Image-2.1), `space`,
 `formats: [RecommendedFormat]`. Un modèle importé hérite de sa famille l'architecture, les
 formats et le texte de licence de l'éditeur (à vérifier sur la page du modèle).
 `LoRACard` : `path`, `name` (lisible), `rawName`, `target` (la famille visée), `rank`,
@@ -180,7 +180,7 @@ formats et le texte de licence de l'éditeur (à vérifier sur la page du modèl
 | identifiant | nom | licence | débruiteur | VAE |
 |---|---|---|---|---|
 | `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 pas, schedule spectral à 1024² | Flux |
-| `qwen-image-2.1` | Qwen-Image-2.1 Turbo (§3.12) | **non commerciale** (Qwen Research) | DiT Qwen-Image-2.1 (32 couches à un flux, attention bloc-causale) + LoRA turbo de Viggle, 6 pas ; édition avec 1 à 3 images (§3.12) | Qwen-Image-2.1 (16×, 64 canaux) |
+| `qwen-image-2.1` | Qwen-Image-2.1 Turbo (§3.12) | **non commerciale** (Qwen Research) | DiT Qwen-Image-2.1 (32 couches à un flux, attention bloc-causale) distillé par Qwen, 8 pas sur son calendrier publié ; édition avec 1 à 3 images (§3.12) | Qwen-Image-2.1 (16×, 64 canaux) |
 
 ### 2.3 `Request` : tout ce qui distingue un rendu
 
@@ -201,9 +201,10 @@ d'une app avant tout le reste.
   `832x1216` est un portrait). Les règles sont au §4.
 - **Graine** : `UInt64`. La valeur par défaut est 42 ; pour une graine au hasard, l'app tire
   `UInt64.random(in:)` elle-même.
-- **Pas** : `nil` donne le défaut du débruiteur (8 pour Z-Image Turbo, 6 pour Qwen-Image-2.1
-  Turbo ; tous deux sont distillés pour ce nombre). Une autre valeur est acceptée (Qwen-Image-2.1 :
-  seulement 5, 7 ou 9, §3.12), mais sa qualité n'a pas été jugée. Un nombre hors de
+- **Pas** : `nil` donne le défaut du débruiteur (8 pour Z-Image Turbo et Qwen-Image-2.1
+  Turbo ; tous deux sont distillés pour ce nombre). Une autre valeur est acceptée par Z-Image, mais sa
+  qualité n'a pas été jugée ; Qwen-Image-2.1 ne publie de calendrier que pour 8 pas et refuse tout
+  autre nombre (§3.12). Un nombre hors de
   `1...Request.maximumSteps` (50) est refusé avant tout calcul (`EngineError.invalidSteps`,
   `allowed` vide : « N steps: a render takes between 1 and 50. »).
 - **LoRA** : `[LoRAEntry]`, une pile. `LoRAEntry(_ path: String, strength: Double = 1)`, ou
@@ -227,8 +228,8 @@ d'une app avant tout le reste.
   garde le cadre. Seuls les débruiteurs qui l'annoncent les lisent
   (`DenoisingModule.maxReferences` : 3 pour Qwen-Image-2.1, 0 pour Z-Image) ; au-delà, ou sur un
   autre modèle, le rendu est refusé avant tout calcul (`EngineError.tooManyReferences`). Coût : la
-  séquence s'allonge d'autant de jetons (Qwen-Image-2.1 : une génération 1024² 132–136 s, une
-  édition en 1248×832 avec une référence ~190 s). **L'édition par instruction** — l'ordre
+  séquence s'allonge d'autant de jetons (Qwen-Image-2.1 : une génération 1024² ~120 s, une
+  édition en 1248×832 avec une référence ~210 s). **L'édition par instruction** — l'ordre
   des images, comment le prompt les nomme, la taille de sortie : §3.12.
 
 ```swift
@@ -745,7 +746,7 @@ le défaut) ; Z-Image et Qwen-Image-2.1 ont aussi une **Compact** (`Variant.co
 8 bits publiés par des tiers, pour le DiT **et** l'encodeur de texte, gardés 8 bits dans les cartes —
 environ 40 % de moins sur le disque, une image légèrement différente de celle de la Standard, à peu
 près aussi rapide (les poids sont élargis à chaque évaluation, et moins lus sur le disque).
-Tokenizers, VAE et la LoRA turbo de Qwen-Image-2.1 sont ceux de la Standard. Elles ont aussi une
+Tokenizers et VAE sont ceux de la Standard. Elles ont aussi une
 **Légère** (`Variant.light`) : le DiT tel qu'unsloth le publie en GGUF Q4_K_M — des blocs de 4 à
 6 bits gardés entiers, comme tout import GGUF (plus bas), et quatre tenseurs Q8_0 pour Qwen — et
 **l'encodeur de texte de la Compact**, la même carte (aucun encodeur n'est publié sous 8 bits sous
@@ -760,12 +761,12 @@ imposée.
 | famille | DiT Compact | encodeur de texte Compact | disque, Standard → Compact |
 |---|---|---|---|
 | Z-Image | `unsloth/Z-Image-Turbo-GGUF` `z-image-turbo-Q8_0.gguf` (GGUF Q8_0) | `Disty0/Z-Image-Turbo-SDNQ-int8` `text_encoder/model.safetensors` (SDNQ int8), avec le `config.json` de l'éditeur | 20,4 → 11,7 Go |
-| Qwen-Image-2.1 | `Comfy-Org/Qwen-Image-2.1` `diffusion_models/qwen_image_2.1_int8_convrot.safetensors` (int8 convrot) | `unsloth/Qwen-Image-2.1-FP8` `Qwen-Image-2.1-text_encoder-INT8-ConvRot.safetensors` (int8 convrot), avec le `config.json` de l'éditeur | 33,2 → 19,4 Go |
+| Qwen-Image-2.1 | `Comfy-Org/Qwen-Image-2.1` `diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors` (int8 convrot du Turbo) | `unsloth/Qwen-Image-2.1-FP8` `Qwen-Image-2.1-text_encoder-INT8-ConvRot.safetensors` (int8 convrot), avec le `config.json` de l'éditeur | 31,2 → 17,3 Go |
 
 | famille | DiT Légère | encodeur de texte Légère | disque, Standard → Légère |
 |---|---|---|---|
 | Z-Image | `unsloth/Z-Image-Turbo-GGUF` `z-image-turbo-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K) | celui de la Compact | 20,4 → 9,5 Go |
-| Qwen-Image-2.1 | `unsloth/Qwen-Image-2.1-GGUF` `qwen-image-2.1-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K, Q8_0) | celui de la Compact | 33,2 → 16,2 Go |
+| Qwen-Image-2.1 | `unsloth/Qwen-Image-2.1-Turbo-GGUF` `qwen-image-2.1-turbo-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K, Q8_0) | celui de la Compact | 31,2 → 14,2 Go |
 
 Chaque fichier est figé (révision et sha256). **Une seule version d'une famille est installée à la
 fois, et jamais aucune** : `install(_:variant:)` avec une autre version forge la nouvelle à côté de
@@ -805,8 +806,8 @@ les images sont lues, la nouvelle image part du bruit. Ni masque, ni inpainting�
 dit ce qui change.
 
 **Qwen-Image-2.1**, chaque étage vérifié contre la référence, rend son pire cas (1024×1536 avec
-trois références) sans un octet de swap (pic de 4,58 Go). Il prend 6 pas (les 5 et 7 de
-Viggle, et un mode à 9 pas, sont acceptés ; tout autre nombre est refusé avant tout calcul), et ne
+trois références) sans un octet de swap (pic de 4,7 Go). Il prend 8 pas, sur le calendrier que Qwen publie avec le
+Turbo (tout autre nombre est refusé avant tout calcul), et ne
 fait **pas d'img2img** : une `Request.image` est refusée — passer l'image en image 1. Demander
 `chain.denoising.check(steps:startImage:)` pour le savoir d'avance.
 
@@ -851,8 +852,8 @@ let edited = try await Engine().render(request, model: qwen)
 **Coût** : chaque référence allonge le rendu — ses jetons rejoignent la séquence. Les conditions
 de Qwen-Image-2.1 (texte et références) ne voient pas l'image générée : leurs clés et valeurs se
 calculent **une fois par rendu**, puis se relisent à chaque pas. Mesuré en série : une
-génération 1024² prend 132–136 s, une édition en 1248×832 ~190 s avec une référence, 262–264 s
-avec deux ; une évaluation du DiT à 1024² ~20 s sous le turbo. Une app apprend son propre coût par modèle, format **et
+génération 1024² prend ~120 s, une édition en 1248×832 ~210 s avec une référence, ~285 s
+avec deux ; une évaluation du DiT à 1024² ~17 s. Une app apprend son propre coût par modèle, format **et
 nombre de références** (l'app le fait), jamais d'une constante.
 
 Au-delà de `maxReferences`, ou sur un modèle sans édition, le rendu est refusé avant tout calcul
@@ -982,7 +983,7 @@ _ = axis
   les valeurs d'un axe en `RenderGrid.Value`, qu'une app étiquette dans sa langue ; `title` est le
   prompt dont les groupes sont réécrits `{a|b}`.
 - **Un axe « modèle » donne à chaque case le nombre de pas de son modèle** : `Cell.steps` vaut `nil`
-  (le défaut du modèle — 8 pour Z-Image, 6 pour Qwen-Image-2.1) sauf si les
+  (le défaut du modèle — 8 pour Z-Image et Qwen-Image-2.1) sauf si les
   pas sont l'autre axe ; sans axe « modèle », c'est celui de la base ou de l'axe. `Cell.model` vaut
   `nil` sans axe « modèle » (le modèle de la base), `Cell.image` sans axe « image » (toutes les
   images).
@@ -1028,9 +1029,9 @@ let finished = try await Engine().render(request, model: model)                 
   durée d'une esquisse avant qu'elle tourne.
 - **Ce qu'elle vaut** (512², estimation contre l'image finale réduite ×4, comme sur une
   planche) : Z-Image s'arrête après 3 évaluations sur 7 — ~16,7 s au lieu de ~32,5 s, ~21 dB, pose,
-  vêtements et lumière déjà ceux de l'image finale ; Qwen-Image-2.1 après 4 sur 6 — ~20 dB, la
-  composition, floue, d'où il n'esquisse plus (`DenoisingModule.sketches` : ses cases sont des
-  images finies). Une esquisse montre où va l'image ; le rendu fini juge (sous une LoRA, la pose
+  vêtements et lumière déjà ceux de l'image finale ; Qwen-Image-2.1, qui n'esquisse pas
+  (`DenoisingModule.sketches` : ses cases sont des images finies), s'arrêterait après 6 sur 8, son
+  calendrier restant au-dessus de 0,8 jusque-là. Une esquisse montre où va l'image ; le rendu fini juge (sous une LoRA, la pose
   de Z-Image bougeait encore entre 3 et 4).
 - **Les événements** : `start` porte le plan du rendu complet ; les événements `step` comptent
   jusqu'à l'esquisse (`total` = `n`), puis décodage et `image` comme d'habitude. Le PNG porte une clé
@@ -1054,9 +1055,10 @@ print(detailed.detail, detailed.metadata["detail"] ?? "")   // more more
 
 - **Ce qu'il vaut** (512², nombre de pas par défaut, à l'œil et par le |laplacien| moyen de
   la luminance) : `.more` ≈ +10 % de détail fin et la même image, `.most` ≈ +20 %, le plus fort
-  resté propre. Z-Image prend la cloche du node ; sur Qwen-Image-2.1, dont le calendrier décalé
-  décide la composition tôt, cette cloche changeait l'image : il a une cloche tardive, sur son seul
-  5ᵉ pas.
+  resté propre. Z-Image prend la cloche du node ; sur Qwen-Image-2.1, dont le calendrier
+  décide la composition tôt, cette cloche changeait l'image : il a une cloche tardive, sur ses
+  derniers pas seulement (le 6ᵉ à moitié, le 7ᵉ sur 8). Cette cloche n'a pas encore été rejugée sur
+  le calendrier à 8 pas du Turbo.
 - **La cloche est posée sur les indices de pas**, pas sur σ : un autre nombre de pas que celui par
   défaut, ou le 1024², n'a pas été jugé. En img2img, elle couvre les pas qui tournent.
 - Le PNG porte `detail` sauf pour `.normal` (§3.8) ; l'app l'offre en « Détail : Normal · Plus ·
@@ -1104,23 +1106,23 @@ request.variations.append(Variation(seed: 7, strength: 0.5))        // une varia
 | plancher | **chaque côté ≥ 512 px** (latent 64). Aucune évaluation n'a lieu sous 512 : en dessous, les modèles sont hors de leur domaine | `Format.minimumSide` |
 | multiple | chaque côté multiple de **16** (VAE ×8, patch ×2) | `Format.multiple` |
 | plafond | surface ≤ **1024×1536** (1 572 864 px), le dernier format mesuré | `Format.maxSurface` |
-| mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,9 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,6 Go pour Qwen-Image-2.1 à 1024², **3,8 Go** pour Z-Image en 1024×1536, **4,58 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin contre la mémoire réellement disponible (§5) | la portée par étage (`Chain.swift`), `MemoryBudget` |
+| mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,6 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,7 Go pour Qwen-Image-2.1 à 1024², **3,8 Go** pour Z-Image en 1024×1536, **4,7 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin contre la mémoire réellement disponible (§5) | la portée par étage (`Chain.swift`), `MemoryBudget` |
 | précision | calcul **fp32** partout ; les poids peuvent être stockés en bf16, fp16, 8 bits ou GGUF 4 à 6 bits (§3.11), puis élargis. Aucun calcul en fp16/bf16 | `Widen` (les poids élargis en fp32) |
 | déterminisme | avec `reproducible` (vrai par défaut, coupe GPU/AMX figée) : **même graine, même requête, même machine et même version → mêmes bits**, et la non-régression se juge au md5. L'image n d'un lot = le rendu isolé de sa graine. `Noise` n'est **pas** `torch.randn` : une graine ne redonne pas l'image de diffusers ni celle de Draw Things. D'une version à l'autre, les pixels peuvent changer, et d'une machine à l'autre, rien n'a été mesuré | `Request.reproducible` (`nil` : `EngineSettings.effective.frozenCut`) |
-| schedule spectral (Z-Image) | seulement quand **les deux côtés font ≥ 1024** : 1024², 1024×1536 et sa transposée (`k = 2`). Les portraits et paysages usuels paient leurs 7 évaluations pleines. Il est éteint en img2img ; forcé sous le plancher, il est refusé avant tout calcul | `ZImageDenoisingModule.plan` |
+| schedule spectral (Z-Image, Qwen-Image-2.1) | seulement quand **les deux côtés font ≥ 1024** : 1024², 1024×1536 et sa transposée (`k = 2` : les deux premières évaluations à demi-taille). Les portraits et paysages usuels paient toutes leurs évaluations en pleine taille. Il est éteint en img2img, sous une LoRA ou Détail, et dans une édition Qwen-Image-2.1 ; forcé sous le plancher, il est refusé avant tout calcul | `ZImageDenoisingModule.plan`, `QwenImage21DenoisingModule.plan` |
 
 **Temps indicatifs** : MacBookPro18,3 (M1 Pro, 16 Go), profil de la machine chargé, pas par défaut
-(8 pour Z-Image, 6 pour Qwen-Image-2.1), graine 42, « a 30 year old woman posing in a library »,
+(8 pour Z-Image et Qwen-Image-2.1), graine 42, « a 30 year old woman posing in a library »,
 cache de rendu éteint, rendu complet (texte + débruitage + décodage). Ils dépendent de la chaleur et du cache de pages (le premier rendu
 relit les cartes) : l'UI doit se fier à `Progress.estimatedRemaining`, pas à ce tableau.
 
 | modèle | 512² | 1024² | 1216×832 | 1024×1536 |
 |---|---|---|---|---|
 | Z-Image Turbo (8 pas) | **~29 s** | **~82 s** (spectral k = 2) | 110 s | ~153 s |
-| Qwen-Image-2.1 Turbo (6 pas) | **~38 s** | **132–136 s** | — | — |
+| Qwen-Image-2.1 Turbo (8 pas) | **~44 s** | **~120 s** (spectral k = 2) | — | ~203 s (spectral k = 2) |
 
-Édition avec Qwen-Image-2.1 : en 1248×832, ~190 s avec une référence, 262–264 s avec
-deux ; 1024×1536 avec trois références ~523 s. Une LoRA fusionnée ajoute 0,2 à 0,4 s par pas
+Édition avec Qwen-Image-2.1 : en 1248×832, ~210 s avec une référence, ~285 s avec
+deux ; 1024×1536 avec trois références ~515 s. Une LoRA fusionnée ajoute 0,2 à 0,4 s par pas
 à une édition. Sur Z-Image, le cache d'une LoRA ajoute environ +340 Mo au pic du débruitage.
 
 **Licences** : `model.license` est affichée à l'utilisateur, qui l'accepte : **le rendu d'un modèle
@@ -1140,14 +1142,14 @@ let licenseURLs: [URL] = model.license.urls   // https://huggingface.co/<dépôt
 | modèle | `urls` (chacune à sa révision figée) |
 |---|---|
 | Z-Image Turbo | `Tongyi-MAI/Z-Image-Turbo` `README.md` — pas de fichier de licence ; la fiche déclare Apache 2.0 |
-| Qwen-Image-2.1 Turbo | `Qwen/Qwen-Image-2.1` `LICENSE`, puis `Viggle/Qwen-Image-2.1-viggle-turbo` `LICENSE` (la LoRA turbo, même texte Qwen Research) |
+| Qwen-Image-2.1 Turbo | `Qwen/Qwen-Image-2.1-Turbo` `LICENSE` (le texte Qwen Research de Qwen-Image-2.1, inchangé) |
 
 Une Compact (§3.11) est sous la même licence ; son installation montre aussi la fiche de chaque
 tiers, qui la déclare (`family.licenseURLs(.compact)`) : `unsloth/Z-Image-Turbo-GGUF` et
 `Disty0/Z-Image-Turbo-SDNQ-int8` (Apache 2.0), `Comfy-Org/Qwen-Image-2.1` et
 `unsloth/Qwen-Image-2.1-FP8` (Qwen Research). Une Légère montre la fiche de son DiT, puis celle de
 son encodeur : `unsloth/Z-Image-Turbo-GGUF` et `Disty0/Z-Image-Turbo-SDNQ-int8`,
-`unsloth/Qwen-Image-2.1-GGUF` et `unsloth/Qwen-Image-2.1-FP8`.
+`unsloth/Qwen-Image-2.1-Turbo-GGUF` et `unsloth/Qwen-Image-2.1-FP8`.
 
 - **Z-Image Turbo** : Apache 2.0.
 - **Qwen-Image-2.1 Turbo** : Qwen Research, non commerciale.
@@ -1198,7 +1200,7 @@ deux premiers et le verrou ne s'y appliquent pas.
 | `downloadInterrupted(file:)`, `downloadRefused(file:status:)`, `downloadCorrupt(file:)` | `download_interrupted`, `download_refused`, `download_corrupt` | `install` | relancer ; 401/403 : dépôt à accès restreint, `HF_TOKEN` |
 | `importRefused(file:detail:)`, `notAnImportedModel(model:)` | `import_refused`, `not_an_imported_model` | `ModelImport` | ni LoRA ni DiT d'une famille connue, forme en désaccord, sous 4 bits ou autre format non lu |
 | `emptyPrompt` | `empty_prompt` | rendu | griser « Générer » si le prompt est blanc |
-| `invalidSteps(steps:allowed:)` | `invalid_steps` | rendu | `allowed` (Qwen-Image-2.1 : 5, 6, 7, 9), ou de 1 à `Request.maximumSteps` (50) s'il est vide |
+| `invalidSteps(steps:allowed:)` | `invalid_steps` | rendu | `allowed` (Qwen-Image-2.1 : 8), ou de 1 à `Request.maximumSteps` (50) s'il est vide |
 | `tooManyReferences(count:max:)` | `too_many_references` | rendu | `max` 0 : le modèle n'édite pas par référence |
 | `imageTooSmall(side:minimum:)` | `image_too_small` | `Format.check`, rendu | proposer `card.formats` |
 | `formatRefused(width:height:reason:)`, `formatUnreadable(text:)` | `format_refused`, `format_unreadable` | `Format.check`, rendu | proposer `card.formats` |
@@ -1229,7 +1231,7 @@ seul le temps change.
 ## 6. Ce que l'API ne fait pas encore
 
 - **CFG et prompt négatif** : les deux modèles sont distillés (Z-Image : une seule évaluation par
-  pas ; Qwen-Image-2.1 : sa LoRA turbo, sans CFG). Il n'y a pas de champ `negative`.
+  pas ; Qwen-Image-2.1 : distillé par Qwen en 8 pas, sans CFG). Il n'y a pas de champ `negative`.
 - **Inpainting / outpainting / masque**, **ControlNet**, IP-Adapter, image de référence.
 - **Agrandissement** (upscaler, *hires fix*) ; formats au-delà de 1024×1536.
 - **Choix de l'échantillonneur ou du schedule** : chaque modèle a le sien (Euler flow matching ;

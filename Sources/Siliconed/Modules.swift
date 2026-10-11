@@ -90,11 +90,6 @@ public struct ZImageDenoisingModule: DenoisingModule {
 
     public func sigmas(steps: Int) -> [Float] { FlowMatchSchedule(steps: steps).sigmas }
 
-    /// `SILICONED_SPECTRAL`, via `EngineSettings` — read at render time, never at construction.
-    private var forcedSpectral: Int? {
-        EngineSettings.effective.provenance["spectral"] != nil ? EngineSettings.effective.spectral : nil
-    }
-
     /// **In img2img (`start > 0`), the spectral schedule is off: `k = 0`**, even when forced.
     ///
     /// `Spectral.steps` counts the **leading** σs of the full schedule, calibrated on pure-noise
@@ -121,7 +116,7 @@ public struct ZImageDenoisingModule: DenoisingModule {
         let rule = withLoRA ? 0 : Spectral.steps(height: height, width: width, schedule: schedule)
         return DenoisingPlan(startStep: start, startSigma: σ[start],
                                 evaluations: (start..<steps).filter { σ[$0 + 1] != σ[$0] }.count,
-                                reduced: start > 0 ? 0 : spectral ?? forcedSpectral ?? rule,
+                                reduced: start > 0 ? 0 : spectral ?? Spectral.forced ?? rule,
                                 reducedHeight: height / 2, reducedWidth: width / 2)
     }
 
@@ -710,14 +705,10 @@ public struct QwenImage21TextModule: ImageTextModule {
     }
 }
 
-/// **The Qwen-Image-2.1 DiT under Viggle's turbo**: Euler without CFG, 6 steps on the raw nodes
-/// shifted by μ of the target, one prefill per phase — the 9-step mode (`steps: 9`) ends on two steps
-/// of the base model, its own prefill. The turbo is part of the model: it is stacked under the user's
-/// LoRAs. See `QwenImage21Pipeline`.
+/// **The Qwen-Image-2.1-Turbo DiT**: Euler without CFG, 8 steps on the published `sample_sigmas`, one
+/// prefill per render. The user's LoRAs, if any, apply to the Turbo's map itself. See `QwenImage21Pipeline`.
 public struct QwenImage21DenoisingModule: DenoisingModule {
     public var map: String
-    /// Viggle's turbo LoRA, always applied unmerged (`Family.turboLoRA`).
-    public var turbo: String
     package var scheduler: QwenImage21Pipeline.Scheduler
     /// `output_resolution`: the references' area (`R²`), and the edit format's.
     public var resolution: Int
@@ -728,36 +719,49 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     public var entry: TextFormat { .qwenImage21 }
     public var space: LatentSpace { .qwenImage21 }
     public var defaultSteps: Int { QwenImage21Pipeline.defaultSteps }
-    /// Viggle's card: edits with 1 to 3 references.
+    /// The pipeline's edits: 1 to 3 references.
     public var maxReferences: Int { 3 }
 
-    package init(map: String, turbo: String, scheduler: QwenImage21Pipeline.Scheduler,
+    package init(map: String, scheduler: QwenImage21Pipeline.Scheduler,
                 resolution: Int = QwenImage21Pipeline.outputResolution) {
-        self.map = map; self.turbo = turbo; self.scheduler = scheduler; self.resolution = resolution
+        self.map = map; self.scheduler = scheduler; self.resolution = resolution
     }
 
-    /// Outside a grid, that of 1024² (4,096 tokens). A render takes its grid's.
-    public func sigmas(steps: Int) -> [Float] { sigmas(steps: steps, height: 64, width: 64) }
+    /// The published schedule, the same at every size. An unsupported count gives it too:
+    /// `check(steps:)` has refused that count before.
+    public func sigmas(steps: Int) -> [Float] { scheduler.sigmas }
 
-    /// An unsupported count gives the 6-step schedule here: `check(steps:)` has refused it before.
-    public func sigmas(steps: Int, height: Int, width: Int) -> [Float] {
-        (try? QwenImage21Pipeline.sigmas(steps: steps, imageTokens: height * width, scheduler: scheduler))
-            ?? QwenImage21Pipeline.sigmas(nodes: (try? QwenImage21Pipeline.nodes(steps: 6)) ?? [1],
-                                          mu: scheduler.mu(imageTokens: height * width))
-    }
+    public func sigmas(steps: Int, height: Int, width: Int) -> [Float] { sigmas(steps: steps) }
 
-    /// **No spectral schedule — refused by eye.** Z-Image's threshold (`f* ≤ 0.10`) gives
-    /// `k = 3` here at 1024², −34 % (146 → 96 s), and it breaks every image: faces made of pasted
-    /// fragments, patchwork clothes, shelves shattered into collage (seeds 42, 7, 0). `k = 2` breaks
-    /// a corner on seed 7. The threshold does not transfer: a 16-px, 64-channel cell carries far
-    /// more of the image than Z-Image's 8-px one. The half-size phase is kept out of the engine.
+    /// The Turbo's spectral schedule: **its first two evaluations at half size** (`spectralSteps`, the
+    /// half-size phase of `QwenImage21Sampler`), a generation at 1024² −18 % (~160 → ~131 s), clean
+    /// by eye on two prompts × three seeds. A fixed `k`, not Z-Image's threshold rule (`f* ≤ 0.10`):
+    /// that rule gives `k = 3` here, which broke faces and shelves into patchwork under the former
+    /// 6-step turbo LoRA — a 16-px, 64-channel cell carries far more of the image than Z-Image's
+    /// 8-px one, and the threshold does not transfer.
+    ///
+    /// **`k = 0`, as Z-Image's rule gives it**: under a user LoRA or Detail (`withLoRA`, see
+    /// `ZImageDenoisingModule.plan`: the half-size steps leave the full latent's high-frequency noise
+    /// for the full steps to resorb, judged clean without either), from a start past 0, where the half
+    /// grid would go under 512 px on a side (`Spectral.floor`: a 512² or 832×1216 never halves), and
+    /// in an edit — the plan cannot see the references, the chain zeroes it (`DenoisingPlan.unreduced`)
+    /// and the denoiser ignores it with references. `SILICONED_SPECTRAL` forces `k` (a measurement),
+    /// within the same floor.
     public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
-        DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps, height: height, width: width)[start],
-                      evaluations: steps - start, reduced: 0, reducedHeight: height, reducedWidth: width)
+        let halvable = Spectral.divisible(height: height, width: width, by: 2,
+                                          floor: Spectral.floor(factor: space.factor))
+        let rule = withLoRA ? 0 : QwenImage21DenoisingModule.spectralSteps
+        let k = start > 0 || !halvable ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
+        return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps, height: height, width: width)[start],
+                             evaluations: steps - start, reduced: k,
+                             reducedHeight: k > 0 ? height / 2 : height, reducedWidth: k > 0 ? width / 2 : width)
     }
+
+    /// The half-size evaluations of a generation (`plan`).
+    package static let spectralSteps = 2
 
     public func check(steps: Int, startImage: Bool) throws {
-        _ = try QwenImage21Pipeline.nodes(steps: steps)
+        try QwenImage21Pipeline.check(steps: steps)
         if startImage { throw QwenImage21Pipeline.Failure.imageToImage }
     }
 
@@ -790,39 +794,36 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
             throw Chain.Failure.incompatibleText(output: text.format, entry: entry)
         }
         try check(steps: steps, startImage: start > 0)
-        let turboLayer = try LoRA(paths: [(path: turbo, strength: 1)]).layers
-        let user = lora?.layers ?? []
-        var sampler = QwenImage21Sampler(artifact: try Artifact(path: map),
-                                         turbo: try LoRA(layers: turboLayer + user),
-                                         base: user.isEmpty ? nil : try LoRA(layers: user))
+        var sampler = QwenImage21Sampler(artifact: try Artifact(path: map), lora: lora)
         sampler.freezeCut = context.reproducible
         sampler.cancellation = context.cancellation
         sampler.storage = storage
         sampler.reusable = context.keptDenoiser as? QwenImage21DiT
         // **The last edit's K/V, kept** (`RenderCache`): only where the policy puts them on disk anyway
         // (a prefix with images); a text-only prefix is computed inside the first step for nearly
-        // nothing. One key per phase — its stack changes the conditions' K/V.
+        // nothing. The map and the user's stack change the conditions' K/V: both are in the key.
         if let cache = context.cache, storage == nil {
             let prefix = text.rows + 3 * text.imageSlots.filter { $0 }.count
             if QwenImage21CachePolicy.storage(prefix: prefix) == .file {
-                var stacks: [[LoRA.Layer]] = [turboLayer + user]
-                if !user.isEmpty { stacks.append(user) }
-                let keys = stacks.map { kvKey(stack: $0, text: text, references: references, latent: latent,
-                                              reproducible: context.reproducible) }
-                cache.keepOnlyKV(keys)
-                sampler.kept = keys.map { (cache.kvPath($0), $0.hex) }
+                let key = kvKey(stack: lora?.layers ?? [], text: text, references: references, latent: latent,
+                                reproducible: context.reproducible)
+                cache.keepOnlyKV([key])
+                sampler.kept = (cache.kvPath(key), key.hex)
                 sampler.keptReserve = cache.keptReserve
             }
         }
         let σ = sigmas(steps: steps, height: latent.height, width: latent.width)
         context.beginDenoising(evaluations: steps)
         let (height, width) = (latent.height, latent.width)
+        // Detail, like a LoRA, turns it off (`plan`); an edit has none.
+        let reduced = references.isEmpty
+            ? plan(height: height, width: width, steps: steps, start: start,
+                   withLoRA: lora != nil || context.detail != .normal).reduced : 0
         try sampler.run(latent: &latent.values, height: height, width: width, hidden: text.values,
                         slots: text.imageSlots, references: references, sigmas: σ,
-                        told: context.told(σ, start: start, bell: .late),
-                        turboSteps: QwenImage21Pipeline.turboSteps(steps)) { step in
-            try context.stepDone(sigma: step.sigma, seconds: step.seconds, evaluatedHeight: height,
-                                 evaluatedWidth: width, space: space, x: step.latent, v: step.velocity,
+                        told: context.told(σ, start: start, bell: .late), reduced: reduced) { step in
+            try context.stepDone(sigma: step.sigma, seconds: step.seconds, evaluatedHeight: step.evaluatedHeight,
+                                 evaluatedWidth: step.evaluatedWidth, space: space, x: step.latent, v: step.velocity,
                                  nextSigma: σ[step.index + 1], fullHeight: height, fullWidth: width)
         }
         context.keptDenoiser = sampler.reused
@@ -831,13 +832,13 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
         context.reserve["qwen21.denoising"] = (sampler.timings, sampler.used)
     }
 
-    /// **What the conditions' K/V of one phase depend on**: the binary and the settings that change
-    /// bits, the DiT's map, the phase's LoRA stack (each map's revision and strength), the encoder's
+    /// **What the conditions' K/V depend on**: the binary and the settings that change
+    /// bits, the DiT's map, the user's LoRA stack (each map's revision and strength), the encoder's
     /// states and slots, each reference latent, and the target's grid (it closes the joint sequence).
     /// Not the seed, not σ: the conditions read `t = 0` and never see the target.
     func kvKey(stack: [LoRA.Layer], text: Conditioning, references: [Latent], latent: Latent,
                reproducible: Bool) -> RenderCache.Key {
-        var k = RenderCache.KeyBuilder("qwen21 kv v1")
+        var k = RenderCache.KeyBuilder("qwen21 kv v2")
         k.add(RenderCache.build); k.add(RenderCache.numerics(reproducible: reproducible))
         k.add(RenderCache.stamp(map))
         k.add(stack.count)
@@ -852,11 +853,11 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
 }
 
 extension QwenImage21DenoisingModule {
-    /// The library's turbo LoRA and Viggle's scheduler config (`scheduler-turbo.json`).
+    /// The Turbo's schedule: `model_index.json`'s `sample_sigmas`, checked against `scheduler.json`.
     static func product(map: String, in b: Library) throws -> QwenImage21DenoisingModule {
         QwenImage21DenoisingModule(
-            map: map, turbo: try b.component(.qwenImage21, Family.qwenImage21.turboLoRA!),
-            scheduler: try QwenImage21Pipeline.Scheduler.file(try b.component(.qwenImage21, "scheduler-turbo.json")))
+            map: map, scheduler: try QwenImage21Pipeline.Scheduler.files(config: try b.component(.qwenImage21, "scheduler.json"),
+                                                                         modelIndex: try b.component(.qwenImage21, "model_index.json")))
     }
 }
 
@@ -1033,7 +1034,7 @@ public struct Model: Sendable {
                    encoding: Flux2EncodingModule(path: vae, eps: 1e-5)))
     }
 
-    /// Qwen-Image-2.1 under Viggle's turbo: 6 steps, generation and editing by instruction (1 to 3
+    /// Qwen-Image-2.1-Turbo: 8 steps, generation and editing by instruction (1 to 3
     /// references, which its encoder sees). ⚠️ Qwen Research license: non-commercial.
     public static func qwenImage21(in b: Library) throws(EngineError) -> Model {
         try building(ModelCard.qwenImage21.id) { try qwenImage21(in: b, card: .qwenImage21, dit: b.ditMap(.qwenImage21)) }

@@ -16,7 +16,7 @@ final class EditSequenceTests: XCTestCase {
 
     private let qwen = Model(card: .qwenImage21, chain: try! Chain(
         text: QwenImage21TextModule(map: "", tokenizer: ""),
-        denoising: QwenImage21DenoisingModule(map: "", turbo: "", scheduler: .init()),
+        denoising: QwenImage21DenoisingModule(map: "", scheduler: .init()),
         decoding: QwenImage21DecodingModule(path: ""), encoding: QwenImage21EncodingModule(path: "")))
     private let klein = Model(card: .klein4b, chain: try! Chain(
         text: KleinTextModule(map: "", tokenizer: ""), denoising: KleinDenoisingModule(map: ""),
@@ -129,15 +129,15 @@ final class EditSequenceTests: XCTestCase {
 
     // ── what is refused before any computation ──────────────────────────────────────────────
 
-    /// Three references pass the count (the request then stops on its 8 steps, which Viggle's turbo
-    /// has no schedule for — still before any file); a fourth is refused as such.
+    /// Three references pass the count (the request then stops on its 6 steps, which the Turbo has no
+    /// schedule for — still before any file); a fourth is refused as such.
     func testAtMostThreeReferences() {
         XCTAssertEqual(qwen.chain.denoising.maxReferences, 3)
         let reference = image(64, 64)
-        var r = Request("replace the cloudy sky with a blue sky", resolution: 512, steps: 8)
+        var r = Request("replace the cloudy sky with a blue sky", resolution: 512, steps: 6)
         r.references = Array(repeating: reference, count: 3)
         XCTAssertThrowsError(try Engine().render(r, model: qwen)) {
-            XCTAssertEqual($0 as? EngineError, .invalidSteps(steps: 8, allowed: [5, 6, 7, 9]), "\($0)")
+            XCTAssertEqual($0 as? EngineError, .invalidSteps(steps: 6, allowed: [8]), "\($0)")
         }
         r.references.append(reference)
         XCTAssertThrowsError(try Engine().render(r, model: qwen)) {
@@ -153,9 +153,9 @@ final class EditSequenceTests: XCTestCase {
             XCTAssertEqual($0 as? EngineError, .imageToImageUnsupported(model: "qwen-image-2.1"), "\($0)")
             XCTAssertTrue("\($0)".contains("reference 1"), "\($0)")
         }
-        // The steps Viggle publishes pass the module's own check; another count does not.
-        for n in [5, 6, 7, 9] { XCTAssertNoThrow(try qwen.chain.denoising.check(steps: n, startImage: false), "\(n)") }
-        XCTAssertThrowsError(try qwen.chain.denoising.check(steps: 8, startImage: false))
+        // The Turbo's published count passes the module's own check; another count does not.
+        XCTAssertNoThrow(try qwen.chain.denoising.check(steps: 8, startImage: false))
+        for n in [5, 6, 7, 9] { XCTAssertThrowsError(try qwen.chain.denoising.check(steps: n, startImage: false), "\(n)") }
     }
 
     /// What the chain declares: the text, the references, and the encoder that sees them. ⚠️ It also
@@ -177,7 +177,7 @@ final class EditSequenceTests: XCTestCase {
     /// resampling stays small); the template numbers them `<image1>`, `<image2>`, `<image3>` in that
     /// order; the DiT's sequence puts their blocks in that order, the target last.
     func testTheOrderOfTheImagesIsKeptEndToEnd() throws {
-        let module = QwenImage21DenoisingModule(map: "", turbo: "", scheduler: .init(), resolution: 128)
+        let module = QwenImage21DenoisingModule(map: "", scheduler: .init(), resolution: 128)
         let red = image(48, 32, rgb: (1, -1, -1)), green = image(32, 32, rgb: (-1, 1, -1)), blue = image(32, 64, rgb: (-1, -1, 1))
         let prepared = try module.preparedReferences([red, green, blue])
         XCTAssertEqual(prepared.map { [$0.width, $0.height] }, [[160, 96], [128, 128], [96, 192]])

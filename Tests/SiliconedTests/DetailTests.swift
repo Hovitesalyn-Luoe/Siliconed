@@ -85,7 +85,8 @@ final class DetailTests: XCTestCase {
             XCTAssertNil(Detail.normal.schedule(bell))
             XCTAssertGreaterThan(Detail.most.schedule(bell)!.amount, Detail.more.schedule(bell)!.amount)
         }
-        // Qwen-Image-2.1's 6 steps: the late bell touches only the 5th.
+        // 6 steps (the count the late bell was calibrated on): only the 5th. The Turbo's 8: the 6th at
+        // half and the 7th (`[0, 0, 0, 0, 0, 0.5, 1, 0]`), not judged by eye yet.
         XCTAssertEqual(Detail.multipliers(steps: 6, Detail.more.schedule(.late)!), [0, 0, 0, 0, 1, 0])
         XCTAssertNotEqual(Detail.more.modelSigmas(FlowMatchSchedule(steps: 8).sigmas), FlowMatchSchedule(steps: 8).sigmas)
     }

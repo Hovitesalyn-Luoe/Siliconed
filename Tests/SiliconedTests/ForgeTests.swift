@@ -124,7 +124,7 @@ final class ForgeTests: XCTestCase {
 
     // ── Qwen-Image-2.1 ─────────────────────────────────────────────────────────────────────
 
-    /// The DiT is recognized by its names; Viggle's turbo LoRA (PEFT, `transformer.` prefix) by
+    /// The DiT is recognized by its names; a LoRA in PEFT's naming (`transformer.` prefix) by
     /// its modules — the modulation and the σ embedding included, which ERNIE and FLUX.2 refuse.
     func testQwenImage21NamesAndTurboKeys() throws {
         XCTAssertEqual(Recipes.family(fromNames: ["transformer_blocks.0.img_mlp.gate_layer.weight",
@@ -216,7 +216,7 @@ final class ForgeTests: XCTestCase {
         XCTAssertEqual(bare.scale("transformer_blocks.0.attn.to_q", r: 16), 2)
         let turbo = try XCTUnwrap(try ForgeLoRA.PEFTScale.read(["lora_adapter_metadata":
             #"{"transformer.alpha_pattern": {}, "transformer.lora_alpha": 256, "transformer.r": 256, "transformer.use_rslora": false}"#]))
-        XCTAssertEqual(turbo.scale("modulation.1", r: 256), 1, "Viggle's turbo: exactly 1, its map unchanged")
+        XCTAssertEqual(turbo.scale("modulation.1", r: 256), 1, "α = r: exactly 1, the map unchanged")
         let p = try XCTUnwrap(try ForgeLoRA.PEFTScale.read(["lora_adapter_metadata":
             #"{"lora_alpha": 8, "alpha_pattern": {"transformer_blocks.1.attn.to_q": 2, "to_q": 4}, "use_rslora": true}"#]))
         XCTAssertEqual(p.scale("transformer_blocks.1.attn.to_q", r: 4), 1)       // 2/√4, first key wins
@@ -262,16 +262,26 @@ final class ForgeTests: XCTestCase {
                                "visual.merger.linear_fc1.weight", "embed_tokens.weight", "layers.0.mlp.up_proj.weight"])
     }
 
-    /// Pinned revisions, the published files, and the turbo LoRA installed with the family: without
-    /// it, the components are not "present".
+    /// Every file of the Standard from the official Turbo at its pinned revision — DiT shards pinned by
+    /// sha256, the encoder in one file, the schedule in `model_index.json`; no turbo LoRA, no file of
+    /// the base model.
     func testQwenImage21Installation() throws {
-        XCTAssertEqual(Installer.qwenImage21.revision, "d26bb61231c349cf6b7896fa83353113880e1ba3")
-        XCTAssertEqual(Installer.viggleTurbo.revision, "009a44a895ef85f7e643c80fdca9543795248867")
-        XCTAssertEqual(Installer.encoder(.qwenImage21).count, 6)
-        XCTAssertEqual(Installer.dit(.qwenImage21).count, 3)
-        XCTAssertEqual(Installer.turbo(.qwenImage21)?.path, "Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors")
-        XCTAssertNil(Installer.turbo(.ernie))
-        XCTAssertTrue(Installer.components(.qwenImage21).contains { $0.destination == "scheduler-turbo.json" })
+        let turbo = "Qwen/Qwen-Image-2.1-Turbo@d65dbc9a7e8f6b5479e33dee6030eaab2a906509"
+        let standard = Installer.components(.qwenImage21) + Installer.encoder(.qwenImage21) + Installer.dit(.qwenImage21)
+            + Installer.licenseFiles(.qwenImage21)
+        XCTAssertEqual(Set(standard.map { "\($0.repository.name)@\($0.repository.revision)" }), [turbo])
+        XCTAssertEqual(Installer.encoder(.qwenImage21).map(\.path), ["text_encoder/config.json", "text_encoder/model.safetensors"])
+        XCTAssertEqual(Installer.dit(.qwenImage21).compactMap(\.sha256),
+                       ["6cccd922767f01694461bdcf1f34ea7b771f3442e4d5e338ea9aa55277431cc0",
+                        "69f53ebb063d2f606bdaff7e22e0e2144f28d978d73dc75e6e4293fc5982eab5"])
+        XCTAssertEqual(Set(Installer.components(.qwenImage21).compactMap(\.destination)),
+                       ["processor/tokenizer.json", "processor/tokenizer_config.json", "processor/chat_template.jinja",
+                        "processor/processor_config.json", "vae.safetensors", "vae.json", "transformer.json",
+                        "scheduler.json", "model_index.json"])
+        XCTAssertEqual(Installer.licenseURLs(.qwenImage21).count, 1, "one license file: the Turbo's")
+        XCTAssertEqual(Family.qwenImage21.ditMap, "qwen-image-2.1-turbo-dit.v0.silicon")
+        XCTAssertEqual(Family(ditKind: "qwen-image-2.1-turbo-dit"), .qwenImage21)
+        XCTAssertNil(Family(ditKind: Family.supersededQwenImage21Kind), "a base-model map is not the Turbo")
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-qwen-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -279,11 +289,102 @@ final class ForgeTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
         try place(.qwenImage21, in: b)
         let i = Installer(library: b)
-        XCTAssertFalse(i.presentComponents(.qwenImage21), "no turbo LoRA yet")
-        try Data(repeating: 4, count: 10).write(to: URL(fileURLWithPath: i.componentsFolder(.qwenImage21) + "/" + Family.qwenImage21.turboLoRA!))
         XCTAssertTrue(i.isReady(.qwenImage21))
+        XCTAssertTrue(i.supersededFiles(.qwenImage21).isEmpty)
         try b.uninstall(.qwenImage21)
-        XCTAssertEqual(b.occupancy().total, 0, "the turbo LoRA goes away with the family")
+        XCTAssertEqual(b.occupancy().total, 0)
+    }
+
+    /// **A superseded installation** (base model + third-party turbo LoRA) is recognized and not ready:
+    /// its DiT map and its whole components folder are what the next installation removes first; the
+    /// encoder map, the same tensors, stays. Uninstalling removes them too.
+    func testASupersededQwenInstallationIsRecognized() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-qwen-old-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let b = Library(root: root)
+        try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
+        try place(.qwenImage21, in: b, dit: false)
+        let i = Installer(library: b), folder = i.componentsFolder(.qwenImage21)
+        try Data(repeating: 4, count: 10).write(to: URL(fileURLWithPath: folder + "/viggle-turbo-v0.3.lora.silicon"))
+        try Data(repeating: 3, count: 1000).write(to: URL(fileURLWithPath: b.map(Family.supersededQwenImage21Maps[0])))
+        XCTAssertFalse(i.isReady(.qwenImage21))
+        XCTAssertEqual(Set(i.supersededFiles(.qwenImage21)), [b.map(Family.supersededQwenImage21Maps[0]), folder])
+        XCTAssertFalse(i.supersededFiles(.qwenImage21).contains(b.map(Family.qwenImage21.encoderMap)))
+        XCTAssertNotNil(ModelCard.qwenImage21.missing(in: b))
+        XCTAssertEqual(try XCTUnwrap(b.occupancy().families.first { $0.family == .qwenImage21 }).dit, 1000,
+                       "the superseded DiT map is counted until it goes")
+        try b.uninstall(.qwenImage21)
+        XCTAssertEqual(b.occupancy().total, 0, "nothing of it is kept")
+        // The base's `preprocessor_config.json` alone marks it as well.
+        try place(.qwenImage21, in: b)
+        XCTAssertTrue(i.supersededFiles(.qwenImage21).isEmpty)
+        try Data().write(to: URL(fileURLWithPath: folder + "/processor/preprocessor_config.json"))
+        XCTAssertFalse(i.presentComponents(.qwenImage21))
+    }
+
+    /// **A superseded Compact or Light** (a third party's 8-bit or GGUF DiT of the base model, under
+    /// the same turbo LoRA) is recognized the same way: its DiT map and the components folder go, the
+    /// Compact's 8-bit encoder stays (the Turbo's Compact and Light read it), and the version is read
+    /// from the old DiT map, for the reinstallation to keep it — a Light stays a Light.
+    func testASupersededQwenCompactOrLightIsRecognized() throws {
+        for (v, old) in [(Variant.compact, "qwen-image-2.1-dit.compact.v0.silicon"), (.light, "qwen-image-2.1-dit.light.v0.silicon")] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-qwen-old-\(v)-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let b = Library(root: root)
+            try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
+            try place(.qwenImage21, in: b, dit: false, variant: v)
+            let i = Installer(library: b), folder = i.componentsFolder(.qwenImage21)
+            try Data(repeating: 4, count: 10).write(to: URL(fileURLWithPath: folder + "/viggle-turbo-v0.3.lora.silicon"))
+            try Data(repeating: 3, count: 1000).write(to: URL(fileURLWithPath: b.map(old)))
+            XCTAssertTrue(Family.supersededQwenImage21Maps.contains(old))
+            XCTAssertFalse(i.isReady(.qwenImage21))
+            XCTAssertEqual(Set(i.supersededFiles(.qwenImage21)), [b.map(old), folder], v.rawValue)
+            XCTAssertFalse(i.supersededFiles(.qwenImage21).contains(b.map(Family.qwenImage21.encoderMap(v))))
+            XCTAssertEqual(i.supersededVariant(.qwenImage21), v)
+            XCTAssertEqual(try XCTUnwrap(b.occupancy().families.first { $0.family == .qwenImage21 }).dit, 1000,
+                           "the superseded DiT map is counted until it goes")
+            // The old DiT map alone marks it too (a components folder already redone).
+            try FileManager.default.removeItem(atPath: folder + "/viggle-turbo-v0.3.lora.silicon")
+            XCTAssertEqual(Set(i.supersededFiles(.qwenImage21)), [b.map(old), folder])
+            try b.uninstall(.qwenImage21)
+            XCTAssertEqual(b.occupancy().total, 0, "nothing of it is kept")
+        }
+    }
+
+    /// **An imported Qwen map of the superseded kind is removed**, not left out of sight: the catalog
+    /// would not list it (no family has that kind) and the engine refuses it. Its map and its
+    /// adapter go, with a journal line; an import of the Turbo's kind, and one of another family, stay.
+    func testASupersededImportIsRemoved() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-old-import-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let b = Library(root: root)
+        try FileManager.default.createDirectory(at: b.imported, withIntermediateDirectories: true)
+        func map(_ file: String, kind: String, name: String) throws -> String {
+            let path = b.imported.appendingPathComponent(file).path
+            let t = MapWriter.Tensor(name: "w", shape: [4], dtype: .bfloat16, transposed: nil) { [0, 0, 0, 0] }
+            _ = try MapWriter.write(to: path, tensors: [t], header: { _ in
+                [.init("format", 1), .init("page", .integer(MapWriter.page)), .init("kind", .string(kind)), .init("nom", .string(name))]
+            })
+            return path
+        }
+        let old = try map("old-qwen.silicon", kind: Family.supersededQwenImage21Kind, name: "Old Qwen")
+        try Data(repeating: 1, count: 10).write(to: URL(fileURLWithPath: adapterPath(fromMap: old)))
+        let turbo = try map("new-qwen.silicon", kind: Family.qwenImage21.ditKind, name: "New Qwen")
+        let z = try map("mine.silicon", kind: Family.zImage.ditKind, name: "Mine")
+
+        var lines: [String] = []
+        XCTAssertEqual(b.removeSupersededImports { lines.append($0) }, [old])
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].contains("Old Qwen"), lines[0])
+        for gone in [old, adapterPath(fromMap: old)] { XCTAssertFalse(FileManager.default.fileExists(atPath: gone), gone) }
+        for kept in [turbo, z] { XCTAssertTrue(FileManager.default.fileExists(atPath: kept), kept) }
+        XCTAssertEqual(Set(b.importedCards().map(\.name)), ["New Qwen", "Mine"])
+
+        // The listing does it by itself.
+        let again = try map("old-again.silicon", kind: Family.supersededQwenImage21Kind, name: "Again")
+        XCTAssertEqual(b.importedCards().count, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: again))
+        XCTAssertTrue(b.removeSupersededImports { _ in }.isEmpty)
     }
 
     func testTheNameOfAnImport() {

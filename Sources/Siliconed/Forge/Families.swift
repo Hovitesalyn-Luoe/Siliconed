@@ -11,8 +11,8 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     case klein4b = "klein-4b"
     /// ERNIE-Image Turbo (Baidu): single-stream DiT, Ministral-3 encoder, FLUX.2 VAE.
     case ernie = "ernie-image"
-    /// Qwen-Image-2.1 (Qwen) and Viggle's turbo LoRA: single-stream DiT, Qwen3-VL-8B encoder that
-    /// sees the reference images, 64-channel VAE; generation and editing by instruction.
+    /// Qwen-Image-2.1-Turbo (Qwen): single-stream DiT, Qwen3-VL-8B encoder that sees the reference
+    /// images, 64-channel VAE; generation and editing by instruction, 8 steps.
     case qwenImage21 = "qwen-image-2.1"
 
     /// The families offered to the user — `install all`, the app's library sheet. All of them
@@ -42,8 +42,9 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case .krea2: return "krea2-turbo-dit"
         case .klein4b: return "flux2-klein-4b-dit"
         case .ernie: return "ernie-image-turbo-dit"
-        // The base model: the turbo is a LoRA applied unmerged on top (`turboLoRA`).
-        case .qwenImage21: return "qwen-image-2.1-dit"
+        // The official Turbo's checkpoint. Another kind than the base model's (`supersededQwenImage21Kind`),
+        // which rendered under a third-party turbo LoRA: a map of it is not taken for this one.
+        case .qwenImage21: return "qwen-image-2.1-turbo-dit"
         }
     }
 
@@ -55,7 +56,7 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case .krea2: return "krea2-turbo-dit.v0.silicon"
         case .klein4b: return "flux2-klein-4b-dit.v0.silicon"
         case .ernie: return "ernie-image-turbo-dit.v0.silicon"
-        case .qwenImage21: return "qwen-image-2.1-dit.v0.silicon"
+        case .qwenImage21: return "qwen-image-2.1-turbo-dit.v0.silicon"
         }
     }
 
@@ -93,9 +94,9 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     package func ditMap(_ v: Variant) -> String {
         switch (self, v) {
         case (.zImage, .compact): return "z-image-turbo-dit.compact.v0.silicon"
-        case (.qwenImage21, .compact): return "qwen-image-2.1-dit.compact.v0.silicon"
+        case (.qwenImage21, .compact): return "qwen-image-2.1-turbo-dit.compact.v0.silicon"
         case (.zImage, .light): return "z-image-turbo-dit.light.v0.silicon"
-        case (.qwenImage21, .light): return "qwen-image-2.1-dit.light.v0.silicon"
+        case (.qwenImage21, .light): return "qwen-image-2.1-turbo-dit.light.v0.silicon"
         default: return ditMap
         }
     }
@@ -115,17 +116,14 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         }
     }
 
-    /// **A LoRA that belongs to the family**, under `store/composants/<famille>/`: Qwen-Image-2.1 is
-    /// a turbo only through Viggle's LoRA, applied **unmerged** (merged into bf16 weights it loses
-    /// part of its update — Viggle's README) and switchable (the 9-step mode ends on the base
-    /// model). Out of `store/*.lora.silicon`, so that it is not listed among the user's LoRAs.
-    package var turboLoRA: String? {
-        self == .qwenImage21 ? "viggle-turbo-v0.3.lora.silicon" : nil
-    }
-    /// Does the Standard version already download a part made by a third party (Viggle's turbo
-    /// LoRA)? The license sheet must not say it all comes from the publisher. Public: the app's
-    /// phrases are extracted without the package's symbols (`tools/translations.sh`).
-    public var hasThirdPartyTurbo: Bool { turboLoRA != nil }
+    /// The `kind` of the maps forged from Qwen-Image-2.1's **base** model, which rendered under a
+    /// third-party turbo LoRA until the official Turbo replaced both: refused by the engine with a
+    /// reason (reinstall), never read as the Turbo.
+    package static let supersededQwenImage21Kind = "qwen-image-2.1-dit"
+    /// Its DiT maps, in `store/` (`Installer.supersededFiles`): the Standard's, and the Compact's and
+    /// the Light's — third-party 8-bit and GGUF DiTs of the base model, under the same LoRA.
+    package static let supersededQwenImage21Maps = ["qwen-image-2.1-dit.v0.silicon", "qwen-image-2.1-dit.compact.v0.silicon",
+                                                    "qwen-image-2.1-dit.light.v0.silicon"]
 
     package init?(ditKind: String) {
         guard let f = Family.allCases.first(where: { $0.ditKind == ditKind }) else { return nil }
@@ -141,14 +139,12 @@ public enum Variant: String, CaseIterable, Sendable, Codable {
     case standard
     /// 8-bit weights published by a third party, **DiT and text encoder**, kept 8-bit in the maps:
     /// about 40 % smaller on disk, an image slightly different from the Standard's, a step a little
-    /// slower (the weights are widened at each evaluation). Tokenizers, VAE and the
-    /// turbo LoRA are the Standard's.
+    /// slower (the weights are widened at each evaluation). Tokenizers and VAE are the Standard's.
     case compact
     /// **The DiT in 4 to 6 bits as a third party publishes it** (unsloth's GGUF Q4_K_M, its blocks
-    /// kept whole), the Compact's 8-bit text encoder, the Standard's tokenizers, VAE and turbo
-    /// LoRA: the smallest on disk and the least read from it at each step — another set of
-    /// weights, an image that may compose differently. Preselected on a Mac of 8 GB
-    /// (`Family.preselectedVariant`).
+    /// kept whole), the Compact's 8-bit text encoder, the Standard's tokenizers and VAE: the smallest
+    /// on disk and the least read from it at each step — another set of weights, an image that may
+    /// compose differently. Preselected on a Mac of 8 GB (`Family.preselectedVariant`).
     case light
 
     /// The physical memory at or below which the Light is preselected: 8 GiB, what an 8 GB Mac reports.
@@ -172,6 +168,8 @@ package protocol TensorCatalog: AnyObject {
     /// An 8-bit weight's kind and scale (`nil`: not 8-bit).
     func quantization(_ name: String) -> QuantizedKind?
     func readQuantized(_ name: String) throws -> QuantizedTensor
+    /// A 16-bit tensor's published bits, never widened (`TensorSource.read16`); `nil`: not available.
+    func read16(_ name: String) throws -> [UInt16]?
 }
 
 extension TensorCatalog {
@@ -179,6 +177,7 @@ extension TensorCatalog {
     package func readQuantized(_ name: String) throws -> QuantizedTensor {
         throw Numerics.Failure(description: "\(name) is not 8-bit")
     }
+    package func read16(_ name: String) throws -> [UInt16]? { nil }
 }
 
 extension TensorSource: TensorCatalog {}
@@ -196,6 +195,10 @@ package struct Provenance {
     /// An 8-bit source tensor that a transformation forces into fp32 (`ForgeDiT` writes it so and
     /// says why): a column share that cuts a scale block.
     package var dequantizedBecause: String? = nil
+    /// The same selection on the published 16-bit bits (`TensorCatalog.read16`), when it only moves
+    /// values — what lets the forge write a bf16 or fp16 weight without going through fp32. `nil`
+    /// (or a `nil` result): the fp32 path.
+    package var read16: (() throws -> [UInt16]?)? = nil
 
     init(shape: [Int], dtypeSource: String, read: @escaping () throws -> [Float]) {
         self.shape = shape; self.dtypeSource = dtypeSource; self.read = read
@@ -208,6 +211,13 @@ package struct Provenance {
         var p = self
         p.quantization = q
         p.readQuantized = { select(try source.readQuantized(name)) }
+        return p
+    }
+
+    /// The same provenance, with its 16-bit form (`read16`).
+    func bits(_ read16: @escaping () throws -> [UInt16]?) -> Provenance {
+        var p = self
+        p.read16 = read16
         return p
     }
 }
@@ -244,6 +254,7 @@ package enum Recipes {
             let all = try source.read(name)
             return Array(all[(begin * columns)..<((begin + number) * columns)])
         }.quantized(source, name) { $0.rows(begin: begin, number: number) }
+            .bits { try source.read16(name).map { Array($0[(begin * columns)..<((begin + number) * columns)]) } }
     }
 
     /// The columns `[begin, begin + number)` of a `[rows, columns]` tensor — a share of a `Linear`'s
@@ -308,11 +319,13 @@ package enum Recipes {
             let all = try source.read(name)
             return Array(all[(part * n * columns)..<((part + 1) * n * columns)])
         }.quantized(source, name) { $0.rows(begin: part * n, number: n) }
+            .bits { try source.read16(name).map { Array($0[(part * n * columns)..<((part + 1) * n * columns)]) } }
     }
 
     static func asPublished(_ source: TensorCatalog, _ name: String, shape: [Int]? = nil) -> Provenance {
         Provenance(shape: shape ?? source.shape(name)!, dtypeSource: source.dtype(name)!) { try source.read(name) }
             .quantized(source, name) { $0 }
+            .bits { try source.read16(name) }
     }
 
     /// **Recognizes a DiT's family from its names**, prefixes removed. `nil`: none.
