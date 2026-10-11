@@ -2,6 +2,39 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.6
+
+### One Images box, above the prompt
+
+- **The images come first.** On Qwen-Image-2.1, the box that holds the images to edit is now called
+  Images and sits above the prompt: you lay the picture down, then say what to make of it. Its wires
+  run past the prompt to the encoders that read them.
+- **One budget, counted once.** With Named Subjects on (Experimental), the subjects live in the same
+  box, under the edit's images: to the model, a subject you cite is one more image. The box's title
+  counts both against the model's 3 images, and turns red past them.
+
+### Memory
+
+- **An idle Mac no longer refuses Qwen-Image-2.1 at 1024².** A plain generation was charged the
+  memory of an edit with 3 images, and the safety margin ignored what macOS frees by compressing the
+  other apps' memory. Now a render is charged the peak measured for its own number of images, and
+  the margin counts that compression: on the Mac of the report, from 2.9 to 4.5 GB available for
+  the same desktop. The no-swap rule is unchanged: everything is still measured at the worst case.
+
+### Named Subjects (Experimental)
+
+- **Compare with the subject.** “@ana as a western comic” keeps the picture's framing, as an edit
+  does: the curtain under the image now compares the result with its image 1, whether it came from
+  the Images box or from a subject (its frame, as it was sent).
+
+### Under the hood
+
+- Superseded kernels and settings removed (a scalar attention kernel, a half-precision mode): one
+  version of each computation lives, and it is the one that is checked. Nothing changes in the
+  images.
+
+Timings and memory are measured on a MacBook Pro M1 Pro with 16 GB.
+
 ## 0.5
 
 ### Qwen-Image-2.1 is now Qwen's official Turbo

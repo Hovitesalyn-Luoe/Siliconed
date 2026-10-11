@@ -60,6 +60,69 @@ final class MemoryBudgetTests: XCTestCase {
         XCTAssertEqual(budget(1).available, 0)
     }
 
+    /// **The credit: what compressing the others would free covers the reserve, for the refusal only.**
+    /// The idle desktop of 11/10 (M1 Pro, a browser open, `vm_stat`): 4.47 GB reclaimable refused
+    /// Qwen-Image-2.1's 1024² generation with the whole reserve (2.87 available); compressing its
+    /// 8.09 GB anonymous at the 2.86× it reached frees ~5 GB. The plan keeps the whole reserve: lean.
+    func testTheCreditCoversTheReserveForTheRefusalOnly() {
+        let page = 16_384, physical = 17_179_869_184, own = 160_000_000
+        func credit(_ p: MemoryBudget.Pages) -> Int {
+            MemoryBudget.compressionCredit(p, pageSize: page, ownFootprint: own, physical: physical)
+        }
+        let desk = MemoryBudget.Pages(free: 5_698, purgeable: 65_542, external: 340_001, executable: 148_000,
+                                      wired: 104_112, anonymous: 493_969, compressorOccupied: 65_439, compressorStored: 187_005)
+        XCTAssertGreaterThan(credit(desk), MemoryBudget.reserve)
+        let budget = MemoryBudget(reclaimable: MemoryBudget.reclaimable(desk, pageSize: page, ownFootprint: own), credit: credit(desk))
+        XCTAssertEqual(Double(budget.reclaimable) / 1e9, 4.47, accuracy: 0.01)
+        XCTAssertEqual(budget.admissible, budget.reclaimable)
+        XCTAssertEqual(budget.available, budget.reclaimable - MemoryBudget.reserve)
+        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1024, budget: budget))
+        XCTAssertEqual(MemoryPlan.tail(budget: budget, floor: ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024),
+                                       blockBytes: qwenBlock, fraction: 0.5), .lean)
+        // Still refused when the need exceeds what the kernel hands over without touching anyone.
+        XCTAssertThrowsError(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1536, references: 3, budget: budget))
+        // Nothing compressed yet, or too little to read a ratio: no credit.
+        var fresh = desk; fresh.compressorStored = 0; fresh.compressorOccupied = 0
+        XCTAssertEqual(credit(fresh), 0)
+        var little = desk; little.compressorStored = 20_000; little.compressorOccupied = 7_000
+        XCTAssertEqual(credit(little), 0)
+        // Incompressible (stored = occupied): none. Poorly compressible and few others: part of the reserve.
+        var flat = desk; flat.compressorOccupied = desk.compressorStored
+        XCTAssertEqual(credit(flat), 0)
+        var poor = desk; poor.anonymous = 100_000; poor.compressorOccupied = 160_000
+        XCTAssertGreaterThan(credit(poor), 0); XCTAssertLessThan(credit(poor), MemoryBudget.reserve)
+        // A compressor at its limit has no room to give.
+        var full = desk; full.compressorOccupied = 520_000; full.compressorStored = 1_500_000
+        XCTAssertEqual(credit(full), 0)
+        // The credit never lifts the refusal above what is reclaimable.
+        XCTAssertEqual(MemoryBudget(reclaimable: 4 << 30, credit: 10 << 30).admissible, 4 << 30)
+    }
+
+    /// The raw reading takes the reserve's counts at their offsets; `total_uncompressed_pages_in_compressor`
+    /// only from a kernel that wrote it.
+    func testTheRawReadingTakesTheCompressorCounts() {
+        var raw = [integer_t](repeating: 0, count: 256)
+        raw[12 / 4] = 104_112; raw[128 / 4] = 65_439; raw[140 / 4] = 493_969; raw[144 / 4] = 187_005
+        let p = MemoryBudget.pages(raw: raw, count: 104, pageSize: 16_384)
+        XCTAssertEqual([p.wired, p.compressorOccupied, p.anonymous, p.compressorStored], [104_112, 65_439, 493_969, 187_005])
+        XCTAssertEqual(MemoryBudget.pages(raw: raw, count: 36, pageSize: 16_384).compressorStored, 0)
+    }
+
+    /// **A generation is not charged its edits' peak**; the need never falls as references are added,
+    /// and a count with no tier for the format takes the next one up.
+    func testTheNeedFollowsTheReferences() {
+        let q = ModelCard.qwenImage21
+        let needs = (0...3).map { q.memoryNeed(width: 1024, height: 1024, references: $0) }
+        XCTAssertEqual(needs, [3_840_000_000, 4_180_000_000, 4_510_000_000, 4_510_000_000])
+        XCTAssertEqual(q.memoryNeed(width: 512, height: 512), 3_840_000_000)
+        XCTAssertEqual(q.memoryNeed(width: 1248, height: 832, references: 2), 4_470_000_000)
+        XCTAssertEqual(q.memoryNeed(width: 1024, height: 1536), 4_835_000_000)
+        XCTAssertEqual(q.memoryNeed(width: 1024, height: 1536, references: 1), 4_835_000_000)
+        // A family measured without references keeps its one table.
+        XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1024, references: 2),
+                       ModelCard.klein4b.memoryNeed(width: 1024, height: 1024))
+    }
+
     /// `SILICONED_MEMORY_AVAILABLE_GB` replaces the reading (GiB, before the reserve, comma or point);
     /// without it, the machine's state, which holds at least this process.
     func testTheForcingReplacesTheReading() {
@@ -90,9 +153,9 @@ final class MemoryBudgetTests: XCTestCase {
                                                          budget: MemoryBudget(reclaimable: 5_050_000_000)))
         // Every render observed without swap passes: the smallest reading (6.12 GB) holds the largest need
         // (Qwen's 1024² edit with 3 references, 4.51 GB).
-        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1024,
+        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1024, references: 3,
                                                               budget: MemoryBudget(reclaimable: 6_120_000_000)))
-        // Qwen at 1024×1536 (4.74 GB) needs 6.34 GB reclaimable.
+        // Qwen at 1024×1536 (4.835 GB) needs 6.44 GB reclaimable.
         XCTAssertThrowsError(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1536, budget: budget(5.85)))
         XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1536, budget: budget(6)))
     }

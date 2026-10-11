@@ -92,7 +92,7 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Un historique comme dans Photos** : flèches, ⌫ et ⌘Z, sélection multiple, comparaison côte à
   côte, export, glisser-déposer, Partager.
 
-![Une édition par Qwen-Image-2.1 : l’image 1 dans la boîte Édition, l’instruction « make it a watercolor painting », le résultat dans le canevas](docs/images/edit.jpg)
+![Une édition par Qwen-Image-2.1 : l’image 1 dans la boîte Images, l’instruction « make it a watercolor painting », le résultat dans le canevas](docs/images/edit.jpg)
 
 ### Explorer
 

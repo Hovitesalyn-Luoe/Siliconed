@@ -6213,34 +6213,6 @@
         }
       }
     },
-    "Edit" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bearbeiten"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Editar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Éditer"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Modifica"
-          }
-        }
-      }
-    },
     "Edit @%@" : {
       "localizations" : {
         "de" : {
@@ -9732,30 +9704,30 @@
         }
       }
     },
-    "Name it first: drop an image on the Subjects box." : {
+    "Name it first: drop an image under Subjects, in the Images box." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Benenne es zuerst: ein Bild auf die Box „Motive“ ziehen."
+            "value" : "Benenne es zuerst: ein Bild unter „Motive“ in die Box „Bilder“ ziehen."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dale nombre primero: suelta una imagen en la caja Sujetos."
+            "value" : "Dale nombre primero: suelta una imagen bajo Sujetos, en la caja Imágenes."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nommez-le d’abord : déposez une image sur la boîte Sujets."
+            "value" : "Nommez-le d’abord : déposez une image sous Sujets, dans la boîte Images."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Prima dagli un nome: trascina un’immagine sul riquadro Soggetti."
+            "value" : "Prima dagli un nome: trascina un’immagine sotto Soggetti, nel riquadro Immagini."
           }
         }
       }

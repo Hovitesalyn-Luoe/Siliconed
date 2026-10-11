@@ -1,6 +1,6 @@
 // **Named subjects in the app — experimental, off by default**.
 //
-//     the Subjects box      the library: one chip per subject (thumbnail, name, its kind's color);
+//     the subjects shelf    the library: one chip per subject (thumbnail, name, its kind's color);
 //        │                  a click cites it, a drop or « + » names a new one (`SubjectSheet.swift`)
 //        ▼
 //     the prompt            `@alice in @red-coat` — each cited subject drawn as a chip in the text
@@ -215,7 +215,7 @@ extension Problem {
         switch f {
         case .unknownSubject(let name):
             self.init(String(localized: "No subject is called @\(name)."),
-                      suggestion: String(localized: "Name it first: drop an image on the Subjects box."))
+                      suggestion: String(localized: "Name it first: drop an image under Subjects, in the Images box."))
         case let .tooManyImages(count, max):
             self.init(String(localized: "This prompt takes \(String(count)) images: a render takes \(String(max)) at most."),
                       suggestion: String(localized: "A subject with two pictures counts twice, and so do the edit's images."))
@@ -253,7 +253,7 @@ extension NamedSubjects.NameProblem {
 // MARK: - The rack's and the render's side
 
 extension AppState {
-    /// **The Subjects box shows, and `@names` are read**: the switch is on and the chosen model's
+    /// **The subjects shelf shows, and `@names` are read**: the switch is on and the chosen model's
     /// encoder reads images (Qwen-Image-2.1).
     var subjectsActive: Bool { subjects.enabled && promptNamesImages && maxReferences > 0 }
 
@@ -327,7 +327,7 @@ extension AppState {
         nameSubject(.file(url))
     }
 
-    /// A file or PNG bytes dropped on the Subjects box: the sheet opens on it.
+    /// A file or PNG bytes dropped on the subjects shelf: the sheet opens on it.
     func nameSubject(_ source: NamedSubjectStore.Source) {
         guard let draft = SubjectDraft(new: source, taken: subjects.all.map(\.name)) else {
             flash(String(localized: "This image can't be read"))

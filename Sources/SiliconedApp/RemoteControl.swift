@@ -873,7 +873,7 @@ final class RemoteControl {
 
     // ── subjects ──
 
-    /// **`subjects`** (experimental, `Subjects.swift`): list, name, delete — the Subjects box's
+    /// **`subjects`** (experimental, `Subjects.swift`): list, name, delete — the subjects shelf's
     /// gestures. Citing one is `add "@alice in a library"`. Refused while the app's switch is off.
     ///
     ///     subjects                                              the library

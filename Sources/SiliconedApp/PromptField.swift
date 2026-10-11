@@ -260,7 +260,7 @@ enum PromptStyle {
 }
 
 /// **The text view**: it says when it takes or loses the keyboard (the box's edge follows), and
-/// inserts a mention where the caret is (a click on a chip in the Subjects box).
+/// inserts a mention where the caret is (a click on a chip in the subjects shelf).
 final class PromptTextView: NSTextView {
     /// The field on screen — at most one: the rack has one prompt.
     @MainActor static weak var current: PromptTextView?

@@ -105,10 +105,6 @@ package final class Prefetcher {
 
     deinit { group.wait() }
 
-    /// Waits until everything that was requested is paged in. The conductor does not call it: it
-    /// requests ahead and lets the computation catch up. It is for measurements.
-    package func drain() { group.wait() }
-
     /// **The first of `layers` whose pages are handed back once computed** (`EngineSettings.mapTail`).
     /// The layers before it are the head of the map, left to the page cache from one
     /// evaluation to the next; the ones from it on are the tail, read, widened, then released first

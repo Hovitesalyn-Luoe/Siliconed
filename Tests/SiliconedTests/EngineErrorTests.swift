@@ -124,9 +124,10 @@ final class EngineErrorTests: XCTestCase {
         XCTAssertEqual(ModelCard.anima.memoryNeed(width: 1024, height: 1024), 5_300_000_000)
         // Never measured at 1024×1536: the largest peak any family measured there.
         XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1536), 7_800_000_000)
-        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1536), 4_740_000_000)
-        // A later measurement replaced the earlier 4.68 GB (a decoder since banded): an edit below 1024² holds the 1024² tier.
-        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024), 4_510_000_000)
+        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1536), 4_835_000_000)
+        // A generation is charged its own peak, an edit its references'.
+        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024), 3_840_000_000)
+        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024, references: 3), 4_510_000_000)
         // Z-Image's 1024² floor is the economical plan's denoising, its decoding a few MB below.
         XCTAssertEqual(ModelCard.zImage.memoryNeed(width: 1024, height: 1024), 2_214_000_000)
     }

@@ -88,7 +88,7 @@ history. It follows the system language (English, French, German, Spanish or Ita
 - **A history like Photos**: arrows, ⌫ and ⌘Z, multiple selection, side-by-side comparison, export,
   drag and drop, Share.
 
-![An edit by Qwen-Image-2.1: image 1 in the Edit box, the instruction “make it a watercolor painting”, the result in the canvas](docs/images/edit.jpg)
+![An edit by Qwen-Image-2.1: image 1 in the Images box, the instruction “make it a watercolor painting”, the result in the canvas](docs/images/edit.jpg)
 
 ### Explore
 

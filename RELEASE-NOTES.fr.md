@@ -2,6 +2,40 @@
 
 # Siliconed — notes de version
 
+## 0.6
+
+### Une seule boîte Images, au-dessus du prompt
+
+- **Les images d’abord.** Sur Qwen-Image-2.1, la boîte qui tient les images à éditer s’appelle
+  désormais Images et se place au-dessus du prompt : on pose l’image, puis on dit ce qu’on en fait.
+  Ses fils passent à côté du prompt jusqu’aux encodeurs qui les lisent.
+- **Un seul budget, compté une fois.** Avec les sujets nommés (Expérimental), les sujets vivent dans
+  la même boîte, sous les images de l’édition : pour le modèle, un sujet cité est une image de plus.
+  Le titre de la boîte compte les deux face aux 3 images du modèle, et passe au rouge au-delà.
+
+### Mémoire
+
+- **Un Mac au repos ne refuse plus Qwen-Image-2.1 en 1024².** Une génération simple se voyait
+  compter la mémoire d’une édition à 3 images, et la marge de sécurité ignorait ce que macOS libère
+  en compressant la mémoire des autres apps. Désormais un rendu compte le pic mesuré pour son propre
+  nombre d’images, et la marge tient compte de cette compression : sur le Mac du signalement, de
+  2,9 à 4,5 Go disponibles pour le même bureau. La règle du zéro swap ne change pas : tout reste
+  mesuré au pire cas.
+
+### Sujets nommés (Expérimental)
+
+- **Comparer avec le sujet.** « @ana en western comic » garde le cadrage de la photo, comme une
+  édition : le rideau sous l’image compare maintenant le résultat avec son image 1, qu’elle vienne de
+  la boîte Images ou d’un sujet (son cadre, tel qu’il a été envoyé).
+
+### Sous le capot
+
+- Des noyaux et des réglages dépassés sont retirés (un noyau d’attention scalaire, un mode en demi-
+  précision) : une seule version de chaque calcul vit, celle qui est vérifiée. Rien ne change dans
+  les images.
+
+Temps et mémoire mesurés sur un MacBook Pro M1 Pro de 16 Go.
+
 ## 0.5
 
 ### Qwen-Image-2.1 est désormais le Turbo officiel de Qwen

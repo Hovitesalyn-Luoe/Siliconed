@@ -1,15 +1,13 @@
 // **The rack: the chain of the render, drawn from `model.chain`, as the window's left column**.
 //
-//     ┌ Prompt ─────────────────┐   the text field itself
-//   ┌─┤                         │
-//   │ └─────────────────────────┘
-//   │ ┌ Images ─────────────────┐   only if the model edits: 1 to 3 numbered thumbnails
-//   │ └────┬──────────────┬─────┘
-//   │ ┌ Subjects ───────────────┐   only with « Named Subjects » on (experimental, `Subjects.swift`):
-//   │ └────┬──────────────┬─────┘   the pictures `@name` cites, after the edit's images
-//   │      │image         │image
+//     ┌ Images ─────────────────┐   only if the model edits: the images the prompt works on, 1 to 3,
+//   ┌─┤ ▣ ▣ +                   ├─┐ numbered — and, with « Named Subjects » on (experimental,
+//   │ │ (@ana) (@red-coat) (+)  │ │ `Subjects.swift`), the subjects a prompt cites, which take the
+//   │ └─────────────────────────┘ │ next numbers: one budget, one box
+//   │ ┌ Prompt ─────────────────┐ │ the text field itself, under what it names
+//   │ └──────────┬──────────────┘ │
 //   │ ┌Text encoder┐ ┌Image encoder┐
-//   └▶│ (sees them)│ │             │
+//   └▶│ (sees them)│ │             │◀┘
 //     └─────┬──────┘ └──────┬──────┘
 //           │text           │latent
 //     ┌──────── DiT ────────────┐   model ▾, license · fp32 · latent, size, seed, images, steps, detail,
@@ -19,12 +17,13 @@
 //     └─────────────────────────┘   → the image, on the canvas: a result, not a stage
 //
 // **A module and its settings are one box**: what the next render reads sits in the box of the stage
-// that reads it — the prompt in the prompt, an edit's images in the images, the size, the seed and the
+// that reads it — the images in the images, the prompt in the prompt, the size, the seed and the
 // steps in the DiT. There is no other form. The latent is not a box: it is what the DiT makes, its
 // previews are drawn in the DiT. Nor is the image: it is the result, shown on the canvas. The wires
 // between the boxes are of their true type (text amber, image lavender, latent sea green — `Palette`),
-// and run top to bottom, in the direction of the signal; the one wire that skips a box (the prompt to
-// the text encoder, past an edit's images) runs down the left rail. **Color is spent only where
+// and run top to bottom, in the direction of the signal; the images come first, as the gesture does —
+// lay the picture down, then say what to make of it —, so their wires skip the prompt: down the left
+// rail into the text encoder, down the right one into the image encoder. **Color is spent only where
 // something happens**: at rest the boxes are quiet cards and the wires muted; during a render the box
 // of the stage at work wears the accent and the wire it reads brightens and widens; what is done keeps
 // a discreet check; where the engine refused, the box turns red. Under each box, what it costs: the
@@ -46,7 +45,7 @@ import SwiftUI
 // MARK: - The nodes and the wires
 
 /// The places of the rack: each reports its frame, and the wires are drawn between them.
-private enum Node: Hashable { case prompt, images, subjects, textEncoder, imageEncoder, dit, vae }
+private enum Node: Hashable { case prompt, images, textEncoder, imageEncoder, dit, vae }
 
 private struct NodeFrames: PreferenceKey {
     static let defaultValue: [Node: Anchor<CGRect>] = [:]
@@ -112,12 +111,14 @@ private struct Edge: Identifiable {
     let stage: Engine.Stage
     /// False: an optional input left empty (no edit image) — drawn thin and faint.
     var live = true
-    /// True: it skips the box between its ends, and runs down the left rail instead of through it.
-    var rail = false
+    /// Set: it skips the box between its ends, and runs down that side's rail instead of through it.
+    var rail: Rail? = nil
     var id: String { "\(from)-\(to)" }
 }
 
-/// The left rail's distance to the boxes: the column's leading padding leaves it room.
+private enum Rail { case left, right }
+
+/// The rails' distance to the boxes: the column's paddings leave them room.
 private let railInset: CGFloat = 9
 
 /// **The wires**: from the bottom of a box to the top of the next, straight down where the two
@@ -134,7 +135,7 @@ private struct Wires: View {
             Canvas { c, _ in
                 for e in edges {
                     guard let a = frames[e.from].map({ g[$0] }), let b = frames[e.to].map({ g[$0] }) else { continue }
-                    let (p, end) = e.rail ? Self.rail(a, b) : Self.drop(a, b)
+                    let (p, end) = e.rail.map { Self.rail(a, b, $0) } ?? Self.drop(a, b)
                     let s = e.live ? state(e.stage) : .idle
                     let color: Color = !e.live ? Palette.hairline
                         : s == .idle ? e.kind.color.opacity(0.85) : e.kind.color
@@ -163,15 +164,18 @@ private struct Wires: View {
         return (p, end)
     }
 
-    /// Out of `a`'s left side, down the rail, into `b`'s left side: past the boxes in between.
-    private static func rail(_ a: CGRect, _ b: CGRect) -> (Path, CGPoint) {
-        let x = min(a.minX, b.minX) - railInset, r: CGFloat = 6
-        let start = CGPoint(x: a.minX, y: a.maxY - 16), end = CGPoint(x: b.minX, y: b.minY + 18)
+    /// Out of `a`'s side, down the rail, into `b`'s same side: past the boxes in between.
+    private static func rail(_ a: CGRect, _ b: CGRect, _ side: Rail) -> (Path, CGPoint) {
+        let left = side == .left, r: CGFloat = left ? 6 : -6
+        let x = left ? min(a.minX, b.minX) - railInset : max(a.maxX, b.maxX) + railInset
+        let start = CGPoint(x: left ? a.minX : a.maxX, y: a.maxY - 16)
+        let end = CGPoint(x: left ? b.minX : b.maxX, y: b.minY + 18)
+        let turn = abs(r)
         var p = Path()
         p.move(to: start)
         p.addLine(to: CGPoint(x: x + r, y: start.y))
-        p.addQuadCurve(to: CGPoint(x: x, y: start.y + r), control: CGPoint(x: x, y: start.y))
-        p.addLine(to: CGPoint(x: x, y: end.y - r))
+        p.addQuadCurve(to: CGPoint(x: x, y: start.y + turn), control: CGPoint(x: x, y: start.y))
+        p.addLine(to: CGPoint(x: x, y: end.y - turn))
         p.addQuadCurve(to: CGPoint(x: x + r, y: end.y), control: CGPoint(x: x, y: end.y))
         p.addLine(to: end)
         return (p, end)
@@ -186,9 +190,8 @@ struct RackView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
-            PromptNode(app: app).node(.prompt)
             if app.editingPossible { ImagesNode(app: app).node(.images) }
-            if app.subjectsActive { SubjectsNode(app: app).node(.subjects) }
+            PromptNode(app: app).node(.prompt)
             HStack(alignment: .top, spacing: 10) {
                 textEncoder.node(.textEncoder)
                 if encodesImages { imageEncoder.node(.imageEncoder) }
@@ -198,7 +201,7 @@ struct RackView: View {
             legend
         }
         .padding(.leading, 12 + railInset)
-        .padding(.trailing, 14)
+        .padding(.trailing, 12 + railInset)
         .padding(.vertical, 14)
         .backgroundPreferenceValue(NodeFrames.self) { frames in
             Wires(edges: edges, frames: frames, state: app.state(of:))
@@ -209,21 +212,16 @@ struct RackView: View {
     private var encodesImages: Bool { app.editingPossible && app.chain?.encoding != nil }
 
     private var edges: [Edge] {
+        // An edit's images and the subjects a prompt cites are the same images to the model: one wire each way.
         let live = !app.references.isEmpty || app.subjectImageCount > 0
-        var e = [Edge(from: .prompt, to: .textEncoder, kind: .text, stage: .text, rail: app.editingPossible)]
+        var e = [Edge(from: .prompt, to: .textEncoder, kind: .text, stage: .text)]
         if app.editingPossible {
             // Qwen-Image-2.1's encoder sees the images (`TextFormat.readsImages`): one more wire.
-            if app.promptNamesImages { e.append(Edge(from: .images, to: .textEncoder, kind: .image, stage: .text, live: live)) }
+            if app.promptNamesImages { e.append(Edge(from: .images, to: .textEncoder, kind: .image, stage: .text, live: live, rail: .left)) }
             if encodesImages {
-                e.append(Edge(from: .images, to: .imageEncoder, kind: .image, stage: .image, live: live))
+                e.append(Edge(from: .images, to: .imageEncoder, kind: .image, stage: .image, live: live, rail: .right))
                 e.append(Edge(from: .imageEncoder, to: .dit, kind: .latent, stage: .denoising, live: live))
             }
-        }
-        // Named subjects: their pictures go where an edit's do — the encoder that sees them, the VAE encoder.
-        if app.subjectsActive {
-            let cited = app.subjectImageCount > 0
-            e.append(Edge(from: .subjects, to: .textEncoder, kind: .image, stage: .text, live: cited))
-            if encodesImages { e.append(Edge(from: .subjects, to: .imageEncoder, kind: .image, stage: .image, live: cited)) }
         }
         e += [Edge(from: .textEncoder, to: .dit, kind: .text, stage: .denoising),
               Edge(from: .dit, to: .vae, kind: .latent, stage: .decoding)]
@@ -532,18 +530,20 @@ private struct PromptNode: View {
     }
 }
 
-/// **The images of an edit, numbered as the prompt names them**: image 1 is the one edited — the
+/// **The images the prompt works on, numbered as it names them**: image 1 is the one edited — the
 /// output takes its format —, the others are what the prompt borrows from. Added by the button, by a
 /// drop here or on the canvas (there, a PNG Siliconed wrote restores its settings instead), or by
 /// « Edit This Image » in the history; reordered by dragging a
 /// thumbnail onto another, or from its menu. Only for a model that edits (rule 2: the inputs follow
-/// the model).
+/// the model). **The named subjects live here too** (`SubjectShelf`): to the model a subject cited is
+/// one more image, numbered after these — the same budget, counted once in the title.
 private struct ImagesNode: View {
     let app: AppState
+    private var used: Int { app.references.count + app.subjectImageCount }
     var body: some View {
-        PortBox(title: "Edit", symbol: "photo.on.rectangle", kind: .image) {
-            Text(app.references.isEmpty ? String(localized: "up to \(app.maxReferences) images")
-                                        : "\(app.references.count)/\(app.maxReferences)")
+        PortBox(title: "Images", symbol: "photo.on.rectangle", kind: .image) {
+            Text(used == 0 ? String(localized: "up to \(app.maxReferences) images") : "\(used)/\(app.maxReferences)")
+                .foregroundStyle(used > app.maxReferences ? Palette.failure : .secondary)
         } content: {
             HStack(alignment: .top, spacing: 6) {
                 ForEach(Array(app.references.enumerated()), id: \.element.id) { n, reference in
@@ -577,6 +577,10 @@ private struct ImagesNode: View {
             }
             .font(.caption).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            if app.subjectsActive {
+                Divider().padding(.vertical, 2)
+                SubjectShelf(app: app)
+            }
         }
         .dropDestination(for: DroppedImage.self) { items, _ in
             var files: [URL] = []

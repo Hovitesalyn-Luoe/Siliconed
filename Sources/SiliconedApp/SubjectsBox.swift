@@ -1,9 +1,12 @@
-// **The named subjects in the rack** (experimental, `Subjects.swift`): the Subjects box, and the row
-// under the prompt that says what the subjects make of it.
+// **The named subjects in the rack** (experimental, `Subjects.swift`): their shelf in the Images box,
+// and the row under the prompt that says what the subjects make of it.
 //
-//     ┌ @ Subjects ───────────────── 3 ┐   one chip per subject — a click cites it, its menu edits,
-//     │ (▣ @alice) (▣ @red-coat) ( + ) │   shows or deletes it; an image dropped here, or « + »,
-//     └────────────────────────────────┘   opens the sheet that names it
+//     ┌ Images ───────────────── 2/3 ┐
+//     │ ▣ +                          │   the edit's own images
+//     │ ──────────────────────────── │
+//     │ @ Subjects                 3 │   one chip per subject — a click cites it, its menu edits,
+//     │ (▣ @alice) (▣ @red-coat) (+) │   shows or deletes it; an image dropped here, or « + »,
+//     └──────────────────────────────┘   opens the sheet that names it
 //
 //     Prompt … @alice in @red-coat
 //     1 ● 2 ●  2 images     Model Prompt     ← the model's prompt, in a popover; or why it is refused
@@ -12,15 +15,19 @@ import AppKit
 import Siliconed
 import SwiftUI
 
-/// **The library of subjects, as a box of the rack.** Its wire is an image's: the subjects' pictures
-/// reach the encoders as an edit's do — lit when the prompt cites one.
-struct SubjectsNode: View {
+/// **The library of subjects, as a shelf of the Images box.** A subject cited is one more image to the
+/// model, numbered after the edit's own: it rides the box's wires, and counts in its budget.
+struct SubjectShelf: View {
     let app: AppState
 
     var body: some View {
-        PortBox(title: "Subjects", symbol: "at", kind: .image) {
-            if !app.subjects.all.isEmpty { Text(verbatim: "\(app.subjects.all.count)") }
-        } content: {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Label("Subjects", systemImage: "at").labelStyle(.titleAndIcon)
+                Spacer(minLength: 0)
+                if !app.subjects.all.isEmpty { Text(verbatim: "\(app.subjects.all.count)").monospacedDigit() }
+            }
+            .font(.caption).foregroundStyle(.secondary)
             ScrollView(.vertical) {
                 Flow(spacing: 5) {
                     ForEach(app.subjects.all) { s in

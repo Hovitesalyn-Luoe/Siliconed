@@ -23,19 +23,19 @@ import Synchronization
 package enum Preflight {
 
     /// **The checks 1 to 4, pure** — what the test target drives with an injected machine and catalog.
-    package static func check(card: ModelCard, width: Int, height: Int, installed: Bool,
+    package static func check(card: ModelCard, width: Int, height: Int, references: Int = 0, installed: Bool,
                               licenseAccepted: Bool, budget: MemoryBudget) throws(EngineError) {
         guard installed else { throw .modelNotInstalled(model: card.id) }
         guard licenseAccepted else { throw .licenseNotAccepted(model: card.id) }
         try Format.check(width: width, height: height)
-        try card.checkMemory(width: width, height: height, budget: budget)
+        try card.checkMemory(width: width, height: height, references: references, budget: budget)
     }
 
     /// **All five, for a model about to render**: the lock comes back held, released when dropped.
-    package static func run(_ model: Model, width: Int, height: Int,
+    package static func run(_ model: Model, width: Int, height: Int, references: Int = 0,
                             budget: MemoryBudget = .current()) throws(EngineError) -> RenderLock? {
         let library = model.library
-        try check(card: model.card, width: width, height: height,
+        try check(card: model.card, width: width, height: height, references: references,
                   installed: library.map { model.card.missing(in: $0) == nil } ?? true,
                   licenseAccepted: library.map { Licenses.implicit || $0.isLicenseAccepted(model.card) } ?? true,
                   budget: budget)
@@ -64,6 +64,8 @@ package struct MeasuredPeak: Sendable {
     package let bytes: Int
     package let bound: Bound
     package let source: String
+    /// The edit's reference images the measured render read (0: a generation).
+    package var references = 0
     package var area: Int { width * height }
 }
 
@@ -71,11 +73,11 @@ extension ModelCard {
     /// **The peaks measured for this model's family** (`phys_footprint`, M1 Pro 16 GB), whole render.
     /// Only measurements — a format nobody measured is not filled by a guess (see `memoryNeed`).
     package var measuredPeaks: [MeasuredPeak] {
-        func p(_ w: Int, _ h: Int, _ gb: Double, _ source: String) -> MeasuredPeak {
-            MeasuredPeak(width: w, height: h, bytes: Int(gb * 1e9), bound: .majorant, source: source)
+        func p(_ w: Int, _ h: Int, _ gb: Double, _ source: String, references: Int = 0) -> MeasuredPeak {
+            MeasuredPeak(width: w, height: h, bytes: Int((gb * 1e9).rounded()), bound: .majorant, source: source, references: references)
         }
         func floor(_ w: Int, _ h: Int, _ gb: Double, _ source: String) -> MeasuredPeak {
-            MeasuredPeak(width: w, height: h, bytes: Int(gb * 1e9), bound: .floor, source: source)
+            MeasuredPeak(width: w, height: h, bytes: Int((gb * 1e9).rounded()), bound: .floor, source: source)
         }
         switch family {
         case .zImage:
@@ -102,21 +104,30 @@ extension ModelCard {
         case .ernie:
             return [p(1024, 1024, 4.9, "M88")]
         case .qwenImage21:
-            // Measured with binary dde99e2, after the decoder's banded tail: the earlier 4.68 GB came from the decoder
-            // before its tail was banded. The 1024² tier is an edit's: 3 references peak 0.9 GB above the generation.
-            return [p(1248, 832, 4.412, "M107, edit with 2 references (1 reference: 4 141 MB)"),
-                    p(1024, 1024, 4.510, "M123, edit with 3 references, sampled at 10 ms (1 reference 4.08, generation 3.63)"),
-                    p(1024, 1536, 4.74, "M96, worst case: 3 references")]
+            // **A generation is not an edit**: each reference adds its tokens to every evaluation.
+            // Charging a generation the 3 references' peak refused a 1024² on an idle desktop (4.51 GB
+            // asked, 3.84 needed). The current binary where it measured, an older one otherwise.
+            return [p(1024, 1024, 3.840, "M151, generation, batch of 3 (one image 3.73)"),
+                    p(1248, 832, 4.180, "M151, edit with 1 reference", references: 1),
+                    p(1024, 1024, 4.083, "M123, edit with 1 reference, sampled at 10 ms", references: 1),
+                    p(1248, 832, 4.470, "M151, edit with 2 references", references: 2),
+                    p(1024, 1024, 4.510, "M123, edit with 3 references, sampled at 10 ms", references: 3),
+                    // The generation at 1024×1536 peaked at 3.73 GB alone, its batch is unmeasured: it
+                    // takes this worst case.
+                    p(1024, 1536, 4.835, "11/10, 3 named subjects, the app's lifetime peak (M149 4.76, M151 4.72)",
+                      references: 3)]
         }
     }
 
     /// **Refuses a render whose floor exceeds the budget** — the one memory check, the engine's
     /// preflight and the app's "Generate" button alike. `budget` is read now by default
-    /// (`MemoryBudget.current()`, `SILICONED_MEMORY_AVAILABLE_GB` included).
-    public func checkMemory(width: Int, height: Int, budget: MemoryBudget = .current()) throws(EngineError) {
-        let needed = memoryNeed(width: width, height: height)
-        guard needed <= budget.available else {
-            throw .insufficientMemory(needed: needed, available: budget.available)
+    /// (`MemoryBudget.current()`, `SILICONED_MEMORY_AVAILABLE_GB` included). `references`: the edit's
+    /// images, named subjects' included (0: a generation).
+    public func checkMemory(width: Int, height: Int, references: Int = 0,
+                            budget: MemoryBudget = .current()) throws(EngineError) {
+        let needed = memoryNeed(width: width, height: height, references: references)
+        guard needed <= budget.admissible else {
+            throw .insufficientMemory(needed: needed, available: budget.admissible)
         }
     }
 
@@ -128,8 +139,12 @@ extension ModelCard {
     /// The format falls in the smallest measured area that holds it, and takes the largest figure
     /// measured up to that area (so the need never decreases with the area: Anima's 832×1216 peaks
     /// above its 1024²). A format beyond the family's measurements takes the largest peak any family
-    /// measured at or beyond it — klein and ERNIE at 1024×1536 take Krea 2's 7.8 GB. The references of
-    /// an edit are not a separate axis: Qwen-Image-2.1's worst case with 3 references is in the table.
+    /// measured at or beyond it — klein and ERNIE at 1024×1536 take Krea 2's 7.8 GB.
+    ///
+    /// **The references are a second axis**: a render reads the peaks measured with as many references as
+    /// it has, or the fewest above (a peak with more references bounds one with fewer, never the reverse:
+    /// Qwen-Image-2.1's generation is not charged its edits'). A count whose peaks hold no tier for the
+    /// format takes the next count up; a family measured without references keeps its one table.
     ///
     /// **Below the lean plan's own peak, by its two buffers** (Z-Image: 2 × 362 MB, the whole map
     /// streamed). A render accepted within 0.72 GB of the floor may take that much of the
@@ -138,17 +153,17 @@ extension ModelCard {
     /// the economical plan's 2 043 MB of denoising plus the buffers), which rendered without swap; and what swapped under a ballast was the map through the
     /// cache, which the buffers avoid, not our anonymous memory (at 1.30 GB of footprint). The
     /// swap judge of that band decides it.
-    public func memoryNeed(width: Int, height: Int) -> Int {
-        need(width: width, height: height, floors: true)
+    public func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int {
+        need(width: width, height: height, references: references, floors: true)
     }
 
     /// **The default plan's peak at `width × height`**: what the render needs to take every buffer
     /// that buys time. The decoders take their measured band only above it (`MemoryPlan.decoderBand`).
-    package func memoryComfort(width: Int, height: Int) -> Int {
-        need(width: width, height: height, floors: false)
+    package func memoryComfort(width: Int, height: Int, references: Int = 0) -> Int {
+        need(width: width, height: height, references: references, floors: false)
     }
 
-    private func need(width: Int, height: Int, floors: Bool) -> Int {
+    private func need(width: Int, height: Int, references: Int, floors: Bool) -> Int {
         let area = width * height
         // One figure per measured format: its floor where there is one and it is asked for, otherwise
         // its default plan's peak. A format with only a floor is no tier for the default plan's peak.
@@ -158,10 +173,15 @@ extension ModelCard {
                 return (floor ?? peaks.filter { $0.bound == .majorant }.map(\.bytes).max()).map { (area, $0) }
             }
         }
-        let own = figures(measuredPeaks)
-        if let tier = own.map(\.area).filter({ $0 >= area }).min() {
-            return own.filter { $0.area <= tier }.map(\.bytes).max()!
+        let counts = Set(measuredPeaks.map(\.references)).sorted()
+        let enough = counts.filter { $0 >= references }
+        for count in enough.isEmpty ? Array(counts.suffix(1)) : enough {
+            let own = figures(measuredPeaks.filter { $0.references == count })
+            if let tier = own.map(\.area).filter({ $0 >= area }).min() {
+                return own.filter { $0.area <= tier }.map(\.bytes).max()!
+            }
         }
+        let own = figures(measuredPeaks)
         let beyond = ModelCard.allCards.flatMap { figures($0.measuredPeaks) }.filter { $0.area >= area }.map(\.bytes)
         return max(beyond.max() ?? 0, own.map(\.bytes).max() ?? 0)
     }

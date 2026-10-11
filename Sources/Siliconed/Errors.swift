@@ -457,7 +457,6 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case let e as GEMM.Failure: self = .internalFailure(component: "gpu", detail: e.description)
         case let e as Conductor.Failure: self = .internalFailure(component: "co-execution", detail: e.description)
         case let e as FlashMatrix.Failure: self = .internalFailure(component: "flash", detail: e.description)
-        case let e as FlashAttention.Failure: self = .internalFailure(component: "flash", detail: e.description)
         case let e as WidenGPU.Failure: self = .internalFailure(component: "widen", detail: e.description)
         case let e as Numerics.Failure: self = .internalFailure(component: "forge", detail: e.description)
         default:

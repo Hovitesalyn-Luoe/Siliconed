@@ -3,16 +3,11 @@ English · [Français](API.fr.md)
 # Siliconed's API
 
 For whoever writes a macOS app (SwiftUI, “in the manner of Draw Things”) on top of the `Siliconed`
-library. State as of 2026-10-09. A complete SwiftUI app, **Siliconed.app**, is in [`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (`App.swift`: the app, its
-menus and its window; `AppState.swift`: the state and every call to the library;
-`MainView.swift`: the view; `Statistics.swift`: the statistics palette; `ModelsSheet.swift`:
-the “Models” sheet; `RemoteControl.swift`: the socket that `silicontrol …` drives, see
-[`REMOTE-CONTROL.md`](REMOTE-CONTROL.md);
-`Localizable.xcstrings`: its phrases in English, French, German, Spanish and Italian). It is **compiled by the package**
-(executable target `SiliconedApp`, as a pure client, no `@testable`), so it cannot drift from the API:
-when in doubt, it is the reference example.
-`tools/app.sh` builds it into `Siliconed.app` (translations and icon included) and opens it;
-`SILICONED_ROOT=<folder> swift run SiliconedApp` does too, in the system's language.
+library. State as of 2026-10-11. A complete SwiftUI app, **Siliconed.app**, is in
+[`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (its remote control: [`REMOTE-CONTROL.md`](REMOTE-CONTROL.md)). It is
+**compiled by the package** (executable target `SiliconedApp`, as a pure client, no `@testable`), so it
+cannot drift from the API: when in doubt, it is the reference example. `tools/app.sh` builds it into
+`Siliconed.app` and opens it; `SILICONED_ROOT=<folder> swift run SiliconedApp` does too.
 
 Package: `Package.swift`, product `.library(name: "Siliconed")`, **macOS 15+**, Swift 6.
 
@@ -59,8 +54,9 @@ cancelled, or if the loop exits, the render is cancelled and its memory returned
 - **Names**: what the engine *emits* is nested in `Engine` (`Render`, `Event`, `Plan`, `Stage`,
   `Preview`, `Progress`, `Timings`, `Footprints`); what the app *builds or plugs in* is at the top
   level (`Request`, `Model`, `Chain`, the modules, `ImageRGB`, `Library`, `Cancellation`). **One
-  error for everything: `EngineError`**, a closed enumeration (§5); every public function that
-  throws is `throws(EngineError)`.
+  error for everything the engine reports: `EngineError`**, a closed enumeration (§5). Rendering,
+  installing, importing and opening a model are `throws(EngineError)`; the few public functions that
+  throw something else are listed in §5.
 - **Labels**: the library goes under `in:`; `render`, `renderBatch`, `events` take
   `(request, [seeds:], model:, …)` in that order; a strength is a `Double`.
 - **Surface**: what only the package's own tools and tests use is `package` — invisible to an app.
@@ -77,7 +73,7 @@ public struct Library: Sendable {
 Every path derives from `root`. (The on-disk names `composants`, `importes`, `telechargements`
 and `profil.json` are kept from the original layout, so existing libraries stay valid.)
 
-| folder | content | size (Standard installation, `Family.installedSize`) |
+| folder | content | size (Standard installation, `family.installedSize(.standard)`) |
 |---|---|---|
 | `<root>/store/` | forged maps (`*.silicon`: DiT, text encoders), forged LoRAs (`*.lora.silicon`), `profil.json` | Z-Image: 12.3 GB DiT + 7.8 GB encoder; Qwen-Image-2.1: 14.2 GB DiT + 16.3 GB encoder (Compact: 11.7 and 17.3 GB in all; Light: 9.5 and 14.2 GB, §3.11) |
 | `<root>/store/composants/<family>/` | a family's small published files, read as is: tokenizers, VAE, `transformer.json`, `dit.json` (names and shapes of the publisher's DiT, against which an import is checked) | 0.18 GB for Z-Image, 0.69 GB for Qwen-Image-2.1 (its VAE as published, in bf16) |
@@ -515,56 +511,6 @@ first step, 25 to 30 dB at the last. Cost: negligible next to a step.
 
 The complete version is the app ([`Sources/SiliconedApp/`](../Sources/SiliconedApp/)).
 
-**The rack, on the left**: the chain top to bottom, in the direction of the signal, **each module
-with its settings in its box** — there is no other form. First the inputs, as the chain
-declares them (`chain.entries`: the text, mandatory, typed in the prompt's box; “Edit”, the references, if the denoiser reads
-some — numbered thumbnails up to `maxReferences`, chosen, dropped onto the box or the canvas, or
-“Edit This Image” from the history, which makes it image 1; the output takes image 1's format,
-§3.12). **An img2img's starting image (`.image`) is not there**: re-noised, it does
-not follow an instruction prompt; `Request.image` stays in the API. Then the DiT (model, license and precision as labels,
-orientation and recommended format, fixed or drawn seed, number of images, steps, a stack of at
-most three compatible LoRAs, import; while it runs, its steps), then the VAE —
-the latent is not a box, nor is the image: it is the result, on the canvas. The column follows the window: narrower, its boxes narrow and
-their rows of settings wrap onto two lines. **Between two modules, the wire** that connects them, of its
-real type: `chain.text.output` (the `TextFormat`) to the DiT, one more latent when images are set
-for editing, `chain.denoising.space` (the `LatentSpace`, its channels) to the VAE; it is highlighted
-while the module it feeds is working. Each module's name comes from the chain; the light of the
-working box turns on (`.stage` events), red if the error fell there. Under the rack:
-“Generate” with **its cost** as soon as this model has rendered at this format in the session (the
-learned speed × `plan(…).evaluations`, never a constant), and **the queue**: “Generate” during a
-render becomes “Add to Queue” — the job takes the settings of the moment; each waiting job can be
-removed, “Stop All” empties the queue.
-
-**The canvas, on the right**: during the render, the frame already has the shape of the coming
-image and each step's preview is drawn in it, with the stage, a segment per evaluation, the time
-remaining and “Stop”; then the image (pinch to zoom, two fingers to move it in its zone), its prompt and caption, “Redo (Same Seed)”,
-and **its details**: settings, time and memory peak of each stage (`Render.timings`,
-`Render.footprints`). The history as a strip of thumbnails (menu: reuse the settings, edit,
-remove), **browsable during a render**: the running render heads the strip, its preview and progress
-on a live thumbnail; a history image chosen meanwhile keeps the canvas, the live thumbnail brings it
-back. **A PNG Siliconed wrote, dropped on the canvas, restores its settings** (model, prompt, seed
-fixed, steps, size, LoRAs found by file name) through the same path as “Reuse These Settings”; what
-cannot come back (model not installed, LoRA not found, an img2img's source image) is said, the rest
-is restored. Any other image dropped there keeps its meaning (an edit's reference). **The menus** carry every shortcut: Generate ⌘↩, Redo ⌘R, Stop ⌘., Stop All ⌥⌘., Save
-⌘S (PNG with metadata or JPEG), copy the image ⇧⌘C, full screen ⌘F, neighboring images ⌥⌘← →,
-import ⌘O, statistics ⌥⌘I.
-
-**The statistics palette** (⌥⌘I, or its toolbar button) floats above: the current render (elapsed,
-remaining, end time), each stage (tokens, tokenizer and encoder, the duration of each DiT step as
-bars, the VAE), the queue (estimated end at the pace learned in the session for each model and
-format — a job never measured says so instead of inventing), the last image (time and memory peaks
-per stage) and the session.
-
-**The main thread does not compute**: decoding the reference image, encoding the PNG and reducing
-the thumbnail happen on a detached task; the history keeps the PNG and a thumbnail, and only the
-chosen image is decoded at full size; the catalog (LoRAs, what is missing) is re-read when the
-model changes, not at every redraw. **Five languages**: English, French, German, Spanish and
-Italian, following the system; `tools/translations.sh` extracts the phrases from the code,
-synchronizes them into `Localizable.xcstrings` and refuses a phrase missing in any of them. **Incognito**: the history lives in
-memory, and nothing is written without an explicit gesture — no temporary file, no window position,
-no restored state. **For a script**: no launch argument fills the form or renders; `silicontrol add` queues a
-render in the open app (`docs/REMOTE-CONTROL.md`, `silicontrol help add`).
-
 ### 3.8 Writing a PNG with metadata, getting a `CGImage`
 
 ```swift
@@ -767,7 +713,8 @@ if plan.removesFirst { print("not enough room for both: the \(plan.replacing!) v
 
 A gated repository asks you to accept its license on huggingface.co, then to set `HF_TOKEN` (or
 `hf auth login`, whose token is re-read); Z-Image and Qwen-Image-2.1 are open. To show what an installation costs and what is installed:
-`library.occupancy()` (each family's `variant`), `Family.installedSize(_:)`, `library.uninstall(_:)`
+`library.occupancy()` (each family's `variant`), `family.installedSize(_:)` (an instance method: the
+`(dit:, encoder:, components:)` bytes of that version), `library.uninstall(_:)`
 (every version).
 
 ### 3.12 Editing by instruction
@@ -781,7 +728,7 @@ are read, the new image starts from noise. No mask, no inpainting: the prompt al
 changes.
 
 **Qwen-Image-2.1**, every stage checked against the reference, renders its worst case (1024×1536
-with three references) without a byte of swap (4.7 GB peak). It takes 8 steps, on the schedule Qwen publishes with the
+with three references) without a byte of swap (4.8 GB peak). It takes 8 steps, on the schedule Qwen publishes with the
 Turbo (any other count is refused before any computation), and does **no img2img**: a
 `Request.image` is refused — pass the image as image 1. Ask `chain.denoising.check(steps:startImage:)`
 to know beforehand.
@@ -833,7 +780,7 @@ never from a constant.
 Beyond `maxReferences`, or on a model without editing, the render is refused before any
 computation (`EngineError.tooManyReferences`).
 
-**In the app**, the “Edit” box shows the references as numbered thumbnails (1, 2, 3), at most
+**In the app**, the “Images” box, above the prompt, shows the references as numbered thumbnails (1, 2, 3), at most
 the model's `maxReferences`: added by its button, by dropping images onto the box or the canvas, or
 by “Edit This Image” on a history image (which becomes image 1); removed and reordered by dragging
 or from a thumbnail's menu. Image 1 is marked as the one edited, the size row shows the output's
@@ -1069,7 +1016,7 @@ request.variations.append(Variation(seed: 7, strength: 0.5))        // a variati
 | floor | **each side ≥ 512 px** (latent 64). No evaluation happens below 512: under it, the models are outside their domain | `Format.minimumSide` |
 | multiple | each side a multiple of **16** (VAE ×8, patch ×2) | `Format.multiple` |
 | ceiling | area ≤ **1024×1536** (1,572,864 px), the last format measured | `Format.maxSurface` |
-| memory | **16 GB** machine (MacBookPro18,3). Measured peaks (`phys_footprint`): 1.7 GB for Z-Image and 2.6 GB for Qwen-Image-2.1 at 512², 2.9 GB for Z-Image and 3.7 GB for Qwen-Image-2.1 at 1024², **3.8 GB** for Z-Image at 1024×1536, **4.7 GB** for Qwen-Image-2.1 at 1024×1536 with three references; 0 swap-out at each worst case. Before a render, the preflight checks the need against the memory actually available (§5) | the per-stage scope (`Chain.swift`), `MemoryBudget` |
+| memory | **16 GB** machine (MacBookPro18,3). Measured peaks (`phys_footprint`): 1.7 GB for Z-Image and 2.6 GB for Qwen-Image-2.1 at 512², 2.9 GB for Z-Image and 3.7 GB for Qwen-Image-2.1 at 1024² (3.8 GB in a batch of three), **3.8 GB** for Z-Image at 1024×1536, **4.8 GB** for Qwen-Image-2.1 at 1024×1536 with three references; 0 swap-out at each worst case. Before a render, the preflight checks the need against the memory actually available (§5) | the per-stage scope (`Chain.swift`), `MemoryBudget` |
 | precision | **fp32** compute everywhere; the weights may be stored in bf16, fp16, 8 bits or GGUF 4 to 6 bits (§3.11), then widened. No compute in fp16/bf16 | `Widen` (the weights widened to fp32) |
 | determinism | with `reproducible` (true by default, frozen GPU/AMX split): **same seed, same request, same machine and same version → same bits**, and non-regression is judged by md5. Image n of a batch = the isolated render of its seed. `Noise` is **not** `torch.randn`: a seed does not give back diffusers' image nor Draw Things'. From one version to the next, pixels may change, and from one machine to another, nothing has been measured | `Request.reproducible` (`nil`: `EngineSettings.effective.frozenCut`) |
 | spectral schedule (Z-Image, Qwen-Image-2.1) | only when **both sides are ≥ 1024**: 1024², 1024×1536 and its transpose (`k = 2`: the first two evaluations at half size). The usual portraits and landscapes pay all their evaluations at full size. It is off in img2img, under a LoRA or Detail, and in a Qwen-Image-2.1 edit; forced below the floor, it is refused before any computation | `ZImageDenoisingModule.plan`, `QwenImage21DenoisingModule.plan` |
@@ -1122,8 +1069,13 @@ card, which declares it (`family.licenseURLs(.compact)`): `unsloth/Z-Image-Turbo
 
 ## 5. Errors
 
-**One public error: `EngineError`**, a closed enumeration (`Sources/Siliconed/Errors.swift`). Every
-public function that throws is `throws(EngineError)`; `events` ends its stream with an `EngineError`.
+**One public error: `EngineError`**, a closed enumeration (`Sources/Siliconed/Errors.swift`). Rendering
+(`render`, `renderBatch`), the library (installing, importing, the catalog, the licenses) and opening a
+model are `throws(EngineError)`; `events` ends its stream with an `EngineError`. **Not all public
+functions are**: the modules' stage functions (`encoder`, `denoise`, `decode`) and
+`DenoisingModule.check(steps:startImage:)` and `preparedReferences(_:)` throw untyped errors, which
+`Engine` turns into an `EngineError` — and so does `EngineError(_:)` for a caller that calls them
+directly; `Diagnostic.Report.json(pretty:)` and `issueURL(includingReport:)` throw the encoder's error.
 Each case carries its values, never a ready-made sentence:
 
 - `code` — a stable key (`"disk_full"`, `"license_not_accepted"`…), what the app looks its
@@ -1141,10 +1093,12 @@ public in name only (§2.4) and throw untyped; `render` folds what they throw.
 **The preflights.** Before any computation a render checks, in this order, and throws the first
 that fails: the model is installed (`card.missing(in:)`) → its license is accepted
 (`library.isLicenseAccepted(card)`) → the format (`Format.check`) → the memory
-(`card.checkMemory(width:height:)`: the model's floor at this format, `card.memoryNeed(width:height:)`,
-against `MemoryBudget.current().available` — the machine's state read at the render's launch: free,
-purgeable and file-backed pages, plus the process's own footprint, minus a reserve; not its RAM,
-and not its "free" memory alone, which means nothing under the page cache) → no other process renders on
+(`card.checkMemory(width:height:references:)`: the model's floor at this format and with this many
+reference images, `card.memoryNeed(width:height:references:)` — a generation is not charged an edit's
+peak —, against `MemoryBudget.current().admissible` — the machine's state read at the render's launch:
+free, purgeable and file-backed pages, plus the process's own footprint, minus a reserve of 1.6 GB
+less what compressing the other applications' idle memory would free; not its RAM, and not its "free"
+memory alone, which means nothing under the page cache) → no other process renders on
 this machine, whatever its library or user (`/private/tmp/siliconed-render.lock`). Then the request's own refusals, still before any computation.
 An installation checks the disk **before its first byte** (`diskFull`). A hand-composed chain
 (`Model(card:chain:)`) has no library: the first two and the lock do not apply to it.

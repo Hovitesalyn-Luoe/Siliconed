@@ -3,16 +3,11 @@
 # L'API de Siliconed
 
 Pour qui écrit une app macOS (SwiftUI, « à la Draw Things ») par-dessus la bibliothèque
-`Siliconed`. État au 09/10/2026. Une app SwiftUI complète, **Siliconed.app**, est dans [`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (`App.swift` : l'app,
-ses menus et sa fenêtre ; `AppState.swift` : l'état et tous les appels à la bibliothèque ;
-`MainView.swift` : la vue ; `Statistics.swift` : la palette des statistiques ;
-`ModelsSheet.swift` : la feuille « Modèles » ; `RemoteControl.swift` : la socket que
-pilote `silicontrol …`, voir [`REMOTE-CONTROL.fr.md`](REMOTE-CONTROL.fr.md) ;
-`Localizable.xcstrings` : ses phrases en anglais, français, allemand, espagnol et italien). Elle est **compilée par le
-paquet** (cible exécutable `SiliconedApp`, en client pur, sans `@testable`), donc elle ne peut pas
-dériver de l'API : en cas de doute, c'est l'exemple de référence. `tools/app.sh` la construit en `Siliconed.app` (traductions et icône
-comprises) et l'ouvre ; `SILICONED_ROOT=<folder> swift run SiliconedApp` aussi, dans la langue du
-système.
+`Siliconed`. État au 11/10/2026. Une app SwiftUI complète, **Siliconed.app**, est dans
+[`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (sa télécommande : [`REMOTE-CONTROL.fr.md`](REMOTE-CONTROL.fr.md)). Elle
+est **compilée par le paquet** (cible exécutable `SiliconedApp`, en client pur, sans `@testable`), donc
+elle ne peut pas dériver de l'API : en cas de doute, c'est l'exemple de référence. `tools/app.sh` la
+construit en `Siliconed.app` et l'ouvre ; `SILICONED_ROOT=<folder> swift run SiliconedApp` aussi.
 
 Paquet : `Package.swift`, produit `.library(name: "Siliconed")`, **macOS 15+**, Swift 6.
 
@@ -59,8 +54,9 @@ annulée, ou si la boucle s'arrête, le rendu est annulé et sa mémoire rendue.
 - **Noms** : ce que le moteur *émet* est imbriqué dans `Engine` (`Render`, `Event`, `Plan`,
   `Stage`, `Preview`, `Progress`, `Timings`, `Footprints`) ; ce que l'app *construit ou branche*
   est au premier niveau (`Request`, `Model`, `Chain`, les modules, `ImageRGB`, `Library`,
-  `Cancellation`). **Une seule erreur pour tout : `EngineError`**, une énumération fermée (§5) ;
-  toute fonction publique qui lève est `throws(EngineError)`.
+  `Cancellation`). **Une seule erreur pour tout ce que le moteur signale : `EngineError`**, une
+  énumération fermée (§5). Rendre, installer, importer et ouvrir un modèle sont `throws(EngineError)` ;
+  les quelques fonctions publiques qui lèvent autre chose sont listées au §5.
 - **Étiquettes** : la bibliothèque sous `in:` ; `render`, `renderBatch`, `events` prennent
   `(request, [seeds:], model:, …)` dans cet ordre ; une force est un `Double`.
 - **Surface** : ce que seuls les outils et les tests du paquet emploient est `package` —
@@ -79,7 +75,7 @@ Tous les chemins se déduisent de `root`. (Les noms sur disque `composants`, `im
 `telechargements` et `profil.json` sont ceux de la disposition d'origine, conservés : les
 bibliothèques existantes restent valides.)
 
-| dossier | contenu | taille (installation Standard, `Family.installedSize`) |
+| dossier | contenu | taille (installation Standard, `family.installedSize(.standard)`) |
 |---|---|---|
 | `<root>/store/` | cartes forgées (`*.silicon` : DiT, encodeurs de texte), LoRA forgées (`*.lora.silicon`), `profil.json` | Z-Image : 12,3 Go de DiT + 7,8 Go d'encodeur ; Qwen-Image-2.1 : 14,2 Go de DiT + 16,3 Go d'encodeur (Compact : 11,7 et 17,3 Go en tout ; Légère : 9,5 et 14,2 Go, §3.11) |
 | `<root>/store/composants/<famille>/` | les petits fichiers publiés d'une famille, lus tels quels : tokenizers, VAE, `transformer.json`, `dit.json` (noms et formes du DiT de l'éditeur, contre lesquels un import se vérifie) | 0,18 Go pour Z-Image, 0,69 Go pour Qwen-Image-2.1 (son VAE tel que publié, en bf16) |
@@ -530,58 +526,6 @@ l'agrandir à l'affichage (`.interpolation(.none)` ou lissé). Qualité : 13 à
 
 La version complète est l'app ([`Sources/SiliconedApp/`](../Sources/SiliconedApp/)).
 
-**Le rack, à gauche** : la chaîne de haut en bas, dans le sens du signal, **chaque module avec ses
-réglages dans sa boîte** — il n'y a pas d'autre formulaire. D'abord les entrées, telles que la
-chaîne les déclare (`chain.entries` : le texte, obligatoire, tapé dans la boîte du prompt ; « Éditer », les références, si le
-débruiteur en lit — des vignettes numérotées jusqu'à `maxReferences`, choisies, glissées sur la
-boîte ou la toile, ou « Éditer cette image » depuis l'historique, qui en fait l'image 1 ; la
-sortie prend le format de l'image 1, §3.12). **L'image de départ d'un img2img (`.image`) n'y est
-pas** : rebruitée, elle ne suit pas un prompt-instruction ; `Request.image` reste
-dans l'API. Puis le DiT (modèle, licence et précision en étiquettes,
-orientation et format conseillé, graine fixe ou tirée, nombre d'images, pas, pile de trois LoRA
-compatibles au plus, import ; en marche, ses pas), puis le VAE — le latent
-n'est pas une boîte, l'image non plus : c'est le résultat, sur la toile. La colonne suit la fenêtre : plus étroite, ses boîtes rétrécissent et
-leurs lignes de réglages passent sur deux lignes. **Entre deux modules, le câble** qui les
-relie, de son vrai type : `chain.text.output` (le `TextFormat`) vers le DiT, un latent de plus
-quand des images sont posées pour l'édition, `chain.denoising.space` (le `LatentSpace`, ses canaux)
-vers le VAE ; il est en surbrillance pendant que le module qu'il nourrit travaille. Le nom de chaque module
-vient de la chaîne ; le voyant de la boîte qui travaille s'allume (évènements `.stage`), rouge si
-l'erreur y est tombée. Sous le rack : « Générer » avec **son coût** dès que ce modèle a
-rendu à ce format dans la session (la vitesse apprise × `plan(…).evaluations`, jamais une
-constante), et **la file** : « Générer » pendant un rendu devient « Ajouter à la file » — le
-travail prend les réglages du moment ; chaque attente se retire, « Tout arrêter » vide la file.
-
-**La toile, à droite** : pendant le rendu, le cadre a déjà la forme de l'image à venir et
-l'aperçu de chaque pas s'y dessine, avec l'étage, un segment par évaluation, le temps restant et
-« Arrêter » ; puis l'image (pincer pour zoomer, deux doigts pour la déplacer dans sa
-zone), son prompt et sa légende, « Refaire (même graine) », et **ses détails** : réglages, temps et pic mémoire de chaque étage
-(`Render.timings`, `Render.footprints`). L'historique en bande de vignettes (menu : reprendre les
-réglages, éditer, retirer), **parcourable pendant un rendu** : le rendu en cours ouvre la bande, son
-aperçu et sa progression sur une vignette en direct ; une image choisie entre-temps garde la toile,
-la vignette en direct l'y ramène. **Un PNG écrit par Siliconed, déposé sur la toile, reprend ses
-réglages** (modèle, prompt, graine fixée, pas, taille, LoRA retrouvées par leur nom de fichier) par
-le même chemin que « Reprendre ces réglages » ; ce qui ne peut pas revenir (modèle non installé,
-LoRA introuvable, image source d'un img2img) est dit, le reste est repris. Toute autre image déposée
-là garde son sens (une référence d'édition). **Les menus** portent tous les raccourcis : Générer ⌘↩, Refaire ⌘R,
-Arrêter ⌘., Tout arrêter ⌥⌘., Enregistrer ⌘S (PNG avec métadonnées ou JPEG), copier l'image
-⇧⌘C, plein écran ⌘F, images voisines ⌥⌘← →, importer ⌘O, statistiques ⌥⌘I.
-
-**La palette des statistiques** (⌥⌘I, ou son bouton de la barre d'outils) flotte au-dessus : le rendu en cours
-(écoulé, reste, heure de fin), chaque étage (jetons, tokenizer et encodeur, la durée de chaque
-pas du DiT en barres, le VAE), la file (fin estimée au rythme appris dans la session pour chaque
-modèle et format — une attente jamais mesurée le dit au lieu d'inventer), la dernière image
-(temps et pics mémoire par étage) et la session.
-
-**Le fil principal ne calcule pas** : décoder l'image de référence, encoder le PNG et réduire la
-vignette se font sur une tâche détachée ; l'historique garde le PNG et une vignette, et seule
-l'image choisie est décodée en plein format ; le catalogue (LoRA, ce qui manque) se relit quand
-le modèle change, pas à chaque dessin. **Cinq langues** : anglais, français, allemand, espagnol et
-italien, selon le système ; `tools/translations.sh` extrait les phrases du code, les synchronise
-dans `Localizable.xcstrings` et refuse une phrase qui manque dans l'une d'elles. **Incognito** : l'historique vit en mémoire, et rien n'est
-écrit sans un geste explicite — ni fichier temporaire, ni position de fenêtre, ni état restauré.
-**Pour un script** : aucun argument de lancement ne remplit le formulaire ni ne rend ; `silicontrol add` met un rendu en
-file dans l'app ouverte (`docs/REMOTE-CONTROL.fr.md`, `silicontrol help add`).
-
 ### 3.8 Écrire un PNG avec métadonnées, obtenir un `CGImage`
 
 ```swift
@@ -708,7 +652,7 @@ l'autre. Mesuré sur Z-Image Turbo (M1 Pro, 16 Go) :
 | | carte bf16 | GGUF Q8_0 | GGUF Q6_K | GGUF Q4_K_M |
 |---|---|---|---|---|
 | carte sur disque | 12,3 Go | 7,25 Go | 5,93 Go | 5,04 Go |
-| relu sur le disque par pas | 5,43 Go | 2,89 Go | 2,23 Go | 1,78 Go |
+| relu sur le disque par pas, Mac de 16 Go | 5,43 Go | 2,89 Go | 2,23 Go | 1,78 Go |
 | 1024×1536 | 0 swap | 0 swap | 0 swap, pic 3,35 Go | 0 swap, pic 3,35 Go |
 
 Sur cette machine, un rendu est aussi un peu plus rapide qu'en Q8_0. Un fichier sous 8 bits est
@@ -793,7 +737,8 @@ if plan.removesFirst { print("not enough room for both: the \(plan.replacing!) v
 Un dépôt à accès restreint demande d'accepter sa licence sur huggingface.co, puis de poser
 `HF_TOKEN` (ou `hf auth login`, dont le jeton est relu) ; Z-Image et Qwen-Image-2.1 sont ouverts. Pour montrer ce
 qu'une installation coûte et ce qui est installé : `library.occupancy()` (le `variant` de chaque
-famille), `Family.installedSize(_:)`, `library.uninstall(_:)` (toutes les versions).
+famille), `family.installedSize(_:)` (une méthode d'instance : les octets `(dit:, encoder:, components:)`
+de cette version), `library.uninstall(_:)` (toutes les versions).
 
 ### 3.12 L'édition par instruction
 
@@ -806,7 +751,7 @@ les images sont lues, la nouvelle image part du bruit. Ni masque, ni inpainting�
 dit ce qui change.
 
 **Qwen-Image-2.1**, chaque étage vérifié contre la référence, rend son pire cas (1024×1536 avec
-trois références) sans un octet de swap (pic de 4,7 Go). Il prend 8 pas, sur le calendrier que Qwen publie avec le
+trois références) sans un octet de swap (pic de 4,8 Go). Il prend 8 pas, sur le calendrier que Qwen publie avec le
 Turbo (tout autre nombre est refusé avant tout calcul), et ne
 fait **pas d'img2img** : une `Request.image` est refusée — passer l'image en image 1. Demander
 `chain.denoising.check(steps:startImage:)` pour le savoir d'avance.
@@ -859,7 +804,7 @@ nombre de références** (l'app le fait), jamais d'une constante.
 Au-delà de `maxReferences`, ou sur un modèle sans édition, le rendu est refusé avant tout calcul
 (`EngineError.tooManyReferences`).
 
-**Dans l'app**, la boîte « Éditer » montre les références en vignettes numérotées (1, 2, 3),
+**Dans l'app**, la boîte « Images », au-dessus du prompt, montre les références en vignettes numérotées (1, 2, 3),
 au plus `maxReferences` du modèle : ajoutées par son bouton, en déposant des images sur la boîte
 ou la toile, ou par « Éditer cette image » sur une image de l'historique (qui devient l'image 1) ;
 retirées et réordonnées en glissant ou depuis le menu d'une vignette. L'image 1 est marquée comme
@@ -1106,7 +1051,7 @@ request.variations.append(Variation(seed: 7, strength: 0.5))        // une varia
 | plancher | **chaque côté ≥ 512 px** (latent 64). Aucune évaluation n'a lieu sous 512 : en dessous, les modèles sont hors de leur domaine | `Format.minimumSide` |
 | multiple | chaque côté multiple de **16** (VAE ×8, patch ×2) | `Format.multiple` |
 | plafond | surface ≤ **1024×1536** (1 572 864 px), le dernier format mesuré | `Format.maxSurface` |
-| mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,6 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,7 Go pour Qwen-Image-2.1 à 1024², **3,8 Go** pour Z-Image en 1024×1536, **4,7 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin contre la mémoire réellement disponible (§5) | la portée par étage (`Chain.swift`), `MemoryBudget` |
+| mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,6 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,7 Go pour Qwen-Image-2.1 à 1024² (3,8 Go dans un lot de trois), **3,8 Go** pour Z-Image en 1024×1536, **4,8 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin contre la mémoire réellement disponible (§5) | la portée par étage (`Chain.swift`), `MemoryBudget` |
 | précision | calcul **fp32** partout ; les poids peuvent être stockés en bf16, fp16, 8 bits ou GGUF 4 à 6 bits (§3.11), puis élargis. Aucun calcul en fp16/bf16 | `Widen` (les poids élargis en fp32) |
 | déterminisme | avec `reproducible` (vrai par défaut, coupe GPU/AMX figée) : **même graine, même requête, même machine et même version → mêmes bits**, et la non-régression se juge au md5. L'image n d'un lot = le rendu isolé de sa graine. `Noise` n'est **pas** `torch.randn` : une graine ne redonne pas l'image de diffusers ni celle de Draw Things. D'une version à l'autre, les pixels peuvent changer, et d'une machine à l'autre, rien n'a été mesuré | `Request.reproducible` (`nil` : `EngineSettings.effective.frozenCut`) |
 | schedule spectral (Z-Image, Qwen-Image-2.1) | seulement quand **les deux côtés font ≥ 1024** : 1024², 1024×1536 et sa transposée (`k = 2` : les deux premières évaluations à demi-taille). Les portraits et paysages usuels paient toutes leurs évaluations en pleine taille. Il est éteint en img2img, sous une LoRA ou Détail, et dans une édition Qwen-Image-2.1 ; forcé sous le plancher, il est refusé avant tout calcul | `ZImageDenoisingModule.plan`, `QwenImage21DenoisingModule.plan` |
@@ -1160,8 +1105,13 @@ son encodeur : `unsloth/Z-Image-Turbo-GGUF` et `Disty0/Z-Image-Turbo-SDNQ-int8`
 ## 5. Erreurs
 
 **Une seule erreur publique : `EngineError`**, une énumération fermée (`Sources/Siliconed/Errors.swift`).
-Toute fonction publique qui lève est `throws(EngineError)` ; `events` termine son flux par une
-`EngineError`. Chaque cas porte ses valeurs, jamais une phrase toute faite :
+Le rendu (`render`, `renderBatch`), la bibliothèque (installation, import, catalogue, licences) et
+l'ouverture d'un modèle sont `throws(EngineError)` ; `events` termine son flux par une `EngineError`.
+**Pas toutes les fonctions publiques** : les fonctions d'étage des modules (`encoder`, `denoise`,
+`decode`) ainsi que `DenoisingModule.check(steps:startImage:)` et `preparedReferences(_:)` lèvent des
+erreurs non typées, que `Engine` change en `EngineError` — `EngineError(_:)` fait de même pour qui les
+appelle directement ; `Diagnostic.Report.json(pretty:)` et `issueURL(includingReport:)` lèvent l'erreur
+de l'encodeur JSON. Chaque cas porte ses valeurs, jamais une phrase toute faite :
 
 - `code` — une clé stable (`"disk_full"`, `"license_not_accepted"`…), celle par laquelle l'app
   retrouve sa phrase traduite (son `Localizable.xcstrings`). Jamais renommée une fois publiée.
@@ -1180,10 +1130,12 @@ ce qu'ils lèvent.
 **Les préflights.** Avant tout calcul, un rendu vérifie dans cet ordre et lève le premier qui échoue :
 le modèle est installé (`card.missing(in:)`) → sa licence est acceptée
 (`library.isLicenseAccepted(card)`) → le format (`Format.check`) → la mémoire
-(`card.checkMemory(width:height:)` : le plancher du modèle à ce format, `card.memoryNeed(width:height:)`,
-contre `MemoryBudget.current().available` — l'état de la machine lu au lancement du rendu : pages
-libres, purgeables et de fichier, plus l'empreinte du processus, moins une réserve ; ni sa mémoire
-physique, ni sa seule mémoire « libre », qui ne veut rien dire sous le cache de pages) → aucun autre
+(`card.checkMemory(width:height:references:)` : le plancher du modèle à ce format et avec ce nombre
+d'images de référence, `card.memoryNeed(width:height:references:)` — une génération ne paie pas le pic
+d'une édition —, contre `MemoryBudget.current().admissible` — l'état de la machine lu au lancement du
+rendu : pages libres, purgeables et de fichier, plus l'empreinte du processus, moins une réserve de
+1,6 Go diminuée de ce que libérerait la compression de la mémoire au repos des autres applications ;
+ni sa mémoire physique, ni sa seule mémoire « libre », qui ne veut rien dire sous le cache de pages) → aucun autre
 processus ne rend sur cette machine, quels que soient sa bibliothèque ou son utilisateur (`/private/tmp/siliconed-render.lock`). Viennent ensuite les refus propres à la
 requête, toujours avant tout calcul. Une installation vérifie le disque **avant son premier octet**
 (`diskFull`). Une chaîne composée à la main (`Model(card:chain:)`) n'a pas de bibliothèque : les

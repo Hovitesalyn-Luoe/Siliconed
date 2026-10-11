@@ -70,7 +70,6 @@ package final class Krea2DiT {
     /// The token of the render in progress, consulted between two layers (see `Cancellation`).
     package var cancellation: Cancellation?
     package private(set) var timings: [String: Double] = [:]
-    package func resetTimings() { timings.removeAll() }
 
     private let artifact: Artifact
     private let prefetcher: Prefetcher

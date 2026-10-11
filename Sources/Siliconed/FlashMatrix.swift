@@ -2,11 +2,12 @@ import Foundation
 import Metal
 
 /// **The flash SDPA on the matrix units.** This is the countermeasure named by the tiling measurement of
-/// `FlashAttention`, and the only one that attacks what its probes left unexplained.
+/// the scalar flash kernel it replaced, and the only one that attacks what its probes left
+/// unexplained.
 ///
 /// ## What the tiling measurement left, and why the instruction family has to change
 ///
-/// The scalar kernel (`FlashAttention`) reaches **0.849 TFLOP/s** against `MPSGraph`'s 1.667, and its
+/// The scalar kernel (retired) reached **0.849 TFLOP/s** against `MPSGraph`'s 1.667, and its
 /// two probes refuted the cause it was blamed on: removing *all* its threadgroup-memory reads
 /// only returns 6 %. It reaches 24 % of the issue ceiling that its own instruction
 /// count gives it, and what is missing is a latency that no tiling setting
@@ -75,9 +76,6 @@ package final class FlashMatrix {
     package let blocksPerGroup: Int
     package let stageKeys: Bool
     package let stageValues: Bool
-    /// Operands in `half`, accumulators in fp32. The `q`, `k`, `v` buffers must then hold
-    /// half-precision values — it is up to the caller to convert them, once, off the hot path.
-    package let mixed: Bool
     package let heads: Int
     package let sequence: Int
 
@@ -91,7 +89,6 @@ package final class FlashMatrix {
         "\(rowsPerSimdgroup)×\(dimsPerSimdgroup)/sg, \(rowsPerSimdgroup * dimsPerSimdgroup / 64) acc, "
         + "Bc=\(keysPerTile), Br=\(rowsPerGroup), \(threadsPerGroup)/\(permitted) threads"
         + ", tiles " + (stageKeys ? "K" : "-") + (stageValues ? "V" : "-")
-        + (mixed ? ", half operands" : "")
     }
 
     package enum Failure: Error, CustomStringConvertible {
@@ -101,25 +98,9 @@ package final class FlashMatrix {
         }
     }
 
-    /// **Operands in half precision, accumulators in fp32 — the `mixed`.**
-    ///
-    /// It is the only door the half-precision decision left open, and a measurement found its hinge on this
-    /// machine: with `half` operands, the register cliff no longer falls at twelve
-    /// accumulators but at thirty-two, and the raw throughput goes from **2.44 to 3.27 TFLOP/s**.
-    ///
-    /// **This is not the compromise of `SILICONED_SDPA_FP16`**, which is ruled out by decision: there,
-    /// `MPSGraph` accumulates *also* in fp16 and `model_out` comes out at 1.26·10⁻³. Here accumulation
-    /// stays exact — only `Q`, `K`, `V` and the softmax weights go through `half` before
-    /// entering the matrix unit, and everything that is summed stays in fp32.
-    ///
-    /// What it costs in accuracy is therefore the rounding of the operands, and nothing else. What it
-    /// brings is twofold: half the operand traffic — on an engine limited by DRAM —
-    /// and half the registers, hence a wider tiling.
     package static func source(rowsPerSimdgroup SR: Int, dimsPerSimdgroup DS: Int,
                               keysPerTile BC: Int, blocksPerGroup BLOCKS: Int,
-                              stageKeys: Bool, stageValues: Bool, mixed: Bool = false) -> String {
-        let typeOp = mixed ? "half" : "float"
-        let matOp = mixed ? "simdgroup_half8x8" : "simdgroup_float8x8"
+                              stageKeys: Bool, stageValues: Bool) -> String {
         let halves = FlashMatrix.headDim / DS      // simdgroups per row block
         let rowTiles = SR / 8                      // RT
         let dimTiles = DS / 8                      // DT
@@ -136,8 +117,8 @@ package final class FlashMatrix {
         // **`K` and `V` are not decided together.** Putting both in tiles costs
         // `2 × Bc` KiB of threadgroup memory, and that is what caps the number of blocks — hence
         // occupancy. Removing both is slower (measured). Separating them lets us choose.
-        let tiles = (stageKeys ? "            threadgroup \(typeOp) kt[BC][DH];\n" : "")
-                  + (stageValues ? "            threadgroup \(typeOp) vt[BC][DH];\n" : "")
+        let tiles = (stageKeys ? "            threadgroup float kt[BC][DH];\n" : "")
+                  + (stageValues ? "            threadgroup float vt[BC][DH];\n" : "")
         let lines = (stageKeys ? "                    kt[r][c] = g < S ? k[g * stride + head * DH + c] : 0;\n" : "")
                   + (stageValues ? "                    vt[r][c] = g < S ? v[g * stride + head * DH + c] : 0;\n" : "")
         let load = lines.isEmpty ? "" : """
@@ -182,9 +163,9 @@ package final class FlashMatrix {
 
         struct Params { uint sequence; uint heads; float scale; };
 
-        kernel void flash_sdpa(device const \(typeOp) *q      [[buffer(0)]],
-                               device const \(typeOp) *k      [[buffer(1)]],
-                               device const \(typeOp) *v      [[buffer(2)]],
+        kernel void flash_sdpa(device const float *q      [[buffer(0)]],
+                               device const float *k      [[buffer(1)]],
+                               device const float *v      [[buffer(2)]],
                                device float       *o      [[buffer(3)]],
                                constant Params    &p      [[buffer(4)]],
                                uint2 group  [[threadgroup_position_in_grid]],
@@ -199,8 +180,7 @@ package final class FlashMatrix {
             // the aliasing needs no barrier — and it gives back `BLOCKS × SR × Bc` floats, which
             // are exactly what capped the number of blocks, hence occupancy.
             threadgroup float partial[BLOCKS][HALVES][SR][BC];
-            \(mixed ? "threadgroup half wt[BLOCKS][SR][BC];\n            #define weights(b) wt[b]"
-                     : "#define weights(b) partial[b][0]")
+            #define weights(b) partial[b][0]
             // The rescaling diagonal, one 8×8 matrix per row tile.
             threadgroup float diagonal[BLOCKS][RT][64];
             threadgroup float runMax[BLOCKS][SR];
@@ -250,10 +230,10 @@ package final class FlashMatrix {
                 for (uint d = 0; d < DS; d += 8) {
                     for (uint j = 0; j < JT; ++j) {
                         // `Kᵀ`: the transpose is a load flag, not a copy.
-                        \(matOp) km;
+                        simdgroup_float8x8 km;
                         \(keyMat)
                         for (uint r = 0; r < RT; ++r) {
-                            \(matOp) qm;
+                            simdgroup_float8x8 qm;
                             simdgroup_load(qm, q + (rowBase + r * 8) * stride + head * DH + dim0 + d,
                                            stride);
                             simdgroup_multiply_accumulate(s[r][j], qm, km, s[r][j]);
@@ -326,10 +306,10 @@ package final class FlashMatrix {
                 // ── O += P · V, over the simdgroup's slice of dimensions ─────────────────────
                 for (uint t = 0; t < DT; ++t) {
                     for (uint j = 0; j < JT; ++j) {
-                        \(matOp) vm;
+                        simdgroup_float8x8 vm;
                         \(valueMat)
                         for (uint r = 0; r < RT; ++r) {
-                            \(matOp) pm;
+                            simdgroup_float8x8 pm;
                             simdgroup_load(pm, &weights(block)[r * 8][j * 8], BC);
                             simdgroup_multiply_accumulate(acc[r][t], pm, vm, acc[r][t]);
                         }
@@ -363,7 +343,7 @@ package final class FlashMatrix {
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
                 rowsPerSimdgroup: Int = 8, dimsPerSimdgroup: Int = 64,
                 keysPerTile: Int = 16, blocksPerGroup: Int = 8,
-                stageKeys: Bool = true, stageValues: Bool = true, mixed: Bool = false) throws {
+                stageKeys: Bool = true, stageValues: Bool = true) throws {
         guard headDim == FlashMatrix.headDim else {
             throw Failure.unsupported("Dh = \(headDim), the kernel is written for 128")
         }
@@ -372,16 +352,11 @@ package final class FlashMatrix {
             throw Failure.unsupported("the tiling must be in multiples of 8, and `Dh/DS` an integer")
         }
         let accumulators = rowsPerSimdgroup * dimsPerSimdgroup / 64
-        // Measured: the cliff falls at **twelve** accumulators when the operands are fp32, and at
-        // **thirty-two** when they are half — because a `simdgroup_float8x8` takes two
-        // registers per lane where a `half8x8` takes one. The limit is therefore not the same on
-        // both sides, and we refuse out loud rather than return 0.141 TFLOP/s for no
-        // visible reason.
-        let ceiling = mixed ? 16 : 8
-        guard accumulators <= ceiling else {
-            throw Failure.unsupported(
-                "\(accumulators) accumulators — the limit is \(ceiling) with "
-                    + (mixed ? "half operands" : "fp32") + " (M14)")
+        // Measured: the cliff falls at **twelve** accumulators with fp32 operands — a
+        // `simdgroup_float8x8` takes two registers per lane. We refuse out loud rather than
+        // return 0.141 TFLOP/s for no visible reason.
+        guard accumulators <= 8 else {
+            throw Failure.unsupported("\(accumulators) accumulators — the limit is 8 with fp32")
         }
         self.rowsPerSimdgroup = rowsPerSimdgroup
         self.dimsPerSimdgroup = dimsPerSimdgroup
@@ -389,7 +364,6 @@ package final class FlashMatrix {
         self.blocksPerGroup = blocksPerGroup
         self.stageKeys = stageKeys
         self.stageValues = stageValues
-        self.mixed = mixed
         self.heads = heads
         self.sequence = sequence
         self.queue = queue
@@ -406,8 +380,7 @@ package final class FlashMatrix {
             source: FlashMatrix.source(rowsPerSimdgroup: rowsPerSimdgroup,
                                        dimsPerSimdgroup: dimsPerSimdgroup,
                                        keysPerTile: keysPerTile, blocksPerGroup: blocksPerGroup,
-                                       stageKeys: stageKeys, stageValues: stageValues,
-                                       mixed: mixed),
+                                       stageKeys: stageKeys, stageValues: stageValues),
             options: nil)
         guard let function = library.makeFunction(name: "flash_sdpa") else {
             throw Failure.unsupported("flash_sdpa not found")

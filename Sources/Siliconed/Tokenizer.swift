@@ -13,8 +13,8 @@ import Foundation
 /// names. A tokenizer that silently falls back to a neighboring behavior produces
 /// tokens, and the image that comes out is simply the other one.
 ///
-/// **Ported from the SeizCHoar donor's `QwenTokenizer.swift`**, which has sixty-five tests
-/// behind it, including a fuzz corpus. The logic is not touched; what is added here is
+/// **Ported from a donor project's Qwen tokenizer** (since retired), which had sixty-five tests
+/// behind it, including a fuzz corpus. The logic was not touched; what was added is
 /// what the Z-Image pipeline asks for and the donor's version did not do: **fixed-length
 /// padding** and the **mask**.
 ///

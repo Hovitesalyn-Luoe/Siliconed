@@ -795,7 +795,8 @@ extension Engine {
         // The budget is read once, here, at the render's launch (`MemoryBudget`): the preflight judges
         // the floor against it, and the settings that depend on memory derive from it (`MemoryPlan`).
         let budget = MemoryBudget.current()
-        let lock = try Preflight.run(model, width: request.width, height: request.height, budget: budget)
+        let lock = try Preflight.run(model, width: request.width, height: request.height,
+                                     references: request.references.count, budget: budget)
         defer { withExtendedLifetime(lock) {} }
         guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Request.Failure.emptyPrompt
@@ -864,8 +865,9 @@ extension Engine {
         let warn: @Sendable (String) -> Void = { message in
             if let onProgress { onProgress(.warning(message)) } else { Warnings.outsideRender?(message) }
         }
-        let floor = model.card.memoryNeed(width: request.width, height: request.height)
-        let comfortable = model.card.memoryComfort(width: request.width, height: request.height)
+        let floor = model.card.memoryNeed(width: request.width, height: request.height, references: request.references.count)
+        let comfortable = model.card.memoryComfort(width: request.width, height: request.height,
+                                                   references: request.references.count)
         return try MemoryPlan.during(budget: budget, floor: floor, comfortable: comfortable) { try Warnings.during(warn) {
             defer { Arena.releaseToSystem() }
             // A GPU or AMX submission that failed reaches this render's journal, even when its cause

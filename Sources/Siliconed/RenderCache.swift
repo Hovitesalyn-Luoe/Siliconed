@@ -113,7 +113,7 @@ package struct RenderCache: Sendable {
     package static func numerics(reproducible: Bool) -> String {
         let s = EngineSettings.effective
         return "amx \(s.amx) \(s.amxFraction) \(s.amxThreads) \(s.amxQuantum) \(s.amxMinimumRows) "
-            + "frozen \(reproducible) flash \(s.flash) \(s.flashRows ?? 0) fp16 \(s.sdpaFp16) "
+            + "frozen \(reproducible) flash \(s.flash) fp16 \(s.sdpaFp16) "
             + "widen \(s.widenGPU) \(s.widenFused) parallel \(s.parallel)"
     }
 

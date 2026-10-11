@@ -10,10 +10,13 @@ import Synchronization
 ///     + purgeable                                                │
 ///     + external − executable  ── × page ── reclaimable ◀────────┘ (+)
 ///                                              │
-///                                         − reserve ── available ─┬─ Preflight: floor ≤ available, or refused
+///                                         − reserve ── available ─┬─ Preflight: floor ≤ admissible, or refused
 ///                                                                 ├─ the DiT: map tail, staging buffers (#1–#4)
 ///                                                                 ├─ the text encoder: staging buffers (#5)
 ///                                   re-read after the denoising ──┴─ the decoders: band size (#10, #11)
+///
+///     admissible = reclaimable − max(0, reserve − credit)        (the refusal only; the plan reads `available`)
+///     credit     = min(others' anonymous × (1 − occupied / stored), compressor's headroom)
 ///
 /// **What swaps is anonymous memory, never the map**: the map is clean and
 /// file-backed, the kernel drops its pages without writing them. So what the render may count on is
@@ -46,11 +49,20 @@ public struct MemoryBudget: Sendable, Equatable {
     public let reclaimable: Int
     /// What is held back for the system and the other applications.
     public let reserve: Int
+    /// **What compressing the others would free** (`compressionCredit`): the part of the reserve the
+    /// kernel's own margin covers. The refusal only.
+    public let credit: Int
     /// `true` when `SILICONED_MEMORY_AVAILABLE_GB` replaced the reading.
     public let forced: Bool
 
-    /// **What the render's anonymous memory may reach**: `reclaimable − reserve`.
+    /// **What the plan counts on** (`MemoryPlan`: the map's tail, the buffers, the bands): `reclaimable −
+    /// reserve`, the whole reserve. A render accepted on the credit thus starts lean whenever the
+    /// reserve would have refused it — the map wholly beside the cache, which is what kept the swapping
+    /// states measured (default plan, compressible ballast at 1.9×) at 0 swapout once coded.
     public var available: Int { max(0, reclaimable - reserve) }
+
+    /// **What the refusal counts on**: `reclaimable` less what of the reserve the credit does not cover.
+    public var admissible: Int { max(0, reclaimable - max(0, reserve - credit)) }
 
     /// **The reserve: 1.6 GB** — set so that no render observed without swap is refused: the
     /// smallest `reclaimable` read at the launch of six normal renders (6.12 GB) minus the largest need
@@ -65,9 +77,37 @@ public struct MemoryBudget: Sendable, Equatable {
     /// ≥ ~3.5): swap comes from the compressor reaching its limit, which this reading does not see.
     package static let reserve = 1_600_000_000
 
-    package init(reclaimable: Int, reserve: Int = MemoryBudget.reserve, forced: Bool = false) {
+    /// Below this much stored in the compressor, its ratio says nothing and the reserve stays whole.
+    package static let significantlyCompressed = 512_000_000
+
+    /// **The credit**: the room the kernel would make by compressing the others' anonymous memory at
+    /// the ratio it reaches now, within the compressor's limit (`MemoryPressure.limit`); 0 when too
+    /// little is stored to read a ratio.
+    ///
+    /// `reclaimable` already holds a render: its pages are the ones the kernel hands over without
+    /// touching anyone's memory. The reserve was a margin above it, and on an ordinary desktop the
+    /// kernel's own margin is larger — it compresses idle apps rather than swap. Read on the M1 Pro, at
+    /// rest with a browser (11/10): 8.09 GB anonymous, 3.06 GB stored in 1.07 GB (2.86×), limit 8.44 GB;
+    /// compressing the others frees ~5 GB, which covers the whole reserve, and Qwen-Image-2.1's 1024²
+    /// generation (3.84 GB) fits in the 4.47 GB reclaimable it was refused on (2.87 after the reserve).
+    ///
+    /// What it does not see: anonymous memory that will not compress and is not yet in the compressor
+    /// (a ballast of random bytes kept active) is credited at the ratio of what is there. The need
+    /// still has to fit in `reclaimable`, the plan keeps the whole reserve (`available`), and the
+    /// pressure read during the render goes lean (`MemoryPressure`).
+    package static func compressionCredit(_ p: Pages, pageSize: Int, ownFootprint: Int, physical: Int) -> Int {
+        let stored = p.compressorStored * pageSize, occupied = p.compressorOccupied * pageSize
+        guard stored >= significantlyCompressed, occupied > 0, stored > occupied else { return 0 }
+        let others = Double(max(0, p.anonymous * pageSize - ownFootprint))
+        let freed = Int(others * (1 - Double(occupied) / Double(stored)))
+        let headroom = MemoryPressure(compressor: occupied, wired: p.wired * pageSize, physical: physical).headroom
+        return max(0, min(freed, headroom))
+    }
+
+    package init(reclaimable: Int, reserve: Int = MemoryBudget.reserve, credit: Int = 0, forced: Bool = false) {
         self.reclaimable = max(0, reclaimable)
         self.reserve = reserve
+        self.credit = max(0, credit)
         self.forced = forced
     }
 
@@ -76,9 +116,14 @@ public struct MemoryBudget: Sendable, Equatable {
     /// The page counts the reading uses, from `vm_statistics64`.
     package struct Pages: Sendable, Equatable {
         package var free = 0, speculative = 0, purgeable = 0, external = 0, executable = 0
-        package init(free: Int = 0, speculative: Int = 0, purgeable: Int = 0, external: Int = 0, executable: Int = 0) {
+        /// For the reserve: wired, anonymous, the compressor's pages and the pages stored in them.
+        package var wired = 0, anonymous = 0, compressorOccupied = 0, compressorStored = 0
+        package init(free: Int = 0, speculative: Int = 0, purgeable: Int = 0, external: Int = 0, executable: Int = 0,
+                     wired: Int = 0, anonymous: Int = 0, compressorOccupied: Int = 0, compressorStored: Int = 0) {
             self.free = free; self.speculative = speculative; self.purgeable = purgeable
             self.external = external; self.executable = executable
+            self.wired = wired; self.anonymous = anonymous
+            self.compressorOccupied = compressorOccupied; self.compressorStored = compressorStored
         }
     }
 
@@ -105,7 +150,9 @@ public struct MemoryBudget: Sendable, Equatable {
         func u64(_ offset: Int) -> Int {
             Int(UInt64(UInt32(bitPattern: raw[offset / 4])) | UInt64(UInt32(bitPattern: raw[offset / 4 + 1])) << 32)
         }
-        var p = Pages(free: u32(0), speculative: u32(92), purgeable: u32(88), external: u32(136))
+        var p = Pages(free: u32(0), speculative: u32(92), purgeable: u32(88), external: u32(136),
+                      wired: u32(12), anonymous: u32(140), compressorOccupied: u32(128))
+        if count >= 152 / 4 { p.compressorStored = u64(144) }   // `total_uncompressed_pages_in_compressor`, rev1
         let executableOffset = 280   // `executable_count`, rev5
         p.executable = count >= executableOffset / 4 + 2 ? u64(executableOffset)
                                                          : min(p.external, assumedExecutableBytes / pageSize)
@@ -152,22 +199,28 @@ public struct MemoryBudget: Sendable, Equatable {
     /// `environment` is the process's own by default, read live.
     public static func current(environment: [String: String]? = nil) -> MemoryBudget {
         let environment = environment ?? liveEnvironment([forcingVariable, reserveVariable])
-        let reserve = environment[reserveVariable].flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
-            .map { Int($0 * 1_073_741_824) } ?? MemoryBudget.reserve
+        let forcedReserve = environment[reserveVariable].flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+            .map { Int($0 * 1_073_741_824) }
         if let forced = forcedReclaimable(environment) {
-            return MemoryBudget(reclaimable: forced, reserve: reserve, forced: true)
+            return MemoryBudget(reclaimable: forced, reserve: forcedReserve ?? MemoryBudget.reserve, forced: true)
         }
+        let physical = Int(ProcessInfo.processInfo.physicalMemory)
         guard let (pages, pageSize) = pages() else {
             // The kernel did not answer: the physical memory, as the preflight used to, is the only figure left.
-            return MemoryBudget(reclaimable: Int(ProcessInfo.processInfo.physicalMemory), reserve: reserve)
+            return MemoryBudget(reclaimable: physical, reserve: forcedReserve ?? MemoryBudget.reserve)
         }
-        return MemoryBudget(reclaimable: reclaimable(pages, pageSize: pageSize, ownFootprint: Arena.processFootprint()),
-                            reserve: reserve)
+        // A forced reserve is a measurement's: no credit beside it.
+        let own = Arena.processFootprint()
+        return MemoryBudget(reclaimable: reclaimable(pages, pageSize: pageSize, ownFootprint: own),
+                            reserve: forcedReserve ?? MemoryBudget.reserve,
+                            credit: forcedReserve == nil ? compressionCredit(pages, pageSize: pageSize, ownFootprint: own,
+                                                                             physical: physical) : 0)
     }
 
     package var summary: String {
-        String(format: "%.2f GB available (%.2f reclaimable − %.2f reserve%@)", Double(available) / 1e9,
-               Double(reclaimable) / 1e9, Double(reserve) / 1e9, (forced ? ", forced" : "") as NSString)
+        String(format: "%.2f GB admissible, %.2f for the plan (%.2f reclaimable − %.2f reserve, %.2f covered by compression%@)",
+               Double(admissible) / 1e9, Double(available) / 1e9, Double(reclaimable) / 1e9, Double(reserve) / 1e9,
+               Double(min(credit, reserve)) / 1e9, (forced ? ", forced" : "") as NSString)
     }
 }
 

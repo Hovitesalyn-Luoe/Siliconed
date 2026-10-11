@@ -2,7 +2,7 @@ import Foundation
 import Metal
 
 /// bf16 → fp32 widening **on the GPU**, read directly from the memory-mapped map — a setting
-/// (`widen_gpu`, `widen_fused`, `widen_keep`), **off by default**.
+/// (`widen_gpu`, `widen_fused`), **off by default**.
 ///
 /// **The engine refuted it on this machine: +20 % at 1024²**, because the widening is queued
 /// behind the GEMM, which is the bottleneck. It stays as a branch for a chip where the CPU is the
@@ -215,38 +215,20 @@ package final class WidenGPU {
     /// One per packed GGUF type.
     private let packedDequantizers: [Artifact.DType: MTLComputePipelineState]
 
-    /// **`SILICONED_WIDEN_KEEP=1` — keep the map's wrappers, and pay 12 GB.**
-    ///
-    /// This is what the first version did, and it was a fault against criterion no. 4.
-    /// Wrapping a region of the map in an `MTLBuffer` makes it enter the GPU's address
-    /// space; the pages then stop being **clean** file pages that the kernel can simply drop,
-    /// and they count in `phys_footprint`. Memoized, the DiT's ~240 wrappers end up
-    /// retaining the entire map.
+    /// **A wrapper is released after use, never memoized by name.** Memoizing them was the first
+    /// version, and a fault against criterion no. 4: wrapping a region of the map in an `MTLBuffer`
+    /// makes it enter the GPU's address space; the pages then stop being **clean** file pages that
+    /// the kernel can simply drop, and they count in `phys_footprint`. Kept, the DiT's ~240 wrappers
+    /// end up retaining the entire map — ~12 GB of footprint.
     ///
     /// **The kernel's measurement asked the wrong question.** It asked whether `makeBuffer(bytesNoCopy:)`
     /// *accepts* a `PROT_READ` mapping — yes — and concluded that "the zero-swap contract does not
-    /// move". It did not ask what the acceptance **costs**. A measurement that only looks at a throughput says nothing about what is paid elsewhere.
+    /// move". It did not ask what the acceptance **costs**. A measurement that only looks at a
+    /// throughput says nothing about what is paid elsewhere.
     ///
-    /// The default is therefore to **release the wrapper after use**: 0.067 ms of wiring per weight,
-    /// 238 weights per evaluation, seven evaluations — ~112 ms on a 1024² render, against twelve
-    /// gigabytes of footprint. The flag keeps the old behaviour so that both points can be
-    /// measured, never so that it gets used.
-    package static let keepBuffers = EngineSettings.effective.widenKeep
-
-    /// One wrapper per tensor, memoized by name — **only under `SILICONED_WIDEN_KEEP`**.
-    ///
-    /// **The cost of wiring is counted, not assumed.** `makeBuffer(bytesNoCopy:)` makes the
-    /// pages enter the GPU's address space, and it was already measured that doing one per call
-    /// cost more than the computation. Here there are ~240 for the whole DiT, created once and
-    /// reused by the seven evaluations: the first pays for them, the other six do not. The counter
-    /// and the clock are displayed (by the widening check) because if the wiring weighed, the countermeasure was
-    /// known — wrap the map in two or three big chunks and play on the offset,
-    /// the forge's 16 KiB alignment allows it.
-    ///
-    /// **Measured, it is useless: 0.20 ms for three wrappers, i.e. 0.067 ms each.** The ~240
-    /// of the DiT therefore cost ~16 ms, once, against the 6.6 s that CPU widening takes on a
-    /// render. The avenue is closed before having been written — which is the point of a counter.
-    private var sources: [String: MTLBuffer] = [:]
+    /// **The cost of wiring is counted, not assumed** (the counter and the clock below, displayed by
+    /// the widening check): 0.067 ms per weight, 238 weights per evaluation, seven evaluations —
+    /// ~112 ms on a 1024² render, against twelve gigabytes of footprint.
     package private(set) var wrapped = 0
     package private(set) var wrapSeconds = 0.0
     package private(set) var widened = 0            // values widened on the GPU
@@ -332,9 +314,6 @@ package final class WidenGPU {
     }
 
     private func wrap(_ name: String, _ tensor: Artifact.Tensor, in artifact: Artifact) -> MTLBuffer? {
-        // `readThrough`'s single buffer is overwritten by the next tensor: never kept.
-        let keep = WidenGPU.keepBuffers && !artifact.readsThrough
-        if keep, let existing = sources[name] { return existing }
         guard let pointer = artifact.pointer(name) else { return nil }
         // The forge aligns each tensor on a page: the wrapper therefore starts at a page
         // boundary, and its length rounds up to the next page without biting into the next tensor —
@@ -348,9 +327,8 @@ package final class WidenGPU {
         wrapSeconds += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
         wrapped += 1
         buffer.label = name
-        // Without the flag, the wrapper is not retained: the caller uses it, then it dies
-        // with its last reference and the kernel recovers clean file pages.
-        if keep { sources[name] = buffer }
+        // Not retained: the caller uses it, then it dies with its last reference and the kernel
+        // recovers clean file pages.
         return buffer
     }
 

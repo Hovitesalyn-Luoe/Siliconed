@@ -89,8 +89,6 @@ public struct EngineSettings: Sendable {
     /// 1.673 against 1.667 TFLOP/s, −132 MB. A chip with a larger fp32 accumulator budget would
     /// make it win — the measured cliff is a property of the chip.
     package var flash = false
-    /// The number of rows per tile of the flash kernel; `nil` lets the kernel decide.
-    package var flashRows: Int? = nil
     /// SDPA in half precision: 3.02 against 1.665 TFLOP/s, ~9 s on a render, and an error of
     /// 1.26·10⁻³ on `model_out`. **Set aside by decision, not by measurement**.
     package var sdpaFp16 = false
@@ -101,9 +99,6 @@ public struct EngineSettings: Sendable {
     package var widenGPU = false
     /// The widening fused into the block's kernel.
     package var widenFused = false
-    /// Keep the map's `MTLBuffer` wrappers: ~12 GB of footprint against ~112 ms per render.
-    /// Ruinous on 16 GB, **probably a win at 32 or 64** — hence the setting.
-    package var widenKeep = false
 
     /// The spectral schedule, **when forced**: `k` half-size evaluations, 0 = full schedule. Not
     /// forced, the product's rule decides (`Spectral.steps`). `k = 3` renders in 98.9 s instead of
@@ -317,11 +312,9 @@ public struct EngineSettings: Sendable {
         read("SILICONED_AMX_FRACTION", "amx_fraction")
         read("SILICONED_REPRODUCIBLE", "coupe_figee")
         read("SILICONED_FLASH", "flash")
-        read("SILICONED_FLASH_ROWS", "flash_rows")
         read("SILICONED_SDPA_FP16", "sdpa_fp16")
         read("SILICONED_WIDEN_GPU", "widen_gpu")
         read("SILICONED_WIDEN_FUSED", "widen_fused")
-        read("SILICONED_WIDEN_KEEP", "widen_keep")
         read("SILICONED_SPECTRAL", "spectral")
         read("SILICONED_VAE_BLOCK", "vae_bloc_requetes")
         read("SILICONED_VAE_TILE", "vae_tuile")
@@ -410,11 +403,9 @@ public struct EngineSettings: Sendable {
         real("amx_fraction", &amxFraction)
         flag("coupe_figee", &frozenCut)
         flag("flash", &flash)
-        optionalInteger("flash_rows", &flashRows)
         flag("sdpa_fp16", &sdpaFp16)
         flag("widen_gpu", &widenGPU)
         flag("widen_fused", &widenFused)
-        flag("widen_keep", &widenKeep)
         integer("spectral", &spectral)
         integer("vae_bloc_requetes", &vaeRequestBlock)
         integer("vae_tuile", &vaeTile)
@@ -457,9 +448,9 @@ public struct EngineSettings: Sendable {
             ("amx_min", "\(amxMinimumRows)"), ("amx_spin", "\(amxSpin)"),
             ("amx_fraction", String(format: "%.3f", amxFraction)),
             ("coupe_figee", "\(frozenCut)"),
-            ("flash", "\(flash)"), ("flash_rows", flashRows.map { "\($0)" } ?? "auto"),
+            ("flash", "\(flash)"),
             ("sdpa_fp16", "\(sdpaFp16)"),
-            ("widen_gpu", "\(widenGPU)"), ("widen_fused", "\(widenFused)"), ("widen_keep", "\(widenKeep)"),
+            ("widen_gpu", "\(widenGPU)"), ("widen_fused", "\(widenFused)"),
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
             ("vae_tuile", vaeTile == 0 ? "no" : "\(vaeTile) (overlap \(vaeOverlap))"),
@@ -478,7 +469,7 @@ public struct EngineSettings: Sendable {
             "amx_min": amxMinimumRows, "amx_fraction": amxFraction,
             "coupe_figee": frozenCut,
             "flash": flash, "sdpa_fp16": sdpaFp16,
-            "widen_gpu": widenGPU, "widen_fused": widenFused, "widen_keep": widenKeep,
+            "widen_gpu": widenGPU, "widen_fused": widenFused,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "prefetch": prefetch, "parallel": parallel, "map_tail": mapTail,
         ]

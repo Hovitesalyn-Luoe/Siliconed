@@ -112,7 +112,7 @@ struct PNGImage: Transferable {
     }
 }
 
-/// **What the Edit box accepts**: a file (the Finder), or PNG bytes — a strip thumbnail, which leaves
+/// **What the Images box accepts**: a file (the Finder), or PNG bytes — a strip thumbnail, which leaves
 /// as data only (`PNGImage`). The file first: a Finder PNG is read from its place, not copied.
 enum DroppedImage: Transferable {
     case file(URL), png(Data)
@@ -140,7 +140,7 @@ struct RenderSettings {
     /// **The variations its noise was turned by** (`Request.variations`), in order: empty for an
     /// ordinary image. The seed stays the origin's.
     var variations: [Variation] = []
-    /// An edit: images of its own, not only subjects (a subject's picture is no original to compare with).
+    /// An edit: images of its own, not only subjects.
     var editing: Bool { references - subjectImages > 0 }
     /// **More detail** (`Request.detail`): the rack's Normal · More · Most.
     var detail: Detail = .normal
@@ -397,13 +397,6 @@ struct Measures {
         }
     }
 
-    /// The average of the evaluations done; the first step re-reads the map, it counts like the others
-    /// (it is also what the next render will pay).
-    var secondsPerEvaluation: Double? {
-        let combined = stepSeconds.flatMap { $0 }
-        return combined.isEmpty ? nil : combined.reduce(0, +) / Double(combined.count)
-    }
-
     /// The half-size steps of the spectral schedule: the first ones of each image.
     var reduced: Int { plan?.denoising.reduced ?? 0 }
 
@@ -548,14 +541,16 @@ final class AppState {
     /// decoded once per marking, like the chosen image.
     private(set) var compared: [(entry: Entry, image: CGImage)] = []
     static let maxCompared = 4
-    /// **An edit against its image 1** (the bar's curtain button): the original under the output, at
-    /// the output's size. Stays on from one edited image to the next; an image that is no edit shows alone.
+    /// **An image against its image 1** (the bar's curtain button): the original under the output, at
+    /// the output's size. Stays on from one such image to the next; an image made from none shows alone.
     var comparesOriginal = false { didSet { loadOriginal() } }
     private(set) var original: (id: Entry.ID, image: CGImage)?
     var showsOriginal: Bool {
         comparesOriginal && marked.count <= 1 && original != nil && original?.id == selectedEntry?.id
     }
-    func canCompareOriginal(_ e: Entry) -> Bool { e.grid == nil && e.settings.editing && !e.references.isEmpty }
+    /// Any image the model read can be the original — an edit's or a named subject's, framed as it was
+    /// sent: « @ana as a western comic » keeps the picture's framing as an edit does.
+    func canCompareOriginal(_ e: Entry) -> Bool { e.grid == nil && !e.references.isEmpty }
     /// The thumbnails' height in the strip (the slider at its end); in memory, like the rest.
     var thumbnailSide: Double = 64
     /// Where a ⇧-run starts: the last image clicked without ⇧.
@@ -744,7 +739,8 @@ final class AppState {
     /// what the engine's preflight compares to the machine's memory.
     var memoryNeed: Int? {
         let f = outputFormat
-        return card.map { $0.memoryNeed(width: f.width, height: f.height) }.flatMap { $0 > 0 ? $0 : nil }
+        return card.map { $0.memoryNeed(width: f.width, height: f.height, references: references.count + subjectImageCount) }
+            .flatMap { $0 > 0 ? $0 : nil }
     }
 
     /// Why "Generate" is grayed out, or `nil`: the app does not try what the request would refuse.
@@ -804,11 +800,12 @@ final class AppState {
         guard let card else { return nil }
         let f = outputFormat
         let budget = MemoryBudget.current()
-        do { try card.checkMemory(width: f.width, height: f.height, budget: budget) } catch {
+        let images = references.count + subjectImageCount
+        do { try card.checkMemory(width: f.width, height: f.height, references: images, budget: budget) } catch {
             guard case let .insufficientMemory(needed, available) = error else { return nil }
             let smaller = references.isEmpty
                 ? RecommendedFormat.largestFitting(formats, available: available, current: f) {
-                    card.memoryNeed(width: $0.width, height: $0.height)
+                    card.memoryNeed(width: $0.width, height: $0.height, references: images)
                   }
                 : nil
             return MemoryRefusal(
@@ -1070,7 +1067,7 @@ final class AppState {
         placeReference(entry)
     }
 
-    /// PNG bytes dropped on the Edit box: a strip image is recognized by its bytes (its name, its
+    /// PNG bytes dropped on the Images box: a strip image is recognized by its bytes (its name, its
     /// curtain); any other PNG is taken as it is.
     func addReference(png data: Data) {
         guard editingPossible else { return }
