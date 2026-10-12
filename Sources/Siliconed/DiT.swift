@@ -60,6 +60,11 @@ package final class DiT {
     private let gemm: GEMM
     private let rope: RopeTables
     private let arena: Arena
+    /// The floats of each slice of `arena`, from `ownSlices`.
+    private let ownSizes: [String: Int]
+    /// The image, caption and unified blocks' arenas, in that order.
+    private let blockArenas: [Arena]
+    private let cacheLoRA: CacheLoRA?
     /// The time per phase, aggregated over the three sets of blocks.
     package var timings: [String: Double] {
         var total: [String: Double] = [:]
@@ -99,48 +104,54 @@ package final class DiT {
         self.latentHeight = latentHeight
         self.latentWidth = latentWidth
         self.capLength = capLength
-        imageTokens = (latentHeight / config.patch) * (latentWidth / config.patch)
-        capPadded = capLength + ((-capLength) % config.seqMultiple + config.seqMultiple) % config.seqMultiple
+        imageTokens = DiT.imageTokens(latentHeight: latentHeight, latentWidth: latentWidth, config: config)
+        capPadded = DiT.capPadded(capLength, config: config)
         sequence = imageTokens + capPadded
 
         let d = config.dim, h = config.hidden
-        // Tight sizing, because at 1024² anonymous memory is the only item that can swap.
-        // A block reserves **seven** `s×d` slices (`x`, `normed`, `qkv`, `q`, `k`, `v`, `merged`),
-        // two `s×h` (`h1`, `h3`; `scratch` is only `4d` since the SwiGLU lives on the GPU,
-        // a `d×h` weight reserve and the modulation. There used to be
-        // eleven `s×d`: the four CPU-transposition slices went off into the SDPA's
-        // graph. This formula must follow `Block`'s `slot(...)`s, otherwise the arena refuses to
-        // serve at startup — intended behaviour, but it costs a minute.
+        // The arenas are sized by `blockArenaBytes` and `ownArenaBytes`, the functions the memory need
+        // charges (`MemoryNeed.zImage`): the formula equals the allocation by construction.
         // The LoRA stack adds the `mid [s, Σr]` slice to each block; its widened weights live
         // in the shared cache (`CacheLoRA`, ~340 MB for PopArt at rank 32).
         let r = lora?.maxRank ?? 0
-        func blockBudget(_ s: Int) -> Int {
-            (7 * s * d + 2 * s * h + d * h + 8 * d + s * r) * 4 + (8 << 20)
-        }
         let elementwise = try ElementwiseGPU(device: gemm.device, queue: gemm.queue)
         // The stack's widened weights, kept from one evaluation to the next and shared by the
         // three sets of blocks (`CacheLoRA`).
         let cacheLoRA = r > 0 ? try CacheLoRA(lora: lora!) : nil
-        // The DiT itself: a `max(d·h, s·h)` scratch, five `s×d` slices, and odds and ends.
-        let own = (max(d * h, sequence * h) + 5 * sequence * d + 4 * sequence * config.patch * config.patch
-                   * config.channels + 8 * capPadded * max(config.capDim, d) + 8 * d) * 4 + (16 << 20)
-        arena = try Arena(capacity: own)
+        arena = try Arena(capacity: DiT.ownArenaBytes(imageTokens: imageTokens, capPadded: capPadded, config: config))
+        ownSizes = Dictionary(uniqueKeysWithValues: DiT.ownSlices(imageTokens: imageTokens, capPadded: capPadded,
+                                                                  config: config).map { ($0.name, $0.count) })
+        let config = self.config   // a local: the closure below must not capture a half-built `self`
+        let arenas = try [imageTokens, capPadded, sequence].map {
+            try Arena(capacity: DiT.blockArenaBytes(sequence: $0, config: config, loraRank: r))
+        }
+        blockArenas = arenas
         imageBlock = try Block(artifact: artifact,
                                shapes: .init(sequence: imageTokens, dim: d, heads: config.heads, hidden: h),
                                eps: config.eps, gemm: gemm, elementwise: elementwise,
-                               arena: try Arena(capacity: blockBudget(imageTokens)), lora: lora,
+                               arena: arenas[0], lora: lora,
                                cacheLoRA: cacheLoRA)
         capBlock = try Block(artifact: artifact,
                              shapes: .init(sequence: capPadded, dim: d, heads: config.heads, hidden: h),
                              eps: config.eps, gemm: gemm, elementwise: elementwise,
-                             arena: try Arena(capacity: blockBudget(capPadded)), lora: lora,
+                             arena: arenas[1], lora: lora,
                              cacheLoRA: cacheLoRA)
         capBlock.modulation = false
         unifiedBlock = try Block(artifact: artifact,
                                  shapes: .init(sequence: sequence, dim: d, heads: config.heads, hidden: h),
                                  eps: config.eps, gemm: gemm, elementwise: elementwise,
-                                 arena: try Arena(capacity: blockBudget(sequence)), lora: lora,
+                                 arena: arenas[2], lora: lora,
                                  cacheLoRA: cacheLoRA)
+        self.cacheLoRA = cacheLoRA
+    }
+
+    /// The bytes this DiT's four arenas and its LoRA cache hold — what the tests compare with
+    /// `MemoryNeed`'s formula.
+    package var arenaCapacity: Int { arena.capacity + blockArenas.reduce(0) { $0 + $1.capacity } }
+    package var cacheLoRACapacity: Int { cacheLoRA?.capacity ?? 0 }
+    /// The four arenas by name, for the `memory-need` check (capacity against pages resident).
+    package var namedArenas: [(name: String, arena: Arena)] {
+        [("own", arena)] + zip(["image blocks", "caption blocks", "unified blocks"], blockArenas).map { ($0, $1) }
     }
 
     private func record(_ name: String, _ p: UnsafePointer<Float>, _ n: Int) {
@@ -160,6 +171,14 @@ package final class DiT {
     ///   **A second instance would have cost ~1 GB of arenas** for a path that never runs at the
     ///   same time as the other. An arena belongs to a phase, and the two resolutions are the
     ///   same phase.
+    /// **The spectral schedule's half-size attentions, dropped** when the full-size steps begin
+    /// (`Sampler`): the image refiners and the layers keep only the full lengths, so a phase
+    /// holds two head splits, not four. The context refiners' length does not change: kept.
+    package func forgetReducedAttentions() {
+        imageBlock.forgetAttentions(except: imageTokens)
+        unifiedBlock.forgetAttentions(except: sequence)
+    }
+
     package func forward(latent: UnsafePointer<Float>, caps: UnsafePointer<Float>,
                         sigma: Float, latentHeight: Int? = nil, latentWidth: Int? = nil) throws -> [Float] {
         let d = config.dim, patch = config.patch, channels = config.channels
@@ -176,19 +195,19 @@ package final class DiT {
         let tilesWide = width / patch
         let imageTokens = (height / patch) * tilesWide
         let sequence = imageTokens + capPadded
-        let scratch = try slot("scratch", max(d * config.hidden, self.sequence * config.hidden))
+        let scratch = try slot("scratch")
 
         // The tail of the map is read beside the page cache and handed back as it is computed, so
         // that the head stays cached for the next evaluation (`Prefetcher.firstReleasedLayer`).
-        // How much, and with how many staging buffers (~0.36 GB each, anonymous), the render decides
-        // at every evaluation (`MemoryPlan.ditTail`): half by default, the whole map in the lean
-        // plan. A switch between two evaluations changes which bytes go through the cache,
-        // never the bytes. **Decided before the evaluation's first request**: the refiners ask for
+        // How much, and with how many staging buffers (~0.36 GB each, anonymous), the plan chosen in B
+        // says (`MemoryPlan.ditTail`): a head of what B leaves, at most half; none on the leanest; the
+        // whole map cached when B holds it. Which bytes go through the cache, never the bytes.
+        // **Decided before the evaluation's first request**: the refiners ask for
         // `layers.0.` ahead, and a block requested before its stream exists is paged in through the
         // cache, then read a second time by the stream. The former guard (a tail only up to the area of a
         // 1024²) is gone: the 1024×1536 swap it answered was the decoder's, and 1024×1536
         // renders with the tail and its buffers without swap (measured: 3 774 MB, 0 swapout).
-        let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: "layers.\($0).") }
+        let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: DiT.layerPrefix($0)) }
         let (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks)
         try artifact.streamTail(blocks: slots == 0 ? [] : Array(layerBlocks[released...]), slots: slots)
 
@@ -199,8 +218,8 @@ package final class DiT {
         })
 
         // ── t_embedder ───────────────────────────────────────────────────────────────────
-        let adaln = try slot("adaln", config.adalnDim)
-        let mid = try slot("mid", 1024)
+        let adaln = try slot("adaln")
+        let mid = try slot("mid")
         var frequencies = [Float](repeating: 0, count: config.adalnDim)
         frequencies.withUnsafeMutableBufferPointer {
             Ops.timestepEmbedding(sigma * config.timeScale, into: $0.baseAddress!, dim: config.adalnDim)
@@ -213,17 +232,17 @@ package final class DiT {
         record("t_embedder_out", adaln, config.adalnDim)
 
         // ── image: patchify, x_embedder, refiners ────────────────────────────────────────
-        let tokens = try slot("tokens", self.imageTokens * inDim)
+        let tokens = try slot("tokens")
         Ops.patchify(latent, into: tokens, channels: channels,
                      height: height, width: width, patch: patch)
-        let image = try slot("image", self.sequence * d)
+        let image = try slot("image")
         try linearGPU("all_x_embedder.\(patch)-1", a: tokens, into: image,
                       m: imageTokens, k: inDim, n: d, scratch: scratch,
                       wrapRows: self.imageTokens)
         record("x_embedder_out", image, imageTokens * d)
 
         // ── text: cap_embedder, learned padding token, refiners ──────────────────────────
-        let capWork = try slot("capWork", capPadded * max(config.capDim, d))
+        let capWork = try slot("capWork")
         for row in 0..<capPadded {
             (capWork + row * config.capDim).update(from: caps + min(row, capLength - 1) * config.capDim,
                                                    count: config.capDim)
@@ -231,7 +250,7 @@ package final class DiT {
         try widen("cap_embedder.0.weight", count: config.capDim, into: scratch)
         Ops.rmsNorm(capWork, weight: scratch, into: capWork,
                     rows: capPadded, columns: config.capDim, eps: config.eps)
-        let cap = try slot("cap", capPadded * d)
+        let cap = try slot("cap")
         try linearGPU("cap_embedder.1", a: capWork, into: cap,
                       m: capPadded, k: config.capDim, n: d, scratch: scratch)
         record("cap_embedder_out", cap, capPadded * d)
@@ -269,7 +288,7 @@ package final class DiT {
 
         // ── RoPE tables ─────────────────────────────────────────────────────────────────
         let complex = rope.complexPerToken
-        let freqs = try slot("freqs", self.sequence * complex * 2)
+        let freqs = try slot("freqs")
         for t in 0..<imageTokens {
             rope.write(ids: [capPadded + 1, t / tilesWide, t % tilesWide], into: freqs + t * complex * 2)
         }
@@ -300,7 +319,7 @@ package final class DiT {
         record("context_refiner_out", cap, capPadded * d)
 
         // ── concatenation: image FIRST ──────────────────────────────────────────────────
-        let unified = try slot("unified", self.sequence * d)
+        let unified = try slot("unified")
         unified.update(from: image, count: imageTokens * d)
         (unified + imageTokens * d).update(from: cap, count: capPadded * d)
         record("unified_in", unified, sequence * d)
@@ -326,14 +345,14 @@ package final class DiT {
         let key = "all_final_layer.\(patch)-1."
         var silu = Array(UnsafeBufferPointer(start: adaln, count: config.adalnDim))
         silu.withUnsafeMutableBufferPointer { Ops.siluInPlace($0.baseAddress!, count: $0.count, scratch: scratch) }
-        let scale = try slot("scale", d)
+        let scale = try slot("scale")
         try linearCPU(key + "adaLN_modulation.1", x: silu, into: scale,
                       outputs: d, inputs: config.adalnDim, scratch: scratch)
         Ops.addScalar(scale, 1, count: d)
-        let head = try slot("head", self.sequence * d)
+        let head = try slot("head")
         Ops.layerNorm(unified, into: head, rows: sequence, columns: d, eps: 1e-6)
         Ops.scaleRows(head, by: scale, rows: sequence, columns: d)
-        let projected = try slot("projected", self.sequence * inDim)
+        let projected = try slot("projected")
         try linearGPU(key + "linear", a: head, into: projected,
                       m: sequence, k: d, n: inDim, scratch: scratch, wrapRows: self.sequence)
         record("final_layer_out", projected, sequence * inDim)
@@ -349,8 +368,10 @@ package final class DiT {
     // ── plumbing ────────────────────────────────────────────────────────────────────────
 
     private var reserved: Set<String> = []
-    private func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
+    /// The slice `name` of the DiT's own arena, at the size `ownSlices` gives it (reserved on first use).
+    private func slot(_ name: String) throws -> UnsafeMutablePointer<Float> {
         if reserved.contains(name) { return arena.pointer(name)!.assumingMemoryBound(to: Float.self) }
+        guard let count = ownSizes[name] else { throw Artifact.Failure.misuse("DiT: no slice \(name)") }
         reserved.insert(name)
         return try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
     }
@@ -394,4 +415,83 @@ package final class DiT {
             for row in 0..<m { vDSP_vadd(out + row * n, 1, bias, 1, out + row * n, 1, vDSP_Length(n)) }
         }
     }
+}
+
+// ── sizing: the shapes the constructor allocates, and the memory need charges ──────────────────
+
+extension DiT {
+    /// The image tokens of a latent grid: one per `patch × patch` cell.
+    package static func imageTokens(latentHeight: Int, latentWidth: Int, config: Config) -> Int {
+        (latentHeight / config.patch) * (latentWidth / config.patch)
+    }
+
+    /// The caption rows, padded up to `seqMultiple` (the reference pads with its learned token).
+    package static func capPadded(_ capLength: Int, config: Config) -> Int {
+        capLength + ((-capLength) % config.seqMultiple + config.seqMultiple) % config.seqMultiple
+    }
+
+    /// **One `Block`'s arena at sequence `s`**: its slices (`Block.slices`), each on its page, not a
+    /// byte more — tight, because at 1024² anonymous memory is the only item that can swap, and because
+    /// the memory need charges this capacity while `phys_footprint` sees only the pages written.
+    package static func blockArenaBytes(sequence s: Int, config: Config, loraRank r: Int) -> Int {
+        let shapes = Block.Shapes(sequence: s, dim: config.dim, heads: config.heads, hidden: config.hidden)
+        return Arena.capacity(slices: Block.slices(shapes, loraRank: r).map { $0.count * 4 })
+    }
+
+    /// **The slices of the DiT's own arena, in floats** — what `forward` reserves (`slot(_:)` reads its
+    /// sizes here), each written whole by an evaluation at the sizing grid:
+    ///   - `scratch`: the widest weight `forward` widens itself — `cap_embedder.1` (`d·capDim`), the
+    ///     x embedder and the final linear (`d·p²C`), the step embedder (`1024·256`), the final
+    ///     modulation (`d·256`). It used to be `max(d·h, S·h)` — 157 to 170 MB at 1024², 39 written;
+    ///   - `image` at the image tokens (`x_embedder`'s output, the image refiners' stream), not `S`;
+    ///   - `capWork` at `capDim` per caption row (`cap_embedder.0`'s norm in place), not `max(capDim, d)`;
+    ///   - `unified` and `head` at `S·d`, `cap` at `capPadded·d`, `tokens` and `projected` at `p²C` per
+    ///     row, the RoPE table at `S · Σ axes/2 · 2`, and three small rows.
+    /// The former formula counted five `S·d` (three are written), four `S·p²C` (two) and
+    /// `8 · capPadded · max(capDim, d)` (two caption slices), plus 16 MB.
+    package static func ownSlices(imageTokens: Int, capPadded: Int, config: Config) -> [(name: String, count: Int)] {
+        let d = config.dim, sequence = imageTokens + capPadded
+        let inDim = config.patch * config.patch * config.channels
+        let complex = config.axesDims.reduce(0) { $0 + $1 / 2 }   // `RopeTables.complexPerToken`
+        let scratch = [config.capDim * d, inDim * d, 1024 * config.adalnDim, d * config.adalnDim].max()!
+        return [("scratch", scratch), ("adaln", config.adalnDim), ("mid", 1024),
+                ("tokens", imageTokens * inDim), ("image", imageTokens * d), ("capWork", capPadded * config.capDim),
+                ("cap", capPadded * d), ("freqs", sequence * complex * 2), ("unified", sequence * d),
+                ("scale", d), ("head", sequence * d), ("projected", sequence * inDim)]
+    }
+
+    /// **The DiT's own arena**: its slices (`ownSlices`), each on its page.
+    package static func ownArenaBytes(imageTokens: Int, capPadded: Int, config: Config) -> Int {
+        Arena.capacity(slices: ownSlices(imageTokens: imageTokens, capPadded: capPadded, config: config)
+                        .map { $0.count * 4 })
+    }
+
+    /// **The four arenas a DiT maps** — its own, then the image, caption and unified blocks' — each as
+    /// `Arena` rounds it: `arenaCapacity` of the DiT built on these shapes, to the byte.
+    package static func arenaBytes(config: Config, latentHeight: Int, latentWidth: Int,
+                                   capLength: Int, loraRank: Int) -> Int {
+        let image = imageTokens(latentHeight: latentHeight, latentWidth: latentWidth, config: config)
+        let cap = capPadded(capLength, config: config)
+        return Arena.capacity(for: ownArenaBytes(imageTokens: image, capPadded: cap, config: config))
+            + [image, cap, image + cap].reduce(0) {
+                $0 + Arena.capacity(for: blockArenaBytes(sequence: $1, config: config, loraRank: loraRank))
+            }
+    }
+
+    /// **The modules a LoRA can touch, `(k, n)` each** — the ones `Block` applies a stack to
+    /// (`applyLoRA`): per block `to_q`, `to_k`, `to_v`, `to_out.0` (`d → d`), `w1`, `w3` (`d → h`), `w2`
+    /// (`h → d`), and `adaLN_modulation.0` (`256 → 4d`) on the modulated blocks — the noise refiners and
+    /// the layers, not the context refiners. A stack that touches all of them is the worst case of
+    /// `CacheLoRA`.
+    package static func loraModules(config: Config) -> [(k: Int, n: Int)] {
+        let d = config.dim, h = config.hidden
+        let block: [(k: Int, n: Int)] = [(d, d), (d, d), (d, d), (d, d), (d, h), (d, h), (h, d)]
+        let modulated = block + [(config.adalnDim, 4 * d)]
+        return Array(repeating: modulated, count: config.refiners + config.layers).flatMap { $0 }
+            + Array(repeating: block, count: config.refiners).flatMap { $0 }
+    }
+
+    /// The names of a DiT layer's tensors are `layers.<i>.…`: the tail's staging buffers are sized on
+    /// the largest of them (`Artifact.stagingBytes`).
+    package static func layerPrefix(_ layer: Int) -> String { "layers.\(layer)." }
 }

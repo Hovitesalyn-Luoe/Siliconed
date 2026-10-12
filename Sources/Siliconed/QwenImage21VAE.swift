@@ -78,9 +78,18 @@ import Foundation
 /// bands 4.7 GB, the last two 3.3 GB (1024×1536: 6.8 → 3.5 GB). The bands render **the same bits**
 /// (any band size: one fingerprint), and the margin is the tight one: with the last level alone, 3
 /// rows instead of 4 fell to 96.7 dB.
+///
+/// **Every tensor in a heap of ours, by passes of one kernel** (`VAEMemory`), placed by
+/// `QwenImage21VAEDecoder.plan` / `QwenImage21VAEEncoder.plan` — `decode` / `encode` walked without a
+/// device —, each pass's weights fed from them rather than held as graph constants. A graph of several
+/// operations kept its intermediates in Metal memory of MPSGraph's own (1.76 GB beside our heaps in the
+/// tail at 1024², 1.6 GB in the encoder's first block): each resnet is now five passes (SiLU·RMS,
+/// conv₁, SiLU·RMS, [shortcut], conv₂ + residual), the ×2, `DupUp3D`, `AvgDown3D` and the attention's
+/// transposes are kernels of ours (`VAEKernels`) — **the same bits** (md5 of both halves at 1024², and
+/// of the renders). What stays MPSGraph's: its SDPA's own copies, `VAELayout.sdpaOutside`.
 package enum QwenImage21VAE {
     /// `vae/config.json`, the parts that shape the graph. Defaults: Qwen-Image-2.1 as published.
-    package struct Config: Sendable, Equatable {
+    package struct Config: Sendable, Hashable {
         package var zDim = 64, baseDim = 96, decoderBaseDim = 144, resBlocks = 2
         package var dimMult = [1, 2, 4, 8, 8]
         package var temporalDownsample = [false, true, true, true]
@@ -230,84 +239,203 @@ package enum QwenImage21VAE {
         }
     }
 
-    // ── the graphs ──────────────────────────────────────────────────────────────────────────
+    // ── the passes ──────────────────────────────────────────────────────────────────────────
 
-    /// A graph built on demand: it reads the registers `inputs` (in order) and writes `output`.
-    /// `forget` names the registers released after it ran.
+    /// **One GPU pass**: a graph of one kernel built on demand (`build`), or a kernel of ours (`kernel`).
+    /// It reads the registers `inputs` (in order) and writes `output`, of `shape` — a new register, or the
+    /// first input's own (`inPlace`, kernels only). `forget` names the registers released after it ran.
+    ///
+    /// Why passes of one kernel: a graph of several operations put every intermediate but its
+    /// largest in Metal memory of MPSGraph's own, beyond our heaps (1.76 GB in the decoder's tail at
+    /// 1024², 1.6 GB in the encoder's first block). Cut where MPSGraph fused nothing across the cut —
+    /// a convolution with its bias (and the residual sum), a norm with its SiLU —, each pass's only tensors
+    /// are registers, and the bits are those of the fused graphs (decoder and encoder md5).
     struct Stage {
         var inputs: [String]
         var output: String
+        var shape: [Int]
+        /// The floats of each weight it reads, in order (`WeightList`).
+        var weights: [Int] = []
         var forget: [String] = []
         /// Keep the first input under this name too (no copy): a block's input, for its shortcut.
         var keep: String? = nil
         /// For the checks' per-stage footprint.
         var label: String? = nil
-        var build:(VAEBuildingBlocks, [MPSGraphTensor]) throws -> MPSGraphTensor
+        var inPlace = false
+        /// What MPSGraph allocates beside our heaps for this graph, in bytes (`VAELayout.outside`).
+        var outside = 0
+        /// What MPS asks of the workspace heap for this graph, in floats (`VAEMemory.graph`).
+        var workspace = VAELayout.minimumAsk / 4
+        var build: ((VAEBuildingBlocks, [MPSGraphTensor]) throws -> MPSGraphTensor)? = nil
+        var kernel: ((VAEMemory, [VAERegister], VAERegister) throws -> Void)? = nil
+
+        /// A graph pass.
+        init(_ inputs: [String], _ output: String, _ shape: [Int], weights: [Int] = [], forget: [String] = [],
+             keep: String? = nil, label: String? = nil,
+             build: @escaping (VAEBuildingBlocks, [MPSGraphTensor]) throws -> MPSGraphTensor) {
+            self.inputs = inputs; self.output = output; self.shape = shape; self.weights = weights
+            self.forget = forget; self.keep = keep; self.label = label; self.build = build
+        }
+
+        /// A kernel pass.
+        init(_ inputs: [String], _ output: String, _ shape: [Int], inPlace: Bool, forget: [String] = [],
+             label: String? = nil, kernel: @escaping (VAEMemory, [VAERegister], VAERegister) throws -> Void) {
+            self.inputs = inputs; self.output = output; self.shape = shape; self.inPlace = inPlace
+            self.forget = forget; self.label = label; self.kernel = kernel
+        }
     }
 
-    /// Called after each stage with its label — the checks read the footprint there. Set by a
+    /// The graphs a run built, by pass: the tail's bands run the same passes on windows of one shape.
+    final class Graphs {
+        var built: [Int: (graph: MPSGraph, placeholders: [MPSGraphTensor], output: MPSGraphTensor, fed: FedWeights)] = [:]
+    }
+
+    /// Called after each labelled pass — the checks read the footprint there. Set by a
     /// single-threaded check before decoding, never by the product.
     nonisolated(unsafe) package static var stageDone: ((String) -> Void)?
 
-    /// A tensor between two stages, in a buffer of ours (shared memory: the banded tail reads its rows).
-    struct Register {
-        let data: MPSGraphTensorData
-        let buffer: MTLBuffer
-        init(_ buffer: MTLBuffer, shape: [NSNumber]) {
-            self.buffer = buffer
-            data = MPSGraphTensorData(buffer, shape: shape, dataType: .float32)
-        }
-        init(_ values: [Float], shape: [NSNumber], device: MTLDevice) throws {
-            guard let buffer = device.makeBuffer(length: values.count * 4, options: .storageModeShared) else {
-                throw GEMM.Failure.noDevice
-            }
-            values.withUnsafeBytes { buffer.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
-            self.init(buffer, shape: shape)
-        }
-        var shape: [Int] { data.shape.map(\.intValue) }
-        var values: UnsafeMutablePointer<Float> { buffer.contents().assumingMemoryBound(to: Float.self) }
-    }
-
-    /// Builds, runs and releases the stages one after the other. A stage's graph — and its weight
-    /// constants — die before the next is built; a register lives until a stage forgets it.
-    static func run(_ stages: [Stage], weights: Safetensors, name: String, device: MTLDevice, queue: MTLCommandQueue,
-                    registers initial: [String: Register]) throws -> [String: Register] {
+    /// **Runs the passes one after the other**, every register in `memory`. A graph and its fed weights
+    /// die after its pass (unless `graphs` keeps it for the next band); a register lives until no name
+    /// holds it any more (replaced, or forgotten). Planning: the same walk, nothing built.
+    static func run(_ stages: [Stage], weights: Safetensors?, name: String, memory: VAEMemory,
+                    registers initial: [String: VAERegister], graphs: Graphs? = nil) throws -> [String: VAERegister] {
         var registers = initial
-        for stage in stages {
-            try autoreleasepool {
-                let graph = MPSGraph()
-                let feeds = stage.inputs.map { registers[$0]! }
-                let placeholders = feeds.map { graph.placeholder(shape: $0.data.shape, dataType: .float32, name: nil) }
-                let b = VAEBuildingBlocks(graph: graph, weights: weights, name: name)
-                let output = try stage.build(b, placeholders)
-                // The result goes into a buffer of ours, which the next stage — or the banded tail — reads.
-                let shape = output.shape!
-                guard let buffer = device.makeBuffer(length: shape.reduce(4) { $0 * $1.intValue },
-                                                     options: .storageModeShared) else { throw GEMM.Failure.noDevice }
-                let result = Register(buffer, shape: shape)
-                execute(graph, queue: queue, feeds: Dictionary(uniqueKeysWithValues: zip(placeholders, feeds.map(\.data))),
-                        results: [output: result.data])
-                if let keep = stage.keep { registers[keep] = feeds[0] }
-                registers[stage.output] = result
-                for f in stage.forget { registers[f] = nil }
+        for (index, stage) in stages.enumerated() {
+            let feeds = stage.inputs.map { registers[$0]! }
+            let result: VAERegister
+            if let kernel = stage.kernel {
+                result = stage.inPlace ? feeds[0] : try memory.register(stage.shape)
+                precondition(result.shape == stage.shape, "QwenImage21VAE: pass \(stage.label ?? stage.output) in place on another shape")
+                if memory.isLive { try kernel(memory, feeds, result) }
+            } else {
+                result = try memory.register(stage.shape)
+                memory.outside(stage.outside)
+                var weightRegisters: [VAERegister] = []
+                try autoreleasepool {
+                    let built = try memory.graph(largest: stage.workspace) {
+                        () -> (graph: MPSGraph, placeholders: [MPSGraphTensor], output: MPSGraphTensor, fed: FedWeights) in
+                        if let b = graphs?.built[index] { return b }
+                        let fed = FedWeights()
+                        let graph = MPSGraph()
+                        let placeholders = feeds.map { graph.placeholder(shape: $0.nsShape, dataType: .float32, name: nil) }
+                        let output = try stage.build!(VAEBuildingBlocks(graph: graph, weights: weights!, name: name, fed: fed),
+                                                      placeholders)
+                        precondition(output.shape?.map(\.intValue) == stage.shape,
+                                     "QwenImage21VAE: stage \(stage.label ?? stage.output) is not the shape its plan charges")
+                        let b = (graph, placeholders, output, fed)
+                        graphs?.built[index] = b
+                        return b
+                    }
+                    let w = try memory.weights(stage.weights, built?.fed, file: weights, vae: name)
+                    weightRegisters = w.registers
+                    guard let built else { return }
+                    memory.execute(built.graph, feeds: w.feeds.merging(zip(built.placeholders, feeds.map { $0.data! })) { a, _ in a },
+                                   results: [built.output: result.data!])
+                }
+                memory.free(weightRegisters)
             }
-            stageDone?(stage.label ?? stage.output)
+            var released = [registers[stage.output]].compactMap { $0 }
+            if let keep = stage.keep { registers[keep] = feeds[0] }
+            registers[stage.output] = result
+            for f in stage.forget { if let r = registers.removeValue(forKey: f) { released.append(r) } }
+            var freed: [VAERegister] = []
+            for r in released where !registers.values.contains(where: { $0 === r }) && !freed.contains(where: { $0 === r }) {
+                memory.free(r); freed.append(r)
+            }
+            if memory.isLive, let label = stage.label { stageDone?(label) }
         }
         return registers
     }
 
-    /// **`graph.run`, without MPS's heap cache.** MPS keeps the heaps of a graph's intermediates for
-    /// several seconds after the run (between 3 and 15 s, measured), in case the next graph wants
-    /// them: 0.5 GB per image size for this encoder — 1.4 GB of Metal still allocated when the DiT
-    /// starts right after the references' encoding, at the moment it allocates its own. Duration 0:
-    /// the heaps go back with the command buffer. The same graph, encoded the same way: same bits.
-    static func execute(_ graph: MPSGraph, queue: MTLCommandQueue, feeds: [MPSGraphTensor: MPSGraphTensorData],
-                        results: [MPSGraphTensor: MPSGraphTensorData]) {
-        let commands = MPSCommandBuffer(from: queue)
-        MPSSetHeapCacheDuration(commands, 0)
-        graph.encode(to: commands, feeds: feeds, targetOperations: nil, resultsDictionary: results, executionDescriptor: nil)
-        commands.commit()
-        commands.waitUntilCompleted()
+    // ── the passes of a block ───────────────────────────────────────────────────────────────
+
+    /// `QwenImageResidualBlock` on `x` (`i` → `o` channels at `size`), as passes: SiLU(RMS) · conv₁ ·
+    /// SiLU(RMS) · [conv_shortcut] · conv₂ + residual — `resnetQwen`'s operations.
+    /// `keep`: the name under which `x` stays (a block's input, for its shortcut).
+    static func resnet(_ prefix: String, _ i: Int, _ o: Int, size: (h: Int, w: Int), keep: String? = nil,
+                       label: String) -> [Stage] {
+        let (a, b) = ([1, i, size.h, size.w], [1, o, size.h, size.w])
+        var passes = [
+            Stage(["x"], "h", a, weights: WeightList.rms(i), keep: keep) { k, t in
+                try k.silu(k.rmsNorm(t[0], prefix + ".norm1", channels: i)) },
+            Stage(["h"], "h", b, weights: WeightList.conv(o, i)) { k, t in try k.conv(t[0], prefix + ".conv1", padding: 1) },
+            Stage(["h"], "h", b, weights: WeightList.rms(o)) { k, t in try k.silu(k.rmsNorm(t[0], prefix + ".norm2", channels: o)) },
+        ]
+        if i != o {
+            var shortcut = Stage(["x"], "r", b, weights: WeightList.conv(o, i, kernel: 1)) { k, t in
+                try k.conv(t[0], prefix + ".conv_shortcut", padding: 0) }
+            shortcut.workspace = VAELayout.reformattedWeights(o * i) / 4
+            passes.append(shortcut)
+        }
+        passes.append(Stage(["h", i != o ? "r" : "x"], "x", b, weights: WeightList.conv(o, o), forget: ["h", "r"], label: label) { k, t in
+            k.graph.addition(try k.conv(t[0], prefix + ".conv2", padding: 1), t[1], name: nil) })
+        return passes
+    }
+
+    /// The Wan attention block on `x` (`c` channels at `size`), as passes: RMS, the tokens (a transpose of
+    /// ours), q, k, v (the three rows of `to_qkv`), one head, the output projection, and the residual
+    /// laid back by a kernel of ours — `bottleneck`'s operations. The two transposes were MPSGraph's
+    /// own copies, beyond our heaps (`S·C` each).
+    static func attention(_ prefix: String, _ c: Int, size: (h: Int, w: Int), label: String,
+                          requestBlock: Int = EngineSettings.effective.vaeRequestBlock) -> [Stage] {
+        let s = size.h * size.w, tokens = [1, s, c]
+        let qkv = ["q", "k", "v"].enumerated().map { (n, name) in
+            Stage(["t"], name, tokens, weights: WeightList.projection(c, c), forget: n == 2 ? ["t"] : []) { k, t in
+                try k.projection(t[0], prefix + ".to_qkv", rows: (n * c)..<((n + 1) * c)) }
+        }
+        // MPSGraph's SDPA copies its queries into the workspace: `S·C` floats.
+        var sdpa = Stage(["q", "k", "v"], "a", tokens, forget: ["q", "k", "v"]) { k, t in
+            k.scaledDotProduct(t[0], t[1], t[2], channels: c, requestBlock: requestBlock) }
+        sdpa.workspace = max(sdpa.workspace, s * c)
+        sdpa.outside = VAELayout.sdpaOutside(tokens: s, channels: c)
+        return [Stage(["x"], "n", [1, c, size.h, size.w], weights: WeightList.rms(c)) { k, t in
+                    try k.rmsNorm(t[0], prefix + ".norm", channels: c) },
+                Stage(["n"], "t", tokens, inPlace: false, forget: ["n"]) { memory, t, out in
+                    memory.dispatch(.tokens, [t[0], out], constants: [UInt32(c), UInt32(s)],
+                                    grid: MTLSize(width: c, height: s, depth: 1)) }]
+            + qkv
+            + [sdpa,
+               Stage(["a"], "a", tokens, weights: WeightList.projection(c, c)) { k, t in try k.projection(t[0], prefix + ".proj") },
+               Stage(["x", "a"], "x", [1, c, size.h, size.w], inPlace: true, forget: ["a"], label: label) { memory, t, out in
+                   memory.dispatch(.untokensAdd, [out, t[1]], constants: [UInt32(c), UInt32(s)],
+                                   grid: MTLSize(width: s, height: c, depth: 1)) }]
+    }
+
+    /// A bare convolution pass on `x` (padding 1, or 0 for a 1×1) — `conv_in`, `conv_out`, `quant_conv`.
+    static func conv(_ prefix: String, _ i: Int, _ o: Int, size: (h: Int, w: Int), kernel: Int = 3,
+                     label: String? = nil) -> Stage {
+        var pass = Stage(["x"], "x", [1, o, size.h, size.w], weights: WeightList.conv(o, i, kernel: kernel), label: label) { k, t in
+            try k.conv(t[0], prefix, padding: kernel / 2) }
+        if kernel == 1 { pass.workspace = VAELayout.reformattedWeights(o * i) / 4 }
+        return pass
+    }
+
+    /// The ×2 of `x` (`nearest-exact`, `VAEBuildingBlocks.double`), a kernel of ours: `c` channels at `size`.
+    static func double(_ c: Int, size: (h: Int, w: Int)) -> Stage {
+        Stage(["x"], "x", [1, c, 2 * size.h, 2 * size.w], inPlace: false) { memory, t, out in
+            memory.dispatch(.double, [t[0], out], constants: [UInt32(size.h), UInt32(size.w)],
+                            grid: MTLSize(width: 2 * size.w, height: 2 * size.h, depth: c)) }
+    }
+
+    /// `upsampler.resample.1(×2(x)) + DupUp3D(skip)`, as passes: the ×2 and the shortcut's sum are
+    /// kernels of ours (`VAEKernels`), the convolution a graph. Forgets `skip`.
+    static func upsample(_ prefix: String, _ block: (input: Int, output: Int, temporal: Int, spatial: Int),
+                         size: (h: Int, w: Int), label: String) throws -> [Stage] {
+        let c = block.output, doubled = [1, c, 2 * size.h, 2 * size.w]
+        let table = dupUpSources(input: block.input, output: c, temporal: block.temporal, spatial: 2)
+        guard (0..<table.count).allSatisfy({ table[$0] == table[$0 / 2 * 2] }) else {
+            throw Safetensors.Failure.badHeader("VAE Qwen-Image-2.1: DupUp3D \(block.input) → \(c) depends on the column")
+        }
+        let r = c * block.temporal * 4 / block.input
+        return [
+            double(c, size: size),
+            Stage(["x"], "x", doubled, weights: WeightList.conv(c, c)) { k, t in
+                try k.conv(t[0], prefix + ".upsampler.resample.1", padding: 1) },
+            Stage(["x", "skip"], "x", doubled, inPlace: true, forget: ["skip"], label: label) { memory, t, out in
+                memory.dispatch(.dupUpAdd, [out, t[1]],
+                                constants: [UInt32(size.h), UInt32(size.w), UInt32(block.temporal), UInt32(r)],
+                                grid: MTLSize(width: 2 * size.w, height: 2 * size.h, depth: c)) },
+        ]
     }
 
     static func device() throws -> (MTLDevice, MTLCommandQueue) {
@@ -330,7 +458,7 @@ package final class QwenImage21VAEDecoder {
     private let queue: MTLCommandQueue
 
     /// - Parameter path: the published `vae/diffusion_pytorch_model.safetensors` (the Turbo's in bf16),
-    ///   each tensor widened to fp32 as it is read (`Safetensors.materialize`), computed in fp32;
+    ///   each tensor widened to fp32 as it is read (`VAEBuildingBlocks.weight`), computed in fp32;
     ///   its `vae.json`, if it lies beside, gives the config.
     package init(path: String, latentHeight: Int, latentWidth: Int, config: QwenImage21VAE.Config? = nil) throws {
         let config = try config ?? QwenImage21VAE.Config.beside(path)
@@ -349,49 +477,88 @@ package final class QwenImage21VAEDecoder {
     package func decode(latent: [Float]) throws -> (rgba: [Float], seconds: Double) {
         precondition(latent.count == config.zDim * latentHeight * latentWidth, "QwenImage21VAEDecoder: latent shape")
         let started = Date()
-        let z = QwenImage21VAE.denormalize(latent, config: config)
-        let input = try QwenImage21VAE.Register(z, shape: [1, NSNumber(value: config.zDim), NSNumber(value: latentHeight),
-                                                           NSNumber(value: latentWidth)], device: device)
-        let registers = try QwenImage21VAE.run(stages(), weights: weights, name: "VAE Qwen-Image-2.1", device: device,
-                                               queue: queue, registers: ["x": input])
-        let rgba = try tail(x: registers["x"]!, skip: registers["skip"]!)
+        let bandPixels = MemoryPlan.decoderBand(standard: QwenImage21VAEDecoder.bandPixels,
+                                                minimum: MemoryPlan.qwenMinimumBand, unit: "pixels")
+        let plan = QwenImage21VAEDecoder.plan(config: config, latentHeight: latentHeight, latentWidth: latentWidth,
+                                              bandPixels: bandPixels)
+        let memory = try VAEMemory(plan: plan, device: device, queue: queue)
+        let rgba = try autoreleasepool {
+            try QwenImage21VAEDecoder.decode(latent, config: config, latentHeight: latentHeight, latentWidth: latentWidth,
+                                             bandPixels: bandPixels, weights: weights, memory: memory)
+        }
+        memory.finish()
         return (rgba, Date().timeIntervalSince(started))
     }
 
-    /// The decoder's stages up to the last upsampling, excluded: the bottleneck, then **one graph per
-    /// resnet**, per upsampling conv and per shortcut sum. `skip` is a block's input, kept for its shortcut.
-    private func stages() -> [QwenImage21VAE.Stage] {
-        typealias Stage = QwenImage21VAE.Stage
-        let config = self.config
+    /// **Everything a decoding holds** for an `h × w` latent at a tail band of `bandPixels`: the
+    /// registers' heap, the largest stage's workspace, and the RGBA it returns — `decode` walked
+    /// without a device. `decode` allocates exactly this before its first graph.
+    package static func plan(config: QwenImage21VAE.Config, latentHeight h: Int, latentWidth w: Int,
+                             bandPixels: Int = QwenImage21VAEDecoder.bandPixels) -> VAELayout {
+        plans(VAEPlanKey(config, [h, w, bandPixels])) {
+            walk(config: config, latentHeight: h, latentWidth: w, bandPixels: bandPixels)
+        }
+    }
+
+    private static let plans = ShapeMemo<VAEPlanKey<QwenImage21VAE.Config>, VAELayout>()
+
+    /// `plan`, walked every time: what the memory keeps, and what the tests compare it with.
+    package static func walk(config: QwenImage21VAE.Config, latentHeight h: Int, latentWidth w: Int,
+                             bandPixels: Int = QwenImage21VAEDecoder.bandPixels) -> VAELayout {
+        let memory = VAEMemory()
+        _ = try? decode(nil, config: config, latentHeight: h, latentWidth: w, bandPixels: bandPixels, weights: nil,
+                        memory: memory)
+        return memory.layout
+    }
+
+    /// The decoding itself, live or planned: the de-normalization written into the input register (on
+    /// the CPU: two roundings, like `torch`, as `QwenImage21VAE.denormalize`), the stages, the tail.
+    private static func decode(_ latent: [Float]?, config: QwenImage21VAE.Config, latentHeight h: Int, latentWidth w: Int,
+                               bandPixels: Int, weights: Safetensors?, memory: VAEMemory) throws -> [Float] {
+        let input = try memory.register([1, config.zDim, h, w])
+        if let latent, memory.isLive {
+            let plane = h * w, z = input.values
+            for c in 0..<config.zDim {
+                let (s, m) = (config.std[c], config.mean[c])
+                for p in (c * plane)..<((c + 1) * plane) { let scaled = latent[p] * s; z[p] = scaled + m }
+            }
+        }
+        let registers = try QwenImage21VAE.run(try stages(config: config, latentHeight: h, latentWidth: w), weights: weights,
+                                               name: "VAE Qwen-Image-2.1", memory: memory, registers: ["x": input])
+        let (x, skip) = (registers["x"]!, registers["skip"]!)
+        let expected = QwenImage21VAEDecoder.tailInput(config: config)
+        precondition(x.shape[1] == expected.x && skip.shape[1] == expected.skip
+                     && x.shape[2] == expected.scale * h && skip.shape[3] == expected.scale * w,
+                     "QwenImage21VAEDecoder: the tail's input is not the one `tailInput` charges")
+        let rgba = try tail(x: x, skip: skip, config: config, bandPixels: bandPixels, weights: weights, memory: memory)
+        memory.free(x); memory.free(skip)
+        return rgba
+    }
+
+    /// The decoder's passes up to the last upsamplings, excluded: `post_quant_conv`, `conv_in`, the
+    /// bottleneck, then each block's resnets, ×2, convolution and shortcut sum. `skip` is a block's input,
+    /// kept by its first resnet for its shortcut.
+    private static func stages(config: QwenImage21VAE.Config, latentHeight: Int, latentWidth: Int) throws -> [QwenImage21VAE.Stage] {
+        typealias V = QwenImage21VAE
         let dims = config.decoderDims
         let L = (h: latentHeight, w: latentWidth)
-        var stages: [Stage] = []
-        stages.append(Stage(inputs: ["x"], output: "x", label: "mid") { b, x in
-            var x = try b.conv(x[0], "post_quant_conv", padding: 0)
-            x = try b.conv(x, "decoder.conv_in", padding: 1)
-            x = try b.resnetQwen(x, "decoder.mid_block.resnets.0", inChannels: dims[0], outChannels: dims[0])
-            x = try b.bottleneck(x, "decoder.mid_block.attentions.0", channels: dims[0], size: L)
-            return try b.resnetQwen(x, "decoder.mid_block.resnets.1", inChannels: dims[0], outChannels: dims[0])
-        })
+        var stages: [V.Stage] = [
+            V.conv("post_quant_conv", config.zDim, config.zDim, size: L, kernel: 1),
+            V.conv("decoder.conv_in", config.zDim, dims[0], size: L),
+        ]
+        stages += V.resnet("decoder.mid_block.resnets.0", dims[0], dims[0], size: L, label: "mid.resnet0")
+        stages += V.attention("decoder.mid_block.attentions.0", dims[0], size: L, label: "mid.attention")
+        stages += V.resnet("decoder.mid_block.resnets.1", dims[0], dims[0], size: L, label: "mid")
         var scale = 1
         for i in 0..<(config.dimMult.count - 1) {
             let block = config.up(i), prefix = "decoder.up_blocks.\(i)"
             let size = (h: scale * L.h, w: scale * L.w)
             for r in 0...config.resBlocks {
-                let entry = r == 0 ? block.input : block.output
-                // The block's input is kept under `skip` by its first resnet: the shortcut reads it at the end.
-                stages.append(Stage(inputs: ["x"], output: "x", keep: r == 0 ? "skip" : nil, label: "\(i).resnet\(r)") { b, x in
-                    try b.resnetQwen(x[0], "\(prefix).resnets.\(r)", inChannels: entry, outChannels: block.output)
-                })
+                stages += V.resnet("\(prefix).resnets.\(r)", r == 0 ? block.input : block.output, block.output, size: size,
+                                   keep: r == 0 ? "skip" : nil, label: "\(i).resnet\(r)")
             }
             if i == config.dimMult.count - 1 - QwenImage21VAEDecoder.tailLevels { break }   // the last upsamplings belong to the tail
-            stages.append(Stage(inputs: ["x"], output: "x", label: "\(i).upsample") { b, x in
-                try b.conv(b.double(x[0], channels: block.output, size: size), "\(prefix).upsampler.resample.1", padding: 1)
-            })
-            stages.append(Stage(inputs: ["x", "skip"], output: "x", forget: ["skip"], label: "\(i).shortcut") { b, x in
-                try b.addDupUp(x[0], skip: x[1], input: block.input, output: block.output,
-                               temporal: block.temporal, size: size)
-            })
+            stages += try V.upsample(prefix, block, size: size, label: "\(i).shortcut")
             scale *= 2
         }
         return stages
@@ -411,6 +578,50 @@ package final class QwenImage21VAEDecoder {
     /// same time. A third level would band stages whose peak (2.9 GB) is already below the tail's.
     package static let tailLevels = 2
 
+    /// **A band of the tail** for a tail input of `tailHeight × tailWidth` (the latent ×4): the margin in
+    /// rows of that input, the core each band keeps, and the window it reads — one source, `tail` runs
+    /// it, `OperatorFootprint.qwenDecoderBytes` reads its window (`factor · window` output rows).
+    /// The margin, back from the output: `conv_out`, the last block's resnets and its upsampling conv;
+    /// then, per level below, ×2 (rounded up), that block's resnets and upsampling conv.
+    package static func band(config: QwenImage21VAE.Config, tailHeight h: Int, tailWidth w: Int,
+                             bandPixels: Int) -> (margin: Int, core: Int, window: Int) {
+        let levels = tailLevels, factor = 1 << levels
+        let convsPerBlock = 2 * (config.resBlocks + 1)
+        var margin = 1 + convsPerBlock + 1
+        for _ in 1..<max(1, levels) { margin = (margin + 1) / 2 + convsPerBlock + 1 }
+        margin = (margin + 1) / 2
+        let core = max(1, bandPixels / (factor * factor * w))
+        return (margin, core, min(h, core + 2 * margin))
+    }
+
+    /// **The tail's input**: `(channels of x, channels of skip, scale)` — `x` and `skip` are
+    /// `[channels, scale·h, scale·w]` for an `h × w` latent once the stages before the tail are done.
+    package static func tailInput(config: QwenImage21VAE.Config) -> (x: Int, skip: Int, scale: Int) {
+        let last = config.dimMult.count - 1 - tailLevels
+        return (config.up(last).output, config.up(last).input, 1 << last)
+    }
+
+    /// **The count of the registers before the tail** (floats, for an `h × w` latent), when each
+    /// resnet was one graph: a stage's input, the block's input kept for its shortcut, its output. Since
+    /// the cut into passes, they hold more of them (and MPSGraph none): the decoder's memory is `plan`'s, and this
+    /// count only a test's.
+    package static func stageRegisterFloats(config: QwenImage21VAE.Config, latentHeight h: Int, latentWidth w: Int) -> Int {
+        let dims = config.decoderDims
+        var peak = config.zDim * h * w + dims[0] * h * w        // mid: the latent in, 1152 out
+        var scale = 1
+        for i in 0..<(config.dimMult.count - 1) {
+            let block = config.up(i), area = scale * scale * h * w
+            // resnet 0: input (also the kept skip) + output; resnets 1, 2: input + skip + output.
+            peak = max(peak, (block.input + block.output) * area, (2 * block.output + block.input) * area)
+            if i == config.dimMult.count - 1 - tailLevels { break }
+            // upsample: input + skip + output at 4×; shortcut: input + skip + output, then the skip goes.
+            peak = max(peak, block.output * area + block.input * area + block.output * 4 * area)
+            peak = max(peak, 2 * block.output * 4 * area + block.input * area)
+            scale *= 2
+        }
+        return peak
+    }
+
     /// **The tail, by horizontal bands — exact.** From the second-to-last upsampling to `conv_out`,
     /// everything is local: convolutions, per-pixel RMSNorm, the shortcut's copies. A full-resolution row
     /// depends on the rows within **8 rows** of it at full resolution (the last upsampling conv, the six
@@ -419,71 +630,60 @@ package final class QwenImage21VAEDecoder {
     /// reads its rows plus that margin on each side (none past the image's edge, where the model's own
     /// zero padding is the right one), and keeps only its core: every kept pixel sees exactly the inputs
     /// it sees in one piece. All windows have the same height (the last one slides back inside the
-    /// image): a single graph serves them all. The skip of the inner block (its input, which its shortcut
-    /// reads) is born inside the band.
+    /// image): the same passes, built once, serve them all. The skip of the inner block (its input, which
+    /// its shortcut reads) is born inside the band.
     ///
     /// Why: in one piece at 1024², the last level alone held **7.1 GB** (`MPSGraph` keeps a stage's
     /// intermediates, and keeps them cached after it). The objection to tiling Flux's decoder — tiles
     /// change `GroupNorm`'s statistics — does not apply: there is no statistic across pixels here.
-    private func tail(x: QwenImage21VAE.Register, skip: QwenImage21VAE.Register) throws -> [Float] {
+    private static func tail(x: VAERegister, skip: VAERegister, config: QwenImage21VAE.Config, bandPixels: Int,
+                             weights: Safetensors?, memory: VAEMemory) throws -> [Float] {
+        typealias V = QwenImage21VAE
         let levels = QwenImage21VAEDecoder.tailLevels, first = config.dimMult.count - 1 - levels
         let (cx, h, w) = (x.shape[1], x.shape[2], x.shape[3]), cs = skip.shape[1]
         let factor = 1 << levels
-        // The margin, back from the output: `conv_out`, the last block's resnets and its upsampling conv;
-        // then, per level below, ×2 (rounded up), that block's resnets and upsampling conv.
-        let convsPerBlock = 2 * (config.resBlocks + 1)
-        var margin = 1 + convsPerBlock + 1
-        for _ in 1..<max(1, levels) { margin = (margin + 1) / 2 + convsPerBlock + 1 }
-        margin = (margin + 1) / 2
-        let bandPixels = MemoryPlan.decoderBand(standard: QwenImage21VAEDecoder.bandPixels,
-                                                minimum: MemoryPlan.qwenMinimumBand, unit: "pixels")
-        let core = max(1, bandPixels / (factor * factor * w))
-        let window = min(h, core + 2 * margin)
+        let (margin, core, window) = QwenImage21VAEDecoder.band(config: config, tailHeight: h, tailWidth: w,
+                                                                bandPixels: bandPixels)
         let (H, W) = (factor * h, factor * w)
-        let config = self.config
-        var rgba = [Float](repeating: 0, count: config.outChannels * H * W)
-        func buffer(_ channels: Int, _ rows: Int, _ columns: Int) throws -> QwenImage21VAE.Register {
-            guard let b = device.makeBuffer(length: channels * rows * columns * 4, options: .storageModeShared) else {
-                throw GEMM.Failure.noDevice
+        var passes: [V.Stage] = []
+        for i in first..<(first + levels) {
+            let block = config.up(i), next = config.up(i + 1), scale = 1 << (i - first)
+            let size = (h: scale * window, w: scale * w), doubled = (h: 2 * size.h, w: 2 * size.w)
+            passes += try V.upsample("decoder.up_blocks.\(i)", block, size: size, label: "tail \(i).shortcut")
+            // The next block's input is kept for its own shortcut — but the last block has none.
+            let kept = i + 1 < config.dimMult.count - 1
+            for r in 0...config.resBlocks {
+                passes += V.resnet("decoder.up_blocks.\(i + 1).resnets.\(r)", r == 0 ? next.input : next.output, next.output,
+                                   size: doubled, keep: r == 0 && kept ? "skip" : nil, label: "tail \(i + 1).resnet\(r)")
             }
-            return QwenImage21VAE.Register(b, shape: [1, NSNumber(value: channels), NSNumber(value: rows), NSNumber(value: columns)])
         }
-        let xw = try buffer(cx, window, w), sw = try buffer(cs, window, w)
-        let out = try buffer(config.outChannels, factor * window, W)
-        try autoreleasepool {
-            let graph = MPSGraph()
-            let b = VAEBuildingBlocks(graph: graph, weights: weights, name: "VAE Qwen-Image-2.1")
-            let px = graph.placeholder(shape: xw.data.shape, dataType: .float32, name: nil)
-            let ps = graph.placeholder(shape: sw.data.shape, dataType: .float32, name: nil)
-            var y = px, skipped = ps
-            for i in first..<(first + levels) {
-                let block = config.up(i), next = config.up(i + 1), scale = 1 << (i - first)
-                let size = (h: scale * window, w: scale * w)
-                y = try b.conv(b.double(y, channels: block.output, size: size), "decoder.up_blocks.\(i).upsampler.resample.1",
-                               padding: 1)
-                y = try b.addDupUp(y, skip: skipped, input: block.input, output: block.output, temporal: block.temporal, size: size)
-                skipped = y   // the next block's input, which its shortcut reads
-                for r in 0...config.resBlocks {
-                    y = try b.resnetQwen(y, "decoder.up_blocks.\(i + 1).resnets.\(r)",
-                                         inChannels: r == 0 ? next.input : next.output, outChannels: next.output)
+        let last = config.up(first + levels).output
+        passes.append(V.Stage(["x"], "h", [1, last, factor * window, W], weights: WeightList.rms(last), forget: ["x"]) { k, t in
+            try k.silu(k.rmsNorm(t[0], "decoder.norm_out", channels: last)) })
+        passes.append(V.Stage(["h"], "x", [1, config.outChannels, factor * window, W],
+                              weights: WeightList.conv(config.outChannels, last), forget: ["h"]) { k, t in
+            k.graph.clamp(try k.conv(t[0], "decoder.conv_out", padding: 1),
+                          min: k.graph.constant(-1, dataType: .float32), max: k.graph.constant(1, dataType: .float32), name: nil) })
+        memory.host(4 * config.outChannels * H * W)
+        var rgba = [Float](repeating: 0, count: memory.isLive ? config.outChannels * H * W : 0)
+        let graphs = V.Graphs()
+        var c0 = 0
+        while c0 < h {
+            let c1 = min(h, c0 + core)
+            let start = min(max(0, c0 - margin), h - window)
+            let xw = try memory.register([1, cx, window, w]), sw = try memory.register([1, cs, window, w])
+            if memory.isLive {
+                let pairs: [(VAERegister, VAERegister, Int)] = [(x, xw, cx), (skip, sw, cs)]
+                for (source, target, channels) in pairs {
+                    let (from, to) = (source.values, target.values)
+                    for c in 0..<channels { (to + c * window * w).update(from: from + (c * h + start) * w, count: window * w) }
                 }
             }
-            y = try b.silu(b.rmsNorm(y, "decoder.norm_out", channels: config.up(first + levels).output))
-            y = try b.conv(y, "decoder.conv_out", padding: 1)
-            y = graph.clamp(y, min: graph.constant(-1, dataType: .float32), max: graph.constant(1, dataType: .float32), name: nil)
-
-            var c0 = 0
-            while c0 < h {
-                let c1 = min(h, c0 + core)
-                let start = min(max(0, c0 - margin), h - window)
-                for (source, target, channels) in [(x, xw, cx), (skip, sw, cs)] {
-                    for c in 0..<channels {
-                        (target.values + c * window * w).update(from: source.values + (c * h + start) * w, count: window * w)
-                    }
-                }
-                autoreleasepool {
-                    QwenImage21VAE.execute(graph, queue: queue, feeds: [px: xw.data, ps: sw.data], results: [y: out.data])
-                }
+            let registers = try V.run(passes, weights: weights, name: "VAE Qwen-Image-2.1", memory: memory,
+                                      registers: ["x": xw, "skip": sw], graphs: graphs)
+            precondition(registers.count == 1, "QwenImage21VAEDecoder: the tail left \(registers.keys.sorted()) alive")
+            let out = registers["x"]!
+            if memory.isLive {
                 // Keep the core: full-resolution rows [F·c0, F·c1), found at F·(c0 − start) in the window.
                 rgba.withUnsafeMutableBufferPointer { target in
                     for c in 0..<config.outChannels {
@@ -492,9 +692,10 @@ package final class QwenImage21VAEDecoder {
                                     count: factor * (c1 - c0) * W)
                     }
                 }
-                QwenImage21VAE.stageDone?("tail \(c0)-\(c1)")
-                c0 = c1
+                V.stageDone?("tail \(c0)-\(c1)")
             }
+            memory.free(out)
+            c0 = c1
         }
         return rgba
     }
@@ -537,112 +738,109 @@ package final class QwenImage21VAEEncoder {
     package func encode(rgba: [Float]) throws -> Output {
         precondition(rgba.count == config.inChannels * height * width, "QwenImage21VAEEncoder: image shape")
         let started = Date()
-        let input = try QwenImage21VAE.Register(rgba, shape: [1, NSNumber(value: config.inChannels), NSNumber(value: height),
-                                                              NSNumber(value: width)], device: device)
-        let out = try QwenImage21VAE.run(stages(), weights: weights, name: "VAE Qwen-Image-2.1 encoder",
-                                         device: device, queue: queue, registers: ["x": input])["x"]!
-        let moments = Array(UnsafeBufferPointer(start: out.values, count: out.shape.reduce(1, *)))
+        let memory = try VAEMemory(plan: QwenImage21VAEEncoder.plan(config: config, height: height, width: width),
+                                   device: device, queue: queue)
+        let moments = try autoreleasepool {
+            try QwenImage21VAEEncoder.encode(rgba, config: config, height: height, width: width, weights: weights,
+                                             memory: memory)
+        }
+        memory.finish()
         let mean = moments.prefix(config.zDim * latentHeight * latentWidth)
         return Output(latent: QwenImage21VAE.normalize(mean, config: config), moments: moments,
                       seconds: Date().timeIntervalSince(started))
     }
 
-    /// One graph per block (the block's input is a placeholder, its shortcut is internal), the head
-    /// with the last: the encoder is widest at full resolution with only 96 channels.
-    private func stages() -> [QwenImage21VAE.Stage] {
-        let config = self.config
+    /// **Everything an encoding holds** for an `H × W` image: the registers' heap, the largest stage's
+    /// workspace, and the host copies (the moments read back, the normalized latent) — `encode`
+    /// walked without a device.
+    package static func plan(config: QwenImage21VAE.Config, height: Int, width: Int) -> VAELayout {
+        plans(VAEPlanKey(config, [height, width])) { walk(config: config, height: height, width: width) }
+    }
+
+    private static let plans = ShapeMemo<VAEPlanKey<QwenImage21VAE.Config>, VAELayout>()
+
+    /// `plan`, walked every time: what the memory keeps, and what the tests compare it with.
+    package static func walk(config: QwenImage21VAE.Config, height: Int, width: Int) -> VAELayout {
+        let memory = VAEMemory()
+        _ = try? encode(nil, config: config, height: height, width: width, weights: nil, memory: memory)
+        return memory.layout
+    }
+
+    private static func encode(_ rgba: [Float]?, config: QwenImage21VAE.Config, height: Int, width: Int,
+                               weights: Safetensors?, memory: VAEMemory) throws -> [Float] {
+        let input = try memory.register([1, config.inChannels, height, width])
+        if let rgba, memory.isLive { input.values.update(from: rgba, count: input.count) }
+        let out = try QwenImage21VAE.run(try stages(config: config, height: height, width: width), weights: weights,
+                                         name: "VAE Qwen-Image-2.1 encoder", memory: memory, registers: ["x": input])["x"]!
+        // The moments, then the normalized latent (`QwenImage21VAE.normalize`), both read back to the host.
+        memory.host(4 * out.count + 4 * out.count / 2)
+        let moments = memory.isLive ? Array(UnsafeBufferPointer(start: out.values, count: out.count)) : []
+        memory.free(out)
+        return moments
+    }
+
+    /// **The count of an encoding's registers** (floats, for an `H × W` image), when each block was one
+    /// graph: the RGBA input, a block's input, its output. Since the cut into passes, they hold more of them (and
+    /// MPSGraph none): the encoder's memory is `plan`'s, and this count only a test's.
+    package static func registerFloats(config: QwenImage21VAE.Config, height: Int, width: Int) -> Int {
+        let input = config.inChannels * height * width
+        var (h, w, channels, peak) = (height, width, config.inChannels, input)
+        for i in 0..<config.dimMult.count {
+            let block = config.down(i)
+            let (oh, ow) = (h / block.spatial, w / block.spatial)
+            let output = (i == config.dimMult.count - 1 ? 2 * config.zDim : block.output) * oh * ow
+            // The input register stays held by `encode`: block 0's input is it.
+            peak = max(peak, input + (i == 0 ? 0 : channels * h * w) + output)
+            (h, w, channels) = (oh, ow, block.output)
+        }
+        return peak
+    }
+
+    /// Each block's passes — `conv_in` (block 0), the resnets (the first keeps the block's input as
+    /// `skip`), the stride-2 convolution, and the shortcut's `AvgDown3D` summed in place by a kernel of
+    /// ours (`VAEKernels`) —, then the bottleneck and the head after the last.
+    private static func stages(config: QwenImage21VAE.Config, height: Int, width: Int) throws -> [QwenImage21VAE.Stage] {
+        typealias V = QwenImage21VAE
         let dims = config.encoderDims
         let blocks = config.dimMult.count
         var size = (h: height, w: width)
-        var stages: [QwenImage21VAE.Stage] = []
+        var stages: [V.Stage] = []
         for i in 0..<blocks {
             let block = config.down(i), prefix = "encoder.down_blocks.\(i)", here = size
-            stages.append(QwenImage21VAE.Stage(inputs: ["x"], output: "x", label: "block \(i)") { b, x in
-                var x = x[0]
-                if i == 0 { x = try b.conv(x, "encoder.conv_in", padding: 1) }
-                let skip = x
-                for r in 0..<config.resBlocks {
-                    x = try b.resnetQwen(x, "\(prefix).resnets.\(r)", inChannels: r == 0 ? block.input : block.output,
-                                         outChannels: block.output)
-                }
-                if block.spatial > 1 { x = try b.downsample(x, "\(prefix).downsampler.resample.1") }
-                x = b.graph.addition(x, b.avgDown(skip, input: block.input, output: block.output,
-                                                  temporal: block.temporal, spatial: block.spatial, size: here), name: nil)
-                guard i == blocks - 1 else { return x }
-                let top = (h: here.h / block.spatial, w: here.w / block.spatial)
-                x = try b.resnetQwen(x, "encoder.mid_block.resnets.0", inChannels: dims.last!, outChannels: dims.last!)
-                x = try b.bottleneck(x, "encoder.mid_block.attentions.0", channels: dims.last!, size: top)
-                x = try b.resnetQwen(x, "encoder.mid_block.resnets.1", inChannels: dims.last!, outChannels: dims.last!)
-                x = try b.silu(b.rmsNorm(x, "encoder.norm_out", channels: dims.last!))
-                x = try b.conv(x, "encoder.conv_out", padding: 1)
-                return try b.conv(x, "quant_conv", padding: 0)
-            })
-            size = (size.h / block.spatial, size.w / block.spatial)
+            let top = (h: here.h / block.spatial, w: here.w / block.spatial)
+            if i == 0 { stages.append(V.conv("encoder.conv_in", config.inChannels, dims[0], size: here)) }
+            for r in 0..<config.resBlocks {
+                stages += V.resnet("\(prefix).resnets.\(r)", r == 0 ? block.input : block.output, block.output, size: here,
+                                   keep: r == 0 ? "skip" : nil, label: "block \(i).resnet\(r)")
+            }
+            if block.spatial > 1 {
+                var down = V.Stage(["x"], "x", [1, block.output, top.h, top.w], weights: WeightList.conv(block.output, block.output)) { k, t in
+                    try k.downsample(t[0], "\(prefix).downsampler.resample.1") }
+                down.workspace = VAELayout.reformattedWeights(block.output * block.output * 9) / 4
+                stages.append(down)
+            }
+            // The group mean divides by a power of two: exact, whatever the graph's `mean` multiplied or divided by.
+            let (s, ft) = (block.spatial, block.temporal), g = block.input * ft * s * s / block.output
+            guard g > 0, g & (g - 1) == 0, block.input * ft * s * s == g * block.output else {
+                throw Safetensors.Failure.badHeader("VAE Qwen-Image-2.1 encoder: AvgDown3D \(block.input) → \(block.output) "
+                                                    + "in groups of \(g)")
+            }
+            stages.append(V.Stage(["x", "skip"], "x", [1, block.output, top.h, top.w], inPlace: true, forget: ["skip"],
+                                  label: "block \(i)") { memory, t, out in
+                memory.dispatch(.avgDownAdd, [out, t[1]],
+                                constants: [UInt32(top.h), UInt32(top.w), UInt32(s), UInt32(ft), UInt32(g)],
+                                grid: MTLSize(width: top.w, height: top.h, depth: block.output)) })
+            size = top
         }
+        let c = dims.last!, z = 2 * config.zDim
+        stages += V.resnet("encoder.mid_block.resnets.0", c, c, size: size, label: "mid.resnet0")
+        stages += V.attention("encoder.mid_block.attentions.0", c, size: size, label: "mid.attention")
+        stages += V.resnet("encoder.mid_block.resnets.1", c, c, size: size, label: "mid")
+        stages.append(V.Stage(["x"], "x", [1, c, size.h, size.w], weights: WeightList.rms(c)) { k, t in
+            try k.silu(k.rmsNorm(t[0], "encoder.norm_out", channels: c)) })
+        stages.append(V.conv("encoder.conv_out", c, z, size: size))
+        stages.append(V.conv("quant_conv", z, z, size: size, kernel: 1, label: "head"))
         return stages
-    }
-}
-
-// ── the bricks only this VAE has ───────────────────────────────────────────────────────────
-
-extension VAEBuildingBlocks {
-    /// The Wan attention block: RMS (`images=True`, the same formula), one 1×1 `to_qkv` split q, k, v.
-    fileprivate func bottleneck(_ x: MPSGraphTensor, _ prefix: String, channels c: Int,
-                                size: (h: Int, w: Int)) throws -> MPSGraphTensor {
-        try attention(x, normalized: rmsNorm(x, prefix + ".norm", channels: c), channels: c, size: size,
-                      qkv: { (try projection($0, prefix + ".to_qkv", rows: 0..<c),
-                              try projection($0, prefix + ".to_qkv", rows: c..<(2 * c)),
-                              try projection($0, prefix + ".to_qkv", rows: (2 * c)..<(3 * c))) },
-                      output: prefix + ".proj", requestBlock: EngineSettings.effective.vaeRequestBlock)
-    }
-
-    /// **`AvgDown3D` on one frame, written as the reference does it**: space-to-depth
-    /// (`view` + `permute`), the zero frame in front when `temporal = 2`, then the mean over groups of
-    /// `in·ft·s²/out` consecutive channels. `x`: `[1, in, H, W]` → `[1, out, H/s, W/s]`.
-    fileprivate func avgDown(_ x: MPSGraphTensor, input: Int, output: Int, temporal ft: Int, spatial s: Int,
-                             size: (h: Int, w: Int)) -> MPSGraphTensor {
-        if ft == 1 && s == 1 && input == output { return x }   // a mean over groups of one
-        let n = { (v: Int) in NSNumber(value: v) }
-        let (h, w) = (size.h / s, size.w / s)
-        var t = graph.reshape(x, shape: [1, n(input), n(h), n(s), n(w), n(s)], name: nil)
-        t = graph.transpose(t, permutation: [0, 1, 3, 5, 2, 4], name: nil)          // [1, in, s, s, h, w]
-        t = graph.reshape(t, shape: [1, n(input), n(s * s), n(h * w)], name: nil)
-        if ft > 1 {
-            let zeros = graph.constant(0, shape: [1, n(input), n((ft - 1) * s * s), n(h * w)], dataType: .float32)
-            t = graph.concatTensors([zeros, t], dimension: 2, name: nil)              // t = 0 first: the padding
-        }
-        let g = input * ft * s * s / output
-        t = graph.reshape(t, shape: [1, n(output), n(g), n(h * w)], name: nil)
-        t = graph.mean(of: t, axes: [2], name: nil)
-        return graph.reshape(t, shape: [1, n(output), n(h), n(w)], name: nil)
-    }
-
-    /// `main + DupUp3D(skip)`. `skip`: `[1, in, h, w]`; `main`: `[1, out, 2h, 2w]`. The source table
-    /// (`QwenImage21VAE.dupUpSources`) never depends on the column offset `j` here (the repeat is even):
-    /// the rows are gathered (`[1, out, h, 2, w]`, a gather skipped when it is the identity — block 3),
-    /// and the columns come free by broadcasting in the sum. Pure copies: no rounding.
-    fileprivate func addDupUp(_ main: MPSGraphTensor, skip: MPSGraphTensor, input: Int, output: Int,
-                              temporal ft: Int, size: (h: Int, w: Int)) throws -> MPSGraphTensor {
-        let s = 2
-        let n = { (v: Int) in NSNumber(value: v) }
-        let table = QwenImage21VAE.dupUpSources(input: input, output: output, temporal: ft, spatial: s)
-        let rows = stride(from: 0, to: table.count, by: s).map { table[$0] }
-        guard (0..<table.count).allSatisfy({ table[$0] == rows[$0 / s] }) else {
-            throw Safetensors.Failure.badHeader("\(name): DupUp3D \(input) → \(output) depends on the column")
-        }
-        var g = skip
-        if rows != Array(0..<rows.count) {
-            let indices = rows.map { Int32($0) }.withUnsafeBytes { Data($0) }
-            g = graph.gather(withUpdatesTensor: skip,
-                             indicesTensor: graph.constant(indices, shape: [n(rows.count)], dataType: .int32),
-                             axis: 1, batchDimensions: 0, name: nil)                  // [1, out·2, h, w]
-        }
-        g = graph.reshape(g, shape: [1, n(output), n(s), n(size.h), n(size.w)], name: nil)
-        g = graph.transpose(g, permutation: [0, 1, 3, 2, 4], name: nil)               // [1, out, h, 2, w]
-        g = graph.reshape(g, shape: [1, n(output), n(s * size.h), n(size.w), 1], name: nil)
-        let m = graph.reshape(main, shape: [1, n(output), n(s * size.h), n(size.w), n(s)], name: nil)
-        return graph.reshape(graph.addition(m, g, name: nil),
-                             shape: [1, n(output), n(s * size.h), n(s * size.w)], name: nil)
     }
 }
 

@@ -8,8 +8,8 @@ import XCTest
 /// projection, PNG chunks, progress. No map, no GPU.
 final class AppTests: XCTestCase {
 
-    /// These renders stop before any weight: the preflight's memory is not what they test, and the
-    /// machine's state would make them depend on what else runs (`MemoryBudget`). A budget that fits all.
+    /// These renders stop before any weight: the preflight's memory is not what they test, and B
+    /// would make them depend on this Mac's RAM (`MemoryBudget`). A 64 GiB B fits all.
     override class func setUp() {
         super.setUp()
         setenv(MemoryBudget.forcingVariable, "64", 1)
@@ -34,17 +34,17 @@ final class AppTests: XCTestCase {
         let formats = ModelCard.recommendedFormats + [RecommendedFormat(512, 768), RecommendedFormat(384, 512)]
         let portrait = RecommendedFormat(832, 1216)
         // Everything fits but the current one: a portrait stays a portrait, the first listed of equals.
-        XCTAssertEqual(RecommendedFormat.largestFitting(formats, available: .max, current: portrait, need: need),
+        XCTAssertEqual(RecommendedFormat.largestFitting(formats, budget: .max, current: portrait, need: need),
                        RecommendedFormat(896, 1152))
         // Only up to 512×768 fits: the portrait one, not 512².
-        XCTAssertEqual(RecommendedFormat.largestFitting(formats, available: 512 * 768, current: portrait, need: need),
+        XCTAssertEqual(RecommendedFormat.largestFitting(formats, budget: 512 * 768, current: portrait, need: need),
                        RecommendedFormat(512, 768))
         // No landscape fits: the largest of any orientation.
-        XCTAssertEqual(RecommendedFormat.largestFitting(formats, available: 512 * 768, current: RecommendedFormat(1216, 832),
+        XCTAssertEqual(RecommendedFormat.largestFitting(formats, budget: 512 * 768, current: RecommendedFormat(1216, 832),
                                                         need: need),
                        RecommendedFormat(512, 768))
         // 384×512 fits by its need, but is under the 512 floor: nothing to offer.
-        XCTAssertNil(RecommendedFormat.largestFitting(formats, available: 512 * 512 - 1, current: portrait, need: need))
+        XCTAssertNil(RecommendedFormat.largestFitting(formats, budget: 512 * 512 - 1, current: portrait, need: need))
     }
 
     /// The sheet says what the module does: default steps, space — a single truth.

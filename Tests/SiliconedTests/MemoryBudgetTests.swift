@@ -1,316 +1,192 @@
 import Foundation
 import XCTest
-import Synchronization
 @testable import Siliconed
 
-/// **The budget and the plan it derives** (`MemoryBudget`, `MemoryPlan`) — without a byte of weights:
-/// the machine's state is injected (page counts, the forcing), the maps' sizes are Z-Image's and
-/// Qwen-Image-2.1's, from the journal.
+/// **B and the plan chosen in it** (`MemoryBudget`, `MemoryPlan`) — without a byte of weights: B is
+/// simulated, the needs are Qwen-Image-2.1's (computed without its maps), a map's layers are of
+/// Z-Image's order.
 final class MemoryBudgetTests: XCTestCase {
 
     private let gib = 1 << 30
-    private func budget(_ reclaimableGiB: Double) -> MemoryBudget {
-        MemoryBudget(reclaimable: Int(reclaimableGiB * Double(gib)))
-    }
-
-    // The maps (measured: Z-Image bf16 12.33 GB, Qwen-Image-2.1 14.2 GB swept per evaluation; two
-    // staging buffers ~0.7 GB for Z, ~0.9 for Qwen) and the floors of `ModelCard.memoryNeed`.
-    private let zBlock = 360_000_000, qwenBlock = 450_000_000
-    private var z512: Int { ModelCard.zImage.memoryNeed(width: 512, height: 512) }
-    private var z1024: Int { ModelCard.zImage.memoryNeed(width: 1024, height: 1024) }
-    private var z1024Comfort: Int { ModelCard.zImage.memoryComfort(width: 1024, height: 1024) }
-
-    // ── the reading ─────────────────────────────────────────────────────────────────────────
-
-    /// The formula: speculative pages are in `free_count` AND in `external_page_count` — counted once;
-    /// executable pages are taken out of the file-backed ones; the process's own footprint is added.
-    func testTheReadingCountsSpeculativePagesOnce() {
-        let pages = MemoryBudget.Pages(free: 4_880, speculative: 797, purgeable: 4_994, external: 453_304, executable: 30_000)
-        let page = 16_384
-        XCTAssertEqual(MemoryBudget.reclaimable(pages, pageSize: page, ownFootprint: 0),
-                       page * (4_880 - 797 + 4_994 + 453_304 - 30_000))
-        XCTAssertEqual(MemoryBudget.reclaimable(pages, pageSize: page, ownFootprint: 500_000_000)
-                       - MemoryBudget.reclaimable(pages, pageSize: page, ownFootprint: 0), 500_000_000)
-        // Never negative, whatever the kernel says.
-        XCTAssertEqual(MemoryBudget.reclaimable(.init(free: 1, speculative: 5, external: 2, executable: 9),
-                                                pageSize: page, ownFootprint: 0), 0)
-    }
-
-    /// `vm_statistics64` read at its offsets: a rev5 kernel's `executable_count` is taken as written;
-    /// an older kernel's shorter answer gets the assumed 2 GiB, never more than the file-backed pages.
-    func testTheRawReadingFallsBackWhenTheKernelHasNoExecutableCount() {
-        var raw = [integer_t](repeating: 0, count: 256)
-        raw[0] = 4_880; raw[92 / 4] = 797; raw[88 / 4] = 4_994; raw[136 / 4] = 453_304
-        raw[280 / 4] = 30_000; raw[280 / 4 + 1] = 1   // 2³² + 30 000: the high word is read too
-        let page = 16_384
-        let rev5 = MemoryBudget.pages(raw: raw, count: 104, pageSize: page)
-        XCTAssertEqual(rev5, .init(free: 4_880, speculative: 797, purgeable: 4_994, external: 453_304,
-                                   executable: (1 << 32) + 30_000))
-        let rev4 = MemoryBudget.pages(raw: raw, count: 70, pageSize: page)
-        XCTAssertEqual(rev4.executable, MemoryBudget.assumedExecutableBytes / page)
-        XCTAssertEqual(rev4.external, 453_304)
-        raw[136 / 4] = 1_000
-        XCTAssertEqual(MemoryBudget.pages(raw: raw, count: 70, pageSize: page).executable, 1_000)
-    }
-
-    /// The reserve is subtracted, and the budget never goes below zero.
-    func testTheReserveIsSubtracted() {
-        XCTAssertEqual(MemoryBudget.reserve, 1_600_000_000)
-        XCTAssertEqual(budget(8).available, (8 << 30) - 1_600_000_000)
-        XCTAssertEqual(budget(1).available, 0)
-    }
-
-    /// **The credit: what compressing the others would free covers the reserve, for the refusal only.**
-    /// The idle desktop of 11/10 (M1 Pro, a browser open, `vm_stat`): 4.47 GB reclaimable refused
-    /// Qwen-Image-2.1's 1024² generation with the whole reserve (2.87 available); compressing its
-    /// 8.09 GB anonymous at the 2.86× it reached frees ~5 GB. The plan keeps the whole reserve: lean.
-    func testTheCreditCoversTheReserveForTheRefusalOnly() {
-        let page = 16_384, physical = 17_179_869_184, own = 160_000_000
-        func credit(_ p: MemoryBudget.Pages) -> Int {
-            MemoryBudget.compressionCredit(p, pageSize: page, ownFootprint: own, physical: physical)
-        }
-        let desk = MemoryBudget.Pages(free: 5_698, purgeable: 65_542, external: 340_001, executable: 148_000,
-                                      wired: 104_112, anonymous: 493_969, compressorOccupied: 65_439, compressorStored: 187_005)
-        XCTAssertGreaterThan(credit(desk), MemoryBudget.reserve)
-        let budget = MemoryBudget(reclaimable: MemoryBudget.reclaimable(desk, pageSize: page, ownFootprint: own), credit: credit(desk))
-        XCTAssertEqual(Double(budget.reclaimable) / 1e9, 4.47, accuracy: 0.01)
-        XCTAssertEqual(budget.admissible, budget.reclaimable)
-        XCTAssertEqual(budget.available, budget.reclaimable - MemoryBudget.reserve)
-        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1024, budget: budget))
-        XCTAssertEqual(MemoryPlan.tail(budget: budget, floor: ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024),
-                                       blockBytes: qwenBlock, fraction: 0.5), .lean)
-        // Still refused when the need exceeds what the kernel hands over without touching anyone.
-        XCTAssertThrowsError(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1536, references: 3, budget: budget))
-        // Nothing compressed yet, or too little to read a ratio: no credit.
-        var fresh = desk; fresh.compressorStored = 0; fresh.compressorOccupied = 0
-        XCTAssertEqual(credit(fresh), 0)
-        var little = desk; little.compressorStored = 20_000; little.compressorOccupied = 7_000
-        XCTAssertEqual(credit(little), 0)
-        // Incompressible (stored = occupied): none. Poorly compressible and few others: part of the reserve.
-        var flat = desk; flat.compressorOccupied = desk.compressorStored
-        XCTAssertEqual(credit(flat), 0)
-        var poor = desk; poor.anonymous = 100_000; poor.compressorOccupied = 160_000
-        XCTAssertGreaterThan(credit(poor), 0); XCTAssertLessThan(credit(poor), MemoryBudget.reserve)
-        // A compressor at its limit has no room to give.
-        var full = desk; full.compressorOccupied = 520_000; full.compressorStored = 1_500_000
-        XCTAssertEqual(credit(full), 0)
-        // The credit never lifts the refusal above what is reclaimable.
-        XCTAssertEqual(MemoryBudget(reclaimable: 4 << 30, credit: 10 << 30).admissible, 4 << 30)
-    }
-
-    /// The raw reading takes the reserve's counts at their offsets; `total_uncompressed_pages_in_compressor`
-    /// only from a kernel that wrote it.
-    func testTheRawReadingTakesTheCompressorCounts() {
-        var raw = [integer_t](repeating: 0, count: 256)
-        raw[12 / 4] = 104_112; raw[128 / 4] = 65_439; raw[140 / 4] = 493_969; raw[144 / 4] = 187_005
-        let p = MemoryBudget.pages(raw: raw, count: 104, pageSize: 16_384)
-        XCTAssertEqual([p.wired, p.compressorOccupied, p.anonymous, p.compressorStored], [104_112, 65_439, 493_969, 187_005])
-        XCTAssertEqual(MemoryBudget.pages(raw: raw, count: 36, pageSize: 16_384).compressorStored, 0)
-    }
 
     /// **A generation is not charged its edits' peak**; the need never falls as references are added,
     /// and a count with no tier for the format takes the next one up.
     func testTheNeedFollowsTheReferences() {
         let q = ModelCard.qwenImage21
-        let needs = (0...3).map { q.memoryNeed(width: 1024, height: 1024, references: $0) }
-        XCTAssertEqual(needs, [3_840_000_000, 4_180_000_000, 4_510_000_000, 4_510_000_000])
-        XCTAssertEqual(q.memoryNeed(width: 512, height: 512), 3_840_000_000)
-        XCTAssertEqual(q.memoryNeed(width: 1248, height: 832, references: 2), 4_470_000_000)
-        XCTAssertEqual(q.memoryNeed(width: 1024, height: 1536), 4_835_000_000)
-        XCTAssertEqual(q.memoryNeed(width: 1024, height: 1536, references: 1), 4_835_000_000)
-        // A family measured without references keeps its one table.
+        // Each reference adds its tokens to the text and the prefix: the edits grow with them. A
+        // generation is not an edit (its denoising streams the map's tail, an edit's K/V go to the file).
+        let needs = (1...3).map { q.memoryNeed(width: 1024, height: 1024, references: $0) }
+        XCTAssertEqual(needs, needs.sorted()); XCTAssertEqual(Set(needs).count, 3)
+        // The need is the computed floor: the lean plan's peak, below the default plan's.
+        XCTAssertEqual(q.memoryNeed(width: 1024, height: 1024), MemoryNeed.of(q.memoryRequest(width: 1024, height: 1024).lean)!.peak)
+        XCTAssertLessThanOrEqual(q.memoryNeed(width: 1024, height: 1024), q.memoryComfort(width: 1024, height: 1024))
+        XCTAssertLessThan(q.memoryNeed(width: 512, height: 512), q.memoryNeed(width: 1024, height: 1024))
+        XCTAssertLessThan(q.memoryNeed(width: 1024, height: 1024), q.memoryNeed(width: 1024, height: 1536))
+        // A family measured without references keeps its one figure (the marked fallback).
         XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1024, references: 2),
                        ModelCard.klein4b.memoryNeed(width: 1024, height: 1024))
     }
 
-    /// `SILICONED_MEMORY_AVAILABLE_GB` replaces the reading (GiB, before the reserve, comma or point);
-    /// without it, the machine's state, which holds at least this process.
-    func testTheForcingReplacesTheReading() {
-        let forced = MemoryBudget.current(environment: [MemoryBudget.forcingVariable: "8"])
-        XCTAssertEqual(forced, MemoryBudget(reclaimable: 8 << 30, forced: true))
-        XCTAssertEqual(forced.available, (8 << 30) - MemoryBudget.reserve)
-        XCTAssertEqual(MemoryBudget.current(environment: [MemoryBudget.forcingVariable: "4,5"]).reclaimable, 9 << 29)
-        let read = MemoryBudget.current(environment: [:])
-        XCTAssertFalse(read.forced)
-        XCTAssertGreaterThanOrEqual(read.reclaimable, Arena.processFootprint() / 2)
-        XCTAssertLessThan(read.reclaimable, Int(ProcessInfo.processInfo.physicalMemory) + Arena.processFootprint())
+    /// `SILICONED_MEMORY_BUDGET_GB` replaces B (GiB, comma or point); without it, B is this Mac's RAM's.
+    func testTheForcingReplacesB() {
+        XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "4"]), 4 << 30)
+        XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "4,5"]), 9 << 29)
+        XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "22"]), 22 << 30)
+        let physical = Int(ProcessInfo.processInfo.physicalMemory)
+        XCTAssertEqual(MemoryBudget.machineCeiling(environment: [:]), MemoryBudget.ceiling(physical: physical))
+    }
+
+    // ── B ──────────────────────────────────────────────────────────────────────────────────
+
+    /// **B = ¾ · RAM − 2 GiB**: 8 → 4, 16 → 10, 24 → 16, 32 → 22, 64 → 46; never negative below.
+    func testBIsThreeQuartersOfTheRamLessTwo() {
+        XCTAssertEqual([8, 16, 24, 32, 64].map { MemoryBudget.ceiling(physical: $0 * gib) / gib }, [4, 10, 16, 22, 46])
+        XCTAssertEqual(MemoryBudget.ceiling(physical: 6 * gib), 5 * gib / 2)
+        XCTAssertEqual(MemoryBudget.ceiling(physical: 2 * gib), 0)
+    }
+
+    /// **The inverse**: the smallest RAM, in whole GiB, whose B covers a need — the app's « needs a
+    /// Mac with N GB ».
+    func testTheSmallestMacInvertsB() {
+        XCTAssertEqual(MemoryBudget.physicalNeeded(for: 4 * gib), 8)
+        XCTAssertEqual(MemoryBudget.physicalNeeded(for: 4 * gib + 1), 9)
+        XCTAssertEqual(MemoryBudget.physicalNeeded(for: 10 * gib), 16)
+        XCTAssertEqual(MemoryBudget.physicalNeeded(for: 22 * gib), 32)
+        for need in stride(from: 0, to: 40 * gib, by: 97_654_321) {
+            let n = MemoryBudget.physicalNeeded(for: need)
+            XCTAssertGreaterThanOrEqual(MemoryBudget.ceiling(physical: n * gib), need)
+            XCTAssertTrue(n == 1 || MemoryBudget.ceiling(physical: (n - 1) * gib) < need, "\(need)")
+        }
+    }
+
+    /// **The Mac to buy**: the inverse rounded up to a size sold — 9 GiB raw is a 16 GB Mac, 17 an 18.
+    func testTheMacNeededIsASizeSold() {
+        XCTAssertEqual(MemoryBudget.macNeeded(for: 4 * gib), 8)
+        XCTAssertEqual(MemoryBudget.macNeeded(for: 4 * gib + 1), 16)
+        XCTAssertEqual(MemoryBudget.macNeeded(for: MemoryBudget.ceiling(physical: 17 * gib)), 18)
+        XCTAssertEqual(MemoryBudget.macNeeded(for: 1000 * gib), MemoryBudget.physicalNeeded(for: 1000 * gib))
+        for need in stride(from: 0, to: 300 * gib, by: 977_654_321) {
+            let n = MemoryBudget.macNeeded(for: need)
+            XCTAssertGreaterThanOrEqual(MemoryBudget.ceiling(physical: n * gib), need)
+            if n <= 512 { XCTAssertTrue(MemoryBudget.soldSizes.contains(n), "\(n)") }
+        }
     }
 
     // ── the preflight ───────────────────────────────────────────────────────────────────────
 
-    /// **The floor is judged against the budget, reserve included** — the one check the app also asks.
-    func testTheFloorIsRefusedBelowTheBudget() {
-        // 3.5 GiB reclaimable → 2.16 GB available < Z-Image's 1024² floor (2.214 GB): refused, with both figures.
-        XCTAssertThrowsError(try ModelCard.zImage.checkMemory(width: 1024, height: 1024, budget: budget(3.5))) {
-            XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: 2_214_000_000, available: Int(3.5 * Double(1 << 30)) - 1_600_000_000))
+    /// **The floor is judged against B, and against B alone** — the one check the app also asks.
+    func testTheFloorIsRefusedAboveB() {
+        // Refused one byte short, with both figures.
+        let q = ModelCard.qwenImage21
+        let floor = q.memoryNeed(width: 1024, height: 1024)
+        XCTAssertThrowsError(try q.checkMemory(width: 1024, height: 1024, ceiling: floor - 1)) {
+            XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: floor, budget: floor - 1))
         }
-        XCTAssertNoThrow(try ModelCard.zImage.checkMemory(width: 512, height: 512, budget: budget(3.5)))
-        XCTAssertNoThrow(try ModelCard.zImage.checkMemory(width: 1024, height: 1024, budget: budget(4)))
-        // A measured ballast (5.05 GB reclaimable, 3 GiB incompressible elsewhere) swapped at the default plan;
-        // the economical floor (3.2 GB) accepts it now. Whether it swaps there is a measurement's question:
-        // if it does, the reserve rises, not this line.
-        XCTAssertNoThrow(try ModelCard.zImage.checkMemory(width: 1024, height: 1536,
-                                                         budget: MemoryBudget(reclaimable: 5_050_000_000)))
-        // Every render observed without swap passes: the smallest reading (6.12 GB) holds the largest need
-        // (Qwen's 1024² edit with 3 references, 4.51 GB).
-        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1024, references: 3,
-                                                              budget: MemoryBudget(reclaimable: 6_120_000_000)))
-        // Qwen at 1024×1536 (4.835 GB) needs 6.44 GB reclaimable.
-        XCTAssertThrowsError(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1536, budget: budget(5.85)))
-        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(width: 1024, height: 1536, budget: budget(6)))
+        XCTAssertNoThrow(try q.checkMemory(width: 1024, height: 1024, ceiling: floor))
+        XCTAssertNoThrow(try q.checkMemory(width: 512, height: 512, ceiling: floor - 1))
+        // A 16 GB Mac takes Qwen's worst case, 1024×1536 with 3 references.
+        XCTAssertNoThrow(try q.checkMemory(width: 1024, height: 1536, references: 3,
+                                           ceiling: MemoryBudget.ceiling(physical: 16 * gib)))
+        // The engine's request: a LoRA and a long prompt raise the need it is judged on.
+        let plain = q.memoryRequest(width: 1024, height: 1024, promptTokens: 50)
+        var loaded = plain; loaded.loraRanks = [128]
+        XCTAssertGreaterThan(q.memoryNeed(loaded), q.memoryNeed(plain))
     }
 
-    // ── #1–#4 · the map's tail ──────────────────────────────────────────────────────────────
+    // ── the plan, chosen in B ───────────────────────────────────────────────────────────────
 
-    /// **Simulated budgets 8, 12, 16, 32 GiB**: the fraction stays the measured 0.5 (its derivation waits for
-    /// a timed comparison); only the two buffers depend on the budget.
-    func testTheTailKeepsItsFractionAndDerivesItsBuffers() {
-        let tails = [8.0, 12, 16, 32].map { MemoryPlan.tail(budget: budget($0), floor: z512, blockBytes: zBlock, fraction: 0.5) }
-        XCTAssertEqual(tails, [MemoryPlan.Tail(fraction: 0.5, slots: 2)] * 4)
-        XCTAssertEqual(MemoryPlan.tail(budget: budget(32), floor: z512, blockBytes: zBlock, fraction: 0), .none)
+    /// **The fastest plan B holds, and nothing above it.** A roomy B takes every buffer; a B between
+    /// the floor and the fastest plan keeps what fits; at the floor, the lean plan. The plan's need is
+    /// never above B once the floor is.
+    func testThePlanIsTheFastestBHolds() {
+        let q = ModelCard.qwenImage21
+        let request = q.memoryRequest(width: 1024, height: 1024, references: [(1024, 1024)] * 3)
+        let floor = MemoryNeed.of(request.lean)!.peak
+        let fastest = MemoryNeed.of(request)!.peak
+        XCTAssertLessThan(floor, fastest)
+        let roomy = MemoryPlan.choose(request, ceiling: 16 << 30)
+        XCTAssertEqual(roomy.request.encoderSlots, MemoryPlan.encoderSlots)
+        XCTAssertFalse(roomy.request.minimumBands)
+        XCTAssertEqual(roomy.need?.peak, fastest)
+        XCTAssertEqual(roomy.floor, floor)
+        XCTAssertFalse(roomy.lean)
+        // At the floor, what raises the peak goes (an edit's text phase holds it: the encoder's
+        // buffers); what does not raise it stays — a band in a phase below the peak is free.
+        let tight = MemoryPlan.choose(request, ceiling: floor)
+        XCTAssertEqual(tight.request.encoderSlots, 0)
+        XCTAssertEqual(tight.need?.peak, floor)
+        for ceiling in stride(from: floor, through: fastest, by: max(1, (fastest - floor) / 17)) {
+            let plan = MemoryPlan.choose(request, ceiling: ceiling)
+            XCTAssertLessThanOrEqual(plan.need!.peak, ceiling)
+            XCTAssertGreaterThanOrEqual(plan.need!.peak, floor)
+        }
+        // The map's tail is the lean one in every plan: its buffers are charged, its head is not.
+        XCTAssertEqual(roomy.request.tail, .lean)
+        XCTAssertLessThanOrEqual(roomy.denoisingCached, roomy.denoisingStreamed)
     }
 
-    /// The default plan's half when the room above the floor holds its two buffers; otherwise the lean
-    /// plan, **the whole map beside the cache with the same two buffers** — never the whole map
-    /// through the cache, which is what swapped, and never one buffer.
-    func testTheBuffersComeFromTheRoomAboveTheFloor() {
-        XCTAssertEqual(MemoryPlan.tail(budget: budget(3.8), floor: z512, blockBytes: zBlock, fraction: 0.5),
-                       MemoryPlan.Tail(fraction: 0.5, slots: 2))
-        XCTAssertEqual(MemoryPlan.tail(budget: budget(3.6), floor: z512, blockBytes: zBlock, fraction: 0.5), .lean)
+    /// **The map's head: what B leaves beside the denoising, capped at the model's split.** Thirty
+    /// layers of 400 MB and 500 MB of other tensors (a 12.5 GB map, Z-Image's order).
+    func testTheHeadIsWhatBLeavesCappedAtTheSplit() {
+        let spans = [Int](repeating: 400_000_000, count: 30), map = 12_500_000_000
+        func plan(_ ceiling: Int, _ fraction: Double = 0.5) -> (released: Int, slots: Int) {
+            MemoryPlan.released(spans: spans, mapBytes: map, ceiling: ceiling, streamed: 3_000_000_000,
+                                cached: 2_300_000_000, fraction: fraction)
+        }
+        // A 16 GB Mac's B: room for more than half, capped at half.
+        XCTAssertEqual(plan(MemoryBudget.ceiling(physical: 16 << 30)).released, 15)
+        // Less room, fewer layers: 1.5 GB left beside the denoising and the other tensors hold 3 layers.
+        XCTAssertEqual(plan(3_000_000_000 + 500_000_000 + 1_500_000_000).released, 3)
+        // No room: the whole map streamed, its two buffers.
+        XCTAssertEqual(plan(3_000_000_000).released, 0)
+        XCTAssertEqual(plan(3_000_000_000).slots, 2)
+        // A model whose split is the whole map (Qwen-Image-2.1's generation): no head.
+        XCTAssertEqual(plan(MemoryBudget.ceiling(physical: 16 << 30), 1).released, 0)
+        // **The whole map fits beside the denoising's need without buffers: nothing streamed**.
+        XCTAssertTrue(plan(map + 2_300_000_000) == (30, 0))
+        XCTAssertTrue(plan(map + 2_300_000_000, 1) == (30, 0))
+        XCTAssertEqual(plan(map + 2_300_000_000 - 1).slots, 2)
+        // A `map_tail` of 0: everything through the cache, as before the tail.
+        XCTAssertTrue(plan(3_000_000_000, 0) == (30, 0))
         XCTAssertEqual(MemoryPlan.Tail.lean, MemoryPlan.Tail(fraction: 1, slots: 2))
-        let worst = ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1536)
-        XCTAssertEqual(MemoryPlan.tail(budget: budget(5.9), floor: worst, blockBytes: qwenBlock, fraction: 0.5), .lean)
-        XCTAssertEqual(MemoryPlan.tail(budget: budget(7.0), floor: worst, blockBytes: qwenBlock, fraction: 0.5).slots, 2)
         XCTAssertEqual(Prefetcher.firstReleasedLayer(of: 30, tail: MemoryPlan.Tail.lean.fraction), 0)
     }
 
-    // ── #5 · the text encoder ───────────────────────────────────────────────────────────────
-
-    func testTheEncoderBuffersFollowTheRoomLeft() {
-        let block = 385_000_000   // a Qwen3-VL-8B layer (measured: 282 → 1 820 MB with four)
-        XCTAssertEqual(MemoryPlan.encoderSlots(budget: budget(8), footprint: 300_000_000, blockBytes: block), 4)
-        XCTAssertEqual(MemoryPlan.encoderSlots(budget: MemoryBudget(reclaimable: 1_900_000_000, reserve: 0),
-                                               footprint: 300_000_000, blockBytes: block), 4)
-        XCTAssertEqual(MemoryPlan.encoderSlots(budget: MemoryBudget(reclaimable: 1_800_000_000, reserve: 0),
-                                               footprint: 300_000_000, blockBytes: block), 0)
-    }
-
-    // ── #10, #11 · the decoders ─────────────────────────────────────────────────────────────
-
-    /// The measured band when the budget read after the denoising covers the floor, the smallest
-    /// proved one otherwise — never larger.
-    func testTheDecoderBandFollowsTheDecodingBudget() {
-        XCTAssertEqual(MemoryPlan.band(budget: budget(8), floor: z1024Comfort, standard: 1 << 23,
-                                       minimum: MemoryPlan.fluxMinimumBand), 1 << 23)
-        XCTAssertEqual(MemoryPlan.band(budget: budget(4), floor: z1024Comfort, standard: 1 << 23,
-                                       minimum: MemoryPlan.fluxMinimumBand), 1 << 20)
-        XCTAssertEqual(MemoryPlan.band(budget: budget(4), floor: z1024Comfort, standard: 1 << 18,
-                                       minimum: MemoryPlan.qwenMinimumBand), 1 << 16)
-        // A check that forced a smaller band keeps it.
-        XCTAssertEqual(MemoryPlan.band(budget: budget(4), floor: z1024Comfort, standard: 1 << 12, minimum: 1 << 20), 1 << 12)
-    }
-
-    /// **Outside a render, the reference values**; inside, the decoders wait for the budget read after
-    /// the denoising, and the render's state is gone once it ends.
+    /// **Outside a render, the reference values**; inside, the plan's — the same from the first site
+    /// to the last — and the render's state is gone once it ends.
     func testTheRenderStateIsScopedToTheRender() {
+        let q = ModelCard.qwenImage21
+        let request = q.memoryRequest(width: 1024, height: 1024)
         XCTAssertNil(MemoryPlan.current)
-        XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 23, minimum: 1 << 20, unit: "elements"), 1 << 23)
-        let comfort = ModelCard.zImage.memoryComfort(width: 1024, height: 1024)
-        MemoryPlan.during(budget: budget(5), floor: z1024, comfortable: comfort, pressure: { nil }) {
-            XCTAssertEqual(MemoryPlan.current?.floor, z1024)
-            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 23, minimum: 1 << 20, unit: "elements"), 1 << 23)
-            MemoryPlan.readForDecoding(environment: [MemoryBudget.forcingVariable: "4"])
-            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 23, minimum: 1 << 20, unit: "elements"), 1 << 20)
-            MemoryPlan.readForDecoding(environment: [MemoryBudget.forcingVariable: "8"])
-            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 23, minimum: 1 << 20, unit: "elements"), 1 << 23)
+        XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 18, minimum: MemoryPlan.qwenMinimumBand, unit: "pixels"), 1 << 18)
+        var tight = MemoryPlan.choose(request, ceiling: 16 << 30)
+        tight.request.minimumBands = true
+        MemoryPlan.during(tight) {
+            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 18, minimum: MemoryPlan.qwenMinimumBand, unit: "pixels"),
+                           MemoryPlan.qwenMinimumBand)
+            // A check that forced a smaller band keeps it.
+            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 12, minimum: MemoryPlan.qwenMinimumBand, unit: "pixels"), 1 << 12)
         }
         XCTAssertNil(MemoryPlan.current)
-        XCTAssertEqual(MemoryPlan.lastRender?.decisions.count, 2)
+        XCTAssertEqual(MemoryPlan.lastRender?.decisions.count, 3)
+        MemoryPlan.during(MemoryPlan.choose(request, ceiling: 16 << 30)) {
+            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 18, minimum: MemoryPlan.qwenMinimumBand, unit: "pixels"), 1 << 18)
+        }
     }
 
-    /// **The need is the economical plan's floor where it was measured**, the default plan's
-    /// peak stays the decoders' threshold. Z-Image 1024²: 2.214 GB to render, 2.936 to take every
-    /// buffer; 832×1216 now has its own tier (it borrowed the 1024²'s); 512² has no floor measured.
+    /// **The need is the economical plan's floor, computed**, below the fastest plan's. A rotated format needs what its transpose needs (the same shapes).
     func testTheNeedIsTheEconomicalFloor() {
-        let z = ModelCard.zImage
-        XCTAssertEqual(z.memoryNeed(width: 1024, height: 1024), 2_214_000_000)
-        XCTAssertEqual(z.memoryComfort(width: 1024, height: 1024), 2_936_000_000)
-        XCTAssertEqual(z.memoryNeed(width: 832, height: 1216), 2_077_000_000)
-        XCTAssertEqual(z.memoryNeed(width: 1216, height: 832), 2_077_000_000)
-        XCTAssertEqual(z.memoryNeed(width: 1024, height: 1536), 3_200_000_000)
-        XCTAssertEqual(z.memoryComfort(width: 1024, height: 1536), 3_774_000_000)
-        XCTAssertEqual(z.memoryNeed(width: 512, height: 512), 1_695_000_000)
-        // The desktop of 07/10: 4.23 GB reclaimable, 2.63 available — refused at 1216×832
-        // before (2.73 GB asked), accepted now; its decoding takes the smallest band.
-        let desk = MemoryBudget(reclaimable: 4_230_000_000)
-        XCTAssertNoThrow(try z.checkMemory(width: 1216, height: 832, budget: desk))
-        XCTAssertNoThrow(try z.checkMemory(width: 1024, height: 1024, budget: desk))
-        XCTAssertThrowsError(try z.checkMemory(width: 1024, height: 1536, budget: desk))
-        XCTAssertEqual(MemoryPlan.tail(budget: desk, floor: z.memoryNeed(width: 1216, height: 832), blockBytes: zBlock), .lean)
-        XCTAssertEqual(MemoryPlan.band(budget: desk, floor: z.memoryComfort(width: 1216, height: 832),
-                                       standard: 1 << 23, minimum: MemoryPlan.fluxMinimumBand), 1 << 20)
-    }
-
-    // ── the pressure, read during the render ─────────────────────────────────────────────────
-
-    /// The measured limit, 12/22 × (physical − wired): on this machine (17.18 GB, ~3 GB wired at rest)
-    /// ≈ 7.7 GB — where the swap was seen to start (7.2–7.7 GB occupied).
-    func testTheLimitIsM131s() {
-        let p = MemoryPressure(compressor: 6_000_000_000, wired: 3_000_000_000, physical: 17_179_869_184)
-        XCTAssertEqual(Double(p.limit) / 1e9, 7.734, accuracy: 0.01)
-        XCTAssertEqual(Double(p.headroom) / 1e9, 1.734, accuracy: 0.01)
-    }
-
-    /// **Short of room, the render goes lean and stays lean**: the DiT's whole map streamed, the
-    /// smallest decoder band, even when the launch budget would have given them; the room coming back
-    /// does not bring them back. With room, nothing changes.
-    func testTheRenderGoesLeanWhenTheCompressorRunsShort() {
-        let short = MemoryPressure(compressor: 7_000_000_000, wired: 3_000_000_000, physical: 17_179_869_184)
-        let roomy = MemoryPressure(compressor: 2_000_000_000, wired: 3_000_000_000, physical: 17_179_869_184)
-        let reading = Mutex(roomy)
-        MemoryPlan.during(budget: budget(12), floor: z1024, comfortable: z1024, pressure: { reading.withLock { $0 } }) {
-            MemoryPlan.readForDecoding(environment: [MemoryBudget.forcingVariable: "12"])
-            XCTAssertFalse(MemoryPlan.relieved("denoising"))
-            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 23, minimum: 1 << 20, unit: "elements"), 1 << 23)
-            reading.withLock { $0 = short }
-            XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 23, minimum: 1 << 20, unit: "elements"), 1 << 20)
-            reading.withLock { $0 = roomy }
-            XCTAssertTrue(MemoryPlan.relieved("decoding"))
+        let q = ModelCard.qwenImage21
+        for (w, h) in [(1024, 1024), (832, 1216), (1024, 1536)] {
+            XCTAssertLessThanOrEqual(q.memoryNeed(width: w, height: h), q.memoryComfort(width: w, height: h), "\(w)×\(h)")
+            // The lean plan drops the encoder's buffers: an edit, whose text phase holds its peak, needs less.
+            XCTAssertLessThan(q.memoryNeed(width: w, height: h, references: 3), q.memoryComfort(width: w, height: h, references: 3))
         }
-        XCTAssertFalse(MemoryPlan.relieved("decoding"))   // outside a render
-        // The forcing: a room of 1 GiB is short, 4 GiB is not; a forced budget alone reads no pressure.
-        XCTAssertLessThan(MemoryPressure.current(environment: [MemoryPressure.forcingVariable: "1"])!.headroom, MemoryPressure.margin)
-        XCTAssertGreaterThan(MemoryPressure.current(environment: [MemoryPressure.forcingVariable: "4"])!.headroom, MemoryPressure.margin)
-        XCTAssertNil(MemoryPressure.current(environment: [MemoryBudget.forcingVariable: "8"]))
-        // `GIB@SECONDS`: due only from that time into the render — never outside one.
-        XCTAssertEqual(MemoryPressure.forcedRoom("1", elapsed: nil), 1 << 30)
-        XCTAssertEqual(MemoryPressure.forcedRoom("0,5@20", elapsed: 25), 1 << 29)
-        XCTAssertNil(MemoryPressure.forcedRoom("0,5@20", elapsed: 5))
-        XCTAssertNil(MemoryPressure.forcedRoom("0,5@20", elapsed: nil))
-        XCTAssertNil(MemoryPressure.forcedRoom("x", elapsed: 25))
-    }
-
-    /// **The watcher latches a short reading between two sites** (measured: read only at the
-    /// evaluations' starts, the room swung back up before the next one). No site asks here; the next
-    /// one finds the render lean although the room came back. The render that ends takes its watcher.
-    func testTheWatcherLatchesBetweenTwoSites() {
-        let short = MemoryPressure(compressor: 7_000_000_000, wired: 3_000_000_000, physical: 17_179_869_184)
-        let roomy = MemoryPressure(compressor: 2_000_000_000, wired: 3_000_000_000, physical: 17_179_869_184)
-        let reading = Mutex(roomy)
-        MemoryPlan.during(budget: budget(12), floor: z1024, comfortable: z1024,
-                          pressure: { reading.withLock { $0 } }, watch: 0.005) {
-            reading.withLock { $0 = short }
-            let deadline = Date().addingTimeInterval(2)
-            while MemoryPlan.current?.relieved != true, Date() < deadline { usleep(2_000) }
-            reading.withLock { $0 = roomy }
-            XCTAssertEqual(MemoryPlan.current?.relieved, true)
-            XCTAssertTrue(MemoryPlan.relieved("denoising"))
-            XCTAssertTrue(MemoryPlan.current?.decisions.first?.contains("s into the render") ?? false)
-        }
-        MemoryPlan.during(budget: budget(12), floor: z1024, comfortable: z1024, pressure: { roomy }, watch: 0.005) {
-            usleep(20_000)
-            XCTAssertEqual(MemoryPlan.current?.relieved, false)
-        }
+        XCTAssertEqual(q.memoryNeed(width: 832, height: 1216), q.memoryNeed(width: 1216, height: 832))
+        // The hidden families' marked fallback: their measured peaks, the larger format's above a smaller one.
+        XCTAssertEqual(ModelCard.anima.memoryNeed(width: 1024, height: 1024), 5_300_000_000)
+        XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1536), 7_800_000_000)
+        XCTAssertTrue(MemoryNeed.of(ModelCard.ernie.memoryRequest(width: 1024, height: 1024))!.isFallback)
     }
 }
 

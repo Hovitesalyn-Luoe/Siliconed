@@ -144,11 +144,18 @@ package struct RenderCache: Sendable {
     private static let magic = Array("SLCACHE1".utf8)
 
     package static func encode(header: [String: Any], values: [Float]) throws -> Data {
+        var data = try prefix(header: header)
+        values.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
+    }
+
+    /// Everything before the floats: magic, length, header. `write` sends the floats after it from
+    /// the array itself — no copy of a conditioning of tens of MB in `malloc`.
+    private static func prefix(header: [String: Any]) throws -> Data {
         let json = try JSONSerialization.data(withJSONObject: header, options: [.sortedKeys])
         var data = Data(magic)
         withUnsafeBytes(of: UInt32(json.count).littleEndian) { data.append(contentsOf: $0) }
         data.append(json)
-        values.withUnsafeBytes { data.append(contentsOf: $0) }
         return data
     }
 
@@ -200,7 +207,8 @@ package struct RenderCache: Sendable {
     /// The entry, if it is there and whole — touched (its mtime is the LRU's clock). A damaged one is removed.
     private func read<T>(_ key: Key, _ make: ([String: Any], [Float]) -> T?) -> T? {
         let url = entry(key)
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        // Mapped, not read into `malloc`: `decode` copies the floats once, into the value.
+        guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
         guard let (header, values) = RenderCache.decode(data), let value = make(header, values) else {
             try? FileManager.default.removeItem(at: url)
             return nil
@@ -215,11 +223,23 @@ package struct RenderCache: Sendable {
         let fm = FileManager.default
         do {
             try fm.createDirectory(at: conditioningFolder, withIntermediateDirectories: true)
-            let data = try RenderCache.encode(header: header, values: values)
-            guard data.count <= budget else { return }
+            let prefix = try RenderCache.prefix(header: header)
+            guard prefix.count + 4 * values.count <= budget else { return }
             let temporary = conditioningFolder.appendingPathComponent(".\(key.hex).\(getpid()).\(UUID().uuidString)")
-            try data.write(to: temporary)
-            if rename(temporary.path, entry(key).path) != 0 { try? fm.removeItem(at: temporary) }
+            let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+            guard descriptor >= 0 else { return }
+            func all(_ bytes: UnsafeRawBufferPointer) -> Bool {
+                var done = 0
+                while done < bytes.count {
+                    let n = Darwin.write(descriptor, bytes.baseAddress! + done, bytes.count - done)
+                    if n <= 0 { return false }
+                    done += n
+                }
+                return true
+            }
+            let written = prefix.withUnsafeBytes(all) && values.withUnsafeBytes(all)
+            close(descriptor)
+            if !written || rename(temporary.path, entry(key).path) != 0 { try? fm.removeItem(at: temporary) }
             RenderCache.evict(folder: conditioningFolder, budget: budget, keeping: entry(key))
         } catch {}
     }

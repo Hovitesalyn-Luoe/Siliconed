@@ -73,13 +73,14 @@ final class EngineErrorTests: XCTestCase {
 
     // ── the preflights ──────────────────────────────────────────────────────────────────────
 
-    private let sixteen = 16 << 30, eight = 8 << 30
+    /// B of a 16 GB Mac: 10 GiB.
+    private let sixteen = MemoryBudget.ceiling(physical: 16 << 30)
 
     private func preflight(_ card: ModelCard = .zImage, _ w: Int = 1024, _ h: Int = 1024, installed: Bool = true,
                            license: Bool = true, memory: Int? = nil) throws {
-        // `memory` is what the budget makes available (no reserve here: the reserve is `MemoryBudgetTests`').
+        // `memory` is B, the one figure the refusal reads (a 16 GB Mac's by default).
         try Preflight.check(card: card, width: w, height: h, installed: installed, licenseAccepted: license,
-                            budget: MemoryBudget(reclaimable: memory ?? sixteen, reserve: 0))
+                            ceiling: memory ?? sixteen)
     }
 
     /// The order is the contract: installed, license, format, memory — the first that fails throws.
@@ -100,36 +101,32 @@ final class EngineErrorTests: XCTestCase {
         XCTAssertThrowsError(try preflight(.zImage, 2048, 2048)) {
             XCTAssertEqual($0 as? EngineError, .formatRefused(width: 2048, height: 2048, reason: .tooLarge))
         }
-        XCTAssertThrowsError(try preflight(.zImage, 1024, 1024, memory: 2 << 30)) {
-            XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: 2_214_000_000, available: 2 << 30))
+        let qwen = ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024)
+        XCTAssertThrowsError(try preflight(.qwenImage21, 1024, 1024, memory: qwen - 1)) {
+            XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: qwen, budget: qwen - 1))
         }
     }
 
-    /// **The memory refused is the floor, a measurement, not a guess**: with 8 GiB available every
-    /// model fits at 1024² and up to 1024×1536 (Krea 2's 7.8 GB is the largest peak measured); with
-    /// 2 GiB none does at 1024² (Z-Image's banded decoder, brought its 1024² under 4 GB).
-    func testTheMemoryNeedIsTheWorstMeasuredPeak() {
+    /// **The memory refused is the floor, computed from the request**: on a 16 GB Mac (B = 10 GiB)
+    /// every model fits at 1024×1536 (Krea 2's 7.8 GB, the hidden families' measured fallback, is the
+    /// largest); with B = 2 GiB none does at 1024². Z-Image's need reads its installed maps: where they
+    /// are absent it is 0, and the first preflight refuses the render before.
+    func testTheMemoryNeedIsComputed() {
         for card in ModelCard.allCards {
-            XCTAssertNoThrow(try preflight(card, 1024, 1536, memory: eight), card.id)
-            XCTAssertThrowsError(try preflight(card, 1024, 1024, memory: 2 << 30), card.id)
-            // Never decreases with the area, and never zero.
             let needs = [(512, 512), (832, 1216), (1024, 1024), (1024, 1536)].map { card.memoryNeed(width: $0, height: $1) }
+            guard needs[0] > 0 else { XCTAssertEqual(card.family, .zImage); continue }
+            XCTAssertNoThrow(try preflight(card, 1024, 1536, memory: sixteen), card.id)
+            XCTAssertThrowsError(try preflight(card, 1024, 1024, memory: 2 << 30), card.id)
+            // Never decreases with the area.
             XCTAssertEqual(needs, needs.sorted(), card.id)
-            XCTAssertGreaterThan(needs[0], 0, card.id)
         }
-        XCTAssertEqual(ModelCard.zImage.memoryNeed(width: 512, height: 512), 1_695_000_000)
-        // The economical plan's floor (the default plan's 3.774 GB buys time above it).
-        XCTAssertEqual(ModelCard.zImage.memoryNeed(width: 1024, height: 1536), 3_200_000_000)
-        // Anima's 832×1216 peaks above its 1024²: the 1024² takes the larger.
+        // Anima's 832×1216 peaks above its 1024²: the 1024² takes the larger (fallback).
         XCTAssertEqual(ModelCard.anima.memoryNeed(width: 1024, height: 1024), 5_300_000_000)
-        // Never measured at 1024×1536: the largest peak any family measured there.
+        // Never measured at 1024×1536: the largest peak any hidden family measured there.
         XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1536), 7_800_000_000)
-        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1536), 4_835_000_000)
-        // A generation is charged its own peak, an edit its references'.
-        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024), 3_840_000_000)
-        XCTAssertEqual(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024, references: 3), 4_510_000_000)
-        // Z-Image's 1024² floor is the economical plan's denoising, its decoding a few MB below.
-        XCTAssertEqual(ModelCard.zImage.memoryNeed(width: 1024, height: 1024), 2_214_000_000)
+        // A generation is charged its own need, an edit its references'.
+        XCTAssertLessThan(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024),
+                          ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024, references: 3))
     }
 
     // ── the license registry ────────────────────────────────────────────────────────────────

@@ -576,9 +576,12 @@ itérer vite. `RecommendedFormat` a `width`, `height`, `orientation` (`.square`,
 `.landscape`) et un `description` affichable (`832×1216 (portrait)`). 1024×1536 est accepté mais
 pas conseillé (sur Z-Image il prend ~153 s contre ~82 s pour un 1024²). Pour un champ libre,
 `Format.parse("832x1216")` puis `Format.check(width:height:)`.
-Quand la mémoire refuse un format (`insufficientMemory`), `RecommendedFormat.largestFitting(card.formats,
-available:current:need:)` donne le plus grand qui tient dans un budget lu une fois — l'orientation
-choisie d'abord, jamais sous 512 de côté — ou `nil` : ce que l'app propose au lieu d'une impasse.
+Quand un format est au-delà du budget de ce Mac (`insufficientMemory`), `RecommendedFormat.largestFitting(card.formats,
+budget:current:need:)` donne le plus grand dont le besoin tient dans `budget` — B,
+`MemoryBudget.machineCeiling()` — l'orientation choisie d'abord, jamais sous 512 de côté — ou `nil` :
+ce que l'app propose au lieu d'une impasse. Comme B ne dépend que de la mémoire physique, une app peut
+griser d'avance ce que ce Mac ne sait pas rendre (`card.checkMemory(width:height:references:)` par
+format), et dire quel Mac le saurait : `MemoryBudget.macNeeded(for: card.memoryNeed(…))`, la plus petite taille de mémoire vendue sur un Mac (`MemoryBudget.soldSizes`), en Go.
 
 ---
 
@@ -827,14 +830,15 @@ mémoire, macOS, version), le pic `phys_footprint` échantillonné toutes les 10
 son seuil. Un modèle qui n'en a pas rend `"golden": null, "deviation": null` ; un modèle qui échoue rend son
 `error`, et les autres tournent quand même : `run` ne lève jamais.
 
-Chaque modèle tourne sous le plan mémoire qu'un rendu prendrait (`memory` : le budget au lancement, le
-plancher, `lean`, et les `decisions` du plan ; rempli même quand le contrôle préalable refuse), et dit
+Chaque modèle tourne sous le plan mémoire qu'un rendu prendrait (`memory` : B dans `budgetBytes`, le budget
+de ce Mac, le plancher, le besoin du plan choisi dans B phase par phase, `lean`, les `decisions` du plan, et
+le pic mesuré de chaque phase contre son besoin dans `check` ; rempli même quand le contrôle préalable refuse), et dit
 les octets qu'il a lus sur le disque (`diskReadBytes` : une carte lue depuis le cache de pages ne compte
 pas). Le rapport ajoute l'état de la machine `before`/`after` (état thermique, mode économie
-d'énergie, batterie, mémoire récupérable, marge du compresseur, swap occupé), un témoin GEMM fp32
+d'énergie, batterie, swap occupé), un témoin GEMM fp32
 `witnessBefore`/`witnessAfter` sur le GPU et par `cblas_sgemm` (TFLOP/s, et la pire ligne du GPU contre
 `cblas`), les `settings` qui ne sont pas aux défauts (et `amx`, toujours), le `profile` lu, et le nom
-Metal, la famille et l'ensemble de travail du GPU dans `machine`. `schema` vaut 2.
+Metal, la famille et l'ensemble de travail du GPU dans `machine`. `schema` vaut 4.
 
 ```swift
 let cards = library.models().filter { ["z-image", "qwen-image-2.1"].contains($0.id) }   // les visibles
@@ -1132,10 +1136,11 @@ le modèle est installé (`card.missing(in:)`) → sa licence est acceptée
 (`library.isLicenseAccepted(card)`) → le format (`Format.check`) → la mémoire
 (`card.checkMemory(width:height:references:)` : le plancher du modèle à ce format et avec ce nombre
 d'images de référence, `card.memoryNeed(width:height:references:)` — une génération ne paie pas le pic
-d'une édition —, contre `MemoryBudget.current().admissible` — l'état de la machine lu au lancement du
-rendu : pages libres, purgeables et de fichier, plus l'empreinte du processus, moins une réserve de
-1,6 Go diminuée de ce que libérerait la compression de la mémoire au repos des autres applications ;
-ni sa mémoire physique, ni sa seule mémoire « libre », qui ne veut rien dire sous le cache de pages) → aucun autre
+d'une édition ; le besoin du plan le plus économe, calculé depuis la requête —, contre **B, le budget
+de ce Mac** : `MemoryBudget.ceiling(physical:)` = ¾ · RAM − 2 Gio, soit 4 Gio sur un Mac de 8 Go, 10
+sur 16, 16 sur 24, 22 sur 32, 46 sur 64 ; `MemoryBudget.machineCeiling()` pour celui-ci. B ne dépend
+que de la mémoire physique — aucune lecture de l'état de la machine : la même requête sur le même Mac
+reçoit toujours la même réponse, et quitter d'autres applications n'y change rien) → aucun autre
 processus ne rend sur cette machine, quels que soient sa bibliothèque ou son utilisateur (`/private/tmp/siliconed-render.lock`). Viennent ensuite les refus propres à la
 requête, toujours avant tout calcul. Une installation vérifie le disque **avant son premier octet**
 (`diskFull`). Une chaîne composée à la main (`Model(card:chain:)`) n'a pas de bibliothèque : les
@@ -1164,7 +1169,7 @@ deux premiers et le verrou ne s'y appliquent pas.
 | `imageUnreadable(file:)`, `imageEncodingFailed`, `imageWriteFailed(file:)` | `image_unreadable`, `image_encoding_failed`, `image_write_failed` | `ImageRGB(contentsOf:)`, `png()`, `PNG.write` | refuser l'image ; enregistrer ailleurs |
 | `unsupportedLoRA(file:reason:)`, `loraForOtherModel(lora:target:model:)` | `unsupported_lora`, `lora_for_other_model` | rendu (~0,3 s) | ne proposer que `loras(for:)` ; sinon réimporter |
 | `incompatibleChain(output:input:)` | `incompatible_chain` | `Chain(…)` | bug de programmation : n'arrive pas avec `model.chain` |
-| `insufficientMemory(needed:available:)` | `insufficient_memory` | rendu ; `card.checkMemory` avant le clic | un format plus petit, un modèle plus léger, quitter d'autres apps |
+| `insufficientMemory(needed:budget:)` | `insufficient_memory` | au-delà du budget de ce Mac (B) : rendu ; `card.checkMemory` avant le clic | griser d'avance ; un format plus petit, moins d'images de référence, un modèle plus léger ; « demande un Mac de `MemoryBudget.macNeeded(for: needed)` Go » |
 | `renderAlreadyRunning` | `render_already_running` | rendu, pendant qu'un autre processus rend sur la machine | attendre, ou mettre en file |
 | `cancelled` | `cancelled` | l'utilisateur a annulé (une `Task` annulée aussi) | rien : revenir à l'état prêt |
 | `settingsAlreadyLoaded(loaded:requested:)` | `settings_already_loaded` | `EngineSettings.load(from:)` après un rendu | appeler `load` au lancement |
@@ -1172,11 +1177,10 @@ deux premiers et le verrou ne s'y appliquent pas.
 
 Le moteur **n'imprime rien**. Ses avertissements arrivent en évènements `.warning` pendant un rendu,
 ou par `Warnings.outsideRender` en dehors d'un rendu. Au démarrage, l'app doit aussi afficher
-`EngineSettings.effective.warnings` (un profil ignoré, par exemple). `SILICONED_MEMORY_AVAILABLE_GB`
-(Gio) remplace la lecture de l'état de la machine (ce qu'elle trouverait avant la réserve : `8` laisse
-7,0 Go disponibles, la réserve étant de 1,6 Go), dans le moteur comme dans `checkMemory` : un outil de mesure et de test, pour
-atteindre `insufficientMemory` ou rendre sous le budget d'une autre machine — l'image reste la même,
-seul le temps change.
+`EngineSettings.effective.warnings` (un profil ignoré, par exemple). `SILICONED_MEMORY_BUDGET_GB`
+(Gio) remplace B — `4` simule un Mac de 8 Go, `22` un de 32 Go — dans le moteur comme dans
+`checkMemory` : un outil de mesure et de test, pour atteindre `insufficientMemory` ou rendre sous le
+budget d'une autre machine — l'image reste la même, seul le temps change.
 
 ---
 

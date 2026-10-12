@@ -93,35 +93,35 @@ package final class HeadSplitAttention {
     /// The CPU heads' output, `[S, a·Dh]`, copied into `out` once the GPU is done.
     private let spill: UnsafeMutablePointer<Float>
     private let scratch: [Scratch]
+    /// **Every host byte of the instance, in one arena of `hostSlices`**. `malloc`ed, the spill
+    /// and the scratch outlived the instance in `phys_footprint` on macOS 27 (with the rest of the DiT's
+    /// `malloc`, 384 MB between Z-Image's DiT and its decoder at 1024²); unmapped, they leave with it.
+    private let host: Arena
 
     /// One thread's scores block, BNNS workspace, and its **packed** operands: the queries of its block
-    /// and the keys and values of the head it is on, each contiguous at `Dh` floats a row.
+    /// and the keys and values of the head it is on, each contiguous at `Dh` floats a row. Slices of
+    /// the instance's arena.
     private final class Scratch {
         let scores: UnsafeMutablePointer<Float>
         let sums: UnsafeMutablePointer<Float>
         let packedQ, packedK, packedV: UnsafeMutablePointer<Float>
+        /// Sized for the largest of the instance's products (`workspaceBytes`), `nil` when BNNS asks for none.
+        let workspace: UnsafeMutableRawPointer?
+        let workspaceBytes: Int
         /// The head whose keys and values `packedK`/`packedV` hold, `-1` for none (set per `run`).
         var packedHead = -1
-        var workspace: UnsafeMutableRawPointer?
-        var workspaceBytes = 0
         var failures = 0
-        init(rows: Int, keys: Int, headDim: Int) {
-            scores = .allocate(capacity: rows * keys)
-            sums = .allocate(capacity: rows)
-            packedQ = .allocate(capacity: rows * headDim)
-            packedK = .allocate(capacity: keys * headDim)
-            packedV = .allocate(capacity: keys * headDim)
-        }
-        deinit {
-            scores.deallocate(); sums.deallocate(); workspace?.deallocate()
-            packedQ.deallocate(); packedK.deallocate(); packedV.deallocate()
-        }
-        func space(_ bytes: Int) -> UnsafeMutableRawPointer? {
-            if bytes > workspaceBytes {
-                workspace?.deallocate()
-                workspace = .allocate(byteCount: bytes, alignment: 128); workspaceBytes = bytes
+        init(_ arena: Arena, thread t: Int, rows: Int, keys: Int, headDim: Int, workspace: Int) throws {
+            func floats(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
+                try arena.reserve("\(name).\(t)", bytes: count * 4).assumingMemoryBound(to: Float.self)
             }
-            return bytes > 0 ? workspace : nil
+            scores = try floats("scores", rows * keys)
+            sums = try floats("sums", rows)
+            packedQ = try floats("q", rows * headDim)
+            packedK = try floats("k", keys * headDim)
+            packedV = try floats("v", keys * headDim)
+            self.workspace = workspace > 0 ? try arena.reserve("workspace.\(t)", bytes: workspace) : nil
+            workspaceBytes = workspace
         }
     }
 
@@ -136,7 +136,7 @@ package final class HeadSplitAttention {
     /// - Parameter keys: the rows of `k`/`v`, `nil` for `sequence`.
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
                  keys: Int? = nil, cpuFraction: Double = HeadSplitAttention.cpuFraction,
-                 threads: Int = EngineSettings.effective.machine.performanceCores) {
+                 threads: Int = EngineSettings.effective.machine.performanceCores) throws {
         let (gpu, cpu) = HeadSplitAttention.partition(heads: heads, fraction: cpuFraction)
         self.queue = queue
         let keys = keys ?? sequence
@@ -144,8 +144,17 @@ package final class HeadSplitAttention {
         self.gpuHeads = gpu.count
         self.threads = max(1, threads)
         work = HeadSplitAttention.items(cpu: cpu, sequence: sequence, rows: HeadSplitAttention.blockRows)
-        spill = .allocate(capacity: max(1, sequence * cpu.count * headDim))
-        scratch = (0..<max(1, threads)).map { _ in Scratch(rows: HeadSplitAttention.blockRows, keys: keys, headDim: headDim) }
+        let host = try Arena(capacity: HeadSplitAttention.hostBytes(heads: heads, sequence: sequence, keys: keys,
+                                                                    headDim: headDim, cpuFraction: cpuFraction,
+                                                                    threads: threads))
+        self.host = host
+        spill = try host.reserve("spill", bytes: 4 * HeadSplitAttention.spillFloats(sequence: sequence, cpuHeads: cpu.count,
+                                                                                    headDim: headDim))
+            .assumingMemoryBound(to: Float.self)
+        let workspace = HeadSplitAttention.workspaceBytes(sequence: sequence, keys: keys, headDim: headDim, cpuHeads: cpu.count)
+        scratch = try (0..<max(1, threads)).map {
+            try Scratch(host, thread: $0, rows: HeadSplitAttention.blockRows, keys: keys, headDim: headDim, workspace: workspace)
+        }
 
         let graph = MPSGraph()
         self.graph = graph
@@ -167,7 +176,59 @@ package final class HeadSplitAttention {
                                                    rightPadding: [0, 0, n(cpu.count), 0], constantValue: 0, name: nil)
     }
 
-    deinit { spill.deallocate() }
+    /// The CPU heads' spill, `[S, a·Dh]` floats (one at least).
+    package static func spillFloats(sequence: Int, cpuHeads: Int, headDim: Int) -> Int {
+        max(1, sequence * cpuHeads * headDim)
+    }
+
+    /// **The slices of the instance's arena, in the order `init` reserves them**, bytes — the spill,
+    /// then per thread a `Scratch`: the scores block `[rows, K]`, its sums, the packed `Q_b`, `K_h`,
+    /// `V_h`, and the BNNS workspace (`workspaceBytes`; no slice when BNNS asks for none).
+    package static func hostSlices(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int,
+                                   cpuFraction: Double = HeadSplitAttention.cpuFraction,
+                                   threads: Int = EngineSettings.effective.machine.performanceCores) -> [Int] {
+        let cpu = partition(heads: heads, fraction: cpuFraction).cpu.count, k = keys ?? sequence, rows = blockRows
+        let workspace = workspaceBytes(sequence: sequence, keys: k, headDim: headDim, cpuHeads: cpu)
+        let perThread = [rows * k, rows, rows * headDim, k * headDim, k * headDim].map { $0 * 4 }
+            + (workspace > 0 ? [workspace] : [])
+        return [4 * spillFloats(sequence: sequence, cpuHeads: cpu, headDim: headDim)]
+            + Array(repeating: perThread, count: max(1, threads)).flatMap { $0 }
+    }
+
+    /// **The host memory one instance holds**: its arena, `hostSlices` each rounded to the page — all
+    /// of it, mapped by `init` and unmapped by `deinit`. The memory need does not charge it yet: the
+    /// instance's measured law (`OperatorFootprint.sdpaSplit`) has it inside.
+    package static func hostBytes(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int,
+                                  cpuFraction: Double = HeadSplitAttention.cpuFraction,
+                                  threads: Int = EngineSettings.effective.machine.performanceCores) -> Int {
+        Arena.capacity(slices: hostSlices(heads: heads, sequence: sequence, keys: keys, headDim: headDim,
+                                          cpuFraction: cpuFraction, threads: threads))
+    }
+
+    /// **One thread's BNNS workspace**: the largest `BNNSMatMul` asks for over the instance's products —
+    /// `Q_b · K_hᵀ` and `P · V_h`, at `blockRows` rows and at the last block's — asked of BNNS with the
+    /// descriptors `multiply` passes (`descriptors`). BNNS answers from the shapes alone, not the data.
+    package static func workspaceBytes(sequence: Int, keys: Int, headDim: Int, cpuHeads: Int) -> Int {
+        guard cpuHeads > 0 else { return 0 }
+        let rowCounts = Set([min(blockRows, sequence), sequence % blockRows].filter { $0 > 0 })
+        return rowCounts.map { rows in
+            let scores = descriptors(a: nil, aRows: rows, aColumns: headDim, aStride: headDim,
+                                     b: nil, bRows: keys, bColumns: headDim, bStride: headDim,
+                                     c: nil, cColumns: keys, cStride: keys)
+            let values = descriptors(a: nil, aRows: rows, aColumns: keys, aStride: keys,
+                                     b: nil, bRows: keys, bColumns: headDim, bStride: headDim,
+                                     c: nil, cColumns: headDim, cStride: cpuHeads * headDim)
+            return max(workspace(scores, transposeB: true), workspace(values, transposeB: false), 0)
+        }.max() ?? 0
+    }
+
+    private static func workspace(_ d: (a: BNNSNDArrayDescriptor, b: BNNSNDArrayDescriptor, c: BNNSNDArrayDescriptor),
+                                  transposeB: Bool) -> Int {
+        var (A, B, C) = d
+        var params = BNNSFilterParameters()
+        params.n_threads = 1
+        return amx_matmul_workspace(false, transposeB, 1, &A, &B, &C, &params)
+    }
 
     /// Inputs and output fp32 `[S, H·Dh]`: the buffers for the GPU, the same memory as pointers for
     /// the CPU. Returns the GPU time and the CPU part's wall time.
@@ -292,24 +353,34 @@ package final class HeadSplitAttention {
     private func multiply(_ s: Scratch, a: UnsafeMutablePointer<Float>, aRows: Int, aColumns: Int, aStride: Int,
                           b: UnsafeMutablePointer<Float>, bRows: Int, bColumns: Int, bStride: Int, transposeB: Bool,
                           c: UnsafeMutablePointer<Float>, cColumns: Int, cStride: Int) {
-        func nd(_ p: UnsafeMutablePointer<Float>, _ rows: Int, _ columns: Int, _ rowStride: Int) -> BNNSNDArrayDescriptor {
+        var (A, B, C) = HeadSplitAttention.descriptors(a: a, aRows: aRows, aColumns: aColumns, aStride: aStride,
+                                                       b: b, bRows: bRows, bColumns: bColumns, bStride: bStride,
+                                                       c: c, cColumns: cColumns, cStride: cStride)
+        var params = BNNSFilterParameters()
+        params.n_threads = 1
+        let size = amx_matmul_workspace(false, transposeB, 1, &A, &B, &C, &params)
+        // More than `workspaceBytes` foresaw would be a write past the slice: refused, and counted.
+        guard size >= 0, size <= s.workspaceBytes else { s.failures += 1; return }
+        if amx_matmul(false, transposeB, 1, &A, &B, &C, size > 0 ? s.workspace : nil, &params) != 0 { s.failures += 1 }
+    }
+
+    /// Row-major `A [aRows, aColumns]`, `B` as stored, `C [aRows, cColumns]`, with row strides — one
+    /// source for `multiply` and `workspaceBytes`, so the size asked of BNNS is the product's.
+    private static func descriptors(a: UnsafeMutablePointer<Float>?, aRows: Int, aColumns: Int, aStride: Int,
+                                    b: UnsafeMutablePointer<Float>?, bRows: Int, bColumns: Int, bStride: Int,
+                                    c: UnsafeMutablePointer<Float>?, cColumns: Int, cStride: Int)
+        -> (a: BNNSNDArrayDescriptor, b: BNNSNDArrayDescriptor, c: BNNSNDArrayDescriptor) {
+        func nd(_ p: UnsafeMutablePointer<Float>?, _ rows: Int, _ columns: Int, _ rowStride: Int) -> BNNSNDArrayDescriptor {
             var d = BNNSNDArrayDescriptor()
             d.layout = BNNSDataLayoutRowMajorMatrix
             d.size = (columns, rows, 0, 0, 0, 0, 0, 0)
             d.stride = (1, rowStride, 0, 0, 0, 0, 0, 0)
-            d.data = UnsafeMutableRawPointer(p)
+            d.data = p.map { UnsafeMutableRawPointer($0) }
             d.data_type = .float
             d.data_scale = 1
             d.data_bias = 0
             return d
         }
-        var A = nd(a, aRows, aColumns, aStride)
-        var B = nd(b, bRows, bColumns, bStride)
-        var C = nd(c, aRows, cColumns, cStride)
-        var params = BNNSFilterParameters()
-        params.n_threads = 1
-        let size = amx_matmul_workspace(false, transposeB, 1, &A, &B, &C, &params)
-        guard size >= 0 else { s.failures += 1; return }
-        if amx_matmul(false, transposeB, 1, &A, &B, &C, s.space(size), &params) != 0 { s.failures += 1 }
+        return (nd(a, aRows, aColumns, aStride), nd(b, bRows, bColumns, bStride), nd(c, aRows, cColumns, cStride))
     }
 }

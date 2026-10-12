@@ -1,9 +1,9 @@
 // **The rack: the chain of the render, drawn from `model.chain`, as the window's left column**.
 //
 //     ┌ Images ─────────────────┐   only if the model edits: the images the prompt works on, 1 to 3,
-//   ┌─┤ ▣ ▣ +                   ├─┐ numbered — and, with « Named Subjects » on (experimental,
-//   │ │ (@ana) (@red-coat) (+)  │ │ `Subjects.swift`), the subjects a prompt cites, which take the
-//   │ └─────────────────────────┘ │ next numbers: one budget, one box
+//   ┌─┤ ▣ ▣ +                   ├─┐ numbered — or, with « Named Subjects » on (experimental,
+//   │ │                         │ │ `Subjects.swift`) and the box switched to Subjects, the named
+//   │ └─────────────────────────┘ │ subjects the prompt cites by @name: one or the other
 //   │ ┌ Prompt ─────────────────┐ │ the text field itself, under what it names
 //   │ └──────────┬──────────────┘ │
 //   │ ┌Text encoder┐ ┌Image encoder┐
@@ -491,7 +491,7 @@ private struct PromptNode: View {
             VStack(spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     // Named subjects on: the field that draws `@name` as chips. Off: the app as it was.
-                    if app.subjects.enabled {
+                    if app.subjectsActive {
                         PromptField(app: app, focused: $fieldTyping)
                     } else {
                         TextEditor(text: $app.prompt)
@@ -509,7 +509,7 @@ private struct PromptNode: View {
                 }
                 .frame(height: min(max(height + stretch, Self.heights.lowerBound), Self.heights.upperBound))
                 grip
-                if app.subjects.enabled, let rewrite = app.shownRewrite { ModelPromptRow(app: app, rewrite: rewrite) }
+                if app.subjectsActive, let rewrite = app.shownRewrite { ModelPromptRow(app: app, rewrite: rewrite) }
             }
         }
     }
@@ -535,54 +535,38 @@ private struct PromptNode: View {
 /// drop here or on the canvas (there, a PNG Siliconed wrote restores its settings instead), or by
 /// « Edit This Image » in the history; reordered by dragging a
 /// thumbnail onto another, or from its menu. Only for a model that edits (rule 2: the inputs follow
-/// the model). **The named subjects live here too** (`SubjectShelf`): to the model a subject cited is
-/// one more image, numbered after these — the same budget, counted once in the title.
+/// the model). **With Named Subjects on, the box is images OR subjects** (`AppState.referenceMode`):
+/// numbered images, or a library of named subjects — as many as one wants — that the prompt cites by
+/// `@name`, 3 at most. The title counts what the next render sends.
 private struct ImagesNode: View {
-    let app: AppState
-    private var used: Int { app.references.count + app.subjectImageCount }
+    @Bindable var app: AppState
+    private var subjects: Bool { app.subjectsActive }
+    private var used: Int { subjects ? app.subjectImageCount : app.references.count }
     var body: some View {
         PortBox(title: "Images", symbol: "photo.on.rectangle", kind: .image) {
             Text(used == 0 ? String(localized: "up to \(app.maxReferences) images") : "\(used)/\(app.maxReferences)")
                 .foregroundStyle(used > app.maxReferences ? Palette.failure : .secondary)
         } content: {
-            HStack(alignment: .top, spacing: 6) {
-                ForEach(Array(app.references.enumerated()), id: \.element.id) { n, reference in
-                    ReferenceThumbnail(app: app, reference: reference, number: n + 1,
-                                       last: n == app.references.count - 1)
+            if app.subjectsAvailable {
+                Picker("Images", selection: $app.referenceMode) {
+                    Text("Images").tag(AppState.ReferenceMode.images)
+                    Text("Subjects").tag(AppState.ReferenceMode.subjects)
                 }
-                if app.canAddReference {
-                    Button { app.chooseReferences() } label: {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(style: StrokeStyle(lineWidth: 1.25, dash: [4, 3]))
-                            .foregroundStyle(WireKind.image.color.opacity(0.7))
-                            .overlay(Image(systemName: "plus").foregroundStyle(WireKind.image.color))
-                            .frame(width: ReferenceThumbnail.side, height: ReferenceThumbnail.side)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(app.references.isEmpty ? "The image to edit — or drop it here"
-                                                 : "Add an image the prompt can draw from — or drop it here")
-                }
-                Spacer(minLength: 0)
+                .pickerStyle(.segmented).labelsHidden()
+                .padding(.bottom, 2)
             }
-            Group {
-                if app.references.isEmpty {
-                    Text("Optional. Add an image and the prompt becomes an instruction: “change her jacket to red”.")
-                } else if app.promptNamesImages && app.maxReferences > 1 {
-                    Text("Image 1 is the one edited. The prompt can name them: “put the dog of image 2 next to the woman in image 1”.")
-                        .help("The model reads them as <image1>, <image2>… in front of the prompt")
-                } else {
-                    Text("Image 1 is the one edited: the prompt says what changes.")
-                }
-            }
-            .font(.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            if app.subjectsActive {
-                Divider().padding(.vertical, 2)
-                SubjectShelf(app: app)
-            }
+            if subjects { SubjectShelf(app: app) } else { images }
         }
         .dropDestination(for: DroppedImage.self) { items, _ in
+            if subjects {
+                // Here an image is named: the sheet opens on the first one.
+                switch items.first {
+                case .file(let url)? where !AppState.importable(url): app.nameSubject(.file(url))
+                case .png(let data)?: app.nameSubject(.png(data))
+                default: return false
+                }
+                return true
+            }
             var files: [URL] = []
             for item in items {
                 switch item {
@@ -594,6 +578,46 @@ private struct ImagesNode: View {
             app.addReferences(files)
             return items.contains { if case .file(let u) = $0 { !AppState.importable(u) } else { true } }
         }
+    }
+
+    @ViewBuilder private var images: some View {
+        // One more image beyond this Mac's memory (B): the « + » greyed out, the sentence below.
+        let refusal = app.canAddReference ? app.nextReferenceRefusal() : nil
+        HStack(alignment: .top, spacing: 6) {
+            ForEach(Array(app.references.enumerated()), id: \.element.id) { n, reference in
+                ReferenceThumbnail(app: app, reference: reference, number: n + 1,
+                                   last: n == app.references.count - 1)
+            }
+            if app.canAddReference {
+                Button { app.chooseReferences() } label: {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.25, dash: [4, 3]))
+                        .foregroundStyle(WireKind.image.color.opacity(0.7))
+                        .overlay(Image(systemName: "plus").foregroundStyle(WireKind.image.color))
+                        .frame(width: ReferenceThumbnail.side, height: ReferenceThumbnail.side)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(refusal != nil).opacity(refusal == nil ? 1 : 0.35)
+                .help(app.references.isEmpty ? "The image to edit — or drop it here"
+                                             : "Add an image the prompt can draw from — or drop it here")
+            }
+            Spacer(minLength: 0)
+        }
+        Group {
+            if let refusal {
+                Text(refusal)
+            } else if app.references.isEmpty {
+                Text("Optional. Add an image and the prompt becomes an instruction: “change her jacket to red”.")
+            } else if app.promptNamesImages && app.maxReferences > 1 {
+                Text("Image 1 is the one edited. The prompt can name them: “put the dog of image 2 next to the woman in image 1”.")
+                    .help("The model reads them as <image1>, <image2>… in front of the prompt")
+            } else {
+                Text("Image 1 is the one edited: the prompt says what changes.")
+            }
+        }
+        .font(.caption).foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -684,9 +708,15 @@ private struct DiTBox: View {
                     }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
+                // What this Mac cannot render is greyed out ahead, with the Mac it needs (B, `macNeeded`).
                 Picker("Size", selection: $app.format) {
                     ForEach(app.pickerFormats, id: \.self) { f in
-                        Text(verbatim: "\(f.width) × \(f.height)").tag(f)
+                        if let n = app.macNeeded(f, images: app.subjectImageCount) {
+                            Text("\(String(f.width)) × \(String(f.height)) — needs a Mac with \(String(n)) GB")
+                                .tag(f).disabled(true)
+                        } else {
+                            Text(verbatim: "\(f.width) × \(f.height)").tag(f)
+                        }
                     }
                 }
                 .labelsHidden().fixedSize()

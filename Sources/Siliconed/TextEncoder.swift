@@ -39,6 +39,14 @@ package final class TextEncoder {
         /// Only `setPositions` reads them: without a call, the 1D table stays (Krea 2's verified bits).
         package let mropeSections: [Int]?
 
+        /// From a map's header: its `config` and its `last_layer`.
+        package init(header: [String: Any]) throws {
+            guard let lastLayer = header["last_layer"] as? Int else {
+                throw Artifact.Failure.badHeader("`last_layer` missing: this artifact is not an encoder")
+            }
+            try self.init(header, lastLayer: lastLayer)
+        }
+
         init(_ header: [String: Any], lastLayer: Int) throws {
             guard let c = header["config"] as? [String: Any],
                   let hidden = c["hidden_size"] as? Int,
@@ -167,31 +175,16 @@ package final class TextEncoder {
         let gemm = try GEMM(freezeCut: freezeCut)
         let s = sequence, h = config.hidden, a = config.attentionWidth
         let kv = config.kvWidth, i = config.intermediate
-        // The largest weight of a block: `hidden × intermediate`. The attention projections are
-        // smaller, so a single reserve is enough — same decision as `Block`.
-        let budget = (5 * s * h + 3 * s * a + 2 * s * kv + 3 * s * i
-                      + s * config.headDim + h * i + 4 * h) * 4 + (32 << 20)
-        let arena = try Arena(capacity: budget)
-        func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
-            try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
+        let arena = try Arena(capacity: TextEncoder.arenaBytes(config: config, sequence: s))
+        var slices: [String: UnsafeMutablePointer<Float>] = [:]
+        for (name, count) in TextEncoder.slices(config: config, sequence: s) {
+            slices[name] = try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
         }
-        let x = try slot("x", s * h)
-        let normed = try slot("normed", s * h)
-        let projected = try slot("projected", s * h)
-        let q = try slot("q", s * a)
-        let k = try slot("k", s * kv)
-        let v = try slot("v", s * kv)
-        let kWide = try slot("kWide", s * a)
-        let vWide = try slot("vWide", s * a)
-        let attended = try slot("attended", s * a)
-        let gate = try slot("gate", s * i)
-        let up = try slot("up", s * i)
-        // `siluGate` wants a scratch buffer the size of the count: it computes the sigmoid
-        // separately rather than in place, and the parallel split requires disjoint slices.
-        let swiglu = try slot("swiglu", s * i)
-        let freqs = try slot("freqs", s * config.headDim)      // [S, Dh/2, 2]
-        let scratch = try slot("scratch", 4 * h)               // the norm weights, widened
-        let reserve = try slot("reserve", h * i)
+        let x = slices["x"]!, normed = slices["normed"]!, projected = slices["projected"]!
+        let q = slices["q"]!, k = slices["k"]!, v = slices["v"]!
+        let kWide = slices["kWide"]!, vWide = slices["vWide"]!, attended = slices["attended"]!
+        let gate = slices["gate"]!, up = slices["up"]!, swiglu = slices["swiglu"]!
+        let freqs = slices["freqs"]!, scratch = slices["scratch"]!, reserve = slices["reserve"]!
 
         self.config = config
         self.sequence = sequence
@@ -240,6 +233,41 @@ package final class TextEncoder {
             }
         }
     }
+
+    /// **The encoder's arena for `sequence` positions** (the prompt's tokens; for Qwen3-VL, its image
+    /// tokens too), as `Arena` maps it — the function `init` sizes it with and the memory need charges
+    /// (`MemoryNeed`), so the two are one number: its `slices`, each on its page, not a byte more.
+    package static func arenaBytes(config: Config, sequence s: Int) -> Int {
+        Arena.capacity(slices: slices(config: config, sequence: s).map { $0.count * 4 })
+    }
+
+    /// **The encoder's slices, in floats, in the order `init` reserves them**, each written whole by
+    /// `encode`: `x`, `normed`, `projected` at `hidden`; `q`, `kWide`, `vWide`, `attended` at
+    /// `heads · headDim`; `k`, `v` at `kvHeads · headDim`; `gate`, `up`, `swiglu` at `intermediate`
+    /// (`siluGate` wants a scratch the size of the count: it computes the sigmoid apart, and its
+    /// parallel split needs disjoint slices); the RoPE table at `headDim` (`[S, Dh/2, 2]`); the widened
+    /// norm weights (`hidden`, the QK-Norms' `headDim`); one reserve for the largest weight of a layer,
+    /// `hidden × intermediate` — the attention projections are smaller, same decision as `Block`.
+    /// The former formula counted five rows at `hidden` (three are written), a `4 · hidden` scratch and
+    /// 32 MB of margin.
+    package static func slices(config: Config, sequence s: Int) -> [(name: String, count: Int)] {
+        let h = config.hidden, a = config.attentionWidth, kv = config.kvWidth, i = config.intermediate
+        return [("x", s * h), ("normed", s * h), ("projected", s * h), ("q", s * a), ("k", s * kv), ("v", s * kv),
+                ("kWide", s * a), ("vWide", s * a), ("attended", s * a), ("gate", s * i), ("up", s * i),
+                ("swiglu", s * i), ("freqs", s * config.headDim), ("scratch", max(h, config.headDim)),
+                ("reserve", h * i)]
+    }
+
+    /// The layers a map holds, `layers.0.` to `layers.<last_layer>.`: the blocks the encoder streams
+    /// through its staging buffers (`encode`), and the memory need sizes them on (`Artifact.stagingBytes`).
+    package static func layerPrefixes(_ config: Config) -> [String] { (0..<config.layers).map { "layers.\($0)." } }
+
+    /// The staging buffers the encoder streams its layers through, for the plan's `granted` (0 to 4):
+    /// never more than the layers in flight, `layersAhead + 1`.
+    package static func stagingSlots(granted: Int) -> Int { min(layersAhead + 1, granted) }
+
+    /// The arena this encoder mapped — what the tests compare with `arenaBytes`.
+    package var arenaCapacity: Int { arena.capacity }
 
     /// **Qwen3-VL's interleaved mRoPE**: rewrites the table from three positions per token,
     /// `(t, h, w)` — `Qwen3VLModel.get_rope_index`, see `Qwen3VLPrompt.positions`.
@@ -358,26 +386,27 @@ package final class TextEncoder {
     /// **Krea 2's taps**: `hidden_states[i]` for each `i` requested — the INPUT of
     /// layer `i`, verified against the oracle's text encoder (zero error), and not its output. Returns
     /// `[sequence, sockets.count, hidden]`, the `dim=2` stacking of `Krea2Pipeline`. The highest
-    /// tap may be `config.layers`: it is then the output of the last kept layer.
-    package func encodeTaps(ids: [Int], taps: [Int]) throws -> [Float] {
+    /// tap may be `config.layers`: it is then the output of the last kept layer. `dropping` leading
+    /// positions are left out of the result (Krea 2's template): the stack is gathered in `Pages`
+    /// and only what is kept becomes an array.
+    package func encodeTaps(ids: [Int], taps: [Int], dropping: Int = 0) throws -> [Float] {
         guard let highest = taps.max(), highest <= config.layers, taps.allSatisfy({ $0 >= 0 }) else {
             throw Artifact.Failure.badHeader("taps \(taps): the map stops at the input of layer \(config.layers)")
         }
-        let h = config.hidden
-        var stacked = [Float](repeating: 0, count: sequence * taps.count * h)
+        let h = config.hidden, width = taps.count * h
+        let pages = Pages(bytes: sequence * width * 4)
+        let stacked = pages.floats()
         tap = { [sequence] layer, x in
             for (slot, wanted) in taps.enumerated() where wanted == layer {
-                stacked.withUnsafeMutableBufferPointer { out in
-                    for position in 0..<sequence {
-                        (out.baseAddress! + (position * taps.count + slot) * h)
-                            .update(from: x + position * h, count: h)
-                    }
+                for position in 0..<sequence {
+                    (stacked + (position * taps.count + slot) * h).update(from: x + position * h, count: h)
                 }
             }
         }
         defer { tap = nil }
         _ = try encode(ids: ids, realTokens: sequence, stopAfter: highest)
-        return stacked
+        let kept = max(0, sequence - dropping)
+        return withExtendedLifetime(pages) { Array(UnsafeBufferPointer(start: stacked + dropping * width, count: kept * width)) }
     }
 
     /// Called with the input of each layer (and, after the last, with its output).
@@ -436,12 +465,12 @@ package final class TextEncoder {
         // read once per render and never stays cached, so it is read with `pread` + `F_NOCACHE` into
         // `ahead + 1` staging buffers instead of paged in. Qwen3-VL-8B text only: 4.63 → 3.1–3.4 s,
         // disk 13.9 → 6–7 GB (the rest was still cached); +1.5 GB of footprint while it runs. And the
-        // encoder no longer evicts what the cache holds of the DiT. In a render, the budget decides how
-        // many buffers (`MemoryPlan.encoderSlots`, 1…4, none = every layer through the map); the layers
+        // encoder no longer evicts what the cache holds of the DiT. In a render, the plan chosen in B
+        // gives the buffers (`MemoryPlan.encoderSlots`: 4, or none = every layer through the map); the layers
         // requested ahead stay three — a block with no free buffer waits for one (`TailStream.stage`).
-        let layerBlocks = (0..<min(stopAfter, config.layers)).map { prefetcher.namesOfBlock(prefix: "layers.\($0).") }
+        let layerBlocks = TextEncoder.layerPrefixes(config).prefix(stopAfter).map { prefetcher.namesOfBlock(prefix: $0) }
         try artifact.streamTail(blocks: layerBlocks,
-                                slots: min(ahead + 1, MemoryPlan.encoderSlots(artifact: artifact, layerBlocks: layerBlocks)))
+                                slots: TextEncoder.stagingSlots(granted: MemoryPlan.encoderSlots(artifact: artifact, layerBlocks: layerBlocks)))
         for l in 0..<min(ahead, config.layers) { prefetcher.request(prefetcher.namesOfBlock(prefix: "layers.\(l).")) }
         for layer in 0..<min(stopAfter, config.layers) {
             try cancellation.check()   // between two layers, never inside one (see `Cancellation`)

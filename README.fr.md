@@ -4,8 +4,8 @@
 
 *Siliconed — enhanced by silicone.*
 
-**La génération d'images pour Apple silicon qui fait tout le calcul, le prouve, et ne swappe
-jamais.**
+**La génération d'images pour Apple silicon qui fait tout le calcul, le prouve, et ne prend jamais
+plus de mémoire que son budget.**
 
 Siliconed est une app macOS libre et gratuite pour la **génération d'images à partir de texte et
 l'édition d'images par IA, en local**, sur les Mac Apple silicon (M1 et suivants). Elle fait tourner
@@ -32,9 +32,11 @@ comic book style with cel shading »), comparées sous le rideau, filmé à vi
   pas livré.
 - **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en ~82 s sur un M1 Pro, là où
   Draw Things met 144 à 163 s avec des poids 8 bits sur la même machine.
-- **31 Go de modèle sur un Mac de 16 Go, zéro swap.** Les poids sont lus depuis le disque au moment
-  où ils servent. Le pic mémoire et le swap sont mesurés au pire cas (1024×1536, trois images de
-  référence), et les deux modèles y tiennent avec 0 octet swappé.
+- **31 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
+  au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
+  (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
+  plan le plus rapide qui y tient, et compare son propre pic à ce chiffre. Ce que les autres
+  applications occupent leur appartient.
 - **Fait pour être piloté par une IA.** `silicontrol` pilote l'app ouverte depuis un terminal, en
   sortie JSON ; `silicontrol help` est tout ce qu'un agent a besoin de lire.
 - **Vos modèles, à votre façon.** Importez LoRA et fine-tunes depuis Civitai ou Hugging Face,
@@ -138,7 +140,7 @@ Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable a
 Le rendu se fait sur votre Mac. Le seul trafic réseau est le téléchargement du modèle que vous avez
 accepté ; le diagnostic ouvre une issue GitHub préremplie que vous choisissez de soumettre ou non.
 Avant chaque rendu, le moteur vérifie le modèle, sa licence, le format et la mémoire qu'il lui faut,
-et refuse d'emblée plutôt que de laisser la machine swapper.
+et refuse d'emblée un rendu au-delà du budget de ce Mac.
 
 ## Télécharger
 
@@ -160,8 +162,8 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. 1
 163 s au quatrième. Les ~82 s de Siliconed sont en fp32 ; la comparaison porte sur le temps écoulé,
 pas sur une arithmétique identique. Comment les chiffres sont mesurés : [La vérification](#la-vérification).
 
-**Zéro swap, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
-`vm_stat`) sont mesurés au pire cas du produit : Qwen-Image-2.1 à 1024×1536 avec 3 références,
+**Dans le budget, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
+`vm_stat`) sont mesurés au pire cas du produit, sur un Mac de 16 Go où rien d'autre ne tourne : Qwen-Image-2.1 à 1024×1536 avec 3 références,
 0 page swappée ; Z-Image à 1024×1536, pic 3,8 Go, 0 page swappée (son VAE décode en bandes, aux
 mêmes bits).
 

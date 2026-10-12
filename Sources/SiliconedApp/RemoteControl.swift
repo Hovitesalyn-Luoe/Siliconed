@@ -873,8 +873,8 @@ final class RemoteControl {
 
     // ── subjects ──
 
-    /// **`subjects`** (experimental, `Subjects.swift`): list, name, delete — the subjects shelf's
-    /// gestures. Citing one is `add "@alice in a library"`. Refused while the app's switch is off.
+    /// **`subjects`** (experimental, `Subjects.swift`): list, name, delete — the Subjects mode's
+    /// gestures, in the app's memory. Citing one is `add "@alice in a library"`. Refused while the app's switch is off.
     ///
     ///     subjects                                              the library
     ///     subjects add IMAGE --name N --kind K [--frame x,y,w,h] [--second IMAGE2]
@@ -884,12 +884,11 @@ final class RemoteControl {
             throw Refusal("disabled", String(localized: "named subjects are off"),
                           help: String(localized: "turn on Experimental → Named Subjects in the app's menu"))
         }
-        app.subjects.reload()
+        // In memory, like the history: a subject lives as long as the app (incognito) — no path to give.
         func json(_ s: NamedSubjects.Subject) -> [String: Any] {
             ["name": s.name, "kind": s.kind.rawValue,
              "pictures": s.pictures.map { p -> [String: Any] in
-                 ["path": app.subjects.url(s, p).path,
-                  "frame": [p.frame.x, p.frame.y, p.frame.width, p.frame.height].map { Response.number($0, 4) }]
+                 ["frame": [p.frame.x, p.frame.y, p.frame.width, p.frame.height].map { Response.number($0, 4) }]
              }]
         }
         switch arguments.first {
@@ -900,7 +899,7 @@ final class RemoteControl {
                 let name = arguments.dropFirst().first ?? ""
                 throw Refusal("subject", String(localized: "No subject is called @\(name)."), help: "silicontrol subjects")
             }
-            if let p = app.subjects.delete(s) { throw Refusal("subject", p.title) }
+            app.subjects.delete(s)
             return ["ok": true, "removed": s.name]
         case "add":
             var images: [String] = [], first: String?, name: String?, kind: NamedSubjects.Kind?
@@ -952,7 +951,7 @@ final class RemoteControl {
                     let path = url.path
                     throw Refusal("ref", String(localized: "image unreadable or missing: \(path)"))
                 }
-                return (source: NamedSubjectStore.Source.file(url),
+                return (source: SubjectSource.file(url),
                         frame: frames.indices.contains(n) ? frames[n] : NamedSubjects.Frame.whole)
             }
             if let p = app.subjects.create(name: name, kind: kind, pictures: sources) {

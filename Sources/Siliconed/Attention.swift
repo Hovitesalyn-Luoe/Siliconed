@@ -20,6 +20,10 @@ package final class Attention {
     private let k: MPSGraphTensor
     private let v: MPSGraphTensor
     private let out: MPSGraphTensor
+    /// The causal mask, fed at each run from our own pages (`maskBytes`) — never a graph
+    /// constant: `MPSGraph` copies a constant's bytes into `malloc` (39 MB at Qwen-Image-2.1's 3,111
+    /// tokens), and `free` left them in the footprint after the encoder.
+    private let maskInput: (tensor: MPSGraphTensor, data: MPSGraphTensorData, pages: Pages)?
 
     package let heads: Int
     /// The heads of `k`/`v`: `heads` without GQA, fewer with it (Krea 2: 48 `q` heads for 12).
@@ -171,19 +175,22 @@ package final class Attention {
         }
         // `scale = None` in the reference, hence 1/√headDim.
         var mask: MPSGraphTensor? = nil
+        var maskFeed: (tensor: MPSGraphTensor, data: MPSGraphTensorData, pages: Pages)? = nil
         if causal {
-            var values = [Float](repeating: 0, count: sequence * keys)
+            let pages = Pages(bytes: Attention.maskBytes(sequence: sequence, keys: keys))
+            let values = pages.floats()           // zero-filled by the kernel: the visible keys
             let visible = min(visibleKeys ?? keys, keys), offset = keys - sequence
             for row in 0..<sequence {
                 for column in min(offset + row + 1, visible)..<keys { values[row * keys + column] = -.infinity }
             }
-            mask = values.withUnsafeBufferPointer {
-                graph.constant(Data(buffer: $0), shape: [1, 1, NSNumber(value: sequence),
-                                                         NSNumber(value: keys)],
-                               dataType: .float32)
-            }
+            let shape: [NSNumber] = [1, 1, NSNumber(value: sequence), NSNumber(value: keys)]
+            let buffer = device.makeBuffer(bytesNoCopy: pages.base, length: pages.capacity,
+                                           options: .storageModeShared, deallocator: nil)!
+            mask = graph.placeholder(shape: shape, dataType: .float32, name: "mask")
+            maskFeed = (mask!, MPSGraphTensorData(buffer, shape: shape, dataType: .float32), pages)
             if precision != .float32 { mask = graph.cast(mask!, to: precision, name: nil) }
         }
+        maskInput = maskFeed
         let scale = 1 / Float(headDim).squareRoot()
         let attended: MPSGraphTensor
         var isSplit = false
@@ -259,6 +266,11 @@ package final class Attention {
     /// graph is that of a single SDPA, bits included.
     package static let maxMatrix = 3_300_000_000
 
+    /// **The causal mask a causal instance holds** for its graph's life: `[S, K]` fp32 in `Pages`.
+    package static func maskBytes(sequence: Int, keys: Int) -> Int {
+        Arena.capacity(for: sequence * keys * 4)
+    }
+
     /// Inputs and output in **fp32**, `[S, H·Dh]`, in buffers that the caller owns.
     package func run(q qBuffer: MTLBuffer, k kBuffer: MTLBuffer, v vBuffer: MTLBuffer,
                     into outBuffer: MTLBuffer) -> Double {
@@ -272,7 +284,8 @@ package final class Attention {
                                                NSNumber(value: kvHeads), NSNumber(value: headDim)],
                                dataType: .float32)
         }
-        let feeds = [q: data(qBuffer, sequence), k: kv(kBuffer), v: kv(vBuffer)]
+        var feeds = [q: data(qBuffer, sequence), k: kv(kBuffer), v: kv(vBuffer)]
+        if let maskInput { feeds[maskInput.tensor] = maskInput.data }
         // **A split graph commits by itself.** With a hundred and twenty SDPAs, `MPSGraph` calls
         // `commitAndContinue`: it replaces the command buffer from under our feet, and the caller's
         // `commit()` then commits an already committed one — a fatal driver assertion. So we go

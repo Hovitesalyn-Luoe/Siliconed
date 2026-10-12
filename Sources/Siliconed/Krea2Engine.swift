@@ -43,8 +43,7 @@ package enum Krea2Text {
         let encoder = try TextEncoder(artifact: try Artifact(path: encoder), sequence: ids.count,
                                       freezeCut: freezeCut)
         encoder.cancellation = cancellation
-        let all = try encoder.encodeTaps(ids: ids, taps: sockets)
-        return Array(all[(templateTokens * sockets.count * encoder.config.hidden)...])
+        return try encoder.encodeTaps(ids: ids, taps: sockets, dropping: templateTokens)
     }
 }
 

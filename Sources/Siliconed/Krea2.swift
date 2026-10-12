@@ -834,13 +834,19 @@ enum Krea2Exact {
         if tensor.dtype == .float32, let p = artifact.pointer(name) {
             accumulate(p.assumingMemoryBound(to: Float.self))          // read in place, without a copy
         } else {
-            var widened = [Float](repeating: 0, count: inputs * outputs)
-            try widened.withUnsafeMutableBufferPointer {
-                _ = try artifact.materialize(name, into: $0)
-                accumulate(UnsafePointer($0.baseAddress!))
-            }
+            // In `Pages`, not an array: Qwen-Image-2.1's `modulation.1` widens to 151 MB, which
+            // `free` would have left in the footprint for the rest of the render.
+            let widened = Pages(bytes: widenedBytes(inputs: inputs, outputs: outputs))
+            _ = try artifact.materialize(name, into: UnsafeMutableBufferPointer(start: widened.floats(), count: inputs * outputs))
+            withExtendedLifetime(widened) { accumulate(UnsafePointer(widened.floats())) }
         }
         return (0..<count).map { Array(y[($0 * outputs)..<(($0 + 1) * outputs)]) }
+    }
+
+    /// **The weight `linears` widens** when the map does not publish it in fp32: `[inputs, outputs]`
+    /// fp32, rounded to the page, for the duration of the call.
+    static func widenedBytes(inputs: Int, outputs: Int) -> Int {
+        Arena.capacity(for: inputs * outputs * 4)
     }
 
     /// The sinusoid of `Krea2TimestepEmbedding`, **computed in double then rounded once**.

@@ -18,10 +18,11 @@ import Foundation
 /// what the Z-Image pipeline asks for and the donor's version did not do: **fixed-length
 /// padding** and the **mask**.
 ///
-/// > **A forge lead, noted and not taken.** Reading 7 MB of JSON and building two dictionaries of
+/// > **A forge lead, noted and not taken.** Reading 7 MB of JSON and building two tables of
 /// > 151 k entries at every startup is exactly what the forge exists to remove:
 /// > the vocabulary is an immutable table that should live in the artifact, mapped. To do
-/// > when the path is right, not before — "the dumb path" first.
+/// > when the path is right, not before — "the dumb path" first. Meanwhile the two tables are
+/// > read from the mapped file into `Pages` (`ByteTable`), not into `malloc`.
 package final class Tokenizer {
 
     package enum Failure: Error, CustomStringConvertible {
@@ -60,8 +61,9 @@ package final class Tokenizer {
         return symbols
     }()
 
-    private let vocabulary: [String: Int]
-    private let ranks: [String: Int]
+    /// `symbol → id` and `left \0 right → rank`, in `Pages` (`ByteTable`).
+    private let vocabulary: ByteTable
+    private let ranks: ByteTable
     private let splitter: NSRegularExpression
     /// The added tokens, indexed by first **scalar**, longest first.
     ///
@@ -88,8 +90,39 @@ package final class Tokenizer {
 
     package init(file path: String) throws {
         guard FileManager.default.fileExists(atPath: path) else { throw Failure.fileNotFound(path) }
-        let data = try Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        // Mapped, never read into `malloc`; `model.vocab` and `model.merges` are read from these bytes
+        // into `ByteTable`s, and `JSONSerialization` parses the rest with those two values emptied
+        // (`{}`, `[]`): its object graph and two 151 k-entry dictionaries are what the text phase
+        // left in the footprint.
+        let data = try Data(contentsOf: URL(fileURLWithPath: path), options: .alwaysMapped)
+        let (rootValue, vocabulary, ranks) = try data.withUnsafeBytes { raw throws -> (Any, ByteTable, ByteTable) in
+            let json = TokenizerJSON(bytes: raw)
+            do {
+                guard let model = try json.members(of: 0, ["model"])["model"],
+                      raw[model.lowerBound] == 0x7B else { throw Failure.malformed("no model") }
+                let tables = try json.members(of: model.lowerBound, ["vocab", "merges"])
+                guard let vocab = tables["vocab"], raw[vocab.lowerBound] == 0x7B else { throw Failure.malformed("no model.vocab") }
+                guard let merges = tables["merges"], raw[merges.lowerBound] == 0x5B else { throw Failure.malformed("no model.merges") }
+                let (vocabulary, ranks) = try Self.tables(json, vocab: vocab, merges: merges)
+                // The document without the two tables, in pages of its own for the parse.
+                let cuts = [(vocab, Array("{}".utf8)), (merges, Array("[]".utf8))].sorted { $0.0.lowerBound < $1.0.lowerBound }
+                let stripped = Pages(bytes: raw.count)
+                var n = 0, from = 0
+                for (range, empty) in cuts + [(raw.count..<raw.count, [])] {
+                    (stripped.base + n).copyMemory(from: raw.baseAddress! + from, byteCount: range.lowerBound - from)
+                    n += range.lowerBound - from
+                    for b in empty { stripped.base.storeBytes(of: b, toByteOffset: n, as: UInt8.self); n += 1 }
+                    from = range.upperBound
+                }
+                let root = try withExtendedLifetime(stripped) {
+                    try JSONSerialization.jsonObject(with: Data(bytesNoCopy: stripped.base, count: n, deallocator: .none))
+                }
+                return (root, vocabulary, ranks)
+            } catch let error as TokenizerJSON.Malformed {
+                throw Failure.malformed("not JSON at byte \(error.at)")
+            }
+        }
+        guard let root = rootValue as? [String: Any] else {
             throw Failure.malformed("the top level is not an object")
         }
 
@@ -165,27 +198,6 @@ package final class Tokenizer {
         // is, without merging — `bpe` does that.
         ignoreMerges = String(describing: model["ignore_merges"] ?? 0) == "1"
 
-        guard let vocabulary = model["vocab"] as? [String: Int] else {
-            throw Failure.malformed("no model.vocab")
-        }
-        guard let merges = model["merges"] as? [Any] else {
-            throw Failure.malformed("no model.merges")
-        }
-        var ranks = [String: Int](minimumCapacity: merges.count * 2)
-        for (rank, entry) in merges.enumerated() {
-            // Two published spellings: a pair of strings (recent `tokenizers`) and a single
-            // string joined by a space (older files). Both exist in the
-            // wild; neither is ambiguous, because a byte symbol is never a space.
-            let pair: (String, String)
-            if let both = entry as? [String], both.count == 2 {
-                pair = (both[0], both[1])
-            } else if let joined = entry as? String, let space = joined.firstIndex(of: " ") {
-                pair = (String(joined[..<space]), String(joined[joined.index(after: space)...]))
-            } else {
-                throw Failure.malformed("model.merges[\(rank)] is neither a pair nor a joined string")
-            }
-            ranks[pair.0 + "\u{0}" + pair.1] = rank
-        }
 
         var byFirst: [Unicode.Scalar: [(scalars: [Unicode.Scalar], id: Int)]] = [:]
         var identifiers: [Int: String] = [:]
@@ -209,11 +221,62 @@ package final class Tokenizer {
 
         self.vocabulary = vocabulary
         self.ranks = ranks
+        self.tableBytes = vocabulary.mapped + ranks.mapped
         self.splitter = try NSRegularExpression(pattern: pattern)
         self.addedByFirst = byFirst
         self.addedIdentifiers = identifiers
         self.vocabularySize = vocabulary.count + identifiers.count
         self.addedTokenCount = identifiers.count
+    }
+
+    /// What the two tables map, from the file's counts — released with the tokenizer.
+    package let tableBytes: Int
+
+    /// The vocabulary's id of `symbol`, and the rank of the merge `left right` — the tables as read.
+    package func id(of symbol: String) -> Int? { vocabulary.value(symbol) }
+    package func rank(of left: String, _ right: String) -> Int? { ranks.value(left + "\u{0}" + right) }
+    package var vocabularyEntries: Int { vocabulary.count }
+    package var mergeEntries: Int { ranks.count }
+
+    /// `model.vocab` and `model.merges` from the raw bytes. Two published spellings of a merge: a pair
+    /// of strings (recent `tokenizers`) and a single string joined by a space (older files). Both
+    /// exist in the wild; neither is ambiguous, because a byte symbol is never a space.
+    private static func tables(_ json: TokenizerJSON, vocab: Range<Int>, merges: Range<Int>) throws
+        -> (vocabulary: ByteTable, ranks: ByteTable) {
+        var entries = 0
+        try json.elements(vocab) { _ in entries += 1 }
+        var vocabulary = ByteTable(entries: entries, keyBytes: vocab.count)
+        try json.elements(vocab) { i in
+            let (n, next) = try json.string(i, into: vocabulary.pendingKey)
+            let value = try json.integer(try json.expect(0x3A, next))
+            vocabulary.commit(length: n, value: value)
+        }
+        var count = 0
+        try json.elements(merges) { _ in count += 1 }
+        var ranks = ByteTable(entries: count, keyBytes: merges.count)
+        var rank = 0
+        try json.elements(merges) { i in
+            let key = ranks.pendingKey
+            let start = json.space(i)
+            if json.bytes[start] == 0x5B {
+                let (left, next) = try json.string(start + 1, into: key)
+                key[left] = 0
+                let (right, after) = try json.string(try json.expect(0x2C, next), into: key + left + 1)
+                guard json.bytes[json.space(after)] == 0x5D else {
+                    throw Failure.malformed("model.merges[\(rank)] is not a pair")
+                }
+                ranks.commit(length: left + 1 + right, value: rank)
+            } else {
+                let (n, _) = try json.string(start, into: key)
+                guard let space = (0..<n).first(where: { key[$0] == 0x20 }) else {
+                    throw Failure.malformed("model.merges[\(rank)] is neither a pair nor a joined string")
+                }
+                key[space] = 0
+                ranks.commit(length: n, value: rank)
+            }
+            rank += 1
+        }
+        return (vocabulary, ranks)
     }
 
     private static func require(_ value: String?, equals expected: String, field: String) throws {
@@ -318,13 +381,13 @@ package final class Tokenizer {
     /// stays so as long as its occurrences are not exhausted, and overlapping
     /// occurrences are consumed in the same order.
     private func bpe(_ input: [String]) -> [Int] {
-        if ignoreMerges, input.count > 1, let integer = vocabulary[input.joined()] { return [integer] }
+        if ignoreMerges, input.count > 1, let integer = vocabulary.value(input.joined()) { return [integer] }
         var parts = input
         if parts.count > 1 {
             while true {
                 var best = Int.max, at = -1
                 for i in 0..<(parts.count - 1) {
-                    if let rank = ranks[parts[i] + "\u{0}" + parts[i + 1]], rank < best { best = rank; at = i }
+                    if let rank = ranks.value(parts[i] + "\u{0}" + parts[i + 1]), rank < best { best = rank; at = i }
                 }
                 if at < 0 { break }
                 parts[at] += parts[at + 1]
@@ -333,7 +396,7 @@ package final class Tokenizer {
         }
         // `byte_fallback` is disabled and the 256 byte symbols are in the vocabulary, so
         // a lookup cannot fail — unless the file is not the one we validated.
-        return parts.map { vocabulary[$0] ?? -1 }
+        return parts.map { vocabulary.value($0) ?? -1 }
     }
 
     // MARK: - The chat template, and what the pipeline does with it
@@ -387,7 +450,7 @@ package final class Tokenizer {
 
     private lazy var spellings: [Int: String] = {
         var table = [Int: String](minimumCapacity: vocabulary.count + addedIdentifiers.count)
-        for (symbol, id) in vocabulary { table[id] = symbol }
+        vocabulary.forEach { symbol, id in table[id] = symbol }
         for (id, content) in addedIdentifiers { table[id] = content }
         return table
     }()

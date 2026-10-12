@@ -24,13 +24,19 @@ final class DiagnosticTests: XCTestCase {
         model.variant = "standard"
         model.thermalAfter = "nominal"
         if golden {
-            model.memory = .init(reclaimableBytes: 9_000_000_000, availableBytes: 7_400_000_000, reserveBytes: 1_600_000_000,
-                                 floorBytes: 3_000_000_000, comfortableBytes: 4_600_000_000, lean: true,
-                                 decisions: ["map tail 1.00 (60 of 60 layers), 2 buffer(s) of 362 MB (lean plan)"])
+            model.memory = .init(floorBytes: 3_000_000_000, lean: true,
+                                 decisions: ["map tail 60 of 60 layers, 2 buffer(s) of 362 MB"],
+                                 budgetBytes: MemoryBudget.ceiling(physical: 16 << 30), needBytes: 3_900_000_000,
+                                 needByPhase: ["text": 2_100_000_000, "denoising": 2_900_000_000, "decoding": 3_900_000_000],
+                                 check: MemoryCheck(needBytes: 3_900_000_000, measuredBytes: 4_000_000_000, phases: [
+                                    .init(name: "start", needBytes: nil, measuredBytes: 30_000_000),
+                                    .init(name: "text", needBytes: 2_100_000_000, measuredBytes: 1_900_000_000),
+                                    .init(name: "denoising", needBytes: 2_900_000_000, measuredBytes: 2_700_000_000),
+                                    .init(name: "decoding", needBytes: 3_900_000_000, measuredBytes: 4_000_000_000),
+                                 ], fallback: false, peakMethod: .sampled10ms),
+                                 peakMethod: .sampled10ms)
         }
-        let conditions = Diagnostic.Conditions(thermal: "nominal", lowPowerMode: false, onBattery: nil,
-                                               reclaimableBytes: 9_000_000_000, compressorHeadroomBytes: nil,
-                                               swapUsedBytes: 0)
+        let conditions = Diagnostic.Conditions(thermal: "nominal", lowPowerMode: false, onBattery: nil, swapUsedBytes: 0)
         return Diagnostic.Report(date: "2026-10-04T10:00:00Z", machine: machine, models: [model],
                                  totalSeconds: 30, peakFootprintBytes: 4_000_000_000, swapouts: 0,
                                  before: conditions, after: conditions,
@@ -65,6 +71,40 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertTrue(text.contains("\"schema\" : \(Diagnostic.schema)"))
     }
 
+    /// **Schema 3, kept by 4**: B, the need per phase, the measured peak of each phase and the gap — a phase above
+    /// its need is a defect, said by name; a boundary the formula has no phase for writes `null`.
+    func testSchemaThreeCarriesTheNeedAgainstThePeak() throws {
+        XCTAssertEqual(Diagnostic.schema, 4)
+        let report = sample(golden: true)
+        let text = String(decoding: try report.json(), as: UTF8.self)
+        // Schema 4: the kernel's reading is gone.
+        for gone in ["reclaimableBytes", "availableBytes", "reserveBytes", "comfortableBytes", "compressorHeadroomBytes"] {
+            XCTAssertFalse(text.contains(gone), gone)
+        }
+        for key in ["budgetBytes", "needBytes", "needByPhase", "measuredBytes", "gapBytes", "check", "peakMethod"] {
+            XCTAssertTrue(text.contains("\"\(key)\""), key)
+        }
+        // The method that read the peaks, in the check and beside it (said even when the check is `null`).
+        XCTAssertTrue(text.contains("\"peakMethod\" : \"sampled10ms\""))
+        XCTAssertEqual(report.models[0].memory?.peakMethod, .sampled10ms)
+        XCTAssertTrue(text.contains("\"needBytes\" : null"))   // the `start` boundary
+        let check = try XCTUnwrap(report.models[0].memory?.check)
+        XCTAssertEqual(check.gapBytes, 100_000_000)
+        XCTAssertEqual(check.exceeded.map(\.name), ["decoding"])
+        XCTAssertTrue(check.isDefect)
+        XCTAssertEqual(check.defects.count, 1)
+        XCTAssertTrue(check.defects[0].contains("decoding"))
+        // A check built from marks: each boundary mapped to the formula's phase, the render's peak the largest.
+        let need = MemoryNeed(phases: [.init(kind: .text, terms: [.init("a", 100)]),
+                                       .init(kind: .denoising, terms: [.init("b", 300)])], crossing: 10, base: 5)
+        let built = MemoryCheck(need: need, marks: [("start", 20), ("text", 90), ("denoising", 400), ("denoiser released", 30)])
+        XCTAssertEqual(built.peakMethod, FootprintInterval.method)
+        XCTAssertEqual(built.needBytes, 315)
+        XCTAssertEqual(built.phases.map(\.needBytes), [nil, 115, 315, 315])
+        XCTAssertEqual(built.measuredBytes, 400)
+        XCTAssertEqual(built.exceeded.map(\.name), ["denoising"])
+    }
+
     func testMissingGoldenIsAnExplicitNull() throws {
         let report = sample(golden: false)
         let text = String(decoding: try report.json(), as: UTF8.self)
@@ -83,7 +123,7 @@ final class DiagnosticTests: XCTestCase {
     func testConditionsAndSettingsRows() {
         let c = Diagnostic.conditions()
         XCTAssertTrue(["nominal", "fair", "serious", "critical"].contains(c.thermal))
-        XCTAssertGreaterThan(c.reclaimableBytes, 0)
+        XCTAssertGreaterThanOrEqual(c.swapUsedBytes, 0)
         let keys = EngineSettings.effective.rows.map(\.key)
         XCTAssertTrue(keys.contains("amx"))
         XCTAssertEqual(Set(keys).count, keys.count)

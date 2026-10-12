@@ -37,7 +37,6 @@ public struct ZImageTextModule: TextModule {
             realCount = mask.reduce(0, +)
         }
         context.timings.tokenizer = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
         context.footprints.tokenizer = Arena.processFootprint()
         try context.check()
         let encoder = try TextEncoder(artifact: try Artifact(path: map), sequence: realCount,
@@ -190,7 +189,7 @@ public struct FluxEncodingModule: ImageEncodingModule {
 func encoderImage(_ image: ImageRGB, path: String, family: VAEEncoder.Family, space: LatentSpace,
                   context: Context) throws -> Latent {
     let encoder = try VAEEncoder(path: path, family: family, height: image.height, width: image.width)
-    let output = image.pixels.withUnsafeBufferPointer { encoder.encode(image: $0.baseAddress!) }
+    let output = try image.pixels.withUnsafeBufferPointer { try encoder.encode(image: $0.baseAddress!) }
     context.footprints.encoding = Arena.processFootprint()
     return Latent(space: space, height: encoder.latentGridHeight, width: encoder.latentGridWidth,
                   values: output.latent)
@@ -290,7 +289,7 @@ public struct QwenImageDecodingModule: DecodingModule {
 
     public func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
         let vae = try AnimaVAE(path: path, latentHeight: latent.height, latentWidth: latent.width)
-        let (image, seconds) = latent.values.withUnsafeBufferPointer { vae.decode(latent: $0.baseAddress!) }
+        let (image, seconds) = try latent.values.withUnsafeBufferPointer { try vae.decode(latent: $0.baseAddress!) }
         context.timings.decoding = seconds
         return ImageRGB(pixels: image, height: vae.imageHeight, width: vae.imageWidth)
     }
@@ -381,7 +380,6 @@ public struct Krea2DenoisingModule: DenoisingModule {
         let artifact = try Artifact(path: map)
         let tokens = text.rows
         let merged = try fusion(text, artifact: artifact, lora: lora, context: context)
-        Arena.releaseToSystem()
         let dit = try Krea2DiT(artifact: artifact, latentHeight: latent.height,
                                latentWidth: latent.width, maxText: tokens,
                                freezeCut: context.reproducible, lora: lora)
@@ -444,7 +442,6 @@ public struct KleinTextModule: TextModule {
         let begin = Date()
         let (ids, realCount) = KleinText.identifiers(prompt, tokenizer: try Tokenizer(directory: tokenizer))
         context.timings.tokenizer = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
         context.footprints.tokenizer = Arena.processFootprint()
         try context.check()
         let hiddenValues = try KleinText.hiddenStates(ids, realCount: realCount, encoder: map,
@@ -615,7 +612,6 @@ public struct ErnieTextModule: TextModule {
         let begin = Date()
         let ids = ErnieText.identifiers(prompt, tokenizer: try Tokenizer(directory: tokenizer))
         context.timings.tokenizer = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
         context.footprints.tokenizer = Arena.processFootprint()
         try context.check()
         let hiddenValues = try ErnieText.hiddenStates(ids, encoder: map, freezeCut: context.reproducible,
@@ -687,7 +683,6 @@ public struct QwenImage21TextModule: ImageTextModule {
         // Already at their size: `pixels` refuses one that `smart_resize` would resample.
         let pixels = try images.map { try Qwen3VLImages.pixels(QwenImage21Pipeline.rgb8($0)) }
         context.timings.tokenizer = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
         context.footprints.tokenizer = Arena.processFootprint()
         try context.check()
         let artifact = try Artifact(path: map)

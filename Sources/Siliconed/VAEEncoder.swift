@@ -1,4 +1,5 @@
 import Metal
+import MetalPerformanceShaders
 import MetalPerformanceShadersGraph
 import Foundation
 
@@ -33,11 +34,17 @@ import Foundation
 /// is `std·ε`, with a `std` that the `vae-encode` check displays (small next to the latent's
 /// standard deviation). The img2img oracles take the mean too.
 ///
-/// ## Memory
+/// ## Memory: Flux's encoder by layers and bands, in two heaps of ours — the same bits
 ///
-/// A single graph, like Flux's decoder by default (measured: cutting into stages makes the
-/// peak *rise*). The bottleneck is at the same grid as the decoder's, so its `S×S` matrix weighs as much
-/// (2.5 GB at 1024²): it follows the same slicing setting, `vae_bloc_requetes`.
+/// In one graph, Flux's encoder held its peak in MPS's own allocations (3.2 GB at 1024², 2.4 GB of it
+/// still pending in Metal when it returned) and its weights as graph constants. It now runs as
+/// Flux's decoder does (`VAE.Bands`): `conv_in`, each resnet's two `conv(SiLU(GN(x)))` with the
+/// `GroupNorm` statistics over the whole tensor, each stride-2 convolution, all by horizontal bands,
+/// then the bottleneck and the head by passes at the latent's grid — every register, weight and MPS
+/// workspace in the heaps `plan` sizes (`VAEMemory`). **The bits of the one graph** (md5 of the moments
+/// at 512² and 1024², and of the img2img render). The one graph stays for the checks only (`probes`,
+/// `startingAt`: a block's output, a stage's local error) — and for Qwen-Image's family (Anima, Krea 2),
+/// whose weights are not installed here to prove a cut against it.
 package final class VAEEncoder {
     package enum Family: Sendable {
         /// Flux `AutoencoderKL` (Z-Image): GroupNorm, no `quant_conv`.
@@ -66,8 +73,11 @@ package final class VAEEncoder {
 
     private let device: MTLDevice
     private let queue: MTLCommandQueue
-    private let graph: MPSGraph
-    private let entry: MPSGraphTensor
+    private let weights: Safetensors
+    /// The one graph: the checks' (`probes`, `startingAt`) and Qwen-Image's family. `nil`: Flux's
+    /// encoder by bands (`encodeBanded`), the product's.
+    private let graph: MPSGraph?
+    private let entry: MPSGraphTensor?
     private let entryShape: [Int]
     private let targets: [String: MPSGraphTensor]
     package let family: Family
@@ -98,8 +108,12 @@ package final class VAEEncoder {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw GEMM.Failure.noDevice
         }
-        self.device = device; self.queue = queue
+        self.device = device; self.queue = queue; self.weights = weights
         self.family = family; self.height = height; self.width = width
+        guard probes || startingAt != nil || family == .qwenImage else {
+            graph = nil; entry = nil; targets = [:]; entryShape = [1, 3, height, width]
+            return
+        }
         let graph = MPSGraph()
         let input = graph.placeholder(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)],
                                       dataType: .float32, name: "image")
@@ -228,7 +242,27 @@ package final class VAEEncoder {
 
     /// `image`: `[3, height, width]` planar, in `[-1, 1]` — or, for an encoder built `startingAt` a
     /// probe, that boundary's tensor.
-    package func encode(image: UnsafePointer<Float>) -> Output {
+    /// **The host memory `encode` holds at its peak**: the image's buffer `[3, H, W]` fed to the graph,
+    /// and the two results it reads back, the latent `[C, H/8, W/8]` and the moments (mean and
+    /// log-variance, `2C`). The memory need does not charge it apart: the encoder's measured law
+    /// (`OperatorUse.Kind.vaeEncoder`) holds it with the graph's intermediates.
+    package static func hostBytes(family: Family, height: Int, width: Int) -> Int {
+        let cells = (height / 8) * (width / 8)
+        return (3 * height * width + family.channels * cells + 2 * family.channels * cells) * MemoryLayout<Float>.size
+    }
+
+    package func encode(image: UnsafePointer<Float>) throws -> Output {
+        guard let graph, let entry else {
+            let begin = Date()
+            let memory = try VAEMemory(plan: VAEEncoder.plan(family: family, height: height, width: width),
+                                       device: device, queue: queue)
+            let bands = VAE.Bands(memory: memory, weights: weights, name: "Flux encoder", groups: 32, band: VAE.bandElements)
+            let (latent, moments) = try autoreleasepool {
+                try VAEEncoder.encodeBanded(image, family: family, height: height, width: width, bands: bands)
+            }
+            memory.finish()
+            return Output(latent: latent, moments: moments, probes: [:], seconds: Date().timeIntervalSince(begin))
+        }
         let count = entryShape.reduce(1, *)
         let buffer = device.makeBuffer(length: count * 4, options: .storageModeShared)!
         buffer.contents().assumingMemoryBound(to: Float.self).update(from: image, count: count)
@@ -238,8 +272,14 @@ package final class VAEEncoder {
         autoreleasepool {
             let data = MPSGraphTensorData(buffer, shape: entryShape.map { NSNumber(value: $0) }, dataType: .float32)
             let names = Array(targets.keys)
-            let results = graph.run(with: queue, feeds: [entry: data],
-                                       targetTensors: names.map { targets[$0]! }, targetOperations: nil)
+            // **Without MPS's heap cache**: `graph.run` left the encoder's whole peak in MPS's
+            // heaps for 3–15 s. Duration 0: the heaps go back with the command buffer.
+            let commands = MPSCommandBuffer(from: queue)
+            MPSSetHeapCacheDuration(commands, 0)
+            let results = graph.encode(to: commands, feeds: [entry: data], targetTensors: names.map { targets[$0]! },
+                                       targetOperations: nil, executionDescriptor: nil)
+            commands.commit()
+            commands.waitUntilCompleted()
             for name in names {
                 let tensor = targets[name]!
                 let n = (tensor.shape ?? []).reduce(1) { $0 * $1.intValue }
@@ -251,5 +291,72 @@ package final class VAEEncoder {
         let seconds = Date().timeIntervalSince(begin)
         let latent = readValues.removeValue(forKey: "latent")!, moments = readValues.removeValue(forKey: "moments")!
         return Output(latent: latent, moments: moments, probes: readValues, seconds: seconds)
+    }
+
+    /// **Flux's encoder by layers and bands** (`VAE.Bands`), live or planned: `conv_in`, the four blocks
+    /// (two resnets, a stride-2 convolution but in the last), then the bottleneck and the head by
+    /// passes at `H/8 × W/8` — the operations of `flux` in the same order, on the same shapes.
+    private static func encodeBanded(_ image: UnsafePointer<Float>?, family: Family, height H: Int, width W: Int,
+                                      bands: VAE.Bands) throws -> (latent: [Float], moments: [Float]) {
+        let memory = bands.memory
+        let input = try memory.register([1, 3, H, W])
+        if let image, memory.isLive { input.values.update(from: image, count: input.count) }
+        var x = try bands.conv(input, "encoder.conv_in", outChannels: 128)
+        memory.free(input)
+        var entry = 128
+        for (i, output) in [128, 256, 512, 512].enumerated() {
+            let prefix = "encoder.down_blocks.\(i)"
+            x = try bands.resnet(x, prefix + ".resnets.0", inChannels: entry, outChannels: output)
+            x = try bands.resnet(x, prefix + ".resnets.1", inChannels: output, outChannels: output)
+            if i < 3 {
+                let half = try bands.downsample(x, prefix + ".downsamplers.0.conv")
+                memory.free(x)
+                x = half
+            }
+            entry = output
+        }
+        // The bottleneck and the head at `H/8 × W/8`, by passes: `flux`'s operations in its order.
+        let (h, w, c) = (H / 8, W / 8, family.channels), mid = "encoder.mid_block"
+        x = try bands.resnet(x, mid + ".resnets.0", inChannels: 512, outChannels: 512)
+        try bands.attention(x, mid + ".attentions.0")
+        x = try bands.resnet(x, mid + ".resnets.1", inChannels: 512, outChannels: 512)
+        var moments = try bands.normConv(x, norm: "encoder.conv_norm_out", conv: "encoder.conv_out", outChannels: 2 * c,
+                                         residual: nil, into: nil)
+        memory.free(x)
+        if family == .flux2 {
+            let y = try bands.whole([moments], moments.shape, weights: WeightList.conv(2 * c, 2 * c, kernel: 1),
+                                    workspace: VAELayout.reformattedWeights(4 * c * c) / 4) { b, p in
+                try b.conv(p[0], "quant_conv", padding: 0)
+            }
+            memory.free(moments)
+            moments = y
+        }
+        let latent = try bands.whole([moments], [1, c, h, w], weights: []) { b, p in
+            VAEEncoder.normalize(b.graph, b.graph.sliceTensor(p[0], dimension: 1, start: 0, length: c, name: nil), family)
+        }
+        memory.host(4 * (moments.count + latent.count))
+        let values = memory.isLive
+            ? (Array(UnsafeBufferPointer(start: latent.values, count: latent.count)),
+               Array(UnsafeBufferPointer(start: moments.values, count: moments.count)))
+            : ([], [])
+        memory.free(latent); memory.free(moments)
+        return values
+    }
+
+    /// **Everything Flux's encoder holds for an `H × W` image** at a band of `band` elements — its
+    /// registers' heap, the largest graph's workspace, the latent and moments it returns:
+    /// `encodeBanded` walked without a device. `encode` allocates exactly this before its first graph.
+    package static func plan(family: Family, height: Int, width: Int, band: Int = VAE.bandElements) -> VAELayout {
+        plans(VAEPlanKey(family, [height, width, band])) { walk(family: family, height: height, width: width, band: band) }
+    }
+
+    private static let plans = ShapeMemo<VAEPlanKey<Family>, VAELayout>()
+
+    /// `plan`, walked every time: what the memory keeps, and what the tests compare it with.
+    package static func walk(family: Family, height: Int, width: Int, band: Int = VAE.bandElements) -> VAELayout {
+        let memory = VAEMemory()
+        let bands = VAE.Bands(memory: memory, weights: nil, name: "Flux encoder", groups: 32, band: band)
+        _ = try? encodeBanded(nil, family: family, height: height, width: width, bands: bands)
+        return memory.layout
     }
 }

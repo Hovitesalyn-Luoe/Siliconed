@@ -27,9 +27,10 @@ cd "${0:A:h}/.."
 languages=(fr de es it)
 catalog=Sources/SiliconedApp/Localizable.xcstrings
 module=""
+# The freshest build that has both modules the app imports.
 for d in .build/out/Products/Release .build/out/Products/Debug .build/release/Modules .build/debug/Modules; do
-  # Both modules the app imports.
-  [[ -e $d/Siliconed.swiftmodule && -e $d/SilicontrolHelp.swiftmodule ]] && { module=$d; break }
+  [[ -e $d/Siliconed.swiftmodule && -e $d/SilicontrolHelp.swiftmodule ]] || continue
+  [[ -z $module || $d/Siliconed.swiftmodule -nt $module/Siliconed.swiftmodule ]] && module=$d
 done
 [[ -n $module ]] || { echo "translations: build the module first (swift build --product SiliconedApp)" >&2; exit 1 }
 

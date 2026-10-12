@@ -212,4 +212,38 @@ final class TokenizerAndVAETests: XCTestCase {
             XCTAssertEqual(name, "c.bias")
         }
     }
+
+    /// **The tables read from the raw bytes**: escapes, both merge spellings, a repeated key
+    /// (the last wins, as the dictionaries did), and the BPE that runs on them. Equal to the
+    /// `JSONSerialization` dictionaries on Z-Image's and Qwen-Image-2.1's 151 k + 151 k entries
+    /// (checked once on the files).
+    func testTokenizerTablesFromRawBytes() throws {
+        let json = #"""
+        {"version": "1.0", "added_tokens": [{"id": 9, "content": "<|x|>", "single_word": false, "lstrip": false,
+          "rstrip": false, "normalized": false, "special": true}],
+         "normalizer": null,
+         "pre_tokenizer": {"type": "Sequence", "pretokenizers": [{"type": "Split", "pattern": {"Regex": "\\p{L}+|\\s+"},
+           "behavior": "Isolated", "invert": false}, {"type": "ByteLevel", "add_prefix_space": false, "use_regex": false}]},
+         "post_processor": {"type": "ByteLevel", "add_prefix_space": false},
+         "decoder": {"type": "ByteLevel", "add_prefix_space": false},
+         "model": {"type": "BPE", "dropout": null, "unk_token": null, "continuing_subword_prefix": "",
+           "end_of_word_suffix": "", "fuse_unk": false, "byte_fallback": false,
+           "vocab": {"a": 0, "b": 1, "c": 2, "ab": 3, "abc": 4, "q\"\\": 5, "b": 6, "😀": 7},
+           "merges": ["a b", ["ab", "c"], ["a", "b"]]}}
+        """#
+        let path = NSTemporaryDirectory() + "m171-tokenizer-\(getpid()).json"
+        try json.write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let t = try Tokenizer(file: path)
+        XCTAssertEqual(t.vocabularyEntries, 7)
+        XCTAssertEqual(t.id(of: "abc"), 4)
+        XCTAssertEqual(t.id(of: "q\"\\"), 5)
+        XCTAssertEqual(t.id(of: "b"), 6)
+        XCTAssertEqual(t.id(of: "😀"), 7)
+        XCTAssertNil(t.id(of: "abd"))
+        XCTAssertEqual(t.mergeEntries, 2)
+        XCTAssertEqual(t.rank(of: "a", "b"), 2)
+        XCTAssertEqual(t.rank(of: "ab", "c"), 1)
+        XCTAssertEqual(t.encode("abc<|x|>"), [4, 9])
+    }
 }

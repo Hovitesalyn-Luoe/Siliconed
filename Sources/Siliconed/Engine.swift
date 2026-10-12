@@ -91,6 +91,10 @@ public final class Engine: Sendable {
         /// **The variations its noise was turned by** (`Request.variations`), those of null
         /// strength left out; empty for an ordinary render.
         public var variations: [Variation] = []
+        /// **The render's memory: its computed need against its own measured peak**, phase by phase
+        /// (`MemoryCheck`); a phase above its need is a defect of the engine (`MemoryCheck.isDefect`).
+        /// `nil` when no need was computed (a model whose maps are not installed).
+        public var memory: MemoryCheck? = nil
 
         /// **The generation metadata**, as `png()` writes it (`iTXt` chunks). ASCII keys, readable
         /// values; **no date** — two identical renders must remain two identical files.

@@ -1,12 +1,10 @@
-// **The named subjects in the rack** (experimental, `Subjects.swift`): their shelf in the Images box,
-// and the row under the prompt that says what the subjects make of it.
+// **The named subjects in the rack** (experimental, `Subjects.swift`): the Images box in its Subjects
+// mode, and the row under the prompt that says what the subjects make of it.
 //
-//     ┌ Images ───────────────── 2/3 ┐
-//     │ ▣ +                          │   the edit's own images
-//     │ ──────────────────────────── │
-//     │ @ Subjects                 3 │   one chip per subject — a click cites it, its menu edits,
-//     │ (▣ @alice) (▣ @red-coat) (+) │   shows or deletes it; an image dropped here, or « + »,
-//     └──────────────────────────────┘   opens the sheet that names it
+//     ┌ Images ───────────────── 2/3 ┐   2 cited of the 3 a render takes
+//     │ [ Images | Subjects ]        │   one or the other, never both
+//     │ (▣ @alice) (▣ @red-coat) (+) │   one chip per subject — a click cites it, its menu edits or
+//     └──────────────────────────────┘   deletes it; an image dropped here, or « + », names a new one
 //
 //     Prompt … @alice in @red-coat
 //     1 ● 2 ●  2 images     Model Prompt     ← the model's prompt, in a popover; or why it is refused
@@ -15,19 +13,13 @@ import AppKit
 import Siliconed
 import SwiftUI
 
-/// **The library of subjects, as a shelf of the Images box.** A subject cited is one more image to the
-/// model, numbered after the edit's own: it rides the box's wires, and counts in its budget.
+/// **The library of subjects, the Images box in its Subjects mode** — in memory, as many as one wants;
+/// the prompt cites 3 at most. A subject cited is one image to the model, numbered by first appearance.
 struct SubjectShelf: View {
     let app: AppState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Label("Subjects", systemImage: "at").labelStyle(.titleAndIcon)
-                Spacer(minLength: 0)
-                if !app.subjects.all.isEmpty { Text(verbatim: "\(app.subjects.all.count)").monospacedDigit() }
-            }
-            .font(.caption).foregroundStyle(.secondary)
             ScrollView(.vertical) {
                 Flow(spacing: 5) {
                     ForEach(app.subjects.all) { s in
@@ -40,7 +32,6 @@ struct SubjectShelf: View {
                         .contextMenu {
                             Button("Cite in the Prompt") { app.cite(s) }
                             Button("Edit…") { app.editSubject(s) }
-                            Button("Show in Finder") { app.revealSubject(s) }
                             Divider()
                             Button("Delete…", role: .destructive) { app.confirmDeletion(s) }
                         }
@@ -65,15 +56,6 @@ struct SubjectShelf: View {
                  : "Click a subject to cite it. A render takes 3 images at most.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-        .dropDestination(for: DroppedImage.self) { items, _ in
-            guard let item = items.first else { return false }
-            switch item {
-            case .file(let url) where !AppState.importable(url): app.nameSubject(.file(url))
-            case .file: return false
-            case .png(let data): app.nameSubject(.png(data))
-            }
-            return true
         }
     }
 }

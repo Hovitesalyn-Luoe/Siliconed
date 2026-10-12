@@ -4,7 +4,7 @@ English · [Français](README.fr.md)
 
 *Siliconed — enhanced by silicone.*
 
-**Image generation for Apple silicon that does the full computation, proves it, and never swaps.**
+**Image generation for Apple silicon that does the full computation, proves it, and never takes more memory than its budget.**
 
 Siliconed is a free, open-source macOS app for **local text-to-image generation and AI image
 editing** on Apple silicon Macs (M1 and later). It runs recent diffusion models —
@@ -29,9 +29,10 @@ comic book style with cel shading”), compared under the curtain, filmed at rea
   ship.
 - **Full fp32, still fast.** Z-Image Turbo at 1024² in ~82 s on an M1 Pro, where Draw Things takes
   144 to 163 s with 8-bit weights on the same machine.
-- **31 GB of model on a 16 GB Mac, zero swap.** Weights are read from disk as they are needed.
-  The peak memory and the swap are measured at the worst case (1024×1536, three reference images),
-  and both models fit with 0 bytes swapped.
+- **31 GB of model on a 16 GB Mac, within a fixed budget.** Weights are read from disk as they are
+  needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac):
+  each render computes what it needs before it starts, takes the fastest plan that fits, and checks
+  its own peak against that figure. What the other applications hold is theirs.
 - **Built to be driven by an AI.** `silicontrol` drives the running app from a terminal, with JSON
   output; `silicontrol help` is all an agent needs to read.
 - **Your models, your way.** Import LoRAs and fine-tunes from Civitai or Hugging Face, install
@@ -132,8 +133,8 @@ Models live in `~/Library/Application Support/Siliconed` (override with `SILICON
 
 Rendering happens on your Mac. The only network traffic is the model download you accepted; the
 diagnostic opens a prefilled GitHub issue that you choose to submit or not. Before each render the
-engine checks the model, its license, the format and the memory it needs, and refuses up front
-rather than letting the machine swap.
+engine checks the model, its license, the format and the memory it needs, and refuses up front a
+render beyond this Mac's budget.
 
 ## Download
 
@@ -154,9 +155,10 @@ For comparison, Draw Things on the same machine, Z-Image `q8p`: 144 s for the fi
 for the fourth. Siliconed's ~82 s is in fp32; the comparison is about wall-clock time, not about
 identical arithmetic. How the figures are measured: [Verification](#verification).
 
-**Zero swap, measured.** Each model's peak `phys_footprint` and its swap-outs (`vm_stat` delta) are
-measured at the product's worst case: Qwen-Image-2.1 at 1024×1536 with 3 references, 0 swap-out;
-Z-Image at 1024×1536, 3.8 GB peak, 0 swap-out (its VAE decodes in bands, to the same bits).
+**Within the budget, measured.** Each model's peak `phys_footprint` and its swap-outs (`vm_stat` delta)
+are measured at the product's worst case, on a 16 GB Mac with nothing else running: Qwen-Image-2.1 at
+1024×1536 with 3 references, 0 swap-out; Z-Image at 1024×1536, 3.8 GB peak, 0 swap-out (its VAE
+decodes in bands, to the same bits).
 
 Each side must be at least 512 and a multiple of 16, with a surface of at most 1024×1536. Below
 512² the models are outside their domain.

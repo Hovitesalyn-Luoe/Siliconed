@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // **The API: closed modules, typed wires, a chain that refuses to be wired wrongly.**
 //
@@ -738,6 +739,130 @@ public enum Format {
 
 // ── the engine ───────────────────────────────────────────────────────────────────────────
 
+/// **The render's phase boundaries** — called where a phase has handed back what it owned.
+///
+/// Two readers. **The product's own check** (`MemoryCheck`): between `begin` and `end`
+/// each mark records the phase's `phys_footprint` maximum — the kernel's interval maximum, or the 10 ms
+/// sampler without it (`FootprintInterval`), reset at every mark — so a render knows which phase peaked, and by how much, against its computed need.
+/// **A measuring check** (`memory-trace-phases`): its `observer` reads what survives the
+/// phase; it runs before the reset, so it sees the same interval.
+package enum PhaseBoundary {
+    nonisolated(unsafe) package static var observer: ((String) -> Void)?
+    /// The marks of the render in progress, `nil` outside one. Renders are serialized on the engine's
+    /// queue (`Engine.file`): one ledger is enough.
+    nonisolated(unsafe) private static var marks: [(name: String, peak: Int)]?
+
+    /// A render starts: an empty ledger, a new kernel interval.
+    package static func begin() {
+        marks = []
+        FootprintInterval.reset()
+    }
+
+    package static func mark(_ name: String) {
+        let peak = FootprintInterval.peak()
+        observer?(name)
+        guard marks != nil else { return }
+        marks?.append((name, peak))
+        FootprintInterval.reset()
+    }
+
+    /// The render's marks, in order; the ledger closes.
+    package static func end() -> [(name: String, peak: Int)] {
+        defer { marks = nil; FootprintInterval.stop() }
+        return marks ?? []
+    }
+}
+
+/// **This process's `phys_footprint` maximum since the last reset**, by one of two methods — said by
+/// `method`, carried by every `MemoryCheck` and by the diagnostic (`peakMethod`):
+///
+/// - **`kernelInterval`**: `ri_interval_max_phys_footprint` (`proc_pid_rusage`), reset by
+///   `proc_reset_footprint_interval`. `phys_footprint`'s exact maximum (invariant 5), not an
+///   allocator's count, for one system call: an SDPA of a few milliseconds falls between two 10 ms
+///   samples, never between two kernel updates. The reset is not in a public header
+///   (`libproc`'s private half): looked up by name. No thread.
+/// - **`sampled10ms`**: the symbol absent, or the reset or the read failing once (then for the rest of
+///   the process), a thread reads `phys_footprint` (`task_vm_info`) every 10 ms and keeps the maximum
+///   since the last `reset`. A lower bound — a spike shorter than 10 ms can fall between two samples —
+///   but a phase's, not the footprint at its boundary. The thread lives from the first `reset` to
+///   `stop` (a render's `PhaseBoundary.begin` and `end`): never resident at rest.
+package enum FootprintInterval {
+    private typealias Reset = @convention(c) (pid_t) -> Int32
+    private static let resetFunction: Reset? = {
+        guard let symbol = dlsym(dlopen(nil, RTLD_NOW), "proc_reset_footprint_interval") else { return nil }
+        return unsafeBitCast(symbol, to: Reset.self)
+    }()
+    /// **Test injection only**: the symbol treated as absent, so the sampler runs on a Mac that has
+    /// it. Not a setting of the product.
+    nonisolated(unsafe) package static var symbolMissingForTesting = false
+    /// The kernel's reset or read failed once: sampled from then on.
+    nonisolated(unsafe) private static var kernelFailed = false
+    nonisolated(unsafe) private static var sampler: Sampler?
+
+    package static var method: PeakMethod {
+        resetFunction != nil && !symbolMissingForTesting && !kernelFailed ? .kernelInterval : .sampled10ms
+    }
+
+    /// A new interval: the kernel's, or the sampler's — started here if it is not running.
+    package static func reset() {
+        if method == .kernelInterval, let resetFunction {
+            if resetFunction(getpid()) == 0 { return }
+            kernelFailed = true
+        }
+        if let sampler { sampler.reset() } else { sampler = Sampler() }
+    }
+
+    /// The sampler, if one runs, stops — the end of a render or of a measuring check. Nothing for the kernel.
+    package static func stop() {
+        sampler?.stop()
+        sampler = nil
+    }
+
+    /// The interval's maximum by the method in force; `0` when nothing measured it (no sampler since
+    /// the last `stop`, or the kernel's read failing — sampled from the next `reset`).
+    package static var maximum: Int {
+        if method == .kernelInterval {
+            var r = rusage_info_v6()
+            let status = withUnsafeMutablePointer(to: &r) {
+                $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(getpid(), RUSAGE_INFO_V6, $0) }
+            }
+            if status == 0 { return Int(r.ri_interval_max_phys_footprint) }
+            kernelFailed = true
+            return 0
+        }
+        return sampler?.maximum ?? 0
+    }
+
+    /// The interval's maximum, never below the footprint now.
+    package static func peak() -> Int { max(maximum, Arena.processFootprint()) }
+
+    /// `phys_footprint` every 10 ms on a thread of its own; the maximum since the last `reset`.
+    private final class Sampler: @unchecked Sendable {
+        private let lock = NSLock()
+        private var peak: Int, running = true
+        init() {
+            peak = Arena.processFootprint()
+            Thread.detachNewThread { [self] in
+                while true {
+                    let now = Arena.processFootprint()
+                    lock.lock()
+                    peak = max(peak, now)
+                    let go = running
+                    lock.unlock()
+                    if !go { return }
+                    usleep(10_000)
+                }
+            }
+        }
+        func reset() {
+            let now = Arena.processFootprint()
+            lock.lock(); peak = now; lock.unlock()
+        }
+        var maximum: Int { lock.lock(); defer { lock.unlock() }; return peak }
+        func stop() { lock.lock(); running = false; lock.unlock() }
+    }
+}
+
 extension Engine {
     /// **Renders an image. Blocks, and serializes concurrent calls** — the form for the CLI and
     /// tools; an app takes the `async` facade (`Facade.swift`), with the same parameters in the
@@ -792,11 +917,18 @@ extension Engine {
         try cancellation.check()
         // Installed, license, format, memory, no other render: the first that fails throws. The
         // lock is held until this function returns, the whole batch.
-        // The budget is read once, here, at the render's launch (`MemoryBudget`): the preflight judges
-        // the floor against it, and the settings that depend on memory derive from it (`MemoryPlan`).
-        let budget = MemoryBudget.current()
+        // B, this Mac's budget (`MemoryBudget`): the preflight judges the floor against it, and the
+        // plan is chosen in it (`MemoryPlan.choose`) — nothing read from the machine's state.
+        let ceiling = MemoryBudget.machineCeiling()
+        // **The need, from the request's own inputs** (`MemoryNeed`): each reference at its size, the
+        // prompt's tokens bounded by its bytes; the LoRA ranks join once the stack is open (below).
+        var memoryRequest = model.card.memoryRequest(
+            width: request.width, height: request.height,
+            references: (request.image.map { [$0] } ?? request.references).map { ($0.width, $0.height) },
+            promptTokens: MemoryNeed.Request.promptTokens(request.prompt, family: model.card.family,
+                                                           references: request.references.count))
         let lock = try Preflight.run(model, width: request.width, height: request.height,
-                                     references: request.references.count, budget: budget)
+                                     references: request.references.count, ceiling: ceiling, memory: memoryRequest)
         defer { withExtendedLifetime(lock) {} }
         guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Request.Failure.emptyPrompt
@@ -808,6 +940,10 @@ extension Engine {
         let stack = request.loras.isEmpty
             ? nil : try LoRA(paths: request.loras.map { ($0.path, Float($0.strength)) })
         try stack?.checkTarget(model: chain.denoising.model)
+        if let stack {
+            memoryRequest.loraRanks = [stack.maxRank]
+            try model.card.checkMemory(memoryRequest, ceiling: ceiling)
+        }
         let height = request.height / space.factor, width = request.width / space.factor
         let steps = request.steps ?? chain.denoising.defaultSteps
         guard (1...Request.maximumSteps).contains(steps) else { throw Request.Failure.steps(steps) }
@@ -865,17 +1001,20 @@ extension Engine {
         let warn: @Sendable (String) -> Void = { message in
             if let onProgress { onProgress(.warning(message)) } else { Warnings.outsideRender?(message) }
         }
-        let floor = model.card.memoryNeed(width: request.width, height: request.height, references: request.references.count)
-        let comfortable = model.card.memoryComfort(width: request.width, height: request.height,
-                                                   references: request.references.count)
-        return try MemoryPlan.during(budget: budget, floor: floor, comfortable: comfortable) { try Warnings.during(warn) {
-            defer { Arena.releaseToSystem() }
+        // The plan in B, and its need: what this render may take at most, the figure its own peak is
+        // checked against at its end (`MemoryCheck`).
+        let memoryPlan = MemoryPlan.choose(memoryRequest, ceiling: ceiling)
+        let need = memoryPlan.need
+        PhaseBoundary.begin()
+        defer { _ = PhaseBoundary.end() }
+        return try MemoryPlan.during(memoryPlan) { try Warnings.during(warn) {
             // A GPU or AMX submission that failed reaches this render's journal, even when its cause
             // was already said by an earlier render (`Attention.report` says each cause once).
             let gpuFailures = Attention.failures
             defer { Attention.summarize(since: gpuFailures) }
             let totalStart = Date()
             context.footprints.start = Arena.processFootprint()
+            PhaseBoundary.mark("start")
             // A sketch announces the evaluations it will do: the progress reaches 1 at its image.
             context.emit(.start(Plan(
                 denoising: sketch.map { plan.sketched($0) } ?? plan, seeds: seeds,
@@ -902,16 +1041,21 @@ extension Engine {
             if let textKey, let kept = cache?.conditioning(textKey) {
                 text = kept
             } else {
-                text = try (chain.text as? any ImageTextModule)?.encoder(request.prompt, images: prepared, context: context)
-                    ?? chain.text.encoder(request.prompt, context: context)
+                // Each phase in its own autorelease pool: the render is one item of the engine's
+                // queue, whose pool drains only at its end — what MPS autoreleases in a phase
+                // (descriptors, NDArrays and their buffers) would otherwise live beside the next.
+                text = try autoreleasepool {
+                    try (chain.text as? any ImageTextModule)?.encoder(request.prompt, images: prepared, context: context)
+                        ?? chain.text.encoder(request.prompt, context: context)
+                }
                 if let textKey { cache?.store(text, key: textKey) }
             }
             context.timings.text = Date().timeIntervalSince(begin)
             context.timings.encoder = context.timings.text - context.timings.tokenizer
             context.emit(.text(tokens: text.tokens, tokenizer: context.timings.tokenizer,
                                     encoder: context.timings.encoder))
-            Arena.releaseToSystem()
             context.footprints.text = Arena.processFootprint()
+            PhaseBoundary.mark("text")
 
             // ── The image (img2img), once: the encoder lives in its own scope, before the DiT. ──
             var z₀: Latent? = nil
@@ -920,11 +1064,12 @@ extension Engine {
                 context.emit(.stage(.image, image: 0))
                 let encodingStart = Date()
                 // Already at the format (the request fitted it on receipt): `fitted` returns it as is.
-                z₀ = try encode(image.fitted(width: request.width, height: request.height), with: encoding,
-                                context: context)
+                z₀ = try autoreleasepool {
+                    try encode(image.fitted(width: request.width, height: request.height), with: encoding, context: context)
+                }
                 context.timings.encoding = Date().timeIntervalSince(encodingStart)
-                Arena.releaseToSystem()
                 context.emit(.encoding(seconds: context.timings.encoding))
+                PhaseBoundary.mark("image")
             }
 
             // ── The references (editing), once: same encoder, each at its own size. ──
@@ -935,8 +1080,8 @@ extension Engine {
                 let referencesStart = Date()
                 for image in prepared {
                     try context.check()
-                    references.append(try encode(image, with: encoding, context: context))
-                    Arena.releaseToSystem()
+                    references.append(try autoreleasepool { try encode(image, with: encoding, context: context) })
+                    PhaseBoundary.mark("reference \(references.count)")
                 }
                 context.timings.encoding += Date().timeIntervalSince(referencesStart)
                 context.emit(.encoding(seconds: context.timings.encoding))
@@ -967,18 +1112,20 @@ extension Engine {
                 context.emit(.stage(.denoising, image: n))
                 let denoisingStart = Date()
                 do {
-                    try chain.denoising.denoise(&latent, text: text, steps: steps, start: start,
+                    try autoreleasepool {
+                        try chain.denoising.denoise(&latent, text: text, steps: steps, start: start,
                                                     references: references, lora: stack, context: context)
+                    }
                 } catch is Context.Sketched {
                     latent.values = context.estimate!
                 }
                 context.timings.denoising = Date().timeIntervalSince(denoisingStart)
-                Arena.releaseToSystem()
+                PhaseBoundary.mark("denoising")
                 pending.append((latent, context.timings, Date().timeIntervalSince(imageStart)))
             }
 
             context.keptDenoiser = nil
-            Arena.releaseToSystem()
+            PhaseBoundary.mark("denoiser released")
 
             var renderResults: [Render] = []
             for (n, (latent, timings, elapsed)) in pending.enumerated() {
@@ -986,11 +1133,11 @@ extension Engine {
                 context.image = n
                 context.timings = timings
                 context.emit(.stage(.decoding, image: n))
-                MemoryPlan.readForDecoding()   // after the DiT is gone: the decoders' bands derive from it
-                let image = try chain.decoding.decode(latent, context: context)
+                let image = try autoreleasepool { try chain.decoding.decode(latent, context: context) }
                 // An image's time: its own text, encoding and denoising, then its decoding.
                 context.timings.total = elapsed + context.timings.decoding
                 context.footprints.end = Arena.processFootprint()
+                PhaseBoundary.mark("decoding")
                 context.emit(.decoding(seconds: context.timings.decoding))
                 let seed = seeds[n]
 
@@ -1006,7 +1153,14 @@ extension Engine {
                 context.emit(.image(index: n, renderResult))
                 renderResults.append(renderResult)
             }
-            return renderResults
+            // **The render's own peak against its need**: a phase above its need is a
+            // defect of the code, logged and carried by every image of the batch.
+            guard let need else { return renderResults }
+            let check = MemoryCheck(need: need, marks: PhaseBoundary.end())
+            for defect in check.defects {
+                MemoryCheck.log.error("\(defect, privacy: .public) — \(model.card.id, privacy: .public) \(request.width)×\(request.height), \(request.references.count) reference(s)")
+            }
+            return renderResults.map { var r = $0; r.memory = check; return r }
         } }
     }
 

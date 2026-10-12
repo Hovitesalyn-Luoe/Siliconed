@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import IOKit
 import IOKit.ps
+import os
 import Metal
 
 /// **The diagnostic** — what any user runs from the app, in ~15 s per model, and whose JSON fills the
@@ -72,11 +73,20 @@ import Metal
 ///
 /// **Every field is there to decide something in this repository** (schema 2, 08/10/2026) — a report
 /// from a machine we have never touched, read without Xcode on it, must say which line of code to change:
-///   - `memory` per model: the budget at the launch, the floor, and **the memory plan's decisions**. The
-///     diagnostic runs inside `MemoryPlan.during` like a render, so an 8 GB Mac takes the lean plan here
-///     exactly where its renders would — before schema 2 it ran outside any render, on the default plan
-///     a real render there would not have taken, and its estimate was another machine's. A refusal
-///     carries the same figures: the 8 GB reserve (`MemoryBudget.reserve`) is judged on them;
+///   - `memory` per model: B, the floor, and **the memory plan's decisions**. The diagnostic runs
+///     inside `MemoryPlan.during` like a render, so an 8 GB Mac takes the lean plan here exactly where
+///     its renders would — before schema 2 it ran outside any render, on the default plan a real render
+///     there would not have taken, and its estimate was another machine's. A refusal carries the same
+///     figures. **Schema 3 (12/10/2026)**: B (`budgetBytes`: ¾ · RAM − 2 GiB, the figure
+///     the refusal reads and the plan is chosen in), the chosen plan's need computed from the
+///     diagnostic's inputs, phase by phase (`needBytes`, `needByPhase`), and the measured peak of each
+///     phase against it (`check`:
+///     `MemoryCheck`), with the method that read it (`peakMethod`: the kernel's interval maximum,
+///     exact, or a 10 ms sampler where the private reset is missing). A phase above its need is a defect of the code
+///     found on a machine we have never touched — the line of the formula or of the allocation to fix.
+///     **Schema 4 (12/10/2026)**: the kernel's reading is gone — no `reclaimableBytes`,
+///     `availableBytes`, `reserveBytes`, `comfortableBytes`, nor the conditions' reclaimable memory and
+///     compressor room: nothing decides on them any more;
 ///   - `diskReadBytes` per model: the map read from the disk or from the page cache — the 11–12 % measured
 ///     on a loaded desktop was that, and nothing else in a report says it;
 ///   - `witness`: an fp32 GEMM `[511 × 3840] × [3840 × 3840]` on the GPU alone and through `cblas_sgemm`
@@ -84,8 +94,8 @@ import Metal
 ///     `EngineSettings.amx` goes on for this chip and at which `amxFraction` (it is on for `referenceChip`
 ///     only); the GPU's rows against `cblas` check a new GPU family's fp32 without one byte of weights;
 ///     the before/after pair is the thermal witness that frames any timing, on a machine nobody watches;
-///   - `conditions` before/after: thermal state, Low Power Mode, battery, reclaimable memory, the
-///     compressor's room, the swap in use — a fanless Mac or a loaded one says so instead of a slow chip;
+///   - `conditions` before/after: thermal state, Low Power Mode, battery, the swap in use — a fanless
+///     Mac or a loaded one says so instead of a slow chip;
 ///   - `settings`: every setting that is not the reference's default, with its provenance, and `amx`
 ///     always — a profile or an environment variable on the user's side must not pass for the chip;
 ///   - `machine.gpu*`: the Metal device, its highest `apple` family and its working set — the kernels'
@@ -100,7 +110,7 @@ public enum Diagnostic {
     public static let prompt = "a 30 year old woman posing in a library"
     public static let seed: UInt64 = 42
     /// The JSON's version: the script that aggregates the reports reads it.
-    public static let schema = 2
+    public static let schema = 4
     public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     // ── the report ──────────────────────────────────────────────────────────────────────────
@@ -189,21 +199,48 @@ public enum Diagnostic {
 
     /// **The memory plan a render would have taken**, and what it decided (`MemoryPlan.Render`).
     public struct MemoryReport: Codable, Sendable, Equatable {
-        /// `MemoryBudget` at the launch: what the machine could give back, and that minus the reserve.
-        public var reclaimableBytes: Int
-        public var availableBytes: Int
-        public var reserveBytes: Int
-        /// `ModelCard.memoryNeed` / `memoryComfort` at the diagnostic's format.
+        /// `ModelCard.memoryNeed` at the diagnostic's format: the lean plan's peak, judged against B.
         public var floorBytes: Int
-        public var comfortableBytes: Int
-        /// The lean plan was taken (at the launch, or when the compressor ran short).
+        /// The lean plan was taken: B holds neither the encoder's buffers nor the standard bands.
         public var lean: Bool
         /// Each site's decision, in order — the lines the developer's command line prints.
         public var decisions: [String]
-        public init(reclaimableBytes: Int, availableBytes: Int, reserveBytes: Int, floorBytes: Int,
-                    comfortableBytes: Int, lean: Bool, decisions: [String]) {
-            self.reclaimableBytes = reclaimableBytes; self.availableBytes = availableBytes; self.reserveBytes = reserveBytes
-            self.floorBytes = floorBytes; self.comfortableBytes = comfortableBytes; self.lean = lean; self.decisions = decisions
+        /// **B** (schema 3): what this Mac offers a render, fixed by its RAM (`MemoryBudget.ceiling`,
+        /// ¾ · RAM − 2 GiB, or `SILICONED_MEMORY_BUDGET_GB`) — the one figure the refusal reads.
+        public var budgetBytes: Int
+        /// The computed need of the plan chosen in B (`MemoryPlan.choose`) at the diagnostic's format and prompt.
+        public var needBytes: Int
+        /// The need of each of the formula's phases (`text`, `denoising`, `decoding`…), crossing and base included.
+        public var needByPhase: [String: Int]
+        /// The need comes from the hidden families' measured fallback (`MemoryNeed.unmodelled`), not a formula.
+        public var fallback: Bool
+        /// **The measured peak against the need**, phase by phase (`MemoryCheck`): `nil` when the model
+        /// did not run (refused, failed before its first phase).
+        public var check: MemoryCheck?
+        /// **How the peaks are read on this machine** (`FootprintInterval`): `kernelInterval` (exact) or
+        /// `sampled10ms` (the kernel's reset missing or failing) — said even when `check` is `null`.
+        public var peakMethod: PeakMethod
+        public init(floorBytes: Int, lean: Bool, decisions: [String], budgetBytes: Int = 0, needBytes: Int = 0,
+                    needByPhase: [String: Int] = [:], fallback: Bool = false, check: MemoryCheck? = nil,
+                    peakMethod: PeakMethod = .kernelInterval) {
+            self.floorBytes = floorBytes; self.lean = lean; self.decisions = decisions
+            self.budgetBytes = budgetBytes; self.needBytes = needBytes; self.needByPhase = needByPhase
+            self.fallback = fallback; self.check = check; self.peakMethod = peakMethod
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case floorBytes, lean, decisions,
+                 budgetBytes, needBytes, needByPhase, fallback, check, peakMethod
+        }
+
+        /// Explicit `null` for a check that did not run, like every optional of the report.
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(floorBytes, forKey: .floorBytes); try c.encode(lean, forKey: .lean)
+            try c.encode(decisions, forKey: .decisions); try c.encode(budgetBytes, forKey: .budgetBytes)
+            try c.encode(needBytes, forKey: .needBytes); try c.encode(needByPhase, forKey: .needByPhase)
+            try c.encode(fallback, forKey: .fallback); try c.encode(check, forKey: .check)
+            try c.encode(peakMethod, forKey: .peakMethod)
         }
     }
 
@@ -214,16 +251,10 @@ public enum Diagnostic {
         public var lowPowerMode: Bool
         /// The machine runs on its battery; `nil` when the power source does not say.
         public var onBattery: Bool?
-        /// `MemoryBudget.reclaimable`, the process's own footprint deducted.
-        public var reclaimableBytes: Int
-        /// `MemoryPressure.headroom`: the compressor's room before the kernel swaps; `nil` if unreadable.
-        public var compressorHeadroomBytes: Int?
         /// `vm.swapusage`'s used bytes: swap another process left, not ours (ours is `swapouts`).
         public var swapUsedBytes: Int
-        public init(thermal: String, lowPowerMode: Bool, onBattery: Bool?, reclaimableBytes: Int,
-                    compressorHeadroomBytes: Int?, swapUsedBytes: Int) {
+        public init(thermal: String, lowPowerMode: Bool, onBattery: Bool?, swapUsedBytes: Int) {
             self.thermal = thermal; self.lowPowerMode = lowPowerMode; self.onBattery = onBattery
-            self.reclaimableBytes = reclaimableBytes; self.compressorHeadroomBytes = compressorHeadroomBytes
             self.swapUsedBytes = swapUsedBytes
         }
     }
@@ -486,36 +517,47 @@ public enum Diagnostic {
                                  estimatedRenderSeconds: nil, peakFootprintBytes: 0, swapouts: 0,
                                  golden: nil, deviation: nil, error: nil)
         report.variant = card.isImported ? nil : library.installedVariant(of: card.family)?.rawValue
-        defer { Arena.releaseToSystem() }
         let gpuFailures = Attention.failures
         var planned = false
         do {
             let model = try Model.named(card.id, in: library)
-            // **As a render reads it** (`Chain.execute`): the budget once, at the launch, judged by the
-            // preflight and handed to the memory plan. Written before the preflight: a refusal is the
-            // figure an 8 GB report exists for.
-            let budget = MemoryBudget.current()
-            let floor = card.memoryNeed(width: resolution, height: resolution)
-            let comfortable = card.memoryComfort(width: resolution, height: resolution)
-            report.memory = MemoryReport(reclaimableBytes: budget.reclaimable, availableBytes: budget.available,
-                                         reserveBytes: budget.reserve, floorBytes: floor, comfortableBytes: comfortable,
-                                         lean: false, decisions: [])
+            // **As a render plans it** (`Chain.execute`): B, judged by the preflight, the plan chosen in
+            // it. Written before the preflight: a refusal is the figure an 8 GB report exists for.
+            let ceiling = MemoryBudget.machineCeiling()
+            // The need from the diagnostic's own inputs (schema 3): its format, its prompt, no reference.
+            let request = card.memoryRequest(width: resolution, height: resolution,
+                                             promptTokens: MemoryNeed.Request.promptTokens(prompt, family: card.family))
+            let plan = MemoryPlan.choose(request, ceiling: ceiling)
+            let need = plan.need
+            var byPhase: [String: Int] = [:]
+            for kind in MemoryNeed.Phase.Kind.allCases { if let n = need?.need(of: kind) { byPhase[kind.rawValue] = n } }
+            report.memory = MemoryReport(floorBytes: plan.floor, lean: plan.lean, decisions: plan.decisions,
+                                         budgetBytes: ceiling, needBytes: need?.peak ?? 0,
+                                         needByPhase: byPhase, fallback: need?.isFallback ?? false,
+                                         peakMethod: FootprintInterval.method)
             // Installed, license, memory at the diagnostic's format, no other render on the machine.
-            let lock = try Preflight.run(model, width: resolution, height: resolution, budget: budget)
+            let lock = try Preflight.run(model, width: resolution, height: resolution, ceiling: ceiling, memory: request)
             defer { withExtendedLifetime(lock) {} }
-            try MemoryPlan.during(budget: budget, floor: floor, comfortable: comfortable) {
+            PhaseBoundary.begin()
+            defer { _ = PhaseBoundary.end() }
+            try MemoryPlan.during(plan) {
                 planned = true
                 try measure(model, card: card, into: &report, started: started, cancellation: cancellation,
                             onProgress: onProgress)
+            }
+            if let need {
+                let check = MemoryCheck(need: need, marks: PhaseBoundary.end())
+                report.memory?.check = check
+                report.memory?.peakMethod = check.peakMethod   // a kernel failing mid-run switched it
+                for defect in check.defects {
+                    MemoryCheck.log.error("\(defect, privacy: .public) — diagnostic \(card.id, privacy: .public)")
+                }
             }
         } catch {
             report.error = Library.withoutHome("\(error)")
             report.failure = EngineError(error)
         }
-        if planned, let decisions = MemoryPlan.lastRender?.decisions {
-            report.memory?.decisions = decisions
-            report.memory?.lean = decisions.contains { $0.contains("lean") }
-        }
+        if planned, let decisions = MemoryPlan.lastRender?.decisions { report.memory?.decisions = decisions }
         // A failed submission leaves its output as it was: the figures above did not come from a
         // computation, and the report says so where a reader looks.
         if let failed = Attention.summarize(since: gpuFailures), report.error == nil { report.error = failed }
@@ -551,7 +593,7 @@ public enum Diagnostic {
         let text = try (model.chain.text as? any ImageTextModule)?.encoder(prompt, images: [], context: context)
             ?? model.chain.text.encoder(prompt, context: context)
         let encoderSeconds = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
+        PhaseBoundary.mark("text")
 
         // ── two evaluations ──
         onProgress?(card, .denoiser)
@@ -560,7 +602,7 @@ public enum Diagnostic {
         let out = try evaluate(model, text: text, inputs: inputs.0, sigmas: inputs.1, height: height, width: width,
                                context: context)
         let denoisingSeconds = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
+        PhaseBoundary.mark("denoising")
         if let golden {
             let threshold = threshold(for: card.family)
             let second = channelError(planar: out.second, golden.outputs[1], channels: golden.channels)
@@ -572,13 +614,12 @@ public enum Diagnostic {
 
         // ── the decoder, on the one-step estimate of x₀ ──
         onProgress?(card, .decoder)
-        MemoryPlan.readForDecoding()   // after the DiT is gone, as `Chain.execute` does
         let estimate = try oneStepEstimate(model, x: inputs.0[1], output: out.second, sigma: inputs.1[1])
         begin = Date()
         _ = try model.chain.decoding.decode(Latent(space: denoising.space, height: height, width: width, values: estimate),
                                             context: context)
         let decodingSeconds = Date().timeIntervalSince(begin)
-        Arena.releaseToSystem()
+        PhaseBoundary.mark("decoding")
 
         let first = denoisingSeconds - out.secondSeconds
         report.seconds = Seconds(encoder: encoderSeconds, firstEvaluation: first, steadyEvaluation: out.secondSeconds,
@@ -788,8 +829,7 @@ public enum Diagnostic {
         let swap = sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0 ? Int(usage.xsu_used) : 0
         return Conditions(thermal: thermalLabel(ProcessInfo.processInfo.thermalState),
                           lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled, onBattery: onBattery(),
-                          reclaimableBytes: MemoryBudget.current().reclaimable,
-                          compressorHeadroomBytes: MemoryPressure.current()?.headroom, swapUsedBytes: swap)
+                          swapUsedBytes: swap)
     }
 
     package static func thermalLabel(_ state: ProcessInfo.ThermalState) -> String {

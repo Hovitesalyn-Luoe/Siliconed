@@ -125,6 +125,8 @@ package final class Qwen3VLEncoder {
             }
             timings["vision"] = Date().timeIntervalSince(started)
         }
+        // The tower is gone before the language model allocates.
+        if !images.isEmpty { PhaseBoundary.mark("vision") }
         let imageRows = prepared.ids.indices.filter { prepared.ids[$0] == tokens.image }
         let featureRows = features.reduce(0) { $0 + $1.tokens }
         guard imageRows.count == featureRows else {
@@ -147,26 +149,24 @@ package final class Qwen3VLEncoder {
         if !features.isEmpty {
             // `masked_scatter`: the image features, concatenated in image order, fill the
             // `<|image_pad|>` rows in sequence order.
-            func scatter(_ rows: [Int], _ select: (Qwen3VLVision.Features) -> [Float],
+            func scatter(_ rows: [Int], _ select: (Qwen3VLVision.Features) -> UnsafeMutablePointer<Float>,
                          into x: UnsafeMutablePointer<Float>, add: Bool) {
                 var next = 0
                 for feature in features {
                     let values = select(feature)
-                    values.withUnsafeBufferPointer { v in
-                        for r in 0..<feature.tokens {
-                            let destination = x + rows[next] * h, source = v.baseAddress! + r * h
-                            if add { vDSP_vadd(destination, 1, source, 1, destination, 1, vDSP_Length(h)) }
-                            else { destination.update(from: source, count: h) }
-                            next += 1
-                        }
+                    for r in 0..<feature.tokens {
+                        let destination = x + rows[next] * h, source = values + r * h
+                        if add { vDSP_vadd(destination, 1, source, 1, destination, 1, vDSP_Length(h)) }
+                        else { destination.update(from: source, count: h) }
+                        next += 1
                     }
                 }
             }
             encoder.embeddingsHook = { x in scatter(imageRows, \.embeddings, into: x, add: false) }
-            let levels = features[0].deepstack.count
+            let levels = features[0].levels
             encoder.layerOutputHook = { layer, x in
                 guard layer < levels else { return }
-                scatter(imageRows, { $0.deepstack[layer] }, into: x, add: true)
+                scatter(imageRows, { $0.deepstack(layer) }, into: x, add: true)
             }
         }
         let all = try encoder.encode(ids: prepared.ids, realTokens: sequence)
@@ -269,11 +269,10 @@ package enum Qwen3VLPrompt {
     ///     the worst edit's S ≈ 3 100;
     ///   - DiT: every text row is a row of the prefix — `x`, `keys`, `values`, `freqs`, ~49 KB per row
     ///     (25 MB), and the prefix K/V `2 · 32 layers · 4096 · 4` B = 1 MB per row when it is kept in
-    ///     memory (512 MB; `MemoryPlan` puts it on disk when the budget says so).
+    ///     memory (512 MB; on disk past the pipeline's fixed K/V budget).
     ///
-    /// The measured floors (`ModelCard.measuredPeaks`) were taken with the library
-    /// prompt, a dozen tokens: a 512-token prompt is beyond them by the figures above, which the
-    /// reserve of `MemoryBudget` has to absorb — a measurement at 512 tokens is still owed.
+    /// The need charges these figures at the prompt's own tokens (`MemoryNeed.Request.promptTokens`,
+    /// bounded by its bytes): a 512-token prompt is planned and judged as one.
     package static let maxPromptTokens = 512
 
     /// The prompt as a user may write it for this encoder: no image slot spelled out, at most

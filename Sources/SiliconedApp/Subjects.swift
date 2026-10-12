@@ -1,120 +1,194 @@
 // **Named subjects in the app — experimental, off by default**.
 //
-//     the subjects shelf    the library: one chip per subject (thumbnail, name, its kind's color);
-//        │                  a click cites it, a drop or « + » names a new one (`SubjectSheet.swift`)
+//     the Images box        a switch: Images (1 to 3 numbered images, an edit) or Subjects (a library
+//        │                  of named pictures, as many as one wants) — one or the other, never both;
+//        │                  a click on a subject cites it, a drop or « + » names a new one (`SubjectSheet.swift`)
 //        ▼
 //     the prompt            `@alice in @red-coat` — each cited subject drawn as a chip in the text
-//        │                  (`PromptField.swift`), completed at `@`, an unknown one underlined
+//        │                  (`PromptField.swift`), completed at `@`, an unknown one underlined; 3 at most
 //        ▼
 //     the click             each expanded prompt rewritten (`NamedSubjects.rewrite`): the model's prompt,
-//                           hidden but shown on demand, and the subjects' framed pictures appended to
-//                           the edit's images as `Request.references` — the engine is unchanged
+//                           hidden but shown on demand, and the cited subjects' framed pictures sent as
+//                           `Request.references` — the engine is unchanged
 //
 // **One switch turns it on** (`SubjectLibrary.enabledKey`, the app menu's « Experimental »); off, the
-// app is exactly the app without it: the prompt is a `TextEditor`, nothing is rewritten, no box. Only
-// Qwen-Image-2.1 shows it — the one visible family whose encoder reads images.
+// app is exactly the app without it: the prompt is a `TextEditor`, nothing is rewritten, no switch.
+// Only Qwen-Image-2.1 shows it — the one visible family whose encoder reads images.
 //
-// **Visible files** (`NamedSubjectStore`): `<library>/subjects/<name>/`, a picture and a small JSON;
-// deleting a subject deletes its folder. Creating, editing and deleting are the user's gestures:
-// incognito holds (nothing written behind their back).
+// **Incognito, like the history**: the subjects live in this process and die with it. A picture is
+// read whole into memory when it is named (the file can go afterwards); nothing is written to disk —
+// and the `subjects/` folder an earlier version kept in the library is deleted at launch.
 //
-// The rewrite and the store (`NamedSubjects`, `NamedSubjectStore`) are public — the app is a pure
-// client, and `tools/translations.sh` compiles its files without the package's name — but not yet
-// in `docs/API.md`: the feature is experimental; it will be documented once its wording is settled.
+// The rewrite (`NamedSubjects`) is public — the app is a pure client, and `tools/translations.sh`
+// compiles its files without the package's name — but not yet in `docs/API.md`: the feature is
+// experimental; it will be documented once its wording is settled.
 
 import AppKit
 import ImageIO
 import Siliconed
 import SwiftUI
 
-/// **The subjects, as the app holds them**: the list read from disk, their thumbnails, the switch.
+/// What a subject's picture is made from: a file (read whole when the subject is named), or PNG bytes.
+enum SubjectSource {
+    case file(URL)
+    case png(Data)
+
+    /// The bytes, as given — never re-encoded.
+    var data: Data? {
+        switch self {
+        case .file(let url): try? Data(contentsOf: url)
+        case .png(let data): data
+        }
+    }
+}
+
+/// **The subjects, as the app holds them — in memory only**: the list, their pictures' bytes, their
+/// thumbnails, the switch.
 @MainActor @Observable
 final class SubjectLibrary {
     /// **The switch** — a flag in the product, against the rule « one version lives » (`CLAUDE.md`):
     /// an exception wanted for an experimental feature, so that it ships hidden until its words have
-    /// been judged by eye. One key; off by default.
+    /// been judged by eye. One key; off by default. A preference, not the user's content.
     static let enabledKey = "namedSubjects"
     var enabled = UserDefaults.standard.bool(forKey: SubjectLibrary.enabledKey) {
         didSet {
             guard enabled != oldValue else { return }
             UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
-            if enabled { reload() }
         }
     }
 
-    let store: NamedSubjectStore
     private(set) var all: [NamedSubjects.Subject] = []
-    /// Bumped at each reading: the prompt field redraws its chips (a thumbnail, a name changed).
+    /// Bumped at each change: the prompt field redraws its chips (a thumbnail, a name changed).
     private(set) var version = 0
+    /// The pictures' bytes, by subject key and picture file (`Picture.file`: a name in memory, `1.jpg`).
+    @ObservationIgnored private var bytes: [String: Data] = [:]
     /// The thumbnails, by subject, picture and frame — decoded once, from a 512-px copy.
     @ObservationIgnored private var thumbnails: [String: NSImage] = [:]
 
     init(library: Library) {
-        store = NamedSubjectStore(library: library)
-        if enabled { reload() }
-    }
-
-    func reload() {
-        all = store.list()
-        thumbnails = [:]
-        version += 1
+        // An earlier version kept the subjects on disk: incognito now, the folder goes.
+        try? FileManager.default.removeItem(at: library.root.appendingPathComponent("subjects", isDirectory: true))
     }
 
     func subject(named name: String) -> NamedSubjects.Subject? {
         all.first { $0.id == NamedSubjects.key(name) }
     }
 
-    func url(_ s: NamedSubjects.Subject, _ p: NamedSubjects.Picture) -> URL { store.url(of: p, in: s) }
+    private static func key(_ s: NamedSubjects.Subject, _ p: NamedSubjects.Picture) -> String { "\(s.id)/\(p.file)" }
+
+    /// A picture's bytes, as given.
+    func data(_ s: NamedSubjects.Subject, _ p: NamedSubjects.Picture) -> Data? { bytes[Self.key(s, p)] }
+
+    /// A picture decoded upright, its long side at most `maxSide` (`nil`: full size).
+    func upright(_ s: NamedSubjects.Subject, _ p: NamedSubjects.Picture, maxSide: Int? = nil) -> CGImage? {
+        data(s, p).flatMap { SubjectPictures.upright($0, maxSide: maxSide) }
+    }
 
     /// **A picture's thumbnail, framed** — what the chips, the prompt and the sheet show.
     func thumbnail(_ s: NamedSubjects.Subject, picture: Int = 0) -> NSImage? {
         guard s.pictures.indices.contains(picture) else { return nil }
         let p = s.pictures[picture]
-        let key = "\(s.id)/\(p.file)/\(p.frame.x),\(p.frame.y),\(p.frame.width),\(p.frame.height)"
+        let key = "\(Self.key(s, p))/\(p.frame.x),\(p.frame.y),\(p.frame.width),\(p.frame.height)"
         if let known = thumbnails[key] { return known }
-        guard let upright = SubjectPictures.upright(url(s, p), maxSide: 512),
-              let cropped = SubjectPictures.crop(upright, p.frame) else { return nil }
+        guard let upright = upright(s, p, maxSide: 512), let cropped = SubjectPictures.crop(upright, p.frame) else { return nil }
         let image = NSImage(cgImage: FinishedImage.reduce(cropped, side: 160) ?? cropped, size: .zero)
         thumbnails[key] = image
         return image
     }
 
-    /// **The references a rewrite places**, in its order: each picture read at render time from its
-    /// file, cropped to its frame (`ReferenceImage.Source.framed`).
+    /// **The references a rewrite places**, in its order: each picture decoded from its bytes, cropped
+    /// to its frame. Never dropped, even undecodable: the prompt's numbers count every picture — the
+    /// render then fails naming it.
     func references(_ r: NamedSubjects.Rewritten) -> [ReferenceImage] {
-        // Never dropped, even unreadable: the prompt's numbers count every picture. A file gone since
-        // fails the render with `image_unreadable`, naming it.
         r.placed.map { placed in
-            let url = url(placed.subject, placed.picture)
-            let size = ReferenceImage.size(of: url) ?? (width: 1024, height: 1024)
-            let px = placed.picture.frame.pixels(width: size.width, height: size.height)
             let picture = placed.subject.pictures.firstIndex(of: placed.picture) ?? 0
-            return ReferenceImage(source: .framed(url, placed.picture.frame),
+            let image = upright(placed.subject, placed.picture).flatMap { SubjectPictures.crop($0, placed.picture.frame) }
+            return ReferenceImage(source: .subject(image, name: "@" + placed.subject.name),
                                   vignette: thumbnail(placed.subject, picture: picture) ?? NSImage(),
-                                  name: "@" + placed.subject.name, width: px.width, height: px.height)
+                                  name: "@" + placed.subject.name, width: image?.width ?? 1024, height: image?.height ?? 1024)
         }
     }
 
     // ── the user's gestures ──
 
     func create(name: String, kind: NamedSubjects.Kind,
-                pictures: [(source: NamedSubjectStore.Source, frame: NamedSubjects.Frame)]) -> Problem? {
-        defer { reload() }
-        do { try store.create(name: name, kind: kind, pictures: pictures) } catch { return Problem(error) }
+                pictures: [(source: SubjectSource, frame: NamedSubjects.Frame)]) -> Problem? {
+        if let p = NamedSubjects.check(name: name, taken: all.map(\.name)) { return Problem(p.sentence) }
+        guard (1...NamedSubjects.maxPictures).contains(pictures.count) else {
+            return Problem(String(localized: "A subject has one or two pictures."))
+        }
+        var s = NamedSubjects.Subject(name: name, kind: kind, pictures: [])
+        var read: [String: Data] = [:]
+        for (i, p) in pictures.enumerated() {
+            guard let data = p.source.data else { return Problem(SubjectSource.unreadable(p.source)) }
+            let picture = NamedSubjects.Picture(file: "\(i + 1)", frame: p.frame.clamped())
+            s.pictures.append(picture)
+            read[Self.key(s, picture)] = data
+        }
+        bytes.merge(read) { $1 }
+        all.append(s)
+        changed()
         return nil
     }
 
-    func update(_ old: String, to s: NamedSubjects.Subject,
-                adding: [(source: NamedSubjectStore.Source, frame: NamedSubjects.Frame)]) -> Problem? {
-        defer { reload() }
-        do { try store.update(old, to: s, adding: adding) } catch { return Problem(error) }
+    /// **Changes a subject**: its name, its kind, its frames, its pictures — `added` appended (two at
+    /// most), the pictures `subject` no longer lists forgotten.
+    func update(_ old: String, to subject: NamedSubjects.Subject,
+                adding added: [(source: SubjectSource, frame: NamedSubjects.Frame)]) -> Problem? {
+        guard let i = all.firstIndex(where: { $0.id == NamedSubjects.key(old) }) else {
+            return Problem(String(localized: "No subject is called @\(old)."))
+        }
+        let others = all.map(\.name).filter { NamedSubjects.key($0) != NamedSubjects.key(old) }
+        if let p = NamedSubjects.check(name: subject.name, taken: others) { return Problem(p.sentence) }
+        guard (1...NamedSubjects.maxPictures).contains(subject.pictures.count + added.count) else {
+            return Problem(String(localized: "A subject has one or two pictures."))
+        }
+        let before = all[i]
+        var s = subject
+        var kept: [String: Data] = [:]
+        s.pictures = s.pictures.map { p in
+            kept[Self.key(s, NamedSubjects.Picture(file: p.file, frame: p.frame))] = data(before, p)
+            return NamedSubjects.Picture(file: p.file, frame: p.frame.clamped())
+        }
+        for p in added {
+            guard let data = p.source.data else { return Problem(SubjectSource.unreadable(p.source)) }
+            let used = Set(s.pictures.map(\.file))
+            let file = (1...9).map(String.init).first { !used.contains($0) } ?? UUID().uuidString
+            let picture = NamedSubjects.Picture(file: file, frame: p.frame.clamped())
+            s.pictures.append(picture)
+            kept[Self.key(s, picture)] = data
+        }
+        forget(before)
+        bytes.merge(kept) { $1 }
+        all[i] = s
+        changed()
         return nil
     }
 
-    func delete(_ s: NamedSubjects.Subject) -> Problem? {
-        defer { reload() }
-        do { try store.delete(s.name) } catch { return Problem(error) }
-        return nil
+    func delete(_ s: NamedSubjects.Subject) {
+        forget(s)
+        all.removeAll { $0.id == s.id }
+        changed()
+    }
+
+    private func forget(_ s: NamedSubjects.Subject) {
+        for p in s.pictures { bytes[Self.key(s, p)] = nil }
+    }
+
+    private func changed() {
+        all.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        thumbnails = [:]
+        version += 1
+    }
+}
+
+extension SubjectSource {
+    /// Why a picture could not be read, naming its file without the home folder.
+    static func unreadable(_ source: SubjectSource) -> String {
+        switch source {
+        case .file(let url): String(localized: "This image can't be read: \(Library.withoutHome(url.path))")
+        case .png: String(localized: "This image can't be read")
+        }
     }
 }
 
@@ -187,17 +261,10 @@ extension NamedSubjects.Kind {
         }
     }
 
-    /// **Five hues at the wires' lightness and chroma** (OKLCH 0.80 / 0.105 on a dark ground, 0.58 /
-    /// 0.12 on a light one — `Palette`): rose, blue, olive, green, orchid, none louder than the others.
-    var nsColor: NSColor {
-        switch self {
-        case .person: Self.dynamic(dark: 0xFAA2A2, light: 0xB65A5C)
-        case .garment: Self.dynamic(dark: 0x7CC7FB, light: 0x2382BA)
-        case .object: Self.dynamic(dark: 0xC8C26F, light: 0x857D0B)
-        case .place: Self.dynamic(dark: 0x92D094, light: 0x478D4B)
-        case .style: Self.dynamic(dark: 0xE0A6E3, light: 0x9E60A1)
-        }
-    }
+    /// **One color for every kind: the image wire's lavender** (`Palette.lavender`) — a subject is an
+    /// image to the model. A hue per kind put rose and olive in the prompt, which read as an error and
+    /// a warning; the kind is said by its words (`label`, `taken`) and its symbol.
+    var nsColor: NSColor { Self.dynamic(dark: 0xC8AEF8, light: 0x8668B6) }
     var color: Color { Color(nsColor: nsColor) }
 
     private static func dynamic(dark: Int, light: Int) -> NSColor {
@@ -218,23 +285,11 @@ extension Problem {
                       suggestion: String(localized: "Name it first: drop an image under Subjects, in the Images box."))
         case let .tooManyImages(count, max):
             self.init(String(localized: "This prompt takes \(String(count)) images: a render takes \(String(max)) at most."),
-                      suggestion: String(localized: "A subject with two pictures counts twice, and so do the edit's images."))
+                      suggestion: String(localized: "A subject with two pictures counts twice."))
         case .modelReadsNoImages:
             self.init(String(localized: "This model doesn't read images: its prompt can't cite subjects."))
         case .noPicture(let name):
             self.init(String(localized: "The subject @\(name) has no picture."))
-        }
-    }
-
-    init(_ f: NamedSubjectStore.Failure) {
-        switch f {
-        case .badName(let p): self.init(p.sentence)
-        case .noSuchSubject(let name): self.init(String(localized: "No subject is called @\(name)."))
-        case .pictures: self.init(String(localized: "A subject has one or two pictures."))
-        case .unreadable(let file): self.init(String(localized: "This image can't be read: \(file)"))
-        case .io(let detail):
-            self.init(String(localized: "The subject couldn't be written."))
-            self.detail = detail
         }
     }
 }
@@ -253,15 +308,19 @@ extension NamedSubjects.NameProblem {
 // MARK: - The rack's and the render's side
 
 extension AppState {
-    /// **The subjects shelf shows, and `@names` are read**: the switch is on and the chosen model's
-    /// encoder reads images (Qwen-Image-2.1).
-    var subjectsActive: Bool { subjects.enabled && promptNamesImages && maxReferences > 0 }
+    /// **The Images box offers its Subjects mode**: the switch is on and the chosen model's encoder
+    /// reads images (Qwen-Image-2.1).
+    var subjectsAvailable: Bool { subjects.enabled && promptNamesImages && maxReferences > 0 }
+    /// **The subjects are shown, and `@names` are read**: the box is in its Subjects mode.
+    var subjectsActive: Bool { subjectsAvailable && referenceMode == .subjects }
 
     /// **One expanded prompt, rewritten** — `nil` when the feature is off or the prompt cites nobody.
     /// For the rack's model and edit images by default; the remote control passes its request's.
     func rewrite(_ expanded: String, model: Model? = nil,
                  editImages: Int? = nil) -> Result<NamedSubjects.Rewritten, NamedSubjects.Failure>? {
-        guard subjects.enabled, !NamedSubjects.mentions(in: expanded).isEmpty else { return nil }
+        // The rack reads `@names` in its Subjects mode only; the remote control, which brings its own
+        // images, whenever the switch is on.
+        guard model == nil ? subjectsActive : subjects.enabled, !NamedSubjects.mentions(in: expanded).isEmpty else { return nil }
         let capacity = model.map { $0.chain.text.output.readsImages ? $0.chain.denoising.maxReferences : 0 }
             ?? (promptNamesImages ? maxReferences : 0)
         let first = (editImages ?? references.count) + 1
@@ -278,7 +337,7 @@ extension AppState {
 
     /// What the subjects refuse, said like the rest of the form — the first refusal of any expansion.
     var subjectsBlocker: String? {
-        guard subjects.enabled, let prompts = try? alternatives.get().prompts else { return nil }
+        guard subjectsActive, let prompts = try? alternatives.get().prompts else { return nil }
         for p in prompts {
             if case .failure(let f)? = rewrite(p) { return Problem(f).title }
         }
@@ -328,7 +387,7 @@ extension AppState {
     }
 
     /// A file or PNG bytes dropped on the subjects shelf: the sheet opens on it.
-    func nameSubject(_ source: NamedSubjectStore.Source) {
+    func nameSubject(_ source: SubjectSource) {
         guard let draft = SubjectDraft(new: source, taken: subjects.all.map(\.name)) else {
             flash(String(localized: "This image can't be read"))
             return
@@ -340,18 +399,16 @@ extension AppState {
         subjectDraft = SubjectDraft(editing: s, library: subjects)
     }
 
-    /// Deleting a subject deletes its folder — its pictures with it.
     func deleteSubject(_ s: NamedSubjects.Subject) {
-        if let p = subjects.delete(s) { problem = p } else {
-            flash(String(localized: "@\(s.name) deleted"))
-        }
+        subjects.delete(s)
+        flash(String(localized: "@\(s.name) deleted"))
     }
 
-    /// Asked first: the picture goes with it, and prompts that cite it are refused afterwards.
+    /// Asked first: prompts that cite it are refused afterwards.
     func confirmDeletion(_ s: NamedSubjects.Subject) {
         let alert = NSAlert()
         alert.messageText = String(localized: "Delete @\(s.name)?")
-        alert.informativeText = String(localized: "Its folder and its pictures are deleted from the library. Prompts that cite it will be refused.")
+        alert.informativeText = String(localized: "Prompts that cite it will be refused.")
         alert.addButton(withTitle: String(localized: "Delete"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.buttons[0].hasDestructiveAction = true
@@ -365,9 +422,5 @@ extension AppState {
             if let r = Range(NSRange(m.range, in: prompt), in: text) { text.replaceSubrange(r, with: "@" + new) }
         }
         prompt = text
-    }
-
-    func revealSubject(_ s: NamedSubjects.Subject) {
-        NSWorkspace.shared.activateFileViewerSelecting([subjects.store.folder(of: s.name)])
     }
 }

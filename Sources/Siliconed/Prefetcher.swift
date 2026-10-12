@@ -176,9 +176,7 @@ package final class TailStream {
             guard tensors.count == names.count, !tensors.isEmpty else {
                 throw Artifact.Failure.badHeader("streamed block \(b): tensor missing from the map")
             }
-            let start = tensors.map(\.offset).min()!
-            let end = min((tensors.map { $0.offset + $0.bytes }.max()! + page - 1) / page * page, artifact.size)
-            spans.append((start, end))
+            spans.append(Artifact.stagingRun(tensors.map { ($0.offset, $0.bytes) }, page: page, fileSize: artifact.size)!)
             for name in names { blockOf[name] = b }
         }
         self.blockOf = blockOf

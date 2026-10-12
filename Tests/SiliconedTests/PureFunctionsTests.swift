@@ -73,7 +73,7 @@ final class PureFunctionsTests: XCTestCase {
         // domain (256² was removed from the bench for this reason).
         XCTAssertEqual(Spectral.steps(height: 64, width: 64, schedule: s), 0)
         XCTAssertEqual(Spectral.steps(height: 128, width: 128, schedule: s), 2,
-                       "the rule f* ≤ 0.10 gives k = 2 at 1024² — this is M35, not §7b″'s k=3")
+                       "the rule f* ≤ 0.10 gives k = 2 at 1024², not k = 3")
     }
 
     func testDivisorsFollowTheSameRuleAsTheStepCount() {

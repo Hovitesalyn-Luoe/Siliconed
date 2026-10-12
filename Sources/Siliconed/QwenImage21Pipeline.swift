@@ -285,12 +285,14 @@ package struct QwenImage21Sampler {
                     + [.init(height: height / d, width: width / d)])
         }
         let channels = latent.count / (height * width)
-        let pointers = references.map { reference -> UnsafeMutablePointer<Float> in
-            let p = UnsafeMutablePointer<Float>.allocate(capacity: reference.values.count)
-            p.update(from: reference.values, count: reference.values.count)
-            return p
+        // The references' latents at a stable address for the whole denoising, in `Pages`.
+        let copies = references.map { reference -> Pages in
+            let pages = Pages(bytes: reference.values.count * 4)
+            pages.floats().update(from: reference.values, count: reference.values.count)
+            return pages
         }
-        defer { pointers.forEach { $0.deallocate() } }
+        let pointers = copies.map { $0.floats() }
+        defer { withExtendedLifetime(copies) {} }
         timings = [:]
         let phases: [(range: Range<Int>, divisor: Int)] = [(0..<half, 2), (half..<steps, 1)].filter { !$0.range.isEmpty }
         for (range, divisor) in phases {
@@ -397,14 +399,11 @@ package final class StreamedLoRA {
                 shapes[String(target.dropFirst((blockPrefix + "0.").count))] = (down.shape[0], up.shape[1])
             }
         }
-        let page = Arena.alignment
-        func rounded(_ b: Int) -> Int { (b + page - 1) / page * page }
-        var offset = 0
-        for suffix in shapes.keys.sorted() {
-            let (k, n) = shapes[suffix]!, r = lora.rank(blockPrefix + "0." + suffix)
-            layout[suffix] = (offset, offset + rounded(k * r * 4), k, n)
-            offset += rounded(k * r * 4) + rounded(r * n * 4)
-        }
+        var modules: [String: (k: Int, n: Int, rank: Int)] = [:]
+        for (suffix, shape) in shapes { modules[suffix] = (shape.k, shape.n, lora.rank(blockPrefix + "0." + suffix)) }
+        let laid = StreamedLoRA.layout(modules)
+        layout = laid.layout
+        let offset = laid.bytes
         // Every block must carry the same modules at the same rank as block 0.
         for target in lora.rankPerTarget.keys where target.hasPrefix(blockPrefix) && retain(target) {
             let parts = target.dropFirst(blockPrefix.count).split(separator: ".", maxSplits: 1)
@@ -416,6 +415,22 @@ package final class StreamedLoRA {
         bytes = offset
         if offset > 0 { slots = [try Arena(capacity: offset), try Arena(capacity: offset)] }
         others = try CacheLoRA(lora: lora, retain: { !$0.hasPrefix("transformer_blocks.") && retain($0) })
+    }
+
+    /// **One slot's layout** — each module's `down` then `up`, page-rounded, in suffix order — and its
+    /// bytes. Two slots of it live during the denoising; `MemoryNeed.qwenImage21` charges them from here.
+    package static func layout(_ modules: [String: (k: Int, n: Int, rank: Int)])
+            -> (layout: [String: (down: Int, up: Int, k: Int, n: Int)], bytes: Int) {
+        let page = Arena.alignment
+        func rounded(_ b: Int) -> Int { (b + page - 1) / page * page }
+        var layout: [String: (down: Int, up: Int, k: Int, n: Int)] = [:]
+        var offset = 0
+        for suffix in modules.keys.sorted() {
+            let (k, n, r) = modules[suffix]!
+            layout[suffix] = (offset, offset + rounded(k * r * 4), k, n)
+            offset += rounded(k * r * 4) + rounded(r * n * 4)
+        }
+        return (layout, offset)
     }
 
     /// The stack of module `target`, expanded — `nil` if no LoRA touches it.

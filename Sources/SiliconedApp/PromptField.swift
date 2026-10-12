@@ -51,7 +51,8 @@ struct PromptField: NSViewRepresentable {
         view.autoresizingMask = [.width]
         view.minSize = .zero
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        view.textContainerInset = .zero
+        // A chip reaches 2 pt above and below its line (`SubjectLayoutManager.chips`): room for the first.
+        view.textContainerInset = NSSize(width: 0, height: 3)
         view.font = PromptStyle.font
         view.typingAttributes = PromptStyle.base
         view.delegate = context.coordinator

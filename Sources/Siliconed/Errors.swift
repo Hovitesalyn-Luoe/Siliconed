@@ -101,9 +101,10 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
 
     // ── the machine ───────────────────────────────────────────────────────────────────────
 
-    /// The memory available now (`MemoryBudget.available`: the machine's state at the render's launch,
-    /// minus a reserve) is below the model's floor at this format (`ModelCard.memoryNeed`). Bytes.
-    case insufficientMemory(needed: Int, available: Int)
+    /// **Beyond this Mac's budget**: the model's floor at this format and with these references
+    /// (`ModelCard.memoryNeed`, the most economical plan) exceeds B (`MemoryBudget.ceiling`, fixed by
+    /// the RAM: ¾ · RAM − 2 GiB). The same request on the same Mac is always refused. Bytes.
+    case insufficientMemory(needed: Int, budget: Int)
     /// Another process is rendering on this machine (the app, the CLI, whatever their library or
     /// user — `RenderLock.machine`): two models do not fit
     /// in 16 GB. Within one process, renders queue instead.
@@ -296,8 +297,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
             return "The LoRA \(lora) is for \(target), not for \(model)."
         case let .incompatibleChain(output, input):
             return "These modules do not connect: \(output) comes out where \(input) is expected."
-        case let .insufficientMemory(needed, available):
-            return "Not enough memory: this render needs \(gigabytes(needed)), \(gigabytes(available)) is available now."
+        case let .insufficientMemory(needed, budget):
+            return "Beyond this Mac's memory budget: this render needs \(gigabytes(needed)), this Mac offers \(gigabytes(budget))."
         case .renderAlreadyRunning: return "Another render is already running on this machine."
         case .cancelled: return "Cancelled."
         case .settingsAlreadyLoaded: return "The engine settings were already loaded from another profile."
@@ -355,7 +356,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .unsupportedLoRA: return "Import the LoRA again from its .safetensors."
         case .loraForOtherModel: return "Choose a LoRA made for this model, or remove this one from the stack."
         case .incompatibleChain: return "Render with the model as installed, rather than modules assembled by hand."
-        case .insufficientMemory: return "Choose a smaller format or a lighter model, or close other applications."
+        case .insufficientMemory: return "Choose a smaller format, fewer reference images or a lighter model."
         case .renderAlreadyRunning: return "Wait for it to finish, or add the request to the app's queue."
         case .cancelled: return nil
         case .settingsAlreadyLoaded: return "Load the settings at launch, before the first render."
@@ -498,7 +499,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         .unsupportedLoRA(file: "x.lora.silicon", reason: .noTarget),
         .loraForOtherModel(lora: "PopArt", target: "z-image", model: "krea2"),
         .incompatibleChain(output: "flux", input: "qwen-image"),
-        .insufficientMemory(needed: 7_800_000_000, available: 8_589_934_592), .renderAlreadyRunning, .cancelled,
+        .insufficientMemory(needed: 7_800_000_000, budget: 8_589_934_592), .renderAlreadyRunning, .cancelled,
         .settingsAlreadyLoaded(loaded: "/a", requested: "/b"), .internalFailure(component: "gpu", detail: "no Metal device"),
     ]
 }

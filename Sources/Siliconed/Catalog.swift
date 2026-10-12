@@ -37,19 +37,19 @@ public struct RecommendedFormat: Sendable, Hashable, CustomStringConvertible {
     /// `832×1216 (portrait)`.
     public var description: String { "\(Format.label(width: width, height: height)) (\(orientation.rawValue))" }
 
-    /// **The largest of `formats` whose need fits in `available` bytes**, or `nil`: what the app
-    /// offers instead of a dead end when the machine's memory refuses the chosen size. Pure: the
-    /// caller reads the budget **once** and passes it, rather than each format asking the machine.
+    /// **The largest of `formats` whose need fits in `budget` bytes** — B, this Mac's
+    /// (`MemoryBudget.machineCeiling()`) — or `nil`: what the app offers instead of a dead end when B
+    /// refuses the chosen size. Pure: the caller passes B and the need, never the machine's state.
     ///
     /// The orientation the user chose comes first — a portrait stays a portrait while one fits —
     /// then the area. Nothing under `Format.minimumSide` on a side: below 512² the models are out
     /// of their domain, and a format there is no way forward. `current` is never offered back.
     public static func largestFitting(
-        _ formats: [RecommendedFormat], available: Int, current: RecommendedFormat,
+        _ formats: [RecommendedFormat], budget: Int, current: RecommendedFormat,
         need: (RecommendedFormat) -> Int
     ) -> RecommendedFormat? {
         let fitting = formats.filter {
-            $0 != current && min($0.width, $0.height) >= Format.minimumSide && need($0) <= available
+            $0 != current && min($0.width, $0.height) >= Format.minimumSide && need($0) <= budget
         }
         let pool = fitting.contains { $0.orientation == current.orientation }
             ? fitting.filter { $0.orientation == current.orientation } : fitting

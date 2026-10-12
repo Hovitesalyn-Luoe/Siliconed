@@ -142,10 +142,11 @@ public struct EngineSettings: Sendable {
     /// thrashes at 1024² (the head no longer fits beside the activations), 0.6 and 1.0 gain less.
     /// Qwen-Image-2.1 512² 46.7 → 43.9 s. Same bits. 0 = everything through the map, as before.
     ///
-    /// **In a render, this is the default plan's fraction**: the lean plan (a short budget at the
-    /// launch, a short compressor during the render) streams the whole map instead (`MemoryPlan.tail`,
-    /// `ditTail`). Outside a render (the checks) it serves as is; `SILICONED_MAP_TAIL` set in the
-    /// environment forces it in a render too, at every size — a forcing of measurement, journaled.
+    /// **In a render, this is the cap of the map's head**: the head is what B leaves beside the
+    /// denoising's need, never more than this split keeps — less on a smaller Mac, the whole map
+    /// cached when it fits (`MemoryPlan.released`, `ditTail`). Outside a render (the checks) it serves
+    /// as is; `SILICONED_MAP_TAIL` set in the environment forces it in a render too, at every size — a
+    /// forcing of measurement, journaled.
     package var mapTail = 0.5
     /// The engine's thread count; 0 lets `Parallel` decide.
     package var parallel = 0

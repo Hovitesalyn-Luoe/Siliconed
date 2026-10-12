@@ -1,0 +1,427 @@
+import XCTest
+@testable import Siliconed
+
+/// **The computed memory need, without a byte of weights.** The arenas are built on maps
+/// written by hand (a header, a few bytes of data) and compared with the formula's functions; the
+/// formula itself runs on headers written in memory with Z-Image's real shapes.
+final class MemoryNeedTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-need-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    // ── maps written by hand ──────────────────────────────────────────────────────────────────
+
+    /// A `SILICON` v3 map: `tensors` laid out from `dataStart`, each on a 16-byte page, zeros.
+    private func map(_ header: [String: Any], tensors: [(name: String, shape: [Int])] = []) throws -> String {
+        let page = 16, dataStart = 1 << 16
+        var table: [String: Any] = [:], offset = dataStart
+        for t in tensors {
+            let bytes = t.shape.reduce(1, *) * 2
+            table[t.name] = ["offset": offset, "bytes": bytes, "shape": t.shape, "dtype": "bfloat16"]
+            offset += (bytes + page - 1) / page * page
+        }
+        var full = header
+        full["page"] = page; full["tensors"] = table; full["order"] = tensors.map(\.name)
+        let json = try JSONSerialization.data(withJSONObject: full)
+        precondition(16 + json.count <= dataStart, "header longer than the test's layout")
+        var bytes = Array("SILICON".utf8) + [3]
+        for i in 0..<8 { bytes.append(UInt8((UInt64(json.count) >> (8 * UInt64(i))) & 0xff)) }
+        bytes += json
+        bytes += [UInt8](repeating: 0, count: max(offset, dataStart + 16) - bytes.count)
+        let path = root.appendingPathComponent("m-\(UUID()).silicon").path
+        try Data(bytes).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    private let tinyEncoder: [String: Any] = [
+        "last_layer": 1,
+        "config": ["hidden_size": 8, "num_attention_heads": 2, "num_key_value_heads": 1, "head_dim": 4,
+                   "intermediate_size": 16],
+    ]
+    private let tinyDiT: [String: Any] = [
+        "config": ["dim": 64, "n_heads": 2, "n_layers": 1, "n_refiner_layers": 1, "in_channels": 16,
+                   "cap_feat_dim": 16, "axes_dims": [8, 12, 12], "axes_lens": [64, 32, 32]],
+    ]
+
+    // ── the formula is the allocation ─────────────────────────────────────────────────────────
+
+    func testTheEncoderArenaIsTheFormula() throws {
+        let artifact = try Artifact(path: try map(tinyEncoder))
+        let config = try TextEncoder.Config(header: artifact.header)
+        for sequence in [1, 5, 77] {
+            let encoder = try TextEncoder(artifact: artifact, sequence: sequence)
+            XCTAssertEqual(encoder.arenaCapacity, TextEncoder.arenaBytes(config: config, sequence: sequence))
+        }
+    }
+
+    func testTheDiTArenasAndItsLoRACacheAreTheFormula() throws {
+        let artifact = try Artifact(path: try map(tinyDiT))
+        let config = DiT.Config(header: artifact.header)
+        for (h, w, caption) in [(8, 8, 5), (16, 8, 40)] {
+            let dit = try DiT(artifact: artifact, latentHeight: h, latentWidth: w, capLength: caption)
+            XCTAssertEqual(dit.arenaCapacity, DiT.arenaBytes(config: config, latentHeight: h, latentWidth: w,
+                                                             capLength: caption, loraRank: 0))
+            XCTAssertEqual(dit.cacheLoRACapacity, 0)
+        }
+        // A LoRA of rank 4 on two modules, one of them also at rank 3 in a second LoRA (cumulative 7).
+        let (d, hidden) = (config.dim, config.hidden)
+        func lora(_ rank: Int, _ targets: [(String, Int, Int)]) throws -> LoRA.Layer {
+            let tensors = targets.flatMap { [("\($0.0).down", [$0.1, rank]), ("\($0.0).up", [rank, $0.2])] }
+            let path = try map(["kind": "lora"], tensors: tensors.map { (name: $0.0, shape: $0.1) })
+            return LoRA.Layer(artifact: try Artifact(path: path), strength: 1, name: path)
+        }
+        let stack = try LoRA(layers: [
+            lora(4, [("layers.0.attention.to_q.weight", d, d), ("layers.0.feed_forward.w2.weight", hidden, d)]),
+            lora(3, [("layers.0.attention.to_q.weight", d, d)]),
+        ])
+        XCTAssertEqual(stack.maxRank, 7)
+        let dit = try DiT(artifact: artifact, latentHeight: 8, latentWidth: 8, capLength: 5, lora: stack)
+        XCTAssertEqual(dit.arenaCapacity, DiT.arenaBytes(config: config, latentHeight: 8, latentWidth: 8,
+                                                         capLength: 5, loraRank: 7))
+        XCTAssertEqual(dit.cacheLoRACapacity,
+                       CacheLoRA.arenaBytes(CacheLoRA.bytes(modules: [(d, d, 7), (hidden, d, 4)])))
+    }
+
+    /// **The arenas hold what is written, not a byte of margin**: at 1024² with a 50-token
+    /// prompt, the DiT's four arenas written out slice by slice, each on its page.
+    func testTheDiTArenasAtTenTwentyFourAreTheirSlices() {
+        let config = DiT.Config(header: [:])
+        let (d, h, image, cap) = (3840, 10240, 4096, 64), s = image + cap
+        func pages(_ floats: [Int]) -> Int { floats.reduce(0) { $0 + Arena.capacity(for: $1 * 4) } }
+        func block(_ s: Int) -> Int { pages(Array(repeating: s * d, count: 6) + [s * h, s * h, 4 * d, d * h, 4 * d]) }
+        let own = pages([2560 * d, 256, 1024, image * 64, image * d, cap * 2560, cap * d, s * 128, s * d, d, s * d, s * 64])
+        XCTAssertEqual(DiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128, capLength: 50, loraRank: 0),
+                       own + block(image) + block(cap) + block(s))
+    }
+
+    func testTheStagingBufferIsTheFormula() throws {
+        let tensors = (0..<3).flatMap { l in
+            [(name: "layers.\(l).a", shape: [8, 3 + l]), (name: "layers.\(l).b", shape: [5 * (l + 1)])]
+        }
+        let path = try map(["kind": "test"], tensors: tensors)
+        let artifact = try Artifact(path: path)
+        let prefixes = (1..<3).map(DiT.layerPrefix)
+        let blocks = prefixes.map { p in artifact.order.filter { $0.hasPrefix(p) } }
+        try artifact.streamTail(blocks: blocks, slots: 1)
+        XCTAssertEqual(artifact.stream?.slotBytes,
+                       Artifact.stagingBytes(header: artifact.header, prefixes: prefixes, fileSize: artifact.size))
+    }
+
+    // ── the formula on Z-Image's shapes ───────────────────────────────────────────────────────
+
+    /// A layer table with the published shapes, `bytesPerValue` 2 (bf16) or 1 (an 8-bit map, plus a
+    /// float scale per output column), laid on 16 KB pages.
+    private static func table(_ layers: [(prefix: String, tensors: [(String, [Int])])], bytesPerValue: Int) -> [String: Any] {
+        let page = 16384
+        var table: [String: Any] = [:], order: [String] = [], offset = page
+        for layer in layers {
+            for (suffix, shape) in layer.tensors {
+                let count = shape.reduce(1, *)
+                let bytes = count * bytesPerValue + (bytesPerValue == 1 && shape.count == 2 ? 4 * shape[1] : 0)
+                table[layer.prefix + suffix] = ["offset": offset, "bytes": bytes, "shape": shape]
+                order.append(layer.prefix + suffix)
+                offset += (bytes + page - 1) / page * page
+            }
+        }
+        return ["page": page, "tensors": table, "order": order]
+    }
+
+    private static func zImageMaps(bytesPerValue: Int = 2) -> MemoryNeed.ZImageMaps {
+        let (d, h) = (3840, 10240)
+        let layer: [(String, [Int])] = [
+            ("adaLN_modulation.0.bias", [4 * d]), ("adaLN_modulation.0.weight", [256, 4 * d]),
+            ("attention.norm_k.weight", [128]), ("attention.norm_q.weight", [128]),
+            ("attention.to_k.weight", [d, d]), ("attention.to_out.0.weight", [d, d]),
+            ("attention.to_q.weight", [d, d]), ("attention.to_v.weight", [d, d]),
+            ("attention_norm1.weight", [d]), ("attention_norm2.weight", [d]),
+            ("feed_forward.w1.weight", [d, h]), ("feed_forward.w2.weight", [h, d]), ("feed_forward.w3.weight", [d, h]),
+            ("ffn_norm1.weight", [d]), ("ffn_norm2.weight", [d]),
+        ]
+        var dit = table((0..<30).map { (DiT.layerPrefix($0), layer) }, bytesPerValue: bytesPerValue)
+        dit["config"] = [String: Any]()   // the published defaults (`DiT.Config`)
+        let (e, i) = (2560, 9728)
+        let encoderLayer: [(String, [Int])] = [
+            ("input_layernorm.weight", [e]), ("mlp.down_proj.weight", [i, e]), ("mlp.gate_proj.weight", [e, i]),
+            ("mlp.up_proj.weight", [e, i]), ("post_attention_layernorm.weight", [e]), ("self_attn.k_norm.weight", [128]),
+            ("self_attn.k_proj.weight", [e, 1024]), ("self_attn.o_proj.weight", [4096, e]),
+            ("self_attn.q_norm.weight", [128]), ("self_attn.q_proj.weight", [e, 4096]), ("self_attn.v_proj.weight", [e, 1024]),
+        ]
+        var encoder = table((0..<35).map { ("layers.\($0).", encoderLayer) }, bytesPerValue: bytesPerValue)
+        encoder["last_layer"] = 34
+        encoder["config"] = ["hidden_size": e, "num_attention_heads": 32, "num_key_value_heads": 8, "head_dim": 128,
+                             "intermediate_size": i]
+        return MemoryNeed.ZImageMaps(dit: dit, encoder: encoder, performanceCores: 6)
+    }
+
+    private func need(_ w: Int, _ h: Int, tokens: Int = 50, ranks: [Int] = [], references: [(width: Int, height: Int)] = [],
+                      maps: MemoryNeed.ZImageMaps = MemoryNeedTests.zImageMaps()) throws -> MemoryNeed {
+        let request = MemoryNeed.Request(card: .zImage, width: w, height: h, references: references,
+                                         promptTokens: tokens, loraRanks: ranks)
+        return try XCTUnwrap(MemoryNeed.zImage(request, app: false, maps: maps))
+    }
+
+    private func own(_ n: MemoryNeed, _ kind: MemoryNeed.Phase.Kind) -> Int {
+        n.phases.filter { $0.kind == kind }.map(\.own).max() ?? 0
+    }
+
+
+    private func phase(_ n: MemoryNeed, _ kind: MemoryNeed.Phase.Kind) -> MemoryNeed.Phase? {
+        n.phases.first { $0.kind == kind }
+    }
+
+    private func bytes(_ n: MemoryNeed, _ kind: MemoryNeed.Phase.Kind) -> Int {
+        n.phases.filter { $0.kind == kind }.map(\.bytes).max() ?? 0
+    }
+
+    private func sum(_ terms: [MemoryNeed.Term]) -> Int { terms.reduce(0) { $0 + $1.bytes } }
+
+    // ── what makes a render larger makes its need larger ─────────────────────────────────────
+
+    func testTheNeedGrowsWithTheAreaThePromptAndTheRank() throws {
+        let formats = [(512, 512), (832, 1216), (1024, 1024), (1024, 1536)]
+        for tokens in [50, 400] {
+            for ranks in [[], [64]] as [[Int]] {
+                let peaks = try formats.map { try need($0.0, $0.1, tokens: tokens, ranks: ranks).peak }
+                XCTAssertEqual(peaks, peaks.sorted(), "area, \(tokens) tokens, ranks \(ranks)")
+            }
+        }
+        for (w, h) in formats {
+            let byTokens = try [1, 50, 100, 400, 512].map { try need(w, h, tokens: $0).peak }
+            XCTAssertEqual(byTokens, byTokens.sorted())
+            XCTAssertLessThan(byTokens[0], byTokens[4])
+            // The encoder cuts at 512: a longer prompt costs no more.
+            XCTAssertEqual(try need(w, h, tokens: 1200).peak, byTokens[4])
+            let byRank = try [[], [16], [64], [64, 32]].map { try need(w, h, ranks: $0).peak }
+            XCTAssertEqual(byRank, byRank.sorted())
+            XCTAssertLessThan(byRank[0], byRank[1])
+        }
+        // An img2img start: the larger the image handed, the larger the need.
+        let starts = try [(512, 512), (1024, 1024), (2048, 2048)].map { try need(1024, 1024, references: [$0]).peak }
+        XCTAssertEqual(starts, starts.sorted()); XCTAssertEqual(Set(starts).count, 3)
+    }
+
+    /// 512², 1024² and 1024×1536 take the same path: the same phases, the tail's two buffers at all three.
+    func testOnePathForEveryFormat() throws {
+        let kinds = try [(512, 512), (1024, 1024), (1024, 1536)].map { try need($0.0, $0.1).phases.map(\.kind) }
+        XCTAssertEqual(Set(kinds.map { $0.map(\.rawValue).joined(separator: ",") }).count, 1)
+        XCTAssertEqual(kinds[0], [.text, .denoising, .decoding])
+        // The tail (half of 30 layers, two buffers of a bf16 layer) is in the denoising at every format.
+        let bf16Layer = Artifact.stagingBytes(header: Self.zImageMaps().dit, prefixes: [DiT.layerPrefix(29)], fileSize: .max)
+        XCTAssertGreaterThan(bf16Layer, 360_000_000)
+        for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
+            let all = try need(w, h)
+            var plan = MemoryNeed.Request(card: .zImage, width: w, height: h, promptTokens: 50)
+            plan.tail = .none
+            let noTail = try XCTUnwrap(MemoryNeed.zImage(plan, app: false, maps: Self.zImageMaps()))
+            XCTAssertEqual(own(all, .denoising) - own(noTail, .denoising), 2 * bf16Layer)
+            // The lean plan: the whole map through the same two buffers, no encoder buffer, small bands.
+            let lean = try XCTUnwrap(MemoryNeed.zImage(plan.lean, app: false, maps: Self.zImageMaps()))
+            XCTAssertLessThanOrEqual(lean.peak, all.peak)
+            XCTAssertEqual(phase(lean, .text)!.bytes("encoder staging"), 0)
+        }
+    }
+
+    // ── the formula is the sum of the shape functions ────────────────────────────────────────
+
+    /// **The text phase, term by term**: the encoder's arena and its staging buffers, the causal
+    /// mask in our pages, MPSGraph's copy of the queries, the GEMM's state and workspace.
+    func testTheTextIsItsShapeFunctions() throws {
+        let maps = Self.zImageMaps()
+        let encoder = try TextEncoder.Config(header: maps.encoder)
+        for tokens in [1, 50, 400] {
+            let text = try XCTUnwrap(phase(try need(1024, 1024, tokens: tokens), .text))
+            let layer = Artifact.stagingBytes(header: maps.encoder, prefixes: TextEncoder.layerPrefixes(encoder), fileSize: .max)
+            let (h, a, kv, i) = (encoder.hidden, encoder.attentionWidth, encoder.kvWidth, encoder.intermediate)
+            XCTAssertEqual(text.bytes, TextEncoder.arenaBytes(config: encoder, sequence: tokens)
+                            + TextEncoder.stagingSlots(granted: MemoryPlan.encoderSlots) * layer
+                            + Attention.maskBytes(sequence: tokens, keys: tokens)
+                            + tokens * 32 * 128 * 4 + OperatorFootprint.sdpaExecutable
+                            + sum(MemoryNeed.gemm("", products: [(tokens, h, a), (tokens, h, kv), (tokens, a, h),
+                                                                 (tokens, h, i), (tokens, i, h)])), "\(tokens) tokens")
+            XCTAssertEqual(text.bytes("encoder causal mask"), Arena.capacity(for: tokens * tokens * 4))
+        }
+    }
+
+    /// **The denoising, term by term**: the DiT's four arenas, the map's buffers, the sampler's latents,
+    /// the full-size attentions (head splits' host arenas and the GPU heads' queries, the context
+    /// refiners' MPSGraph SDPA), the GEMM — nothing else.
+    func testTheDenoisingIsItsShapeFunctions() throws {
+        let maps = Self.zImageMaps()
+        let dit = DiT.Config(header: maps.dit)
+        let released = MemoryPlan.Tail(fraction: 0.5, slots: 2).released(layers: dit.layers)
+        let staging = 2 * Artifact.stagingBytes(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
+                                                fileSize: maps.ditSize)
+        let gpuHeads = HeadSplitAttention.partition(heads: dit.heads, fraction: HeadSplitAttention.cpuFraction).gpu.count
+        for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
+            let n = try need(w, h)
+            let latent = 16 * (h / 8) * (w / 8) * 4
+            let halved = Spectral.steps(height: h / 8, width: w / 8, schedule: FlowMatchSchedule(steps: ModelCard.zImage.defaultSteps)) > 0
+            let image = (h / 16) * (w / 16), cap = 64, s = image + cap
+            func split(_ rows: Int) -> Int {
+                HeadSplitAttention.hostBytes(heads: 30, sequence: rows, headDim: 128, threads: 6) + rows * gpuHeads * 128 * 4
+            }
+            let attentions = [image, s].map(split).reduce(0, +) + cap * 30 * 128 * 4
+            let gemm = sum(MemoryNeed.gemm("", products: [(s, 3840, 3840), (s, 3840, 10240), (s, 10240, 3840),
+                                                          (cap, 2560, 3840), (image, 64, 3840), (s, 3840, 64)]))
+            XCTAssertEqual(phase(n, .denoising)!.bytes,
+                           DiT.arenaBytes(config: dit, latentHeight: h / 8, latentWidth: w / 8, capLength: 50, loraRank: 0)
+                            + staging + latent + (halved ? latent / 4 : 0) + attentions + 3 * OperatorFootprint.sdpaExecutable + gemm, "\(w)×\(h)")
+        }
+        // A LoRA: its cache over every module a block can apply it to, the `mid` slices in the arenas;
+        // two LoRAs, one module's `down` staging besides.
+        let one = try need(1024, 1024, ranks: [64]), two = try need(1024, 1024, ranks: [64, 32])
+        XCTAssertEqual(phase(one, .denoising)!.bytes("LoRA cache"),
+                       CacheLoRA.arenaBytes(CacheLoRA.bytes(modules: DiT.loraModules(config: dit).map { ($0.k, $0.n, 64) })))
+        XCTAssertEqual(phase(one, .denoising)!.bytes("LoRA down"), 0)
+        XCTAssertEqual(phase(two, .denoising)!.bytes("LoRA down"), LoRA.downBytes(k: 10240, rank: 64))
+    }
+
+    /// **Only the full-size attentions are alive at the peak** (`DiT.forgetReducedAttentions`):
+    /// two head splits (image refiners, layers) and the context refiners' MPSGraph SDPA, with or without
+    /// the spectral schedule; the DiT's attention is not causal.
+    func testOnlyTheFullSizeAttentionsAreAlive() throws {
+        for ranks in [[], [16]] as [[Int]] {
+            let terms = phase(try need(1024, 1024, ranks: ranks), .denoising)!.terms
+            XCTAssertEqual(terms.filter { $0.name.hasSuffix("head split") }.map(\.name), ["image refiners head split", "layers head split"])
+            XCTAssertEqual(terms.filter { $0.name.hasSuffix("SDPA queries") }.count, 3)
+            XCTAssertFalse(terms.contains { $0.name.contains("causal mask") })
+        }
+    }
+
+    /// **The VAEs are their plans**: the decoder's two heaps and the image it returns, the
+    /// encoder's at the render's format and the `fitted` copy when the image handed differs.
+    func testTheVAEsAreTheirPlans() throws {
+        for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
+            let n = try need(w, h)
+            let plan = VAE.plan(latentHeight: h / 8, latentWidth: w / 8)
+            XCTAssertEqual(phase(n, .decoding)!.bytes, plan.bytes + plan.outside + OperatorFootprint.sdpaExecutable)
+            let start = try need(w, h, references: [(w, h)])
+            let encoder = VAEEncoder.plan(family: .flux, height: h, width: w)
+            XCTAssertEqual(phase(start, .references)!.bytes, encoder.bytes + encoder.outside + OperatorFootprint.sdpaExecutable)
+            // Nothing of the encoder is carried into the denoising any more; only the spectral schedule goes.
+            XCTAssertLessThanOrEqual(phase(start, .denoising)!.bytes, phase(n, .denoising)!.bytes)
+        }
+        let other = try need(1024, 1024, references: [(2048, 1024)])
+        XCTAssertEqual(phase(other, .references)!.bytes("fitted copy"), 3 * 1024 * 1024 * 4)
+        // The lean plan's decoder takes the smallest band.
+        var lean = MemoryNeed.Request(card: .zImage, width: 1024, height: 1024, promptTokens: 50).lean
+        lean.tail = .lean
+        let leanNeed = try XCTUnwrap(MemoryNeed.zImage(lean, app: false, maps: Self.zImageMaps()))
+        let leanPlan = VAE.plan(latentHeight: 128, latentWidth: 128, band: min(VAE.bandElements, MemoryPlan.fluxMinimumBand))
+        XCTAssertEqual(phase(leanNeed, .decoding)!.bytes, leanPlan.bytes + leanPlan.outside + OperatorFootprint.sdpaExecutable)
+    }
+
+    /// img2img: an encoding phase at the render's format, and the image handed plus its z₀ crossing.
+    func testImageToImageAddsItsPhaseAndWhatCrosses() throws {
+        let plain = try need(1024, 1024), start = try need(1024, 1024, references: [(1024, 1024)])
+        XCTAssertEqual(start.phases.filter { $0.kind == .references }.count, 1)
+        XCTAssertEqual(start.crossing - plain.crossing, (3 * 1024 * 1024 + 16 * 128 * 128) * 4)
+        let other = try need(1024, 1024, references: [(2048, 1024)])
+        XCTAssertGreaterThan(own(other, .references), own(start, .references))   // the `fitted` copy
+    }
+
+    /// **No fitted term remains**: what is outside our hand is only `OperatorFootprint`'s named terms —
+    /// the queries' copy at exactly `rows·heads·headDim·4`, MPS's GEMM state, the VAEs' `outside` —, and
+    /// every other byte is ours.
+    func testNoFittedTermRemains() throws {
+        for request in [(512, 512, [Int]()), (1024, 1536, [64])] {
+            let n = try need(request.0, request.1, ranks: request.2, references: [(request.0, request.1)])
+            for term in n.phases.flatMap(\.terms) where term.outside {
+                XCTAssertTrue(term.name.hasSuffix("SDPA queries") || term.name.hasSuffix("MPS GEMM")
+                              || term.name.hasSuffix(" outside") || term.name.hasSuffix("SDPA executable"), term.name)
+                if term.name.hasSuffix("MPS GEMM") { XCTAssertEqual(term.bytes, OperatorFootprint.mpsGEMM) }
+                if term.name.hasSuffix("SDPA executable") { XCTAssertEqual(term.bytes, OperatorFootprint.sdpaExecutable) }
+                XCTAssertEqual(term.bytes % 4, 0)
+            }
+            XCTAssertEqual(n.base, OperatorFootprint.processBase(app: false))
+        }
+        XCTAssertEqual(OperatorFootprint.sdpaQueries(rows: 4160, heads: 30, headDim: 128), 4160 * 30 * 128 * 4)
+    }
+
+    /// The map's type is in its header: an 8-bit map's tail buffers are about half a bf16 one's.
+    func testAnEightBitMapNeedsSmallerBuffers() throws {
+        let bf16 = try need(1024, 1024), int8 = try need(1024, 1024, maps: Self.zImageMaps(bytesPerValue: 1))
+        let saved = own(bf16, .denoising) - own(int8, .denoising)
+        XCTAssertGreaterThan(saved, 300_000_000)    // 2 buffers × ~181 MB
+        XCTAssertLessThan(saved, 400_000_000)
+        XCTAssertLessThan(own(int8, .text), own(bf16, .text))
+    }
+
+    /// **The figures of the report**: the need per phase at 512², 1024², 1024×1536 on the
+    /// published bf16 maps, a 50-token prompt, 6 P cores, the default and the lean plans.
+    func testPrintTheNeeds() throws {
+        for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
+            for lean in [false, true] {
+                var request = MemoryNeed.Request(card: .zImage, width: w, height: h, promptTokens: 50)
+                if lean { request = request.lean }
+                let n = try XCTUnwrap(MemoryNeed.zImage(request, app: false, maps: Self.zImageMaps()))
+                let phases = n.phases.map {
+                    String(format: "%@ %.0f (ours %.0f, outside %.0f)", $0.kind.rawValue as NSString, Double($0.bytes) / 1e6,
+                           Double($0.own) / 1e6, Double($0.outside) / 1e6)
+                }
+                print(String(format: "Z %d×%d%@: peak %.0f MB (crossing %.1f, base %.1f) — %@", w, h,
+                             (lean ? " lean" : "") as NSString, Double(n.peak) / 1e6, Double(n.crossing) / 1e6,
+                             Double(n.base) / 1e6, phases.joined(separator: ", ") as NSString))
+            }
+            for t in phase(try need(w, h), .denoising)!.terms {
+                print(String(format: "    denoising %@ %.1f MB", t.name as NSString, Double(t.bytes) / 1e6))
+            }
+        }
+    }
+
+    // ── the need costs milliseconds ──────────────────────────────────────────────────────────
+
+    /// **What the memory keeps is what the walk returns**: every VAE plan the need reads, at two formats
+    /// (square, portrait) and both bands, equals its walk done again; Z-Image's staging spans, read once per map,
+    /// equal `Artifact.stagingBytes` over every tail. Then a need, once its shapes are known, costs
+    /// under 5 ms — the preflight's and the app's (it greys out each format it refuses).
+    func testTheShapeFunctionsAreKeptAndTheNeedIsCheap() throws {
+        let qwen = QwenImage21VAE.Config()
+        for (w, h) in [(512, 512), (832, 1216)] {
+            for band in [VAE.bandElements, MemoryPlan.fluxMinimumBand] {
+                XCTAssertEqual(VAE.plan(latentHeight: h / 8, latentWidth: w / 8, band: band),
+                               VAE.walk(latentHeight: h / 8, latentWidth: w / 8, band: band), "Flux decoder \(w)×\(h)")
+            }
+            for pixels in [QwenImage21VAEDecoder.bandPixels, MemoryPlan.qwenMinimumBand] {
+                XCTAssertEqual(QwenImage21VAEDecoder.plan(config: qwen, latentHeight: h / 16, latentWidth: w / 16, bandPixels: pixels),
+                               QwenImage21VAEDecoder.walk(config: qwen, latentHeight: h / 16, latentWidth: w / 16, bandPixels: pixels),
+                               "Qwen decoder \(w)×\(h)")
+            }
+            XCTAssertEqual(VAEEncoder.plan(family: .flux, height: h, width: w), VAEEncoder.walk(family: .flux, height: h, width: w))
+            XCTAssertEqual(QwenImage21VAEEncoder.plan(config: qwen, height: h, width: w),
+                           QwenImage21VAEEncoder.walk(config: qwen, height: h, width: w))
+        }
+        let maps = Self.zImageMaps(), dit = DiT.Config(header: maps.dit)
+        for released in 0...dit.layers {
+            XCTAssertEqual(maps.ditStaging(released..<dit.layers),
+                           Artifact.stagingBytes(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
+                                                 fileSize: maps.ditSize), "tail from \(released)")
+        }
+        let encoder = try TextEncoder.Config(header: maps.encoder)
+        XCTAssertEqual(maps.encoderLayerStaging,
+                       Artifact.stagingBytes(header: maps.encoder, prefixes: TextEncoder.layerPrefixes(encoder),
+                                             fileSize: maps.encoderSize))
+
+        // Hot: the product's worst case (1024×1536, three references), both families, both plans.
+        let references = [(width: 1024, height: 1024), (width: 1216, height: 832), (width: 1024, height: 1536)]
+        let qwenRequest = MemoryNeed.Request(card: .qwenImage21, width: 1024, height: 1536, references: references,
+                                             promptTokens: 200, loraRanks: [32])
+        let zRequest = MemoryNeed.Request(card: .zImage, width: 1024, height: 1536, references: [(1024, 1536)],
+                                          promptTokens: 200, loraRanks: [32])
+        func needs() -> [MemoryNeed] {
+            [MemoryNeed.of(qwenRequest)!, MemoryNeed.of(qwenRequest.lean)!,
+             MemoryNeed.zImage(zRequest, app: false, maps: maps)!, MemoryNeed.zImage(zRequest.lean, app: false, maps: maps)!]
+        }
+        let cold = needs()
+        let started = Date()
+        let hot = needs()
+        let each = Date().timeIntervalSince(started) / Double(hot.count)
+        XCTAssertEqual(cold, hot)
+        XCTAssertLessThan(each, 0.005, String(format: "a need: %.2f ms", each * 1000))
+    }
+}

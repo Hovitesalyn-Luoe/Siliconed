@@ -45,18 +45,10 @@ package final class AnimaVAE {
                   3.2687, 2.1526, 2.8652, 1.5579, 1.6382, 1.1253, 2.8251, 1.9160])
     }
 
-    /// A stage: one graph, one input, one output — `VAE`'s cut, for the same reason
-    /// (measured: `MPSGraph` keeps alive the intermediates of the whole graph it executes).
-    private struct Stage {
-        let graph: MPSGraph
-        let entry: MPSGraphTensor
-        let output: MPSGraphTensor
-        let shape: [NSNumber]
-    }
-
     private let device: MTLDevice
     private let queue: MTLCommandQueue
-    private let stages: [Stage]
+    private let weights: Safetensors
+    private let config: Config
     package let latentHeight, latentWidth: Int
     package var imageHeight: Int { latentHeight * 8 }
     package var imageWidth: Int { latentWidth * 8 }
@@ -73,76 +65,65 @@ package final class AnimaVAE {
         }
         self.device = device
         self.queue = queue
+        self.weights = weights
+        self.config = config
         self.latentHeight = latentHeight
         self.latentWidth = latentWidth
-        self.stages = try (0..<4).map {
-            try AnimaVAE.build(weights: weights, config: config, L: (latentHeight, latentWidth), stage: $0)
-        }
     }
 
-    private static func build(weights: Safetensors, config: Config, L: (h: Int, w: Int), stage: Int) throws -> Stage {
-        let graph = MPSGraph()
-        //   0 : [16, H, W]    1 : [192, 2H, 2W]    2 : [192, 4H, 4W]    3 : [96, 8H, 8W]
-        let (channels, factor) = [(config.latentChannels, 1), (192, 2), (192, 4), (96, 8)][stage]
-        let shape: [NSNumber] = [1, NSNumber(value: channels), NSNumber(value: factor * L.h),
-                                 NSNumber(value: factor * L.w)]
-        let L2 = (h: 2 * L.h, w: 2 * L.w), L4 = (h: 4 * L.h, w: 4 * L.w)
-        let input = graph.placeholder(shape: shape, dataType: .float32, name: "input")
-
-        let b = VAEBuildingBlocks(graph: graph, weights: weights, name: "VAE Qwen-Image")
-
-        /// The bottleneck: one head, `H·W` tokens of `C` channels, scale `1/√C`, q, k, v drawn from a
-        /// single 1×1 `to_qkv` — **without** query slices: its bits were never cut up.
-        func attention(_ x: MPSGraphTensor, _ prefix: String, channels: Int, size: (h: Int, w: Int)) throws -> MPSGraphTensor {
-            try b.attention(x, normalized: b.rmsNorm(x, prefix + ".norm", channels: channels), channels: channels, size: size,
-                            qkv: { (try b.projection($0, prefix + ".to_qkv", rows: 0..<channels),
-                                    try b.projection($0, prefix + ".to_qkv", rows: channels..<(2 * channels)),
-                                    try b.projection($0, prefix + ".to_qkv", rows: (2 * channels)..<(3 * channels))) },
-                            output: prefix + ".proj", requestBlock: 0)
+    /// **Passes of one kernel, in a heap of ours** (`VAEMemory`) — the cut of Qwen-Image-2.1's
+    /// decoder (`QwenImage21VAE.run`): a graph of several operations put its intermediates beyond our heaps.
+    ///
+    ///     latent [16, h, w] → [384, h, w] → ×2 [192, 2h, 2w] → [384, 2h, 2w] → ×2 [192, 4h, 4w]
+    ///       → ×2 [96, 8h, 8w] → image [3, 8h, 8w]
+    ///
+    /// **Not proven at the bit here**: neither Anima's nor Krea 2's VAE is installed on the machine that
+    /// made the cut — the passes lay the operations `graph.run` executed, in the same order,
+    /// cut where the two VAEs it was proven on kept their bits.
+    private static func stages(config: Config, latentHeight h: Int, latentWidth w: Int) -> [QwenImage21VAE.Stage] {
+        typealias V = QwenImage21VAE
+        let L = (h: h, w: w), L2 = (h: 2 * h, w: 2 * w), L4 = (h: 4 * h, w: 4 * w), L8 = (h: 8 * h, w: 8 * w)
+        let shape: [Int] = [1, config.latentChannels, 1, 1]
+        // The pipeline denormalizes BEFORE the decoder: `latents × std + mean`, per channel.
+        var passes: [V.Stage] = [
+            V.Stage(["x"], "x", [1, config.latentChannels, h, w]) { b, x in
+                b.graph.addition(b.graph.multiplication(x[0], b.constant(config.std, shape), name: nil),
+                                 b.constant(config.mean, shape), name: "denormalize") },
+            V.conv("post_quant_conv", 16, 16, size: L, kernel: 1),
+            V.conv("decoder.conv_in", 16, 384, size: L),
+        ]
+        passes += V.resnet("decoder.mid_block.resnets.0", 384, 384, size: L, label: "mid.resnet0")
+        // The bottleneck **without** query slices: its bits were never cut up.
+        passes += V.attention("decoder.mid_block.attentions.0", 384, size: L, label: "mid.attention", requestBlock: 0)
+        passes += V.resnet("decoder.mid_block.resnets.1", 384, 384, size: L, label: "mid")
+        /// `nearest-exact` ×2, then `Conv2d(C, C/2, 3)`.
+        func upsample(_ prefix: String, _ c: Int, size: (h: Int, w: Int)) -> [V.Stage] {
+            [V.double(c, size: size),
+             V.Stage(["x"], "x", [1, c / 2, 2 * size.h, 2 * size.w], weights: WeightList.conv(c / 2, c), label: prefix) { b, x in
+                 try b.conv(x[0], prefix + ".resample.1", padding: 1) }]
         }
-
-        /// `nearest-exact` ×2 (`VAEBuildingBlocks.double`), then `Conv2d(C, C/2, 3)`.
-        func upsample(_ x: MPSGraphTensor, _ prefix: String, channels: Int, size: (h: Int, w: Int)) throws -> MPSGraphTensor {
-            try b.conv(b.double(x, channels: channels, size: size), prefix + ".resample.1", padding: 1)
+        for r in 0..<3 { passes += V.resnet("decoder.up_blocks.0.resnets.\(r)", 384, 384, size: L, label: "0.resnet\(r)") }
+        passes += upsample("decoder.up_blocks.0.upsamplers.0", 384, size: L)
+        for r in 0..<3 {
+            passes += V.resnet("decoder.up_blocks.1.resnets.\(r)", r == 0 ? 192 : 384, 384, size: L2, label: "1.resnet\(r)")
         }
-        func constant(_ values: [Float], _ shape: [Int]) -> MPSGraphTensor { b.constant(values, shape) }
-
-        var x = input
-        switch stage {
-        case 0:
-            // The pipeline denormalizes BEFORE the decoder: `latents × std + mean`, per channel.
-            let shape: [Int] = [1, config.latentChannels, 1, 1]
-            x = graph.addition(graph.multiplication(x, constant(config.std, shape), name: nil),
-                               constant(config.mean, shape), name: "denormalize")
-            x = try b.conv(x, "post_quant_conv", padding: 0)
-            x = try b.conv(x, "decoder.conv_in", padding: 1)
-            x = try b.resnetQwen(x, "decoder.mid_block.resnets.0", inChannels: 384, outChannels: 384)
-            x = try attention(x, "decoder.mid_block.attentions.0", channels: 384, size: L)
-            x = try b.resnetQwen(x, "decoder.mid_block.resnets.1", inChannels: 384, outChannels: 384)
-            for r in 0..<3 { x = try b.resnetQwen(x, "decoder.up_blocks.0.resnets.\(r)", inChannels: 384, outChannels: 384) }
-            x = try upsample(x, "decoder.up_blocks.0.upsamplers.0", channels: 384, size: L)
-        case 1:
-            for r in 0..<3 {
-                x = try b.resnetQwen(x, "decoder.up_blocks.1.resnets.\(r)", inChannels: r == 0 ? 192 : 384, outChannels: 384)
-            }
-            x = try upsample(x, "decoder.up_blocks.1.upsamplers.0", channels: 384, size: L2)
-        case 2:
-            for r in 0..<3 { x = try b.resnetQwen(x, "decoder.up_blocks.2.resnets.\(r)", inChannels: 192, outChannels: 192) }
-            x = try upsample(x, "decoder.up_blocks.2.upsamplers.0", channels: 192, size: L4)
-        default:
-            for r in 0..<3 { x = try b.resnetQwen(x, "decoder.up_blocks.3.resnets.\(r)", inChannels: 96, outChannels: 96) }
-            x = try b.silu(b.rmsNorm(x, "decoder.norm_out", channels: 96))
-            x = try b.conv(x, "decoder.conv_out", padding: 1)
-            x = graph.clamp(x, min: graph.constant(-1, dataType: .float32),
-                            max: graph.constant(1, dataType: .float32), name: nil)
-        }
-        return Stage(graph: graph, entry: input, output: x, shape: shape)
+        passes += upsample("decoder.up_blocks.1.upsamplers.0", 384, size: L2)
+        for r in 0..<3 { passes += V.resnet("decoder.up_blocks.2.resnets.\(r)", 192, 192, size: L4, label: "2.resnet\(r)") }
+        passes += upsample("decoder.up_blocks.2.upsamplers.0", 192, size: L4)
+        for r in 0..<3 { passes += V.resnet("decoder.up_blocks.3.resnets.\(r)", 96, 96, size: L8, label: "3.resnet\(r)") }
+        passes.append(V.Stage(["x"], "x", [1, 96, L8.h, L8.w], weights: WeightList.rms(96)) { b, x in
+            try b.silu(b.rmsNorm(x[0], "decoder.norm_out", channels: 96)) })
+        passes.append(V.Stage(["x"], "x", [1, 3, L8.h, L8.w], weights: WeightList.conv(3, 96), label: "3") { b, x in
+            b.graph.clamp(try b.conv(x[0], "decoder.conv_out", padding: 1),
+                          min: b.graph.constant(-1, dataType: .float32), max: b.graph.constant(1, dataType: .float32), name: nil) })
+        return passes
     }
 
     /// `[O, I, T, kh, kw]` → `[O, I, kh, kw]`, the slice `t = T − 1` — the only one that a single
     /// frame, preceded by `T − 1` frames of zeros, exercises. A tensor that is not 5D
     /// passes as is. Internal and not private: it is the line that decides that the 3D VAE *is* a
     /// 2D VAE, and a wrong index (the central slice, by reflex) would give a plausible image.
+    /// (`VAEBuildingBlocks.layout` takes the same slice from the file, without this copy.)
     static func lastSlice(_ w: [Float], shape: [Int]) -> (values: [Float], shape: [Int]) {
         guard shape.count == 5 else { return (w, shape) }
         let (o, i, t, kh, kw) = (shape[0], shape[1], shape[2], shape[3], shape[4])
@@ -155,22 +136,37 @@ package final class AnimaVAE {
         return (slice, [o, i, kh, kw])
     }
 
+    /// **Everything a decoding holds** for an `h × w` latent: the registers' heap (the latent, each
+    /// stage's output, its weights), the largest stage's workspace, the image it returns — `decode`
+    /// walked without a device.
+    package static func plan(latentHeight h: Int, latentWidth w: Int, config: Config = .qwenImage) -> VAELayout {
+        let memory = VAEMemory()
+        _ = try? decode(nil, latentHeight: h, latentWidth: w, config: config, weights: nil, memory: memory)
+        return memory.layout
+    }
+
+    private static func decode(_ latent: UnsafePointer<Float>?, latentHeight h: Int, latentWidth w: Int, config: Config,
+                               weights: Safetensors?, memory: VAEMemory) throws -> [Float] {
+        let input = try memory.register([1, config.latentChannels, h, w])
+        if let latent, memory.isLive { input.values.update(from: latent, count: input.count) }
+        let image = try QwenImage21VAE.run(stages(config: config, latentHeight: h, latentWidth: w), weights: weights,
+                                           name: "VAE Qwen-Image", memory: memory, registers: ["x": input])["x"]!
+        memory.host(4 * image.count)
+        let pixels = memory.isLive ? Array(UnsafeBufferPointer(start: image.values, count: image.count)) : []
+        memory.free(image)
+        return pixels
+    }
+
     /// `latent` as `[16, h, w]` as the sampler returns it. Outputs `[3, 8h, 8w]` in `[-1, 1]`.
-    package func decode(latent: UnsafePointer<Float>) -> (image: [Float], seconds: Double) {
-        let count = 16 * latentHeight * latentWidth
-        let inBuffer = device.makeBuffer(length: count * 4, options: .storageModeShared)!
-        inBuffer.contents().assumingMemoryBound(to: Float.self).update(from: latent, count: count)
+    package func decode(latent: UnsafePointer<Float>) throws -> (image: [Float], seconds: Double) {
         let started = Date()
-        var data = MPSGraphTensorData(inBuffer, shape: stages[0].shape, dataType: .float32)
-        for stage in stages {
-            autoreleasepool {
-                let results = stage.graph.run(with: queue, feeds: [stage.entry: data],
-                                                 targetTensors: [stage.output], targetOperations: nil)
-                data = results[stage.output]!
-            }
+        let memory = try VAEMemory(plan: AnimaVAE.plan(latentHeight: latentHeight, latentWidth: latentWidth, config: config),
+                                   device: device, queue: queue)
+        let image = try autoreleasepool {
+            try AnimaVAE.decode(latent, latentHeight: latentHeight, latentWidth: latentWidth, config: config,
+                                weights: weights, memory: memory)
         }
-        var image = [Float](repeating: 0, count: 3 * imageHeight * imageWidth)
-        image.withUnsafeMutableBytes { data.mpsndarray().readBytes($0.baseAddress!, strideBytes: nil) }
+        memory.finish()
         return (image, Date().timeIntervalSince(started))
     }
 }

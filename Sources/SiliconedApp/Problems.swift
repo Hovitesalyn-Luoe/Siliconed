@@ -156,8 +156,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "The LoRA \(lora) is for \(name(target)), not for \(name(model)).")
         case let .incompatibleChain(output, input):                  // incompatible_chain
             return String(localized: "These modules don't connect: \(output) comes out where \(input) is expected.")
-        case let .insufficientMemory(needed, available):             // insufficient_memory
-            return String(localized: "This size needs \(Figures.memory(needed)) of memory, and \(Figures.memory(available)) is free right now.")
+        case let .insufficientMemory(needed, _):                     // insufficient_memory
+            return AppState.needsMac(needed)
         case .renderAlreadyRunning:                                  // render_already_running
             return String(localized: "Another program is already rendering on this library.")
         case .cancelled:                                             // cancelled
@@ -250,7 +250,7 @@ struct Problem: Equatable, Sendable {
         case .incompatibleChain:
             return String(localized: "Report it: the app built a chain the engine refuses.")
         case .insufficientMemory:
-            return String(localized: "Try a smaller size, or render again once other apps have given memory back.")
+            return String(localized: "Choose a smaller size or fewer images.")
         case .renderAlreadyRunning:
             return String(localized: "Wait for it to finish, then render again.")
         case .settingsAlreadyLoaded:

@@ -1,0 +1,596 @@
+import Darwin
+import Foundation
+import Metal
+import MetalPerformanceShaders
+import MetalPerformanceShadersGraph
+
+/// **A VAE's memory: every tensor in a heap of ours, placed before the first graph runs**.
+///
+///     registers   one placement heap (shared): every tensor that lives between two GPU passes — the
+///                 input, each operation's output, the band windows, the weights — at an offset the plan
+///                 computed in advance from the lifetimes of all of them (`VAELayout.place`)
+///     workspace   one heap (private) that MPS receives for every command buffer (`MPSHeapProvider`):
+///                 what a graph would ask for inside itself — nothing, for the one-operation graphs
+///                 the VAEs run since the cut into passes
+///
+/// Each VAE has a static plan function that walks its own code in planning mode (no device, no
+/// weight, no graph: the same calls to `register`, `free` and `graph`) and returns the `VAELayout` its
+/// constructor then allocates: one source, the equality by construction. The run then asks for the
+/// same slots in the same order, and each gets the offset the plan gave it — a run that leaves its
+/// plan (another size, another lifetime) stops rather than overlap two live tensors.
+///
+/// What it replaces, and why — what a port that "just frees what it allocates" would get wrong:
+///
+///   - **Metal returns GPU memory late.** A buffer or a heap the GPU has touched leaves the process's
+///     footprint 0.05 s to more than 2 s after its last release, and nothing public hurries it
+///     (purgeable `.empty`, unretained references, a completion handler, an empty command buffer:
+///     all tried). A VAE that allocated each register and let MPS allocate each graph's
+///     temporaries left behind it everything it freed in its last second, and every stage carried the
+///     stages before it, still pending. So nothing is freed inside a VAE: the two heaps are made once
+///     and carved;
+///   - **our own pages wrapped `bytesNoCopy` do not escape it**: `munmap` takes them out of
+///     `phys_footprint` at once, but they stay **wired** until Metal drops its mapping: refuted;
+///   - **a graph of several operations allocates its intermediates itself.** MPSGraph takes from the
+///     heap provider only one block, the size of its largest tensor, and puts every other intermediate
+///     in Metal memory of its own, which no API directs elsewhere: 1.76 GB beyond our heaps in the
+///     Qwen-Image-2.1 decoder's tail at 1024², 1.6 GB in its encoder's first block. A larger
+///     provider heap changes nothing (3 GB offered: the same 1,758 MB beside it). Hence the VAEs
+///     run graphs of **one kernel** each — a convolution and its bias (and a residual sum), a norm and
+///     its SiLU — whose only tensors are their inputs and their output, all registers here; and the
+///     pure copies MPSGraph materializes twice over (the ×2 `broadcast`, `DupUp3D`'s gather, `AvgDown3D`'s
+///     permutes) are kernels of ours (`VAEKernels`). Cut where MPSGraph fused nothing across the cut,
+///     the same bits;
+///   - **the placement is computed, not found.** A first fit at run time fragments: the heap reserved
+///     whole held ~60 MB of holes at the Flux decoder's peak. The plan knows every slot's size,
+///     birth and death before the first byte: it places the largest first, each at the lowest offset no
+///     slot alive at the same time occupies, and the heap is the highest end — **equal to the largest sum
+///     of slots alive at once** (`VAELayout.peak`, tested on every VAE at three formats).
+package struct VAELayout: Sendable, Equatable {
+    /// Every slot starts on a page: a placed buffer's offset must meet the heap's alignment
+    /// (`heapBufferSizeAndAlign`, checked at each placement), and a page meets it on Apple GPUs.
+    package static let alignment = 1 << 14
+
+    /// A slot of the walk: its bytes (whole pages) and its lifetime, in events (an allocation or a
+    /// free is one event): alive from `birth` to `death`, `Int.max` when never freed.
+    package struct Slot: Sendable, Equatable {
+        package var bytes: Int
+        package var birth: Int
+        package var death = Int.max
+    }
+
+    package private(set) var slots: [Slot] = []
+    /// Each slot's offset in the placement heap, once `place` ran.
+    package private(set) var offsets: [Int] = []
+    private var event = 0
+    /// The placement heap's bytes: the highest end of a placed slot.
+    package private(set) var registers = 0
+    /// The workspace heap's bytes: what MPS asks for the largest graph the VAE runs.
+    package private(set) var workspace = 0
+    /// The host (`[Float]`) copies the VAE makes beside its heaps: its result, a de-normalized latent.
+    package private(set) var host = 0
+    /// **What stays MPSGraph's, beside both heaps, at most**: its SDPA's own copies of the attention's
+    /// operands, `4·S·C` floats for one pass (`sdpaOutside`) — the one graph whose cut changes the
+    /// bits. Not in `bytes`: a term of its own, computed from the shapes like the rest.
+    package private(set) var outside = 0
+
+    package init() {}
+
+    /// Everything: both heaps and the host copies.
+    package var bytes: Int { registers + workspace + host }
+
+    package static func rounded(_ bytes: Int) -> Int { (max(bytes, 1) + alignment - 1) / alignment * alignment }
+
+    /// A new slot of `bytes`: its index, the order of the walk.
+    package mutating func allocate(_ bytes: Int) -> Int {
+        slots.append(Slot(bytes: VAELayout.rounded(bytes), birth: event))
+        event += 1
+        return slots.count - 1
+    }
+
+    /// The event of this free: the walk's clock, for the run to check it frees as its plan did.
+    @discardableResult
+    package mutating func free(_ slot: Int) -> Int {
+        precondition(slots[slot].death == Int.max, "VAELayout: freeing a slot twice")
+        slots[slot].death = event
+        event += 1
+        return slots[slot].death
+    }
+
+    /// **What MPS asks of the workspace for a one-kernel graph** (read on every pass of the Qwen-Image-2.1
+    /// VAE): 2 MiB for a reduction or a convolution — and, for a stride-2 or 1×1 convolution, its
+    /// weights reformatted, rounded up to 2 MiB (`reformattedWeights`); MPSGraph's SDPA, a copy of its
+    /// queries. Declarations, not a law: an ask beyond them shows as `VAEMemory.overflow`, a defect.
+    package static let minimumAsk = 2 << 20
+
+    /// A convolution's `floats` of weights, as MPS reformats them in the workspace.
+    package static func reformattedWeights(_ floats: Int) -> Int {
+        (4 * floats + minimumAsk - 1) / minimumAsk * minimumAsk
+    }
+
+    /// A graph whose workspace request is `elements` floats (0: none).
+    package mutating func graph(largest elements: Int) {
+        if elements > 0 { workspace = max(workspace, VAELayout.rounded(4 * elements)) }
+    }
+
+    package mutating func host(_ bytes: Int) { host += bytes }
+
+    package mutating func outside(_ bytes: Int) { outside = max(outside, bytes) }
+
+    /// **What MPSGraph's `scaledDotProductAttention` allocates itself** for `S` tokens of `C` channels, one
+    /// head: four `S·C` copies (q, k, v and its output) beside the one it asks of the workspace — 72 MiB
+    /// for Qwen-Image-2.1's decoder at 1024² (`S` 4096, `C` 1152), 48 MiB for its encoder (`C` 768),
+    /// 128 MiB for Flux's (`S` 16,384, `C` 512): read on all three. Decomposing it into our
+    /// registers (`QKᵀ`, softmax, `PV`) moves the decoder's output by 1.35·10⁻⁵ (worst channel): refused
+    /// for now, the bits first.
+    package static func sdpaOutside(tokens s: Int, channels c: Int) -> Int { 4 * 4 * s * c }
+
+    /// Nothing live: every slot freed (the run's end).
+    package var empty: Bool { slots.allSatisfy { $0.death != Int.max } }
+
+    /// **The occupancy at its largest**: the most bytes of slots alive at the same event — what no
+    /// placement can go under, and what `place` reaches.
+    package var peak: Int {
+        var changes: [(event: Int, bytes: Int)] = []
+        for s in slots {
+            changes.append((s.birth, s.bytes))
+            if s.death != Int.max { changes.append((s.death, -s.bytes)) }
+        }
+        var live = 0, peak = 0
+        for c in changes.sorted(by: { $0.event < $1.event }) { live += c.bytes; peak = max(peak, live) }
+        return peak
+    }
+
+    /// **The offsets, from the lifetimes** — an arena laid out in advance. Largest first (ties: the
+    /// earliest born), each at the lowest offset where it overlaps no placed slot that is alive at the
+    /// same time. When that order leaves a hole the peak does not need, the earliest-born order is tried
+    /// too, and the lower heap kept.
+    package mutating func place() {
+        // Flat buffers and plain loops: Qwen's decoder at its smallest band has ~2,000 slots, each
+        // scanning every slot placed before it (160 ms in a debug build with closures, the first form).
+        // The order of equal starts in `busy` does not change the offset found.
+        let bytes = slots.map(\.bytes), births = slots.map(\.birth), deaths = slots.map(\.death)
+        func layout(_ order: [Int]) -> (offsets: [Int], end: Int) {
+            let n = bytes.count
+            var offsets = [Int](repeating: 0, count: n)
+            var end = 0
+            bytes.withUnsafeBufferPointer { bytes in births.withUnsafeBufferPointer { births in
+            deaths.withUnsafeBufferPointer { deaths in offsets.withUnsafeMutableBufferPointer { offsets in
+                let placed = UnsafeMutableBufferPointer<Int>.allocate(capacity: n)
+                // The busy intervals, `start` and `stop` interleaved, sorted by `start` as they come.
+                let busy = UnsafeMutableBufferPointer<Int>.allocate(capacity: 2 * n)
+                defer { placed.deallocate(); busy.deallocate() }
+                var count = 0
+                for i in order {
+                    let (size, birth, death) = (bytes[i], births[i], deaths[i])
+                    var b = 0
+                    var k = 0
+                    while k < count {
+                        let j = placed[k]
+                        if births[j] < death && birth < deaths[j] {
+                            let (start, stop) = (offsets[j], offsets[j] + bytes[j])
+                            var at = b
+                            while at > 0 && busy[2 * (at - 1)] > start {
+                                busy[2 * at] = busy[2 * (at - 1)]; busy[2 * at + 1] = busy[2 * (at - 1) + 1]
+                                at -= 1
+                            }
+                            busy[2 * at] = start; busy[2 * at + 1] = stop
+                            b += 1
+                        }
+                        k += 1
+                    }
+                    var offset = 0
+                    var m = 0
+                    while m < b {
+                        if offset + size <= busy[2 * m] { break }
+                        offset = max(offset, busy[2 * m + 1])
+                        m += 1
+                    }
+                    offsets[i] = offset
+                    placed[count] = i
+                    count += 1
+                    end = max(end, offset + size)
+                }
+            } } } }
+            return (offsets, end)
+        }
+        let indices = Array(slots.indices)
+        var best = layout(indices.sorted { (slots[$0].bytes, -slots[$0].birth) > (slots[$1].bytes, -slots[$1].birth) })
+        let target = peak
+        if best.end > target {
+            let byBirth = layout(indices)
+            if byBirth.end < best.end { best = byBirth }
+        }
+        if best.end > target {
+            let byLength = layout(indices.sorted {
+                let a = slots[$0], b = slots[$1]
+                return (min(a.death, event) - a.birth, a.bytes) > (min(b.death, event) - b.birth, b.bytes)
+            })
+            if byLength.end < best.end { best = byLength }
+        }
+        offsets = best.offsets
+        registers = best.end
+    }
+}
+
+/// A tensor between two GPU passes: a slot of the placement heap (`nil` buffer while planning).
+final class VAERegister {
+    let shape: [Int]
+    /// The slot's index in the walk (`VAELayout.slots`); a view shares its slot's.
+    let slot: Int
+    /// The slot's bytes: a view (`VAEMemory.view`) keeps its slot's.
+    let bytes: Int
+    let buffer: MTLBuffer?
+    let data: MPSGraphTensorData?
+
+    init(shape: [Int], slot: Int, bytes: Int, buffer: MTLBuffer?) {
+        self.shape = shape; self.slot = slot; self.bytes = bytes; self.buffer = buffer
+        data = buffer.map { MPSGraphTensorData($0, shape: shape.map { NSNumber(value: $0) }, dataType: .float32) }
+    }
+
+    var count: Int { shape.reduce(1, *) }
+    var nsShape: [NSNumber] { shape.map { NSNumber(value: $0) } }
+    var values: UnsafeMutablePointer<Float> { buffer!.contents().assumingMemoryBound(to: Float.self) }
+}
+
+/// The two heaps, the walk over them, and the command buffers that run the VAE's graphs and kernels.
+/// `VAEMemory()` plans; `VAEMemory(plan:…)` runs.
+package final class VAEMemory {
+    /// The walk so far (planning: the plan itself, placed when read through `layout`).
+    private var walk = VAELayout()
+    let device: MTLDevice?
+    /// Our own queue, released with the heaps: MPS's command buffers keep their heap provider until
+    /// their queue lets them go (the VAE's own queue held the workspace 3 s past `finish`).
+    private var queue: MTLCommandQueue?
+    private var heap: MTLHeap?
+    private var workspace: Workspace?
+    private var kernels: VAEKernels?
+    private let plan: VAELayout?
+    /// The graphics ledger before the heaps were made, and both heaps' bytes: what `outside` is read
+    /// against (a heap counts whole in the ledger once the GPU has touched it).
+    private var baseline = 0
+    private var heaps = 0
+
+    var isLive: Bool { heap != nil }
+
+    /// The plan: the walk, placed.
+    var layout: VAELayout { var l = walk; l.place(); return l }
+
+    /// A run that does not follow its plan: a bug of the plan, said rather than run past the heap.
+    enum Failure: Error, CustomStringConvertible {
+        case plan(String)
+        var description: String { if case .plan(let what) = self { return "VAE memory: \(what)" }; return "" }
+    }
+
+    /// Planning: the same calls, no device. The layout it ends with is the plan.
+    init() { device = nil; queue = nil; plan = nil }
+
+    /// Running: the two heaps, at the plan's sizes.
+    init(plan: VAELayout, device: MTLDevice, queue: MTLCommandQueue) throws {
+        precondition(plan.offsets.count == plan.slots.count, "VAEMemory: a plan that was not placed")
+        self.plan = plan; self.device = device
+        baseline = VAEMemory.graphicsFootprint()
+        guard let own = device.makeCommandQueue() else { throw GEMM.Failure.noDevice }
+        self.queue = own
+        kernels = try VAEKernels.shared(device)
+        let registers = MTLHeapDescriptor()
+        registers.type = .placement
+        registers.storageMode = .shared
+        registers.hazardTrackingMode = .untracked
+        registers.size = max(plan.registers, VAELayout.alignment)
+        // MPS's own request (as measured): private, untracked, automatic — returned as asked.
+        let scratch = MTLHeapDescriptor()
+        scratch.type = .automatic
+        scratch.storageMode = .private
+        scratch.hazardTrackingMode = .untracked
+        scratch.size = max(plan.workspace, VAELayout.alignment)
+        guard let heap = device.makeHeap(descriptor: registers), let work = device.makeHeap(descriptor: scratch) else {
+            throw GEMM.Failure.noDevice
+        }
+        heap.label = "VAE registers"; work.label = "VAE workspace"
+        self.heap = heap
+        workspace = Workspace(heap: work, device: device)
+        heaps = heap.size + work.size
+    }
+
+    // ── registers ──────────────────────────────────────────────────────────────────────────
+
+    func register(_ shape: [Int]) throws -> VAERegister {
+        let bytes = 4 * shape.reduce(1, *)
+        let slot = walk.allocate(bytes)
+        let length = VAELayout.rounded(bytes)
+        guard let heap, let device, let plan else { return VAERegister(shape: shape, slot: slot, bytes: length, buffer: nil) }
+        guard slot < plan.slots.count, plan.slots[slot].bytes == length, plan.slots[slot].birth == walk.slots[slot].birth else {
+            throw Failure.plan("slot \(slot) of \(length) bytes is not the one the plan placed")
+        }
+        let options: MTLResourceOptions = [.storageModeShared, .hazardTrackingModeUntracked]
+        let need = device.heapBufferSizeAndAlign(length: length, options: options)
+        precondition(VAELayout.alignment % need.align == 0 && need.size <= length,
+                     "VAEMemory: this GPU places buffers at \(need.align) bytes, not \(VAELayout.alignment)")
+        guard let buffer = heap.makeBuffer(length: length, options: options, offset: plan.offsets[slot]) else {
+            throw GEMM.Failure.noDevice
+        }
+        return VAERegister(shape: shape, slot: slot, bytes: length, buffer: buffer)
+    }
+
+    /// A register holding `values` (copied when running).
+    func register(_ shape: [Int], from values: UnsafePointer<Float>) throws -> VAERegister {
+        let r = try register(shape)
+        if isLive { r.values.update(from: values, count: r.count) }
+        return r
+    }
+
+    /// The same slot under another shape, no larger than the slot: a layer that writes its output
+    /// over its input. Freed with the slot, once.
+    func view(_ r: VAERegister, as shape: [Int]) throws -> VAERegister {
+        let length = VAELayout.rounded(4 * shape.reduce(1, *))
+        precondition(length <= r.bytes, "VAEMemory: a view larger than its slot")
+        guard let heap, let plan else { return VAERegister(shape: shape, slot: r.slot, bytes: r.bytes, buffer: nil) }
+        let options: MTLResourceOptions = [.storageModeShared, .hazardTrackingModeUntracked]
+        guard let buffer = heap.makeBuffer(length: length, options: options, offset: plan.offsets[r.slot]) else {
+            throw GEMM.Failure.noDevice
+        }
+        return VAERegister(shape: shape, slot: r.slot, bytes: r.bytes, buffer: buffer)
+    }
+
+    func free(_ r: VAERegister) {
+        let event = walk.free(r.slot)
+        if let plan {
+            precondition(plan.slots[r.slot].death == event, "VAEMemory: slot \(r.slot) freed out of its plan")
+        }
+    }
+
+    func free(_ registers: [VAERegister]) { for r in registers.reversed() { free(r) } }
+
+    /// **The weights of a graph, in registers of ours**: one per weight, `declared` their floats in the
+    /// order the graph reads them (`WeightList`), widened from `file` (running) and fed to the graph's
+    /// placeholders. `fed`: what the graph built recorded (`nil` while planning, or when nothing was
+    /// built) — checked against `declared`, element by element.
+    func weights(_ declared: [Int], _ fed: FedWeights?, file: Safetensors?, vae: String) throws
+            -> (registers: [VAERegister], feeds: [MPSGraphTensor: MPSGraphTensorData]) {
+        if let fed {
+            guard fed.items.map({ $0.shape.reduce(1, *) }) == declared else {
+                throw Failure.plan("\(vae) reads \(fed.items.map(\.name)) — not the weights its plan charges")
+            }
+        }
+        var registers: [VAERegister] = [], feeds: [MPSGraphTensor: MPSGraphTensorData] = [:]
+        for (k, floats) in declared.enumerated() {
+            let item = fed?.items[k]
+            let r = try register(item?.shape ?? [floats])
+            registers.append(r)
+            if let item, let file, isLive {
+                try VAEBuildingBlocks.widen(file, item.name, rows: item.rows, vae: vae, into: r.values)
+                feeds[item.placeholder] = r.data!
+            }
+        }
+        return (registers, feeds)
+    }
+
+    /// A host copy beside the heaps (a `[Float]` result): charged to the plan, not placed.
+    func host(_ bytes: Int) { walk.host(bytes) }
+
+    /// What a pass leaves MPSGraph to allocate beside the heaps (`VAELayout.outside`).
+    func outside(_ bytes: Int) { walk.outside(bytes) }
+
+    // ── graphs and kernels ─────────────────────────────────────────────────────────────────
+
+    /// **A graph whose workspace request is `largest` floats** (0: a one-kernel graph, which asks
+    /// none) — declared before it is built, from the shapes alone. Planning: recorded, `nil` returned
+    /// (nothing is built). Running: `build` runs. A plan that under-declares shows at the first run as
+    /// an MPS request beyond the workspace heap (`overflow`), on any machine.
+    func graph<T>(largest: Int, _ build: () throws -> T) rethrows -> T? {
+        walk.graph(largest: largest)
+        guard isLive else { return nil }
+        return try build()
+    }
+
+    /// **`graph.encode` on a command buffer whose MPS temporaries come from our workspace heap**,
+    /// without MPS's heap cache (it would keep them for 3–15 s), and waited for.
+    func execute(_ graph: MPSGraph, feeds: [MPSGraphTensor: MPSGraphTensorData],
+                 results: [MPSGraphTensor: MPSGraphTensorData]) {
+        guard let queue, let workspace else { return }
+        autoreleasepool {
+            let commands = MPSCommandBuffer(from: queue)
+            MPSSetHeapCacheDuration(commands, 0)
+            commands.heapProvider = workspace
+            graph.encode(to: commands, feeds: feeds, targetOperations: nil, resultsDictionary: results, executionDescriptor: nil)
+            commands.commit()
+            commands.waitUntilCompleted()
+        }
+        VAEMemory.outside = max(VAEMemory.outside, VAEMemory.graphicsFootprint() - baseline - heaps)
+    }
+
+    /// One of our kernels over registers (`VAEKernels`), waited for. Planning: nothing.
+    func dispatch(_ kernel: VAEKernels.Kernel, _ registers: [VAERegister], constants: [UInt32], grid: MTLSize) {
+        guard let queue, let kernels else { return }
+        autoreleasepool {
+            kernels.dispatch(kernel, on: queue, registers.map { $0.buffer! }, constants: constants, grid: grid)
+        }
+        VAEMemory.outside = max(VAEMemory.outside, VAEMemory.graphicsFootprint() - baseline - heaps)
+    }
+
+    // ── the end ────────────────────────────────────────────────────────────────────────────
+
+    /// What MPS asked for beyond the workspace heap, at most, in this process — 0 when the plan's
+    /// declarations hold on this system. Read by the checks.
+    nonisolated(unsafe) package static var overflow = 0
+    /// The largest heap MPS asked for, in this process — against the plan's workspace, for the checks.
+    nonisolated(unsafe) package static var largestAsk = 0
+
+    /// **Releases both heaps, and returns at once.** Every register must be dead: a placed buffer keeps
+    /// its heap alive. Metal takes the heaps back on its own time (0.05 to ~2 s), and reuses them
+    /// for the next allocation of the process meanwhile; nothing else of the VAE's is left to wait for.
+    func finish() {
+        guard heap != nil, workspace != nil else { return }
+        precondition(walk.empty, "VAEMemory: registers still live at the end")
+        VAEMemory.overflow = max(VAEMemory.overflow, workspace!.overflow)
+        VAEMemory.largestAsk = max(VAEMemory.largestAsk, workspace!.largestAsk)
+        heap = nil; workspace = nil; queue = nil
+    }
+
+    /// **What Metal holds beyond our two heaps, at most, in this process** — the graphics ledger after
+    /// each graph or kernel, less the ledger once the VAE's heaps were made. ~0 when every tensor of
+    /// every graph is a register; what MPSGraph allocates itself shows here.
+    nonisolated(unsafe) package static var outside = 0
+
+    /// The process's graphics ledger: Metal's buffers and heaps, ours and MPS's.
+    static func graphicsFootprint() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int(info.ledger_tag_graphics_footprint) : 0
+    }
+
+    /// **MPS's temporaries, in our heap.** MPS asks a heap per command buffer (`MPSCommandBuffer`'s
+    /// `heapProvider`) and retires it after; we hand it the same heap every time. A request our heap
+    /// cannot hold — another system planning otherwise than the plan declares — is granted as asked, and
+    /// recorded (`VAEMemory.overflow`): never silent, never refused.
+    private final class Workspace: NSObject, MPSHeapProvider {
+        let heap: MTLHeap
+        let device: MTLDevice
+        private(set) var overflow = 0
+        private(set) var largestAsk = 0
+
+        init(heap: MTLHeap, device: MTLDevice) { self.heap = heap; self.device = device }
+
+        func newHeap(with descriptor: MTLHeapDescriptor) -> MTLHeap? {
+            largestAsk = max(largestAsk, descriptor.size)
+            if descriptor.storageMode == heap.storageMode, descriptor.type == heap.type,
+               descriptor.size <= heap.maxAvailableSize(alignment: VAELayout.alignment) {
+                return heap
+            }
+            overflow = max(overflow, descriptor.size)
+            return device.makeHeap(descriptor: descriptor)
+        }
+
+        func retire(_ heap: MTLHeap, cacheDelay seconds: Double) {}
+    }
+}
+
+/// **The VAEs' pure copies, as kernels of ours** — what MPSGraph materialized beside our heaps,
+/// up to twice over (a `broadcast` then its reshape: 5 tensors' worth beyond its output for the ×2 alone):
+///
+///   - `double`: `nearest-exact` ×2, each pixel its 2×2 block — `VAEBuildingBlocks.double`;
+///   - `dup_up_add`: `main + DupUp3D(skip)` in place over `main` — the gather of `QwenImage21VAE.dupUpSources`
+///     and one fp32 sum, as `addDupUp` laid it;
+///   - `avg_down_add`: `main + AvgDown3D(x)` in place over `main` — the group mean of
+///     `QwenImage21VAE.avgDownGroups` (members of the zero frame add 0), summed in member order then
+///     divided by the group size, as `avgDown`'s `mean` (a power of two: the division is exact).
+///
+/// Copies and single sums round once, as the graph did: the same bits by construction; the mean's
+/// order is the graph's (the encoder's md5). No fast math.
+final class VAEKernels {
+    enum Kernel: String, CaseIterable {
+        case double = "vae_double", dupUpAdd = "vae_dup_up_add", avgDownAdd = "vae_avg_down_add"
+        case tokens = "vae_tokens", untokensAdd = "vae_untokens_add"
+    }
+
+    private static let source = """
+    #include <metal_stdlib>
+    using namespace metal;
+
+    // y [C, 2h, 2w] ← x [C, h, w], each pixel its 2×2 block. d = (h, w).
+    kernel void vae_double(device const float *x [[buffer(0)]], device float *y [[buffer(1)]],
+                           constant uint4 &d [[buffer(2)]], uint3 p [[thread_position_in_grid]]) {
+        uint h = d.x, w = d.y, H = 2 * h, W = 2 * w;
+        if (p.x >= W || p.y >= H) return;
+        y[(p.z * H + p.y) * W + p.x] = x[(p.z * h + p.y / 2) * w + p.x / 2];
+    }
+
+    // m [O, 2h, 2w] += DupUp3D(s [I, h, w]): output o, row offset i reads the input channel
+    // ((o·ft + ft − 1)·2 + i)·2 / r (the column offset never matters: checked by the caller).
+    // d = (h, w, ft, r).
+    kernel void vae_dup_up_add(device float *m [[buffer(0)]], device const float *s [[buffer(1)]],
+                               constant uint4 &d [[buffer(2)]], uint3 p [[thread_position_in_grid]]) {
+        uint h = d.x, w = d.y, ft = d.z, r = d.w, H = 2 * h, W = 2 * w;
+        if (p.x >= W || p.y >= H) return;
+        uint c = (((p.z * ft + ft - 1) * 2 + p.y % 2) * 2) / r;
+        uint k = (p.z * H + p.y) * W + p.x;
+        m[k] = m[k] + s[(c * h + p.y / 2) * w + p.x / 2];
+    }
+
+    // m [O, h, w] += AvgDown3D(x [I, s·h, s·w]): g members per output channel, member k of o is flat
+    // o·g + k of the reference's view, in channel c = flat / (ft·s²), time t = (flat % (ft·s²)) / s²
+    // (t < ft − 1: the zero frame in front), offset q = flat % s². d = (h, w, s, ft), e = (g).
+    kernel void vae_avg_down_add(device float *m [[buffer(0)]], device const float *x [[buffer(1)]],
+                                 constant uint4 &d [[buffer(2)]], constant uint4 &e [[buffer(3)]],
+                                 uint3 p [[thread_position_in_grid]]) {
+        uint h = d.x, w = d.y, s = d.z, ft = d.w, g = e.x, factor = ft * s * s;
+        if (p.x >= w || p.y >= h) return;
+        float sum = 0.0f;
+        for (uint k = 0; k < g; k++) {
+            uint flat = p.z * g + k, c = flat / factor, r = flat % factor;
+            float v = 0.0f;
+            if (r / (s * s) + 1 >= ft) {
+                uint q = r % (s * s);
+                v = x[(c * s * h + s * p.y + q / s) * (s * w) + s * p.x + q % s];
+            }
+            sum = k == 0 ? v : sum + v;
+        }
+        uint k = (p.z * h + p.y) * w + p.x;
+        m[k] = m[k] + sum / float(g);
+    }
+
+    // The attention's tokens: t [S, C] <- x [C, S]. d = (C, S).
+    kernel void vae_tokens(device const float *x [[buffer(0)]], device float *t [[buffer(1)]],
+                           constant uint4 &d [[buffer(2)]], uint3 p [[thread_position_in_grid]]) {
+        if (p.x >= d.x || p.y >= d.y) return;
+        t[p.y * d.x + p.x] = x[p.x * d.y + p.y];
+    }
+
+    // The attention's residual: x [C, S] += o [S, C]. d = (C, S).
+    kernel void vae_untokens_add(device float *x [[buffer(0)]], device const float *o [[buffer(1)]],
+                                 constant uint4 &d [[buffer(2)]], uint3 p [[thread_position_in_grid]]) {
+        if (p.x >= d.y || p.y >= d.x) return;
+        uint k = p.y * d.y + p.x;
+        x[k] = x[k] + o[p.x * d.x + p.y];
+    }
+    """
+
+    private let pipelines: [Kernel: MTLComputePipelineState]
+
+    private init(device: MTLDevice) throws {
+        let options = MTLCompileOptions()
+        options.mathMode = .safe
+        let library = try device.makeLibrary(source: Self.source, options: options)
+        var pipelines: [Kernel: MTLComputePipelineState] = [:]
+        for k in Kernel.allCases {
+            guard let f = library.makeFunction(name: k.rawValue) else { throw GEMM.Failure.noDevice }
+            pipelines[k] = try device.makeComputePipelineState(function: f)
+        }
+        self.pipelines = pipelines
+    }
+
+    nonisolated(unsafe) private static var cache: VAEKernels?
+    private static let lock = NSLock()
+
+    /// Compiled once per process (one GPU).
+    static func shared(_ device: MTLDevice) throws -> VAEKernels {
+        lock.lock(); defer { lock.unlock() }
+        if let cache { return cache }
+        let k = try VAEKernels(device: device)
+        cache = k
+        return k
+    }
+
+    /// `constants`: up to eight, as two `uint4` (buffers after the operands).
+    func dispatch(_ kernel: Kernel, on queue: MTLCommandQueue, _ buffers: [MTLBuffer], constants: [UInt32], grid: MTLSize) {
+        guard let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
+            preconditionFailure("VAEKernels: no command buffer")
+        }
+        let pipeline = pipelines[kernel]!
+        encoder.setComputePipelineState(pipeline)
+        for (i, b) in buffers.enumerated() { encoder.setBuffer(b, offset: 0, index: i) }
+        var c = constants + [UInt32](repeating: 0, count: 8 - constants.count)
+        encoder.setBytes(&c, length: 16, index: buffers.count)
+        c.withUnsafeBytes { encoder.setBytes($0.baseAddress! + 16, length: 16, index: buffers.count + 1) }
+        encoder.dispatchThreads(grid, threadsPerThreadgroup: MTLSize(width: min(grid.width, 64), height: 4, depth: 1))
+        encoder.endEncoding()
+        commands.commit()
+        commands.waitUntilCompleted()
+        precondition(commands.status == .completed, "VAEKernels: \(kernel.rawValue) failed: \(String(describing: commands.error))")
+    }
+}

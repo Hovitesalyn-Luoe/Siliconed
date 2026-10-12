@@ -39,17 +39,48 @@ package final class Qwen3VLVision {
             self.output = output; self.deepstack = deepstack
         }
 
+        /// **Qwen3-VL-8B's tower as published** (`vision_config` of the encoder's map): what the memory
+        /// formula sizes without opening the map.
+        package static let published = try! Config(header: [
+            "vision_config": ["hidden_size": 1152, "num_heads": 16, "intermediate_size": 4304, "depth": 27,
+                              "patch_size": 16, "temporal_patch_size": 2, "spatial_merge_size": 2,
+                              "num_position_embeddings": 2304, "out_hidden_size": 4096,
+                              "deepstack_visual_indexes": [8, 16, 24], "hidden_act": "gelu_pytorch_tanh"] as [String: Any],
+            "vision_patch_embed_as_linear": "(c, t, y, x)"])
+
         /// `in_channels · temporal · patch²` = 1536: one row of `pixel_values`.
         package var patchValues: Int { 3 * temporal * patch * patch }
         /// The width after the 2×2 shuffle, 4608.
         package var merged: Int { hidden * merge * merge }
     }
 
-    /// One image's output: the merger's tokens and the deepstack ones, each `[tokens, output]`.
+    /// One image's output: the merger's tokens and the deepstack ones, each `[tokens, output]`, in
+    /// one region of `featureBytes` — they live until the language model has read them, then
+    /// leave with their `Pages` instead of staying in `malloc`'s freed blocks (3 × 64 MB at 1024²).
     package struct Features {
-        package let embeddings: [Float]
-        package let deepstack: [[Float]]
         package let tokens: Int
+        package let output: Int
+        package let levels: Int
+        private let storage: Pages
+
+        init(tokens: Int, output: Int, levels: Int) {
+            self.tokens = tokens; self.output = output; self.levels = levels
+            storage = Pages(bytes: Qwen3VLVision.featureBytes(tokens: tokens, output: output, levels: levels))
+        }
+
+        /// The merger's tokens, `[tokens, output]`.
+        package var embeddings: UnsafeMutablePointer<Float> { storage.floats() }
+        /// The deepstack tokens of `level`, `[tokens, output]`.
+        package func deepstack(_ level: Int) -> UnsafeMutablePointer<Float> {
+            storage.floats(at: (1 + level) * tokens * output * 4)
+        }
+    }
+
+    /// **What one image's `Features` holds**: the merger's tokens and `levels` deepstack ones, each
+    /// `[tokens, output]` fp32, in one region rounded to the page. `tokens` = patches / 4.
+    package static func featureBytes(tokens: Int, output: Int = Config.published.output,
+                                     levels: Int = Config.published.deepstack.count) -> Int {
+        Arena.capacity(for: (1 + levels) * tokens * output * 4)
     }
 
     package let config: Config
@@ -72,28 +103,22 @@ package final class Qwen3VLVision {
     package init(artifact: Artifact, config: Config, maximumPatches: Int,
                  freezeCut: Bool = EngineSettings.effective.frozenCut) throws {
         let n = maximumPatches, d = config.hidden, i = config.intermediate
-        let m = config.merged, o = config.output
-        let largest = [m * m, m * o, d * i, d * 3 * d, config.patchValues * d].max()!
-        let widest = [m, 3 * d, i, o].max()!
+        let o = config.output
+        let largest = Qwen3VLVision.reserves(config).largest
         let gemm = try GEMM(freezeCut: freezeCut)
-        let budget = (n * config.patchValues + 7 * n * d + 3 * n * d + n * i + (n / 4) * o
-                      + n * config.headDim + 3 * widest + largest) * 4 + (32 << 20)
-        let arena = try Arena(capacity: budget)
-        func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
-            try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
+        let arena = try Arena(capacity: Qwen3VLVision.arenaBytes(config: config, patches: n))
+        var slices: [String: UnsafeMutablePointer<Float>] = [:]
+        for (name, count) in Qwen3VLVision.slices(config: config, patches: n) {
+            slices[name] = try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
         }
-        pixels = try slot("pixels", n * config.patchValues)
-        x = try slot("x", n * d)
-        normed = try slot("normed", n * d)          // also the [N/4, 4608] shuffled view
-        qkv = try slot("qkv", 3 * n * d)
-        q = try slot("q", n * d); k = try slot("k", n * d); v = try slot("v", n * d)
-        attended = try slot("attended", n * d)
-        projected = try slot("projected", n * d)    // also the mergers' hidden [N/4, 4608]
-        hidden = try slot("hidden", n * i)
-        mergedOut = try slot("mergedOut", (n / 4) * o)
-        freqs = try slot("freqs", n * config.headDim)
-        bias = try slot("bias", widest); gain = try slot("gain", widest); shift = try slot("shift", widest)
-        reserve = try slot("reserve", largest)
+        pixels = slices["pixels"]!; x = slices["x"]!
+        normed = slices["normed"]!                  // also the [N/4, 4608] shuffled view
+        qkv = slices["qkv"]!; q = slices["q"]!; k = slices["k"]!; v = slices["v"]!
+        attended = slices["attended"]!
+        projected = slices["projected"]!            // also the mergers' hidden [N/4, 4608]
+        hidden = slices["hidden"]!; mergedOut = slices["mergedOut"]!; freqs = slices["freqs"]!
+        bias = slices["bias"]!; gain = slices["gain"]!; shift = slices["shift"]!
+        reserve = slices["reserve"]!
         pixelsBuf = try gemm.wrap(pixels, bytes: n * config.patchValues * 4, name: "pixels")
         xBuf = try gemm.wrap(x, bytes: n * d * 4, name: "x")
         normedBuf = try gemm.wrap(normed, bytes: n * d * 4, name: "normed")
@@ -112,6 +137,31 @@ package final class Qwen3VLVision {
         self.arena = arena
         self.capacity = n
         self.prefetcher = Prefetcher(artifact: artifact)
+    }
+
+    /// The floats of the widest weight (`reserve`) and of the widest bias row (`bias`, `gain`, `shift`).
+    private static func reserves(_ config: Config) -> (largest: Int, widest: Int) {
+        let d = config.hidden, i = config.intermediate, m = config.merged, o = config.output
+        return ([m * m, m * o, d * i, d * 3 * d, config.patchValues * d].max()!, [m, 3 * d, i, o].max()!)
+    }
+
+    /// **The bytes of the tower's arena for images of at most `patches` patches** — one source: `init`
+    /// allocates it, `MemoryNeed.qwenImage21` charges it. `pixels`, the nine `[N, d]` activations
+    /// (`x`, `normed`, `qkv`·3, `q`, `k`, `v`, `attended`, `projected` — counted as 7 + 3), the MLP's
+    /// hidden, the merger's output, the RoPE table, three bias rows and the widest weight: its
+    /// `slices`, each on its page — formerly with 32 MB of margin besides, never reserved.
+    package static func arenaBytes(config: Config, patches n: Int) -> Int {
+        Arena.capacity(slices: slices(config: config, patches: n).map { $0.count * 4 })
+    }
+
+    /// **The tower's slices, in floats, in the order `init` reserves them.**
+    package static func slices(config: Config, patches n: Int) -> [(name: String, count: Int)] {
+        let d = config.hidden, i = config.intermediate, o = config.output
+        let (largest, widest) = reserves(config)
+        return [("pixels", n * config.patchValues), ("x", n * d), ("normed", n * d), ("qkv", 3 * n * d),
+                ("q", n * d), ("k", n * d), ("v", n * d), ("attended", n * d), ("projected", n * d),
+                ("hidden", n * i), ("mergedOut", (n / 4) * o), ("freqs", n * config.headDim),
+                ("bias", widest), ("gain", widest), ("shift", widest), ("reserve", largest)]
     }
 
     private func record(_ name: String, _ pointer: UnsafePointer<Float>, _ count: Int) {
@@ -156,7 +206,8 @@ package final class Qwen3VLVision {
 
     /// A `Qwen3VLVisionPatchMerger`: `normed` → `mergedOut` `[N/4, output]`. `postShuffle`: the
     /// deepstack ones, whose LayerNorm covers the 4 shuffled patches (4608) instead of one (1152).
-    private func merger(_ prefix: String, patches n: Int, postShuffle: Bool) throws -> [Float] {
+    private func merger(_ prefix: String, patches n: Int, postShuffle: Bool,
+                        into destination: UnsafeMutablePointer<Float>) throws {
         let (d, m, o) = (config.hidden, config.merged, config.output)
         if postShuffle {
             try layerNorm(prefix + "norm", x, into: normed, rows: n / 4, columns: m)
@@ -167,7 +218,7 @@ package final class Qwen3VLVision {
         try linear(prefix + "linear_fc1", normedBuf, projectedBuf, projected, rows: n / 4, inputs: m, outputs: m)
         AnimaOps.gelu(projected, count: (n / 4) * m)                    // EXACT GELU (`nn.GELU()`)
         try linear(prefix + "linear_fc2", projectedBuf, mergedOutBuf, mergedOut, rows: n / 4, inputs: m, outputs: o)
-        return Array(UnsafeBufferPointer(start: mergedOut, count: (n / 4) * o))
+        destination.update(from: mergedOut, count: (n / 4) * o)
     }
 
     package func encode(_ image: Qwen3VLImages.Pixels) throws -> Features {
@@ -177,7 +228,8 @@ package final class Qwen3VLVision {
         precondition(n <= capacity, "\(n) patches for an arena of \(capacity)")
         precondition(gh % config.merge == 0 && gw % config.merge == 0, "grid \(gh)×\(gw) not divisible by the merge")
         precondition(image.values.count == n * config.patchValues, "pixel_values: \(image.values.count) values")
-        image.values.withUnsafeBufferPointer { pixels.update(from: $0.baseAddress!, count: $0.count) }
+        precondition(config.patchValues == Qwen3VLImages.Pixels.patchValues, "a tower of \(config.patchValues) values a patch")
+        pixels.update(from: image.values.baseAddress!, count: image.values.count)
         prefetcher.request(prefetcher.namesOfBlock(prefix: "visual.blocks.0."))
 
         // ── patch_embed + interpolated learned positions ──────────────────────────────────────
@@ -217,7 +269,7 @@ package final class Qwen3VLVision {
 
         let attention = Attention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: n, headDim: dh,
                                   causal: false)
-        var deepstack: [[Float]] = []
+        let features = Features(tokens: n / 4, output: config.output, levels: config.deepstack.count)
         for block in 0..<config.depth {
             try cancellation.check()
             let p = "visual.blocks.\(block)."
@@ -253,14 +305,14 @@ package final class Qwen3VLVision {
             if block == 0 { record("vit_block0_out", x, n * d) }
 
             if let level = config.deepstack.firstIndex(of: block) {
-                let feature = try merger("visual.deepstack_merger_list.\(level).", patches: n, postShuffle: true)
-                record("deepstack\(level)", feature, feature.count)
-                deepstack.append(feature)
+                try merger("visual.deepstack_merger_list.\(level).", patches: n, postShuffle: true,
+                           into: features.deepstack(level))
+                record("deepstack\(level)", features.deepstack(level), features.tokens * features.output)
             }
         }
         record("vit_last_hidden", x, n * d)
-        let embeddings = try merger("visual.merger.", patches: n, postShuffle: false)
-        record("vit_out", embeddings, embeddings.count)
-        return Features(embeddings: embeddings, deepstack: deepstack, tokens: n / 4)
+        try merger("visual.merger.", patches: n, postShuffle: false, into: features.embeddings)
+        record("vit_out", features.embeddings, features.tokens * features.output)
+        return features
     }
 }

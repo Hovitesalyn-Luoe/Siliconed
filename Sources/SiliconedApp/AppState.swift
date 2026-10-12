@@ -7,8 +7,8 @@
 // Mode » switch, the comparison's curtain or side by side (`Curtain.preferred`) and the experimental
 // « Named Subjects » switch (`SubjectLibrary.enabledKey`), like the system language the app follows —,
 // the licenses accepted, which the library keeps itself (`<root>/accepted-licenses.json`) because its
-// engine refuses a render without them, and the named subjects the user creates (`<root>/subjects/`,
-// `Subjects.swift`), each written by its sheet's « Create » and deleted with its picture.
+// engine refuses a render without them. The named subjects (`Subjects.swift`) live in memory, like
+// the history.
 //
 // **Two models in front**: Z-Image Turbo and Qwen-Image-2.1 Turbo. The four
 // other families (Anima, Krea 2, FLUX.2 [klein] 4B, ERNIE-Image) exist and render, but the list, the
@@ -48,8 +48,9 @@ struct LoRASlot: Identifiable, Equatable {
 ///
 /// `@unchecked Sendable`: immutable; the thumbnail (`NSImage`) is read only by the view.
 struct ReferenceImage: Identifiable, @unchecked Sendable {
-    /// `framed`: a named subject's picture, cropped to its frame at render time (`Subjects.swift`).
-    enum Source { case file(URL), image(CGImage), framed(URL, NamedSubjects.Frame) }
+    /// `subject`: a named subject's picture, cropped to its frame (`Subjects.swift`) — `nil` if its
+    /// bytes did not decode, which fails the render naming it.
+    enum Source { case file(URL), image(CGImage), subject(CGImage?, name: String) }
     let id = UUID()
     let source: Source
     let vignette: NSImage
@@ -61,7 +62,7 @@ struct ReferenceImage: Identifiable, @unchecked Sendable {
         let image: CGImage?
         switch source {
         case .image(let cg): image = cg
-        case .framed(let url, let frame): image = SubjectPictures.upright(url).flatMap { SubjectPictures.crop($0, frame) }
+        case .subject(let cg, _): image = cg
         case .file(let url):
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                             kCGImageSourceThumbnailMaxPixelSize: max(self.width, self.height),
@@ -81,10 +82,8 @@ struct ReferenceImage: Identifiable, @unchecked Sendable {
         switch source {
         case .file(let url): return try ImageRGB(contentsOf: url)
         case .image(let cg): return try ImageRGB(cgImage: cg)
-        case .framed(let url, let frame):
-            guard let cg = SubjectPictures.upright(url).flatMap({ SubjectPictures.crop($0, frame) }) else {
-                throw EngineError.imageUnreadable(file: url.path)
-            }
+        case .subject(let cg, let name):
+            guard let cg else { throw EngineError.imageUnreadable(file: name) }
             return try ImageRGB(cgImage: cg)
         }
     }
@@ -454,8 +453,28 @@ final class AppState {
     var loras: [LoRASlot] = []
     /// The edit's references, numbered from 1 in this order: **image 1 is the one edited** (it sets
     /// the output's format), the others are what the prompt borrows from (« the dog of image 2 »).
-    /// At most the denoiser's `maxReferences`.
-    var references: [ReferenceImage] = []
+    /// At most the denoiser's `maxReferences`. An image added while the box shows the subjects brings
+    /// it back to its images (`referenceMode`): « Edit This Image », a drop on the canvas.
+    var references: [ReferenceImage] = [] {
+        didSet { if !references.isEmpty && referenceMode == .subjects { stashedReferences = []; referenceMode = .images } }
+    }
+    /// **The Images box holds images or subjects, never both** (`Subjects.swift`): numbered images —
+    /// an edit —, or the named subjects the prompt cites by `@name`. Switching to the subjects puts the
+    /// images aside, switching back brings them again; a render sends only what the box shows.
+    enum ReferenceMode { case images, subjects }
+    var referenceMode = ReferenceMode.images {
+        didSet {
+            guard referenceMode != oldValue else { return }
+            if referenceMode == .subjects {
+                stashedReferences = references
+                references = []
+            } else if references.isEmpty {
+                references = stashedReferences
+                stashedReferences = []
+            }
+        }
+    }
+    @ObservationIgnored private var stashedReferences: [ReferenceImage] = []
     var steps = 8
     /// **More detail** (`Detail`): Normal is the render as the model makes it.
     var detail = Detail.normal
@@ -747,11 +766,6 @@ final class AppState {
     /// The footer reads its two halves once per drawing (`formBlocker`, then `memoryBlocker`).
     var blocker: String? { formBlocker ?? memoryBlocker }
 
-    /// Bumped every 2 s by the footer while « Generate » waits for memory, and only then: the machine's
-    /// free memory is not observable, and without it « available now » stayed frozen — the button
-    /// greyed out after the user had closed what took the memory.
-    var memoryTick = 0
-
     /// What the form itself refuses: everything but the memory.
     var formBlocker: String? {
         if let reason = installBlocker { return reason }
@@ -776,43 +790,66 @@ final class AppState {
     }
 
     /// Rule 7: a render that cannot fit is refused before it starts — by the engine's own check
-    /// (`ModelCard.checkMemory`, the machine's state read now), not after the click.
+    /// (`ModelCard.checkMemory`, against B), not after the click.
     var memoryBlocker: String? { memoryRefusal?.text }
 
-    /// **A memory refusal, never a dead end**: what « Generate » waits for, and the ways forward —
-    /// the largest of the model's formats that fits now, and who holds the memory. An ordinary
-    /// desktop (a browser, mail, a few idle apps) is enough to refuse 1024²: a bare « needs X, Y is
-    /// available » left the user nothing to do but guess.
-    struct MemoryRefusal {
-        let text: String
-        /// The largest format that fits in the memory read now (`RecommendedFormat.largestFitting`),
-        /// `nil` when none does — or when editing, where image 1 sets the size and the picker does not.
-        let smaller: RecommendedFormat?
-        /// « Safari, Mail and Messages are using 3.1 GB. » — `nil` when no other application weighs.
-        let holders: String?
+    /// **B, this Mac's memory budget** (`MemoryBudget.machineCeiling()`: ¾ · RAM − 2 GiB, or
+    /// `SILICONED_MEMORY_BUDGET_GB`), read once: it depends on the RAM and nothing else, so what this
+    /// Mac cannot do is known ahead and greyed out where it is chosen — the size, the images — never
+    /// discovered at the click, and never different from one minute to the next.
+    let memoryCeiling = MemoryBudget.machineCeiling()
+
+    /// **The smallest Mac that renders `format` with `images` references**, in GB — `nil` when this
+    /// one does. The engine's own check (`ModelCard.checkMemory`), against B.
+    func macNeeded(_ format: RecommendedFormat, images: Int) -> Int? {
+        guard let card else { return nil }
+        do { try card.checkMemory(width: format.width, height: format.height, references: images, ceiling: memoryCeiling) }
+        catch {
+            guard case let .insufficientMemory(needed, _) = error else { return nil }
+            return MemoryBudget.macNeeded(for: needed)
+        }
+        return nil
     }
 
-    /// The budget is read **once** (`MemoryBudget.current()`): the check and every candidate format
-    /// are judged against the same reading. The applications are listed only here, when the memory
-    /// refuses: never at a drawing where « Generate » is free.
+    /// « Needs a Mac with 24 GB of memory. » — the one sentence of a memory refusal, wherever it shows.
+    nonisolated static func needsMac(_ needed: Int) -> String {
+        String(localized: "Needs a Mac with \(String(MemoryBudget.macNeeded(for: needed))) GB of memory.")
+    }
+
+    /// **A memory refusal, never a dead end**: what greys « Generate » out, and the way forward — the
+    /// largest of the model's formats this Mac renders. Reached only by what the pickers cannot grey
+    /// out ahead: a size typed by hand before a model change, subjects cited by the prompt.
+    struct MemoryRefusal {
+        let text: String
+        /// The largest format that fits in B (`RecommendedFormat.largestFitting`), `nil` when none
+        /// does — or when editing, where image 1 sets the size and the picker does not.
+        let smaller: RecommendedFormat?
+    }
+
     var memoryRefusal: MemoryRefusal? {
-        _ = memoryTick
         guard let card else { return nil }
         let f = outputFormat
-        let budget = MemoryBudget.current()
         let images = references.count + subjectImageCount
-        do { try card.checkMemory(width: f.width, height: f.height, references: images, budget: budget) } catch {
-            guard case let .insufficientMemory(needed, available) = error else { return nil }
+        do { try card.checkMemory(width: f.width, height: f.height, references: images, ceiling: memoryCeiling) } catch {
+            guard case let .insufficientMemory(needed, budget) = error else { return nil }
             let smaller = references.isEmpty
-                ? RecommendedFormat.largestFitting(formats, available: available, current: f) {
+                ? RecommendedFormat.largestFitting(formats, budget: budget, current: f) {
                     card.memoryNeed(width: $0.width, height: $0.height, references: images)
                   }
                 : nil
-            return MemoryRefusal(
-                text: String(localized: "This size needs \(Figures.memory(needed)) of memory, and \(Figures.memory(available)) is free right now. Generate comes back on its own as memory frees up."),
-                smaller: smaller, holders: MemoryHolders.line())
+            return MemoryRefusal(text: Self.needsMac(needed), smaller: smaller)
         }
         return nil
+    }
+
+    /// **What one more image would need** (after `adding` others): `nil` when this Mac renders it,
+    /// else the sentence. Image 1 sets an edit's size (about a megapixel, 1024² at most): before it,
+    /// judged at 1024².
+    func nextReferenceRefusal(adding: Int = 0) -> String? {
+        let f = references.isEmpty ? RecommendedFormat(1024, 1024) : outputFormat
+        let images = references.count + adding + 1
+        guard let card, macNeeded(f, images: images) != nil else { return nil }
+        return Self.needsMac(card.memoryNeed(width: f.width, height: f.height, references: images))
     }
 
     /// The way forward the footer offers: the size that fits, chosen as the picker would.
@@ -938,7 +975,8 @@ final class AppState {
         loras.removeAll { !$0.path.isEmpty && !valid.contains($0.path) }
         steps = card?.defaultSteps ?? 8
         if references.count > maxReferences { references = Array(references.prefix(maxReferences)) }
-        // A size typed by hand stays: every model takes any size `Format.check` accepts.
+        // A size typed by hand stays: every model takes any size `Format.check` accepts — and this
+        // Mac's memory, or the footer says so and offers the largest that fits.
         if (try? Format.check(width: format.width, height: format.height)) == nil {
             format = formats[0]; orientation = format.orientation
         }
@@ -951,6 +989,9 @@ final class AppState {
             return Problem(EngineError.formatUnreadable(text: text))
         }
         do { try Format.check(width: w, height: h) } catch { return Problem(error) }
+        // Beyond B, refused here as the picker greys it out: the same check as the engine's.
+        do { try card?.checkMemory(width: w, height: h, references: subjectImageCount, ceiling: memoryCeiling) }
+        catch { return Problem(error) }
         let f = RecommendedFormat(w, h)
         orientation = f.orientation
         format = f
@@ -969,8 +1010,11 @@ final class AppState {
         missing = readySet.contains(identifier) ? nil : card?.missing(in: library)
     }
 
+    /// The orientation's first size this Mac renders (`macNeeded`), its first at all when none does —
+    /// the footer then says why.
     private func orientationChanged() {
-        if format.orientation != orientation, let first = orientationFormats.first { format = first }
+        guard format.orientation != orientation, let first = orientationFormats.first else { return }
+        format = orientationFormats.first { macNeeded($0, images: subjectImageCount) == nil } ?? first
     }
 
     // MARK: Reference (editing)
@@ -998,7 +1042,7 @@ final class AppState {
 
     /// The open panel: as many images as there are free slots, added after those already set.
     func chooseReferences() {
-        guard canAddReference else { return }
+        guard canAddReference, nextReferenceRefusal() == nil else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = maxReferences - references.count > 1
@@ -1016,9 +1060,18 @@ final class AppState {
         // Files only: a dragged thumbnail (text) must not come back as a URL to read.
         let urls = urls.filter(\.isFileURL)
         guard editingPossible, !urls.isEmpty else { return }
-        let free = max(0, maxReferences - references.count)
+        let slots = max(0, maxReferences - references.count)
+        // As many as this Mac's memory takes, too (`nextReferenceRefusal`, one image at a time).
+        var free = 0, refusal: String?
+        while free < min(slots, urls.count) {
+            refusal = nextReferenceRefusal(adding: free)
+            guard refusal == nil else { break }
+            free += 1
+        }
         references += urls.prefix(free).compactMap(read)
-        if urls.count > free {
+        if let refusal {
+            flash(refusal)
+        } else if urls.count > free {
             flash(String(localized: "This model reads \(maxReferences) images at most"))
         }
     }
@@ -1072,6 +1125,7 @@ final class AppState {
     func addReference(png data: Data) {
         guard editingPossible else { return }
         guard canAddReference else { flash(String(localized: "This model reads \(maxReferences) images at most")); return }
+        if let refusal = nextReferenceRefusal() { flash(refusal); return }
         if let entry = history.first(where: { $0.png == data }), let image = fromHistory(entry) {
             references.append(image)
         } else if let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -2303,41 +2357,6 @@ final class AppState {
 /// Durations, seconds, strengths and memory, formatted according to the system language (`0,85 s` in
 /// French, `0.85 s` in English). The developer's command line keeps its decimal point: it is a
 /// syntax, not a display.
-/// **Who holds the memory**: the three other applications with the largest footprint, named in one
-/// line under a memory refusal. Their `phys_footprint` (`proc_pid_rusage`), the figure the engine's
-/// own peaks are measured on — not their resident size, which counts
-/// shared pages. Only the regular applications, the ones the user sees in the Dock and can close:
-/// a daemon named here would be a riddle. An application's helper processes (Safari's web content,
-/// a browser's tabs) are not added to it: the figure is a floor, the names are what matter.
-enum MemoryHolders {
-    static func line() -> String? {
-        let me = ProcessInfo.processInfo.processIdentifier
-        let heaviest = NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.processIdentifier != me }
-            .compactMap { app -> (name: String, bytes: Int)? in
-                guard let name = app.localizedName, let bytes = footprint(app.processIdentifier), bytes > 0
-                else { return nil }
-                return (name, bytes)
-            }
-            .sorted { $0.bytes > $1.bytes }
-            .prefix(3)
-        guard let first = heaviest.first else { return nil }
-        let total = Figures.memory(heaviest.map(\.bytes).reduce(0, +))
-        if heaviest.count == 1 { return String(localized: "\(first.name) is using \(total).") }
-        let names = heaviest.map(\.name).formatted(.list(type: .and))
-        return String(localized: "\(names) are using \(total).")
-    }
-
-    /// `ri_phys_footprint`, or `nil` when the process is gone or not readable.
-    private static func footprint(_ pid: pid_t) -> Int? {
-        var info = rusage_info_v4()
-        let status = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
-        }
-        return status == 0 ? Int(info.ri_phys_footprint) : nil
-    }
-}
-
 enum Figures {
     /// `0.85 s`, `12.3 s` — the precision of the engine's timers.
     static func seconds(_ s: Double) -> String {

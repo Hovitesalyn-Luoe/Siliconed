@@ -1,6 +1,49 @@
 import Darwin
 import Foundation
+import Metal
 import Synchronization
+
+/// **Pages of our own, outside `malloc`, given back the moment their owner dies.**
+///
+/// A block `free`d is not a block the system has back. On macOS 27 every `free` above the tiny and
+/// small sizes — a 64 KB block as well as a 64 MB one — leaves its pages dirty and counted in
+/// `phys_footprint` (the task's deferred reclamation buffer, measured: 200 MB freed, 200 MB still
+/// billed, at every size from 64 KB to 64 MB), until the kernel needs them, which is to say under
+/// pressure; `malloc_zone_pressure_relief` returns 0 there. Older systems kept them in malloc's
+/// large-block cache instead. Either way, what a phase allocated through `malloc` outlived it.
+///
+/// Nothing is asked of the allocator here: the region is anonymous memory mapped for this owner alone
+/// (`mach_vm_allocate`, zero-filled, page-aligned) and unmapped by `deinit` (`mach_vm_deallocate`),
+/// which the kernel honours at once on every macOS — the footprint drops by what was touched. A
+/// buffer whose size follows the shapes lives here or in an `Arena`, never in a Swift array or
+/// `UnsafeMutablePointer.allocate`, and its size comes from a static function of the shapes that the
+/// memory need can call.
+package final class Pages {
+    package let base: UnsafeMutableRawPointer
+    /// What the region maps: `bytes` rounded up to the page (`Arena.capacity(for:)`), at least a page.
+    package let capacity: Int
+
+    /// Traps when the kernel refuses the region, as `UnsafeMutablePointer.allocate` does: a refused
+    /// address range is not a state the engine can compute through.
+    package init(bytes: Int) {
+        let rounded = Arena.capacity(for: max(1, bytes))
+        var address: mach_vm_address_t = 0
+        let result = mach_vm_allocate(mach_task_self_, &address, mach_vm_size_t(rounded), VM_FLAGS_ANYWHERE)
+        guard result == KERN_SUCCESS, let base = UnsafeMutableRawPointer(bitPattern: UInt(address)) else {
+            fatalError("Pages: mach_vm_allocate of \(rounded) bytes refused (\(result))")
+        }
+        self.base = base
+        self.capacity = rounded
+    }
+
+    deinit {
+        mach_vm_deallocate(mach_task_self_, mach_vm_address_t(UInt(bitPattern: base)), mach_vm_size_t(capacity))
+    }
+
+    package func floats(at byteOffset: Int = 0) -> UnsafeMutablePointer<Float> {
+        (base + byteOffset).assumingMemoryBound(to: Float.self)
+    }
+}
 
 /// The process's only anonymous memory, and it is of fixed size.
 ///
@@ -21,6 +64,7 @@ package final class Arena {
     package enum Failure: Error, CustomStringConvertible {
         case exhausted(name: String, wanted: Int, free: Int, capacity: Int)
         case duplicate(String)
+        case unknown(String)
         case allocationFailed(Int)
 
         package var description: String {
@@ -29,12 +73,28 @@ package final class Arena {
                 return "arena exhausted: \(name) wants \(wanted) bytes, \(free) left out of \(capacity). "
                      + "Size at startup, do not grow."
             case .duplicate(let name): return "slice already reserved: \(name)"
+            case .unknown(let name): return "no slice named \(name)"
             case .allocationFailed(let bytes): return "cannot allocate \(bytes) bytes"
             }
         }
     }
 
     package static let alignment = 16384
+
+    /// **What an arena asked for `bytes` holds**: rounded up to the page — what `init` maps, and what the
+    /// memory need charges (`MemoryNeed`), from this one function.
+    package static func capacity(for bytes: Int) -> Int {
+        (bytes + alignment - 1) / alignment * alignment
+    }
+
+    /// **The arena that holds exactly these slices, reserved in order**: each starts on a page
+    /// (`reserve`), so the arena is the sum of the slices rounded to the page — not a byte of margin.
+    /// A reservation never written is still charged by the memory need but absent from
+    /// `phys_footprint` (an untouched page is not resident): an arena sized here holds only what its
+    /// owner writes.
+    package static func capacity(slices bytes: [Int]) -> Int {
+        bytes.reduce(0) { $0 + capacity(for: $1) }
+    }
 
     package let capacity: Int
     package private(set) var slots: [String: Slot] = [:]
@@ -59,7 +119,7 @@ package final class Arena {
     /// immediately. And the alignment comes with it — a page is 16 KiB on this machine, which is
     /// exactly `Arena.alignment`.
     package init(capacity: Int) throws {
-        let rounded = (capacity + Self.alignment - 1) / Self.alignment * Self.alignment
+        let rounded = Arena.capacity(for: capacity)
         let allocated = mmap(nil, rounded, PROT_READ | PROT_WRITE,
                              MAP_PRIVATE | MAP_ANON, -1, 0)
         guard let allocated, allocated != MAP_FAILED else {
@@ -87,27 +147,6 @@ package final class Arena {
         Arena.liveCount.subtract(1, ordering: .relaxed)
     }
 
-    /// **Give back to the system what `free` only gave back to the allocator.**
-    ///
-    /// The arenas map and unmap their own pages (see `init`), but everything else a phase allocates
-    /// — Swift arrays, the frameworks' buffers — goes through `malloc`, and `free` does not unmap a
-    /// large block: macOS's malloc magazine keeps it in its large-block cache, for the next request
-    /// of the same size. The pages therefore stay counted in `phys_footprint` — and that is
-    /// exactly what we measure when we ask whether room exists for the next phase.
-    ///
-    /// The symptom, measured at 512² when the arenas themselves still came from `posix_memalign`:
-    /// the denoising peak was 1,137 MB, and the residue **after** the arena was released 1,137 MB
-    /// too. Not a byte given back.
-    ///
-    /// This is not an arena defect nor a leak: under pressure, the system reclaims these
-    /// pages. But "under pressure" is precisely the situation that criterion 4 forbids — we do not
-    /// want room to appear *because* memory runs short. An explicit call at the end
-    /// of a phase costs a few milliseconds and makes the measurement honest.
-    @discardableResult
-    package static func releaseToSystem() -> Int {
-        Int(malloc_zone_pressure_relief(nil, 0))
-    }
-
     @discardableResult
     package func reserve(_ name: String, bytes: Int) throws -> UnsafeMutableRawPointer {
         if slots[name] != nil { throw Failure.duplicate(name) }
@@ -125,7 +164,39 @@ package final class Arena {
         return base.advanced(by: slot.offset)
     }
 
+    /// **A slice seen from the GPU, without a copy** — for a framework that wants an `MTLBuffer`
+    /// (`MPSGraphTensorData`, an `MPSNDArray`): `makeBuffer(bytesNoCopy:)` over the slice, its length
+    /// rounded to the page, which stays inside the arena (every slice starts on a page, the arena
+    /// ends on one). The CPU and the GPU see the same bytes (unified memory, `storageModeShared`).
+    /// No deallocator: the buffer must not outlive the arena — its owner keeps both.
+    package func buffer(_ name: String, device: MTLDevice) throws -> MTLBuffer {
+        guard let slot = slots[name] else { throw Failure.unknown(name) }
+        let length = Arena.capacity(for: max(1, slot.bytes))
+        guard let buffer = device.makeBuffer(bytesNoCopy: base.advanced(by: slot.offset), length: length,
+                                             options: .storageModeShared, deallocator: nil) else {
+            throw Failure.allocationFailed(length)
+        }
+        buffer.label = name
+        return buffer
+    }
+
     package var used: Int { cursor }
+
+    /// **What of each slice is resident now** (`mincore`, page by page): a page never touched is not,
+    /// and is not in `phys_footprint` either. The `memory-need` check reads it to tell a slice written
+    /// whole from a slice written in part. `pagedOut`: written, then compressed (or swapped) —
+    /// in the footprint at its compressed size only.
+    package func residency() -> [(name: String, bytes: Int, resident: Int, pagedOut: Int)] {
+        let pages = capacity / Self.alignment
+        var vector = [CChar](repeating: 0, count: pages)
+        guard mincore(base, capacity, &vector) == 0 else { return [] }
+        return slots.values.sorted { $0.offset < $1.offset }.map { slot in
+            let first = slot.offset / Self.alignment, end = (slot.offset + slot.bytes + Self.alignment - 1) / Self.alignment
+            let resident = (first..<end).filter { vector[$0] & CChar(MINCORE_INCORE) != 0 }.count
+            let out = (first..<end).filter { vector[$0] & CChar(MINCORE_INCORE) == 0 && vector[$0] & CChar(MINCORE_PAGED_OUT) != 0 }.count
+            return (slot.name, slot.bytes, resident * Self.alignment, out * Self.alignment)
+        }
+    }
 
     /// What the kernel actually bills the process for, sampled. A peak that is not sampled
     /// does not exist on this side, and a peak read from an allocator says nothing about what swaps.

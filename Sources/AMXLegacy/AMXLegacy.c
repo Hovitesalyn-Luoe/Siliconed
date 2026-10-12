@@ -1,6 +1,6 @@
 #include "AMXLegacy.h"
 
-// See the header: the migration to `BNNSGraph` was measured (M39) and rejected.
+// See the header: the migration to `BNNSGraph` was measured and rejected.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 

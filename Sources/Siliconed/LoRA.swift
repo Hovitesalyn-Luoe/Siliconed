@@ -151,6 +151,9 @@ public final class LoRA {
         }
     }
 
+    /// **The staging of one map's `down` when the stack has several**: `[k, r]` fp32, rounded to the page.
+    package static func downBytes(k: Int, rank r: Int) -> Int { Arena.capacity(for: k * r * 4) }
+
     /// The cumulative rank that applies to this module — `0` if no LoRA touches it.
     package func rank(_ target: String) -> Int { rankPerTarget[target] ?? 0 }
 
@@ -192,19 +195,24 @@ public final class LoRA {
             // A block copy would write the `r` values of row 0 straddling rows 0
             // and 1 of the destination — a fault that does not crash and yields a plausible image.
             //
-            // **And the copy fits in ONE SINGLE `withUnsafeMutableBufferPointer`.** A pointer
-            // taken outside its scope is only valid for the duration of the call — it is the fault that
-            // `Sampler.swift` documents having paid for on the spectral descent.
-            var buffer = [Float](repeating: 0, count: k * r)
+            // Alone in the stack (`r == total`), the rows are the destination's own: widened in
+            // place, then scaled. Otherwise through a `Pages` of `downBytes(k:r:)`, for this call
+            // only — an array per module and per evaluation was a block `free` left in the
+            // footprint; a buffer kept across calls would be shared by `fill`'s background threads.
             let strength = layerPass.strength
-            try buffer.withUnsafeMutableBufferPointer { raw in
-                try layerPass.artifact.materialize(downName, into: raw)
-                let source = raw.baseAddress!
+            if r == total {
+                try layerPass.artifact.materialize(downName, into: UnsafeMutableBufferPointer(start: down, count: k * r))
+                for i in 0..<(k * r) { down[i] = down[i] * strength }
+            } else {
+                let buffer = Pages(bytes: LoRA.downBytes(k: k, rank: r))
+                let source = buffer.floats()
+                try layerPass.artifact.materialize(downName, into: UnsafeMutableBufferPointer(start: source, count: k * r))
                 for rowLine in 0..<k {
                     let from = source + rowLine * r
                     let to = down + rowLine * total + offset
                     for j in 0..<r { to[j] = from[j] * strength }
                 }
+                withExtendedLifetime(buffer) {}
             }
             // `up` is `[r, n]` and the destination `[Σr, n]`: the rows stack as they are,
             // so a single contiguous copy at the right height.
@@ -268,15 +276,22 @@ package final class CacheLoRA {
                 shapes[target] = (down.shape[0], up.shape[1])
             }
         }
-        let page = Arena.alignment
-        func rounding(_ bytes: Int) -> Int { (bytes + page - 1) / page * page }
-        let total = shapes.reduce(0) { sum, entry in
-            let r = lora.rank(entry.key)
-            return sum + rounding(entry.value.k * r * 4) + rounding(r * entry.value.n * 4)
-        }
-        bytes = total
-        arena = try Arena(capacity: max(total, page))
+        bytes = CacheLoRA.bytes(modules: shapes.map { (k: $0.value.k, n: $0.value.n, rank: lora.rank($0.key)) })
+        arena = try Arena(capacity: CacheLoRA.arenaBytes(bytes))
     }
+
+    /// **The bytes a cache reserves for these modules**: each module's `down [k, r]` and `up [r, n]`,
+    /// each slice rounded to the arena's page as `Arena.reserve` places it. The function the memory
+    /// need charges (`MemoryNeed`), so the formula is the allocation.
+    package static func bytes(modules: [(k: Int, n: Int, rank: Int)]) -> Int {
+        modules.reduce(0) { $0 + Arena.capacity(for: $1.k * $1.rank * 4) + Arena.capacity(for: $1.rank * $1.n * 4) }
+    }
+
+    /// The arena those bytes are served from — one page at least, as `init` maps it.
+    package static func arenaBytes(_ bytes: Int) -> Int { Arena.capacity(for: max(bytes, Arena.alignment)) }
+
+    /// The arena's capacity, as mapped.
+    package var capacity: Int { arena.capacity }
 
     /// The stack of module `target` (without `.weight`), expanded — on the first call only. `nil` if
     /// no LoRA of the stack touches it.

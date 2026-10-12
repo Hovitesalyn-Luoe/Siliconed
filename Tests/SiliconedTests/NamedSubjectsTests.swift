@@ -1,8 +1,8 @@
 import XCTest
 @testable import Siliconed
 
-/// **Named subjects** (`NamedSubjects`, `NamedSubjectStore`): `@alice` in a prompt → the model's prompt
-/// and its references, and the folder they live in. Pure, plus a few files in a temporary folder.
+/// **Named subjects** (`NamedSubjects`): `@alice` in a prompt → the model's prompt and its references.
+/// Pure: the subjects live in the app's memory, nothing on disk.
 final class NamedSubjectsTests: XCTestCase {
     private typealias N = NamedSubjects
 
@@ -69,34 +69,47 @@ final class NamedSubjectsTests: XCTestCase {
         XCTAssertEqual(try N.rewrite("woman posing in a library", subjects: [], capacity: 0).prompt, "woman posing in a library")
     }
 
-    func testTheNameStaysAndTheLegendNumbersByFirstAppearance() throws {
+    func testTheNameNeverReachesTheModelAndTheLegendNumbersByFirstAppearance() throws {
         let r = try N.rewrite("@alice in @red-coat on @the-beach", subjects: library, capacity: 3)
         XCTAssertEqual(r.placed.map(\.number), [1, 2, 3])
         XCTAssertEqual(r.placed.map(\.subject.name), ["alice", "red-coat", "the-beach"])
         XCTAssertEqual(r.cited.map(\.name), ["alice", "red-coat", "the-beach"])
+        let (i1, i2, i3) = (N.Phrasing.reference(1), N.Phrasing.reference(2), N.Phrasing.reference(3))
         let lines = r.prompt.components(separatedBy: "\n")
-        XCTAssertEqual(lines[0], "alice in red coat on the beach")
+        XCTAssertEqual(lines[0], "the person in \(i1) in the garment in \(i2) on the place in \(i3)")
         XCTAssertEqual(lines[1], "")
-        XCTAssertTrue(lines[2].hasPrefix("alice is the person in \(N.Phrasing.reference(1))."), lines[2])
-        XCTAssertTrue(lines[3].hasPrefix("red coat is the garment in \(N.Phrasing.reference(2))."), lines[3])
-        XCTAssertTrue(lines[4].hasPrefix("the beach is the place in \(N.Phrasing.reference(3))."), lines[4])
+        XCTAssertTrue(lines[2].hasPrefix("Take only their identity from \(i1)"), lines[2])
+        XCTAssertTrue(lines[3].hasPrefix("Take only the garment from \(i2)"), lines[3])
+        XCTAssertTrue(lines[4].hasPrefix("Use \(i3) as the setting"), lines[4])
         XCTAssertEqual(lines.count, 5)
         XCTAssertFalse(r.prompt.contains("@"))
+        for name in ["alice", "red coat", "red-coat", "beach"] { XCTAssertFalse(r.prompt.lowercased().contains(name), name) }
+    }
+
+    /// The user's own case: an article before a mention is not doubled.
+    func testAnArticleTheUserWroteIsNotDoubled() throws {
+        let lib = [subject("alice", .person), subject("chambre", .place)]
+        let r = try N.rewrite("redraw @alice in the @chambre, she is alone", subjects: lib, capacity: 3)
+        let (i1, i2) = (N.Phrasing.reference(1), N.Phrasing.reference(2))
+        XCTAssertTrue(r.prompt.hasPrefix("redraw the person in \(i1) in the place in \(i2), she is alone\n\n"), r.prompt)
+        XCTAssertTrue(try N.rewrite("a photo of a @lamp", subjects: library, capacity: 3).prompt
+            .hasPrefix("a photo of a object in \(i1)"))
     }
 
     func testASubjectCitedTwiceIsPlacedOnce() throws {
         let r = try N.rewrite("@lamp on a desk, light from @LAMP", subjects: library, capacity: 3)
         XCTAssertEqual(r.placed.count, 1)
-        // The mention's case is the user's; the name spoken is the library's.
-        XCTAssertTrue(r.prompt.hasPrefix("lamp on a desk, light from lamp\n\n"), r.prompt)
+        let i1 = N.Phrasing.reference(1)
+        XCTAssertTrue(r.prompt.hasPrefix("the object in \(i1) on a desk, light from the object in \(i1)\n\n"), r.prompt)
     }
 
     func testAccentsCaseAndAddressesInARewrite() throws {
         let lib = [subject("Élodie", .person), subject("café-noir", .place)]
-        // Any case, precomposed or not: the library's spelling is the one spoken.
+        // Any case, precomposed or not: the mention is found; an address is not a mention.
         let r = try N.rewrite("@élodie at @CAFÉ-NOIR, mail elodie@cafe.fr", subjects: lib, capacity: 3)
         XCTAssertEqual(r.placed.map(\.subject.name), ["Élodie", "café-noir"])
-        XCTAssertTrue(r.prompt.hasPrefix("Élodie at café noir, mail elodie@cafe.fr\n\n"), r.prompt)
+        let (i1, i2) = (N.Phrasing.reference(1), N.Phrasing.reference(2))
+        XCTAssertTrue(r.prompt.hasPrefix("the person in \(i1) at the place in \(i2), mail elodie@cafe.fr\n\n"), r.prompt)
         let decomposed = "@E\u{301}lodie"
         XCTAssertEqual(try N.rewrite(decomposed, subjects: lib, capacity: 3).placed.map(\.subject.name), ["Élodie"])
     }
@@ -106,14 +119,14 @@ final class NamedSubjectsTests: XCTestCase {
         XCTAssertEqual(r.placed.map(\.number), [1, 2, 3])
         XCTAssertEqual(r.placed.map(\.picture.file), ["1.jpg", "2.jpg", "1.jpg"])
         let both = N.Phrasing.references([1, 2])
-        XCTAssertTrue(r.prompt.contains("Bob is the same person in \(both)."), r.prompt)
-        XCTAssertTrue(r.prompt.contains("lamp is the object in \(N.Phrasing.reference(3))."), r.prompt)
+        XCTAssertTrue(r.prompt.hasPrefix("the same person in \(both) with the object in \(N.Phrasing.reference(3))"), r.prompt)
+        XCTAssertTrue(r.prompt.contains("Take only their identity from \(both)"), r.prompt)
     }
 
     func testAnEditsImagesComeFirst() throws {
         let r = try N.rewrite("put @alice in image 1", subjects: library, capacity: 3, first: 2)
         XCTAssertEqual(r.placed.map(\.number), [2])
-        XCTAssertTrue(r.prompt.contains("in \(N.Phrasing.reference(2))."))
+        XCTAssertTrue(r.prompt.hasPrefix("put the person in \(N.Phrasing.reference(2)) in image 1"), r.prompt)
         XCTAssertThrowsError(try N.rewrite("@alice @lamp", subjects: library, capacity: 3, first: 3)) {
             XCTAssertEqual($0 as? N.Failure, .tooManyImages(count: 4, max: 3))
         }
@@ -136,14 +149,18 @@ final class NamedSubjectsTests: XCTestCase {
         }
     }
 
-    func testEveryKindHasItsSentence() throws {
+    func testEveryKindHasItsMentionAndItsInstruction() throws {
+        let i1 = N.Phrasing.reference(1)
         for kind in N.Kind.allCases {
-            let s = N.Phrasing.sentence(name: "x", kind: kind, numbers: [1])
-            XCTAssertTrue(s.hasPrefix("x is the \(N.Phrasing.noun(kind)) "), s)
-            XCTAssertTrue(s.hasSuffix("."), s)
+            let m = N.Phrasing.mention(kind, [1], after: "")
+            XCTAssertTrue(m.hasSuffix(i1), m)
+            let t = N.Phrasing.retention(kind, from: i1)
+            XCTAssertTrue(t.contains(i1) && t.hasSuffix("."), t)
         }
         XCTAssertTrue(try N.rewrite("in the manner of @ink", subjects: library, capacity: 3).prompt
-            .contains("ink is the style of \(N.Phrasing.reference(1))."))
+            .hasPrefix("in the manner of the style of \(i1)\n\n"))
+        XCTAssertTrue(try N.rewrite("in the style of @ink", subjects: library, capacity: 3).prompt
+            .hasPrefix("in the style of \(i1)\n\n"))
     }
 
     // ── the image's metadata ──
@@ -185,99 +202,4 @@ final class NamedSubjectsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(tiny.width, 1)
         XCTAssertLessThanOrEqual(tiny.x + tiny.width, 10)
     }
-
-    // ── the folder ──
-
-    private func temporaryStore() throws -> (NamedSubjectStore, URL) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("subjects-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        return (NamedSubjectStore(folder: root.appendingPathComponent("subjects")), root)
-    }
-
-    func testTheStoreCreatesUpdatesAndDeletesWholeFolders() throws {
-        let (store, root) = try temporaryStore()
-        let photo = root.appendingPathComponent("Photo.JPG")
-        try Data([1, 2, 3]).write(to: photo)
-        let frame = N.Frame(x: 0.1, y: 0.1, width: 0.5, height: 0.5)
-        let alice = try store.create(name: "alice", kind: .person, pictures: [(.file(photo), frame)])
-        XCTAssertEqual(alice.pictures, [N.Picture(file: "1.jpg", frame: frame)])
-        XCTAssertEqual(store.list(), [alice])
-        XCTAssertEqual(try Data(contentsOf: store.url(of: alice.pictures[0], in: alice)), Data([1, 2, 3]))
-        // The name is taken, whatever its case.
-        XCTAssertThrowsError(try store.create(name: "ALICE", kind: .object, pictures: [(.png(Data([9])), .whole)])) {
-            XCTAssertEqual($0 as? NamedSubjectStore.Failure, .badName(.taken))
-        }
-        // Renamed, a second picture added: the folder follows.
-        var renamed = alice
-        renamed.name = "Alice-B"
-        renamed.kind = .garment
-        let b = try store.update("alice", to: renamed, adding: [(.png(Data([7])), .whole)])
-        XCTAssertEqual(b.pictures.map(\.file), ["1.jpg", "2.png"])
-        XCTAssertEqual(store.list().map(\.name), ["Alice-B"])
-        XCTAssertEqual(store.list().first?.kind, .garment)
-        // Its first picture removed: the file goes with it.
-        var one = b
-        one.pictures.removeFirst()
-        try store.update("Alice-B", to: one)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.folder(of: "Alice-B").path).sorted(),
-                       ["2.png", "subject.json"])
-        XCTAssertThrowsError(try store.update("Alice-B", to: N.Subject(name: "Alice-B", kind: .person, pictures: [])))
-        // Deleted: nothing left on disk.
-        try store.delete("Alice-B")
-        XCTAssertEqual(store.list(), [])
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.folder.path), [])
-    }
-
-    /// **Visible files only**: what no subject shows is removed at the next reading.
-    func testTheStoreRemovesWhatNoSubjectShows() throws {
-        let (store, _) = try temporaryStore()
-        let s = try store.create(name: "lamp", kind: .object, pictures: [(.png(Data([1])), .whole)])
-        let fm = FileManager.default
-        try fm.createDirectory(at: store.folder.appendingPathComponent(".partial-x"), withIntermediateDirectories: true)
-        try fm.createDirectory(at: store.folder.appendingPathComponent("orphan"), withIntermediateDirectories: true)
-        try Data([0]).write(to: store.folder(of: "lamp").appendingPathComponent("stray.png"))
-        // Young, they may be another instance's work in progress: left alone.
-        XCTAssertEqual(store.list(), [s])
-        XCTAssertEqual(try fm.contentsOfDirectory(atPath: store.folder.path).sorted(), [".partial-x", "lamp", "orphan"])
-        XCTAssertEqual(try fm.contentsOfDirectory(atPath: store.folder(of: "lamp").path).sorted(), ["1.png", "stray.png", "subject.json"])
-        // Past the grace, removed.
-        let later = Date().addingTimeInterval(NamedSubjectStore.grace + 60)
-        XCTAssertEqual(store.list(now: later), [s])
-        XCTAssertEqual(try fm.contentsOfDirectory(atPath: store.folder.path), ["lamp"])
-        XCTAssertEqual(try fm.contentsOfDirectory(atPath: store.folder(of: "lamp").path).sorted(), ["1.png", "subject.json"])
-    }
-
-    /// A staging folder that holds a whole subject (a crash before its rename) is put in place.
-    func testAWholeSubjectLeftAsideIsPutBack() throws {
-        let (store, root) = try temporaryStore()
-        let s = try store.create(name: "Lamp", kind: .object, pictures: [(.png(Data([1])), .whole)])
-        let fm = FileManager.default
-        try fm.moveItem(at: store.folder(of: "Lamp"), to: store.folder.appendingPathComponent(".partial-crash"))
-        XCTAssertEqual(store.list(), [])
-        XCTAssertEqual(store.list(now: Date().addingTimeInterval(NamedSubjectStore.grace + 60)), [s])
-        XCTAssertEqual(try fm.contentsOfDirectory(atPath: store.folder.path), ["Lamp"])
-        _ = root
-    }
-
-    /// Names and files read from disk never lead out of their folder.
-    func testTheStoreStaysInItsFolder() throws {
-        let (store, root) = try temporaryStore()
-        let s = try store.create(name: "lamp", kind: .object, pictures: [(.png(Data([1])), .whole)])
-        let outside = root.appendingPathComponent("outside.png")
-        try Data([2]).write(to: outside)
-        for name in ["", ".", "..", "../subjects", "lamp/1.png"] {
-            XCTAssertThrowsError(try store.delete(name), name)
-            XCTAssertThrowsError(try store.update(name, to: s), name)
-        }
-        XCTAssertEqual(store.list(), [s])
-        // A hand-edited JSON pointing out of the folder: the picture is not read.
-        let json = store.folder(of: "lamp").appendingPathComponent("subject.json")
-        let edited = N.Subject(name: "lamp", kind: .object, pictures: [N.Picture(file: "../../outside.png"), N.Picture(file: "1.png")])
-        try JSONEncoder().encode(edited).write(to: json)
-        XCTAssertEqual(store.list().first?.pictures.map(\.file), ["1.png"])
-        XCTAssertTrue(fm(outside))
-    }
-
-    private func fm(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
 }

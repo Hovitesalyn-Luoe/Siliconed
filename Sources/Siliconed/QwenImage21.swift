@@ -122,6 +122,72 @@ package final class QwenImage21DiT {
         while chunks < scratch, 2 * ((scratch + chunks - 1) / chunks) * hidden * 4 > budget { chunks += 1 }
         return max(1, (scratch + chunks - 1) / chunks)
     }
+
+    // ── the sizes, one source: `init` allocates them, `MemoryNeed.qwenImage21` charges them ──
+
+    /// **The prefill's groups and the per-layer scratch rows** of a sequence (`groups`, `scratch`): the
+    /// consecutive prefix segments packed while they span at most `max(S, largest image) + all text
+    /// rows`, and the scratch as the largest of the target, the text rows and a group — or the whole
+    /// sequence with the full pass.
+    package static func layout(_ sequence: QwenImage21Sequence, fullPass: Bool)
+            -> (groups: [(start: Int, end: Int, segments: [QwenImage21Sequence.Segment])], scratch: Int) {
+        let s = sequence.target
+        let textRows = sequence.segments.filter(\.isText).reduce(0) { $0 + $1.end - $1.start }
+        let largestSegment = sequence.segments.filter { !$0.isText }.map { $0.end - $0.start }.max() ?? 0
+        let budget = max(s, largestSegment) + textRows
+        var groups: [(start: Int, end: Int, segments: [QwenImage21Sequence.Segment])] = []
+        for segment in sequence.segments {
+            if let last = groups.last, segment.end - last.start <= budget {
+                groups[groups.count - 1] = (last.start, segment.end, last.segments + [segment])
+            } else {
+                groups.append((segment.start, segment.end, [segment]))
+            }
+        }
+        let scratch = fullPass ? sequence.count
+            : max(s, sequence.textRows.count, groups.map { $0.end - $0.start }.max() ?? 0)
+        return (groups, scratch)
+    }
+
+    /// **The bytes of the DiT's arena** — `x` (`rows`), `normed` and `o` (`scratch`), `keys` and `values`
+    /// (`rows`), `h1` (also `q`) and `h2` (an MLP chunk), the widened weight (`d·h`), the full pass's
+    /// prefix input, the largest image's tokens, the RoPE table, the two modulation rows and the LoRA's
+    /// middle (`scratch · rank`): its `slices`, each on its page — formerly 32 pages and 8 MB of margin
+    /// besides, never reserved.
+    package static func arenaBytes(config: Config, rows all: Int, prefix p: Int, scratch n: Int, largestImage: Int,
+                                   rank r: Int, fullPass: Bool) -> Int {
+        Arena.capacity(slices: slices(config: config, rows: all, prefix: p, scratch: n, largestImage: largestImage,
+                                      rank: r, fullPass: fullPass).map { $0.count * 4 })
+    }
+
+    /// **The DiT arena's slices, in floats, in the order `init` reserves them** (at least one float
+    /// each). Each is written whole by the pass that sizes it: `x`, `keys`, `values` and the RoPE table
+    /// by every step (`P + S` rows), `normed`, `o`, `q`/`h1` by the largest of the target and the
+    /// prefill's groups (`scratch`), `h1`/`h2` by an MLP chunk, `reserve` by `img_mlp`'s weights,
+    /// `tokens` by the largest image's `img_in`.
+    package static func slices(config: Config, rows all: Int, prefix p: Int, scratch n: Int, largestImage: Int,
+                               rank r: Int, fullPass: Bool) -> [(name: String, count: Int)] {
+        let d = config.dim, h = config.hidden
+        let mlpRows = mlpRows(scratch: n, hidden: h)
+        let slices: [(name: String, count: Int)] = [
+            ("x", all * d), ("normed", n * d), ("o", n * d), ("keys", all * d), ("values", all * d),
+            ("h1", max(mlpRows * h, n * d)), ("h2", mlpRows * h), ("reserve", d * h)]
+            + (fullPass ? [("prefixInput", p * d)] : [])
+            + [("tokens", largestImage * config.channels), ("freqs", all * config.headDim),
+               ("modulation", 2 * config.modulation)]
+            + (r > 0 ? [("loraMid", n * r)] : [])
+        return slices.map { ($0.name, max($0.count, 1)) }
+    }
+
+    /// **The K/V cache's arena** when it lives in memory (`CacheStorage.memory`): `2 · layers · P · d` floats.
+    package static func cacheArenaBytes(config: Config, prefix p: Int) -> Int {
+        Arena.capacity(for: 2 * config.layers * p * config.dim * 4)
+    }
+
+    /// **The query slices of one SDPA call**: as few as keep `heads · queries · keys` floats under
+    /// `Attention.maxMatrix`.
+    package static func attentionSlices(heads: Int, queries: Int, keys: Int) -> Int {
+        max(1, Int((Double(heads * queries * keys) * 4 / Double(Attention.maxMatrix)).rounded(.up)))
+    }
     /// **The prefill, by groups of whole segments**: consecutive prefix segments run through a layer
     /// together, at most `max(S, largest image) + all text rows` rows — one group for an edit with one
     /// reference, three for three. Each group's attention needs the K/V of the rows before it, which
@@ -221,21 +287,10 @@ package final class QwenImage21DiT {
         self.elementwise = try ElementwiseGPU(device: gemm.device, queue: gemm.queue)
         self.allowsFullPass = fullPass || storage == .recompute
         self.storage = storage
-        let p = sequence.prefix, s = sequence.target, all = sequence.count
+        let p = sequence.prefix, all = sequence.count
         capacity = all
-        let textRows = sequence.segments.filter(\.isText).reduce(0) { $0 + $1.end - $1.start }
-        let largestSegment = sequence.segments.filter { !$0.isText }.map { $0.end - $0.start }.max() ?? 0
-        let budget = max(s, largestSegment) + textRows
-        var groups: [(start: Int, end: Int, segments: [QwenImage21Sequence.Segment])] = []
-        for segment in sequence.segments {
-            if let last = groups.last, segment.end - last.start <= budget {
-                groups[groups.count - 1] = (last.start, segment.end, last.segments + [segment])
-            } else {
-                groups.append((segment.start, segment.end, [segment]))
-            }
-        }
-        self.groups = groups
-        scratch = allowsFullPass ? all : max(s, sequence.textRows.count, groups.map { $0.end - $0.start }.max() ?? 0)
+        let layout = QwenImage21DiT.layout(sequence, fullPass: allowsFullPass)
+        groups = layout.groups; scratch = layout.scratch
         let d = config.dim, h = config.hidden, n = scratch
         guard d % (Arena.alignment / 4) == 0, h % (Arena.alignment / 4) == 0, config.context == d else {
             throw Artifact.Failure.badHeader("Qwen-Image-2.1: a width that does not fall on a page")
@@ -243,29 +298,30 @@ package final class QwenImage21DiT {
         let r = lora?.maxRank ?? 0
         let largestImage = sequence.images.map { $0.height * $0.width }.max() ?? 0
         mlpRows = QwenImage21DiT.mlpRows(scratch: n, hidden: h)   // `h1` is also `q`: sized for both below
-        let floats = capacity * d + 2 * n * d + 2 * all * d + max(mlpRows * h, n * d) + mlpRows * h + d * h
-            + (allowsFullPass ? p * d : 0) + largestImage * config.channels + all * config.headDim
-            + 2 * config.modulation + n * r
-        let arena = try Arena(capacity: floats * 4 + 32 * Arena.alignment + (8 << 20))
+        let arena = try Arena(capacity: QwenImage21DiT.arenaBytes(config: config, rows: all, prefix: p, scratch: n,
+                                                                  largestImage: largestImage, rank: r,
+                                                                  fullPass: allowsFullPass))
         var sizes: [UnsafeMutablePointer<Float>: Int] = [:]
         func slot(_ arena: Arena, _ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
             let pointer = try arena.reserve(name, bytes: max(count, 1) * 4).assumingMemoryBound(to: Float.self)
             sizes[pointer] = max(count, 1) * 4
             return pointer
         }
-        x = try slot(arena, "x", capacity * d); normed = try slot(arena, "normed", n * d)
-        merged = normed; o = try slot(arena, "o", n * d)
-        keys = try slot(arena, "keys", all * d); values = try slot(arena, "values", all * d)
-        h1 = try slot(arena, "h1", max(mlpRows * h, n * d)); h2 = try slot(arena, "h2", mlpRows * h)
-        q = h1
-        reserve = try slot(arena, "reserve", d * h)
-        prefixInput = allowsFullPass ? try slot(arena, "prefixInput", p * d) : nil
-        tokens = try slot(arena, "tokens", largestImage * config.channels)
-        freqs = try slot(arena, "freqs", all * config.headDim)
-        modulationSlot = try slot(arena, "modulation", 2 * config.modulation)
+        // The main arena's slices, from `slices` — the function `arenaBytes` sizes it with.
+        var named: [String: UnsafeMutablePointer<Float>] = [:]
+        for (name, count) in QwenImage21DiT.slices(config: config, rows: all, prefix: p, scratch: n,
+                                                   largestImage: largestImage, rank: r, fullPass: allowsFullPass) {
+            named[name] = try slot(arena, name, count)
+        }
+        x = named["x"]!; normed = named["normed"]!; merged = normed; o = named["o"]!
+        keys = named["keys"]!; values = named["values"]!
+        h1 = named["h1"]!; h2 = named["h2"]!; q = h1
+        reserve = named["reserve"]!
+        prefixInput = named["prefixInput"]
+        tokens = named["tokens"]!; freqs = named["freqs"]!; modulationSlot = named["modulation"]!
         var arenas = [arena]
         if p > 0, storage == .memory {
-            let cacheArena = try Arena(capacity: 2 * config.layers * p * d * 4 + Arena.alignment)
+            let cacheArena = try Arena(capacity: QwenImage21DiT.cacheArenaBytes(config: config, prefix: p))
             cache = try slot(cacheArena, "cache", 2 * config.layers * p * d)
             arenas.append(cacheArena)
         } else {
@@ -281,7 +337,7 @@ package final class QwenImage21DiT {
         }
         self.lora = r > 0 ? lora : nil
         if let lora, r > 0 {
-            loraMid = try slot(arena, "loraMid", n * r)
+            loraMid = named["loraMid"]
             cacheLoRA = try StreamedLoRA(lora: lora, layers: config.layers,
                                          retain: { !QwenImage21DiT.exactModules.contains($0) })
         } else {
@@ -412,8 +468,8 @@ package final class QwenImage21DiT {
         // **And it is faster so**: a 1-reference edit at 1024² with the tail streamed, as the
         // budget once allowed, read less (~14 against 19.63 GB per step) yet took 28.2 s a step against
         // 26.0 — 208.1 against 195.5 s, same bits. A generation's tail is the render's to decide
-        // (`MemoryPlan.ditTail`): **the whole map** (`generationTail`), the lean plan's; an edit's
-        // stays off in the lean plan too — its map through the cache is what was timed fastest, and
+        // (`MemoryPlan.ditTail`): **the whole map** (`generationTail`), unless B holds it all; an edit's
+        // stays off on every plan — its map through the cache is what was timed fastest, and
         // its own K/V reader is already beside the cache.
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: "transformer_blocks.\($0).") }
         var (released, slots) = (config.layers, 0)
@@ -628,12 +684,11 @@ package final class QwenImage21DiT {
         var ys = try Krea2Exact.linears(artifact, module, xs: xs)
         guard let lora, lora.rank(module) > 0, let shape = artifact.tensors[module + ".weight"]?.shape else { return ys }
         let (k, n, r) = (shape[0], shape[1], lora.rank(module))
-        var down = [Float](repeating: 0, count: k * r), up = [Float](repeating: 0, count: r * n)
-        try down.withUnsafeMutableBufferPointer { db in
-            try up.withUnsafeMutableBufferPointer { ub in
-                _ = try lora.materialize(module, k: k, n: n, down: db.baseAddress!, up: ub.baseAddress!)
-            }
-        }
+        // In `Pages` for the call, not arrays `free` would leave in the footprint.
+        let (downPages, upPages) = (Pages(bytes: k * r * 4), Pages(bytes: r * n * 4))
+        let (down, up) = (downPages.floats(), upPages.floats())
+        defer { withExtendedLifetime((downPages, upPages)) {} }
+        _ = try lora.materialize(module, k: k, n: n, down: down, up: up)
         for v in xs.indices {
             var mid = [Double](repeating: 0, count: r)
             for i in 0..<k where xs[v][i] != 0 {
@@ -732,7 +787,7 @@ package final class QwenImage21DiT {
     private func attend(queries: Int, count: Int, keys keyCount: Int, causal: Bool, first: Int,
                         target: Bool = false) throws {
         let d = config.dim, heads = config.heads
-        let slices = max(1, Int((Double(heads * count * keyCount) * 4 / Double(Attention.maxMatrix)).rounded(.up)))
+        let slices = QwenImage21DiT.attentionSlices(heads: heads, queries: count, keys: keyCount)
         let kb = try slice(keys), vb = try slice(values)
         for piece in 0..<slices {
             let begin = piece * count / slices, end = (piece + 1) * count / slices
@@ -744,7 +799,7 @@ package final class QwenImage21DiT {
             if target, !Attention.useHalfPrecision, rows >= HeadSplitAttention.minimumSequence {
                 let split: HeadSplitAttention
                 if let existing = headSplits[key] { split = existing } else {
-                    split = HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: rows,
+                    split = try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: rows,
                                                headDim: config.headDim, keys: visible)
                     headSplits[key] = split
                 }
@@ -818,11 +873,11 @@ package final class QwenImage21DiT {
 /// `slots` is the pipeline's `img_mask` row: one entry per Qwen3-VL position, `true` at an image
 /// slot, **the target's slots appended** (`h·w/4` of them). Each slot becomes 4 rows; the images'
 /// latent tokens fill those rows in order (conditions, then the target), row-major per image.
-package struct QwenImage21Sequence: Equatable {
-    package struct Grid: Equatable { package let height, width: Int
+package struct QwenImage21Sequence: Equatable, Sendable {
+    package struct Grid: Equatable, Sendable { package let height, width: Int
         package init(height: Int, width: Int) { self.height = height; self.width = width } }
-    package struct Segment: Equatable { package let start, end: Int; package let isText: Bool }
-    package struct TextRow: Equatable { package let joint, encoderRow: Int }
+    package struct Segment: Equatable, Sendable { package let start, end: Int; package let isText: Bool }
+    package struct TextRow: Equatable, Sendable { package let joint, encoderRow: Int }
 
     /// Latent grids, the conditions in order, the target last.
     package let images: [Grid]

@@ -74,7 +74,7 @@ package final class Block {
     private let transposed: Bool
 
     // Arena slices, reserved once.
-    private let xSlot, normed, qkv, qHeads, kHeads, vHeads, merged: UnsafeMutablePointer<Float>
+    private let normed, qkv, qHeads, kHeads, vHeads, merged: UnsafeMutablePointer<Float>
     private let hidden1, hidden3, scratch, weightReserve, modulationSlot: UnsafeMutablePointer<Float>
     /// **The LoRA stack, and its three slices.** They are sized for the cumulative rank of
     /// THIS request — the engine builds the DiT after receiving the stack, so there is no
@@ -121,36 +121,35 @@ package final class Block {
         self.eps = eps
         self.gemm = gemm
         self.arena = arena
-        let s = shapes.sequence, d = shapes.dim, h = shapes.hidden
-        func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
-            try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
+        // The slices, from `Block.slices` — the function `DiT.blockArenaBytes` sizes the arena with.
+        var pointers: [String: UnsafeMutablePointer<Float>] = [:]
+        for (name, count) in Block.slices(shapes, loraRank: lora?.maxRank ?? 0) {
+            pointers[name] = try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
         }
-        xSlot = try slot("x", s * d)
-        normed = try slot("normed", s * d)
-        qkv = try slot("qkv", s * d)
-        qHeads = try slot("q", s * d)
-        kHeads = try slot("k", s * d)
-        vHeads = try slot("v", s * d)
-        merged = try slot("merged", s * d)
-        hidden1 = try slot("h1", s * h)
-        hidden3 = try slot("h3", s * h)
-        // No longer `s × h` since the SwiGLU lives on the GPU: only the norm weights (`d`) and the
-        // modulation's LoRA (`4d`).
-        scratch = try slot("scratch", 4 * d)
-        weightReserve = try slot("reserve", d * h)          // the largest weight of a block
-        modulationSlot = try slot("modulation", 4 * d)
-        // The LoRA slices, sized for the largest shapes the stack touches —
-        // `w2` for the input (10240), `adaLN_modulation.0` for the output (15360). Three slices
-        // for ~4 MB at rank 32, against 59 MB for the main weight's reserve alone.
-        if let lora, lora.maxRank > 0 {
-            loraMid = try slot("loraMid", s * lora.maxRank)
-        } else {
-            loraMid = nil
-        }
+        normed = pointers["normed"]!; qkv = pointers["qkv"]!
+        qHeads = pointers["q"]!; kHeads = pointers["k"]!; vHeads = pointers["v"]!; merged = pointers["merged"]!
+        hidden1 = pointers["h1"]!; hidden3 = pointers["h3"]!
+        scratch = pointers["scratch"]!; weightReserve = pointers["reserve"]!; modulationSlot = pointers["modulation"]!
+        loraMid = pointers["loraMid"]
         // There used to be four more slices here — `halfQ`, `halfK`, `halfV` and `sdpa` —, the
         // intermediate buffers of the CPU rearrangement around the SDPA. The transposition now living
         // in the graph, `q`, `k`, `v` go out as they are and the output comes back into
         // `merged`: four times `s·d` floats given back, i.e. 254 MB at 1024².
+    }
+
+    /// **A block's slices, in floats, in the order `init` reserves them** — one source with
+    /// `DiT.blockArenaBytes`: six `s×d` (`normed`, `qkv`, `q`, `k`, `v`, `merged`), two `s×h` (`h1`,
+    /// `h3`), the `d×h` weight reserve (the largest weight of a block: `w1`, `w2`, `w3`), `4d` of scratch
+    /// (the norm weights, `d`, and the modulation's LoRA, `4d`), `4d` of modulation and, under a LoRA
+    /// stack of cumulative rank `r`, the `mid [s, r]` slice (sized for the widest module it touches).
+    /// Each is written whole by an evaluation at the sizing length. There used to be an `x` slice
+    /// too, never written — `forward` works on the caller's `x` —: 64 MB at 1024² in the unified
+    /// block, as much in the image one.
+    package static func slices(_ shapes: Shapes, loraRank r: Int) -> [(name: String, count: Int)] {
+        let s = shapes.sequence, d = shapes.dim, h = shapes.hidden
+        return [("normed", s * d), ("qkv", s * d), ("q", s * d), ("k", s * d), ("v", s * d), ("merged", s * d),
+                ("h1", s * h), ("h3", s * h), ("scratch", 4 * d), ("reserve", d * h), ("modulation", 4 * d)]
+            + (r > 0 ? [("loraMid", s * r)] : [])
     }
 
     /// The `count` is checked against the table rather than trusted: a wrong shape would produce a
@@ -291,11 +290,20 @@ package final class Block {
         }
     }
 
+    /// **Drop every attention built at another length than `sequence`**: the spectral schedule's
+    /// half-size ones once the full-size steps begin — they never run again in this render, and each
+    /// holds its scratch and spill (a split at 1024 rows, ~37 MB) beside the full-size ones.
+    func forgetAttentions(except sequence: Int) {
+        headSplits = headSplits.filter { $0.key == sequence }
+        attentions = attentions.filter { $0.key == sequence }
+        flashes = flashes.filter { $0.key == sequence }
+    }
+
     /// The head split of this length, or `nil` when it does not apply.
-    private func headSplit(_ sequence: Int) -> HeadSplitAttention? {
+    private func headSplit(_ sequence: Int) throws -> HeadSplitAttention? {
         guard !Attention.useHalfPrecision, sequence >= HeadSplitAttention.minimumSequence else { return nil }
         if let existing = headSplits[sequence] { return existing }
-        let built = HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: shapes.heads,
+        let built = try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: shapes.heads,
                                        sequence: sequence, headDim: shapes.headDim)
         headSplits[sequence] = built
         return built
@@ -395,10 +403,12 @@ package final class Block {
         // the precision conversion live in `Attention`'s graph — see its initialization comment
         // for what this CPU copy cost.
         let ob = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: shapes.sequence * d * 4, name: "sdpaOut")
+        let flash = flash(s)
+        let split = flash == nil ? try headSplit(s) : nil
         timed("sdpa wall") {
-            if let flash = flash(s) {
+            if let flash {
                 timings["sdpa GPU", default: 0] += flash.run(q: qb, k: kb, v: vb, into: ob)
-            } else if let split = headSplit(s) {
+            } else if let split {
                 let (gpu, cpu) = split.run(q: qb, k: kb, v: vb, into: ob, q: qHeads, k: kHeads, v: vHeads, out: merged)
                 timings["sdpa GPU", default: 0] += gpu
                 timings["sdpa CPU", default: 0] += cpu

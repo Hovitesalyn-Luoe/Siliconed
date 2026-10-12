@@ -113,40 +113,6 @@
         }
       }
     },
-    "%@ are using %@." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ verwenden %2$@."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ are using %2$@."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ están usando %2$@."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ utilisent %2$@."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ stanno usando %2$@."
-          }
-        }
-      }
-    },
     "%@ at the earliest" : {
       "localizations" : {
         "de" : {
@@ -497,40 +463,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ è un modello, non una LoRA."
-          }
-        }
-      }
-    },
-    "%@ is using %@." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ verwendet %2$@."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ is using %2$@."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ está usando %2$@."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ utilise %2$@."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ sta usando %2$@."
           }
         }
       }
@@ -1115,6 +1047,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ × %@ supera la dimensione massima, 1024 × 1536."
+          }
+        }
+      }
+    },
+    "%@ × %@ — needs a Mac with %@ GB" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ × %2$@ — erfordert einen Mac mit %3$@ GB"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ × %2$@ — needs a Mac with %3$@ GB"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ × %2$@ — requiere un Mac con %3$@ GB"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ × %2$@ — demande un Mac de %3$@ Go"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ × %2$@ — richiede un Mac con %3$@ GB"
           }
         }
       }
@@ -2857,34 +2823,6 @@
         }
       }
     },
-    "A picture of this subject can't be read. Its file is kept as it is: Show in Finder to replace it." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ein Bild dieses Motivs kann nicht gelesen werden. Seine Datei bleibt unverändert: „Im Finder zeigen“, um es zu ersetzen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se puede leer una imagen de este sujeto. Su archivo se conserva tal cual: «Mostrar en el Finder» para sustituirla."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Une image de ce sujet ne peut pas être lue. Son fichier est gardé tel quel : « Afficher dans le Finder » pour la remplacer."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un’immagine di questo soggetto non può essere letta. Il suo file resta com’è: «Mostra nel Finder» per sostituirla."
-          }
-        }
-      }
-    },
     "A render is in progress." : {
       "localizations" : {
         "de" : {
@@ -3059,30 +2997,30 @@
         }
       }
     },
-    "A subject with two pictures counts twice, and so do the edit's images." : {
+    "A subject with two pictures counts twice." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ein Motiv mit zwei Bildern zählt doppelt, ebenso die Bilder der Bearbeitung."
+            "value" : "Ein Motiv mit zwei Bildern zählt doppelt."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un sujeto con dos imágenes cuenta dos veces, y también cuentan las imágenes de la edición."
+            "value" : "Un sujeto con dos fotos cuenta dos veces."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un sujet à deux images compte deux fois, et les images de l’édition comptent aussi."
+            "value" : "Un sujet à deux photos compte deux fois."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un soggetto con due immagini conta due volte, e contano anche le immagini della modifica."
+            "value" : "Un soggetto con due foto conta due volte."
           }
         }
       }
@@ -4371,6 +4309,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scegli un modello per iniziare. La sua licenza e lo spazio che occupa vengono mostrati prima di scaricare qualsiasi cosa."
+          }
+        }
+      }
+    },
+    "Choose a smaller size or fewer images." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie ein kleineres Format oder weniger Bilder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige un tamaño más pequeño o menos imágenes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez une taille plus petite ou moins d’images."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli una dimensione più piccola o meno immagini."
           }
         }
       }
@@ -8414,34 +8380,6 @@
         }
       }
     },
-    "Its folder and its pictures are deleted from the library. Prompts that cite it will be refused." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sein Ordner und seine Bilder werden aus der Bibliothek gelöscht. Prompts, die es nennen, werden abgelehnt."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Su carpeta y sus imágenes se borran de la biblioteca. Los prompts que lo citen serán rechazados."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Son dossier et ses images sont effacés de la bibliothèque. Les prompts qui le citent seront refusés."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La sua cartella e le sue immagini vengono eliminate dalla libreria. I prompt che lo citano saranno rifiutati."
-          }
-        }
-      }
-    },
     "Its forged card is deleted. To get it back, import its file again." : {
       "localizations" : {
         "de" : {
@@ -9760,6 +9698,34 @@
         }
       }
     },
+    "Needs a Mac with %@ GB of memory." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erfordert einen Mac mit %@ GB Arbeitsspeicher."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Requiere un Mac con %@ GB de memoria."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demande un Mac de %@ Go de mémoire."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richiede un Mac con %@ GB di memoria."
+          }
+        }
+      }
+    },
     "New versions:" : {
       "localizations" : {
         "de" : {
@@ -10976,6 +10942,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prompt"
+          }
+        }
+      }
+    },
+    "Prompts that cite it will be refused." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompts, die es nennen, werden abgelehnt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los prompts que lo citen serán rechazados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les prompts qui le citent seront refusés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I prompt che lo citano saranno rifiutati."
           }
         }
       }
@@ -15245,30 +15239,30 @@
         }
       }
     },
-    "The largest of this model's sizes that fits in the memory free now" : {
+    "The largest of this model's sizes this Mac renders" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das größte Format dieses Modells, das in den jetzt freien Arbeitsspeicher passt"
+            "value" : "Das größte Format dieses Modells, das dieser Mac rendern kann"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El mayor de los tamaños de este modelo que cabe en la memoria libre ahora"
+            "value" : "El mayor de los tamaños de este modelo que este Mac puede generar"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le plus grand des formats de ce modèle qui tient dans la mémoire libre maintenant"
+            "value" : "Le plus grand des formats de ce modèle que ce Mac sait rendre"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il più grande dei formati di questo modello che entra nella memoria libera ora"
+            "value" : "Il più grande dei formati di questo modello che questo Mac può generare"
           }
         }
       }
@@ -16281,34 +16275,6 @@
         }
       }
     },
-    "The subject couldn't be written." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Das Motiv konnte nicht geschrieben werden."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se pudo escribir el sujeto."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le sujet n’a pas pu être écrit."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Non è stato possibile scrivere il soggetto."
-          }
-        }
-      }
-    },
     "The subject's two pictures: each has its own frame" : {
       "localizations" : {
         "de" : {
@@ -17051,74 +17017,6 @@
         }
       }
     },
-    "This size needs %@ of memory, and %@ is free right now." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Format braucht %1$@ Arbeitsspeicher, und %2$@ sind gerade frei."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "This size needs %1$@ of memory, and %2$@ is free right now."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Este tamaño necesita %1$@ de memoria, y ahora hay %2$@ libres."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette taille demande %1$@ de mémoire, et %2$@ sont libres maintenant."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questa dimensione richiede %1$@ di memoria, e ora ne sono liberi %2$@."
-          }
-        }
-      }
-    },
-    "This size needs %@ of memory, and %@ is free right now. Generate comes back on its own as memory frees up." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Format braucht %1$@ Arbeitsspeicher, und %2$@ sind gerade frei. „Generieren“ wird von selbst wieder verfügbar, sobald Arbeitsspeicher frei wird."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "This size needs %1$@ of memory, and %2$@ is free right now. Generate comes back on its own as memory frees up."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Este tamaño necesita %1$@ de memoria, y ahora hay %2$@ libres. «Generar» vuelve por sí solo cuando se libera memoria."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette taille demande %1$@ de mémoire, et %2$@ sont libres maintenant. « Générer » revient de lui-même quand la mémoire se libère."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questa dimensione richiede %1$@ di memoria, e ora ne sono liberi %2$@. «Genera» torna disponibile da solo quando la memoria si libera."
-          }
-        }
-      }
-    },
     "Thumbnail size" : {
       "localizations" : {
         "de" : {
@@ -17261,34 +17159,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Totale"
-          }
-        }
-      }
-    },
-    "Try a smaller size, or render again once other apps have given memory back." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Versuchen Sie ein kleineres Format oder rendern Sie erneut, sobald andere Apps Arbeitsspeicher freigegeben haben."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prueba un tamaño más pequeño, o vuelve a renderizar cuando otras apps hayan liberado memoria."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Essayez une taille plus petite, ou relancez quand les autres apps auront rendu de la mémoire."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prova una dimensione più piccola, o riprova quando le altre app avranno liberato memoria."
           }
         }
       }

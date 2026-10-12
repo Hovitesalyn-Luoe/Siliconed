@@ -148,7 +148,7 @@ private struct Footer: View {
     @Bindable var app: AppState
 
     var body: some View {
-        // Read once per drawing: the memory half asks the machine (`MemoryBudget`).
+        // Read once per drawing: the memory half computes the need against B (`MemoryBudget`).
         let form = app.formBlocker
         let refusal = form == nil ? app.memoryRefusal : nil
         let memory = refusal?.text
@@ -168,15 +168,6 @@ private struct Footer: View {
             .controlSize(.extraLarge)
             .disabled(blocker != nil)
             .help(Text(verbatim: "⌘↩"))
-            // Only while the memory is what greys it out: read it again every 2 s, so that freeing
-            // memory elsewhere gives « Generate » back without touching the form.
-            .task(id: memory != nil) {
-                guard memory != nil else { return }
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2))
-                    app.memoryTick &+= 1
-                }
-            }
 
             // **No `fixedSize(vertical:)` on a text of this footer** (nor in `ProblemView`): a refusal of
             // two lines held at its ideal height made the footer — a `safeAreaInset` of the rack —
@@ -185,16 +176,11 @@ private struct Footer: View {
             // folds the same way with the footer in a `VStack`. Wrapping on its own, the text fits.
             if let reason = blocker {
                 Text(reason).font(.caption).foregroundStyle(.secondary)
-                // A memory refusal is never a dead end: who holds the memory, and a size that fits.
-                if let refusal {
-                    if let holders = refusal.holders {
-                        Text(holders).font(.caption).foregroundStyle(.tertiary)
-                    }
-                    if let f = refusal.smaller {
-                        Button(String(localized: "Use \(String(f.width)) × \(String(f.height))")) { app.useFormat(f) }
-                            .buttonStyle(.link).font(.caption)
-                            .help("The largest of this model's sizes that fits in the memory free now")
-                    }
+                // A memory refusal is never a dead end: a size this Mac renders.
+                if let f = refusal?.smaller {
+                    Button(String(localized: "Use \(String(f.width)) × \(String(f.height))")) { app.useFormat(f) }
+                        .buttonStyle(.link).font(.caption)
+                        .help("The largest of this model's sizes this Mac renders")
                 }
             } else if app.diagnosticRunning {
                 Text("The diagnostic is running: renders wait for it.").font(.caption).foregroundStyle(.secondary)

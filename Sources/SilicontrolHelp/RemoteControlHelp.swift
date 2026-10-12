@@ -534,10 +534,11 @@ public enum RemoteControlHelp {
         A subject is a picture (or two of the same subject) with a name, a kind and a frame; the
         prompt cites it as @name, and its pictures go to the model as references, after the --ref
         images. A model that reads images only (Qwen-Image-2.1); 3 images at most per render.
+        In the app's memory, like the history: the subjects go when the app quits (incognito).
 
           silicontrol subjects                                     the library
           silicontrol subjects add IMAGE --name NAME --kind KIND [--frame x,y,w,h] [--second IMAGE2]
-          silicontrol subjects remove NAME                         deletes its folder and pictures
+          silicontrol subjects remove NAME                         forgets it
           silicontrol add --model qwen-image-2.1 "@alice in @red-coat, posing in a library"
 
         KIND: person, garment, object, place or style — what the model takes from the picture.
@@ -545,7 +546,7 @@ public enum RemoteControlHelp {
         --frame: the part of the image to look at, in fractions (0,0,1,1 = the whole image).
         The model's prompt (each subject tied to its image) is the job's "model_prompt".
 
-        Answer: {"ok": true, "subjects": [{"name": "alice", "kind": "person", "pictures": [{"path": …, "frame": [0, 0, 1, 1]}]}]}
+        Answer: {"ok": true, "subjects": [{"name": "alice", "kind": "person", "pictures": [{"frame": [0, 0, 1, 1]}]}]}
         FAILURES: disabled, usage, ref (an image unreadable or missing), subject (unknown name, a name taken, too many images, a model that reads none).
         """,
 
@@ -1143,11 +1144,12 @@ public enum RemoteControlHelp {
         (sinon : "disabled"). Un sujet est une image (ou deux du même sujet) avec un nom, un genre et
         un cadre ; le prompt le cite par @nom, et ses images vont au modèle comme références, après
         celles des --ref. Un modèle qui lit les images seulement (Qwen-Image-2.1) ; 3 images au plus
-        par rendu.
+        par rendu. En mémoire dans l'app, comme l'historique : les sujets partent quand l'app quitte
+        (incognito).
 
           silicontrol subjects                                     la bibliothèque
           silicontrol subjects add IMAGE --name NOM --kind GENRE [--frame x,y,l,h] [--second IMAGE2]
-          silicontrol subjects remove NOM                          efface son dossier et ses images
+          silicontrol subjects remove NOM                          l'oublie
           silicontrol add --model qwen-image-2.1 "@alice in @red-coat, posing in a library"
 
         GENRE : person, garment, object, place ou style — ce que le modèle prend de l'image.
@@ -1155,7 +1157,7 @@ public enum RemoteControlHelp {
         --frame : la partie de l'image à regarder, en fractions (0,0,1,1 = l'image entière).
         Le prompt du modèle (chaque sujet relié à son image) est le "model_prompt" de la tâche.
 
-        Réponse : {"ok": true, "subjects": [{"name": "alice", "kind": "person", "pictures": [{"path": …, "frame": [0, 0, 1, 1]}]}]}
+        Réponse : {"ok": true, "subjects": [{"name": "alice", "kind": "person", "pictures": [{"frame": [0, 0, 1, 1]}]}]}
         ÉCHECS : disabled, usage, ref (image illisible ou absente), subject (nom inconnu ou déjà pris, trop d'images, modèle qui n'en lit pas).
         """,
 

@@ -8,25 +8,27 @@ import Foundation
 ///     subjects in order of first appearance, each its pictures in order  the-beach place   beach.heic, beach2.jpg
 ///        │ numbered from `first` (after an edit's own images)
 ///        ▼
-///     model prompt   "alice in red coat on the beach
+///     model prompt   "the person in <image1> in the garment in <image2> on the same place in <image3> and <image4>
 ///
-///                     alice is the person in <image1>. Take only their identity from <image1>: …
-///                     red coat is the garment in <image2>. Take only the garment from <image2>: …
-///                     the beach is the same place in <image3> and <image4>. …"   ← refused: 4 > 3 images
+///                     Take only their identity from <image1>: face, hair and build.
+///                     Take only the garment from <image2>: …
+///                     Use <image3> and <image4> as the setting: …"   ← refused: 4 > 3 images
 ///     images         [alice.jpg ▭, coat.png ▭, beach.heic ▭, …]   each cropped to its frame, in that order
 ///
 /// The engine does not change: the images are `Request.references`, which
 /// Qwen-Image-2.1's encoder reads as `<image1>`, `<image2>`… in front of the prompt
 /// (`Qwen3VLTemplate.template`), and the render starts from fresh noise at the chosen format. What
-/// this file does is only words: **the text designates, the image describes**. The name comes from the
-/// user, the kind's noun and its retention instruction from the kind, the number from the order.
+/// this file does is only words: **the text designates, the image describes**. The kind's noun and its
+/// retention instruction come from the kind, the number from the order; the name is the user's alone.
 ///
 /// What sets it apart, and what a port of ComfyUI's or MiniMax's "named references" by analogy would miss:
 ///
-///   - **The name stays in the prompt.** `@red-coat` becomes "red coat", not "image 2": the name says
-///     what the picture is for. Only the `@` goes, and `-` `_` read as spaces; a legend after the
-///     prompt ties each name to its image by the `<imageN>` label the template already puts in front
-///     of each (Qwen's official edit-prompt rewriter writes it so).
+///   - **The name never reaches the model.** `@alice` becomes "the person in <image1>": the kind and the
+///     `<imageN>` label the template already puts in front of each image (Qwen's official edit-prompt
+///     rewriter writes it so). A name is a word, and the model reads words as content: "redraw Alice"
+///     on a drawing of a woman gave Alice in Wonderland (11/10); `@neo` or `@paris` would leak the same
+///     way. A legend after the prompt says what to take from each image. An article the user wrote
+///     before the mention is not doubled ("in the @room" → "in the place in <image2>").
 ///   - **One subject, one or two places.** A subject with two pictures takes two consecutive numbers
 ///     ("the same person in <image1> and <image2>"); citing it twice does not place it twice.
 ///   - **Numbered by first appearance**, after the edit's own images when there are some
@@ -246,20 +248,25 @@ public enum NamedSubjects {
         var placed: [Placed] = []
         var number = first
         var sentences: [String] = []
+        var images: [String: [Int]] = [:]
         for s in cited {
             let numbers = s.pictures.prefix(maxPictures).map { picture -> Int in
                 placed.append(Placed(subject: s, picture: picture, number: number))
                 number += 1
                 return number - 1
             }
-            sentences.append(Phrasing.sentence(name: Phrasing.spoken(s.name), kind: s.kind, numbers: numbers))
+            images[key(s.name)] = numbers
+            sentences.append(Phrasing.retention(s.kind, from: Phrasing.references(numbers)))
         }
-        // The body: each `@name` becomes the subject's name, spoken.
+        // The body: each `@name` becomes what it is and where — "the person in <image1>". **The name
+        // never reaches the model**: it is the user's label, and the model reads a word as content —
+        // "redraw Alice" on a drawing of a woman gave Alice in Wonderland (11/10).
         var body = ""
         var i = prompt.startIndex
         for m in found {
             body += prompt[i..<m.range.lowerBound]
-            body += Phrasing.spoken(library[key(m.name)]!.name)
+            let s = library[key(m.name)]!
+            body += Phrasing.mention(s.kind, images[key(s.name)]!, after: body)
             i = m.range.upperBound
         }
         body += prompt[i...]
@@ -314,7 +321,7 @@ public enum NamedSubjects {
             return each.dropLast().joined(separator: ", ") + " and " + last
         }
 
-        /// The kind's noun: "Alice is the **person** in <image1>".
+        /// The kind's noun: "the **person** in <image1>".
         static func noun(_ kind: Kind) -> String {
             switch kind {
             case .person: "person"
@@ -335,21 +342,21 @@ public enum NamedSubjects {
             case .garment: "Take only the garment from \(from): its cut, color, material and details, worn by the subject."
             case .object: "Take only the object from \(from): its exact design, markings and count."
             case .place: "Use \(from) as the setting: its scenery, architecture and light."
-            case .style: "Render the whole image in its medium, palette, lighting and texture."
+            case .style: "Render the whole image in the medium, palette, lighting and texture of \(from)."
             }
         }
 
-        /// One subject's sentence. Two pictures of one subject say "the same".
-        static func sentence(name: String, kind: Kind, numbers: [Int]) -> String {
+        /// **What a mention becomes in the prompt**: "the person in <image1>", "the same person in <image1>
+        /// and <image2>", "the style of <image3>". `after`, the text before it: an article the user wrote
+        /// ("in the @room") is not doubled, nor "style of" ("in the style of @ink").
+        static func mention(_ kind: Kind, _ numbers: [Int], after: String) -> String {
             let from = references(numbers)
-            let same = numbers.count > 1 ? "the same " : "the "
-            let preposition = kind == .style ? "of" : "in"
-            return "\(name) is \(same)\(noun(kind)) \(preposition) \(from). \(retention(kind, from: from))"
-        }
-
-        /// A name as the model reads it: `red-coat` → "red coat".
-        static func spoken(_ name: String) -> String {
-            String(name.map { $0 == "-" || $0 == "_" ? " " : $0 })
+            let tail = after.lowercased()
+            if kind == .style {
+                return tail.hasSuffix("style of ") ? from : "the style of \(from)"
+            }
+            let article = [" the ", " a ", " an "].contains { (" " + tail).hasSuffix($0) } ? "" : "the "
+            return "\(article)\(numbers.count > 1 ? "same " : "")\(noun(kind)) in \(from)"
         }
 
         /// Where the legend goes: after the prompt, one sentence per subject, a blank line between.

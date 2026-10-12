@@ -153,16 +153,17 @@ package final class Sampler {
         // outside its `withUnsafeBufferPointer` is only valid for the duration of the call — and the descent
         // needs to hold a pointer from one level to the next. Two simultaneous exclusive accesses to
         // two elements of the same array would be one more fault.
-        var levels: [UnsafeMutablePointer<Float>] = []
+        // In `Pages`: unmapped when the descent ends, not left to `free`.
+        var levelPages: [Pages] = []
         var levelGrids: [(height: Int, width: Int)] = []
         var grid = (height: height, width: width)
         while grid.height > height / maxDivisor {
             grid = (grid.height / 2, grid.width / 2)
-            levels.append(UnsafeMutablePointer<Float>.allocate(
-                capacity: channels * grid.height * grid.width))
+            levelPages.append(Pages(bytes: channels * grid.height * grid.width * 4))
             levelGrids.append(grid)
         }
-        defer { for level in levels { level.deallocate() } }
+        let levels = levelPages.map { $0.floats() }
+        defer { withExtendedLifetime(levelPages) {} }
 
         // What the DiT is told: `1 − σ'` (`FlowMatchSchedule.modelTime`) with σ' the detail's σ.
         let told = detail.modelSigmas(schedule.sigmas, start: start, scale: detailScale)
@@ -173,7 +174,7 @@ package final class Sampler {
             let sigma = schedule.sigmas[step], next = schedule.sigmas[step + 1]
             var delta = next - sigma
             if delta == 0 {
-                // The step moves nothing: we do not pay for the evaluation. That is M1, and it is 12.5 %.
+                // The step moves nothing: we do not pay for the evaluation. Measured: 12.5 %.
                 if recordTrajectory {
                     velocities.append(velocities.last ?? [Float](repeating: 0, count: count))
                     latents.append(Array(UnsafeBufferPointer(start: latent, count: count)))
@@ -184,6 +185,10 @@ package final class Sampler {
             let started = Date()
             let d = divisor(step)
             let spectral = d > 1
+            // The half-size steps are over: their attentions never run again in this render.
+            if !spectral, evaluations > 0, divisor(step - 1) > 1 {
+                dit.forgetReducedAttentions()
+            }
             let (evaluatedHeight, evaluatedWidth) = (height / d, width / d)
             // `noise_pred = −v`, then Euler: `x ← x + Δσ · noise_pred`, hence `x − Δσ · v`.
             // The negation precedes the upsampling, as in the reference — 𝓘 is linear, so
@@ -203,9 +208,13 @@ package final class Sampler {
                                       width: levelGrids[level].width)
                     source = UnsafePointer(levels[level])
                 }
-                var speed = try dit.forward(latent: UnsafePointer(levels[depth - 1]),
-                                              caps: caps, sigma: 1 - told[step],
-                                              latentHeight: evaluatedHeight, latentWidth: evaluatedWidth)
+                // One autorelease pool per evaluation: what MPS autoreleases (descriptors, NDArrays and
+                // their buffers) dies with the evaluation, not with the render's queue item.
+                var speed = try autoreleasepool {
+                    try dit.forward(latent: UnsafePointer(levels[depth - 1]),
+                                    caps: caps, sigma: 1 - told[step],
+                                    latentHeight: evaluatedHeight, latentWidth: evaluatedWidth)
+                }
                 var minusOne: Float = -1
                 speed.withUnsafeMutableBufferPointer {
                     vDSP_vsmul($0.baseAddress!, 1, &minusOne, $0.baseAddress!, 1,
@@ -231,8 +240,7 @@ package final class Sampler {
                     vDSP_vsma(buffer.baseAddress!, 1, &delta, latent, 1, latent, 1, vDSP_Length(count))
                 }
             } else {
-                negated = try dit.forward(latent: latent, caps: caps,
-                                          sigma: 1 - told[step])
+                negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: 1 - told[step]) }
                 negated.withUnsafeMutableBufferPointer { buffer in
                     var minusOne: Float = -1
                     vDSP_vsmul(buffer.baseAddress!, 1, &minusOne, buffer.baseAddress!, 1, vDSP_Length(count))

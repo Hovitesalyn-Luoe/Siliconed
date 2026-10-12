@@ -2,6 +2,35 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.7
+
+### Memory: a fixed budget
+
+- **Siliconed never takes more than its budget**: three quarters of the Mac's memory minus 2 GB
+  (10 GB on a 16 GB Mac, 4 on an 8 GB one). It no longer reads how busy the Mac is: the same render
+  on the same Mac always gets the same answer, whatever else is open. What the other apps hold is
+  theirs.
+- **Known before the first step.** Each render computes the memory it needs from its format, its
+  prompt, its images and its LoRAs, takes the fastest plan that fits in the budget, and checks its
+  own peak against that figure. Nothing switches plans halfway through any more.
+- **Greyed out ahead.** A format or a model beyond this Mac's budget is greyed out before you click,
+  with the Mac it would need: “needs a Mac with 24 GB”.
+- Same images, bit for bit. Measured on the M1 Pro: Z-Image Turbo 1024² in 81 s, Qwen-Image-2.1
+  1024² in 126 s.
+- The diagnostic report (schema 4) gives the budget, the need of each stage and the peak measured
+  against it.
+
+### Named Subjects (Experimental)
+
+- **Nothing kept.** Subjects now live in memory only, like the session's images: nothing is written
+  to disk, they go when the app quits. A subjects folder written by 0.6 is deleted at launch.
+- **Images or Subjects.** The box above the prompt holds either the images of an edit (1 to 3) or
+  your subjects (as many as you like, the prompt citing 3 at most) — one or the other, never both.
+- **The name never reaches the model.** “@alice” becomes “the person in image 1”: a name read as
+  content gave Alice in Wonderland.
+
+Timings and memory are measured on a MacBook Pro M1 Pro with 16 GB.
+
 ## 0.6
 
 ### One Images box, above the prompt

@@ -1,8 +1,8 @@
 // **The AMX matrix product, behind a single door.**
 //
-// `BNNSMatMul` has been deprecated since macOS 15 in favor of `BNNSGraph`. M39 measured the migration:
+// `BNNSMatMul` has been deprecated since macOS 15 in favor of `BNNSGraph`. The migration was measured:
 // equal throughput on the engine's shapes, but `BNNSGraph` requires a compiled CoreML model per
-// GEMM shape. So we keep `BNNSMatMul` (2.26 TFLOP/s against 1.99 for `cblas_sgemm`, M3/M5),
+// GEMM shape. So we keep `BNNSMatMul` (2.26 TFLOP/s against 1.99 for `cblas_sgemm`, measured),
 // and the deprecation is acknowledged here, once, instead of a warning at every call.
 // Both functions pass their arguments through unchanged: same calls, same bits.
 #pragma once

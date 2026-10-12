@@ -612,3 +612,41 @@ private final class ReadThrough {
         return UnsafeRawPointer(slot)
     }
 }
+
+// ── sizing: a streamed block's staging buffer, from the map's table ───────────────────────────
+
+extension Artifact {
+    /// **The run a streamed block occupies in the file** — from its first tensor's offset to its last
+    /// one's end rounded up to the page, never past the file: what `TailStream` reads into a staging
+    /// buffer, and what that buffer holds. `nil` for no tensor.
+    package static func stagingRun(_ tensors: [(offset: Int, bytes: Int)], page: Int,
+                                   fileSize: Int) -> (start: Int, end: Int)? {
+        guard let start = tensors.map(\.offset).min(),
+              let last = tensors.map({ $0.offset + $0.bytes }).max() else { return nil }
+        return (start, min((last + page - 1) / page * page, fileSize))
+    }
+
+    /// **A stream's staging buffer, from a map's header alone** — the largest block's run
+    /// (`stagingRun`), each block being the tensors whose name starts with its prefix, as
+    /// `Prefetcher.namesOfBlock` gathers them. This is where the map's type shows: a bf16 layer of
+    /// Z-Image runs 362 MB, an 8-bit one about half. 0 for a header without a tensor table.
+    package static func stagingBytes(header: [String: Any], prefixes: [String], fileSize: Int) -> Int {
+        stagingSpans(header: header, prefixes: prefixes, fileSize: fileSize).compactMap { $0 }.max() ?? 0
+    }
+
+    /// Each block's run alone (`nil`: no tensor, or no tensor table) — the header's table read once for
+    /// all of them; `stagingBytes` is their largest.
+    package static func stagingSpans(header: [String: Any], prefixes: [String], fileSize: Int) -> [Int?] {
+        guard let table = header["tensors"] as? [String: [String: Any]],
+              let page = header["page"] as? Int, page > 0 else { return prefixes.map { _ in nil } }
+        let names = (header["order"] as? [String]) ?? table.keys.sorted()
+        return prefixes.map { prefix -> Int? in
+            let runs = names.filter { $0.hasPrefix(prefix) }.compactMap { name -> (offset: Int, bytes: Int)? in
+                guard let entry = table[name], let offset = entry["offset"] as? Int,
+                      let bytes = entry["bytes"] as? Int else { return nil }
+                return (offset, bytes)
+            }
+            return stagingRun(runs, page: page, fileSize: fileSize).map { $0.end - $0.start }
+        }
+    }
+}

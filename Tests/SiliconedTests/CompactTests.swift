@@ -172,7 +172,7 @@ final class CompactTests: XCTestCase {
         XCTAssertTrue(ditSource.notes.contains { $0.hasPrefix("31 ComfyUI attention preference(s)") }, "\(ditSource.notes)")
         XCTAssertFalse(ditSource.names.contains { $0.contains("comfy_attention") })
         let n = try Recipes.normalize(ditSource, family: .qwenImage21)
-        XCTAssertEqual(n.dit.count, 297, "M114: 297/297 names")
+        XCTAssertEqual(n.dit.count, 297, "297/297 names")
         var kept = 0
         for (name, p) in n.dit {
             XCTAssertNil(p.dequantizedBecause, name)

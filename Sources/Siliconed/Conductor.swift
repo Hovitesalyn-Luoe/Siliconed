@@ -123,6 +123,10 @@ package final class Conductor: @unchecked Sendable {
     /// alone would cost more than the entrusted computation. The threshold is a setting, not a law.
     package static let minimumRows = EngineSettings.effective.amxMinimumRows
 
+    /// **Where the servo keeps `T`**: the GPU's fraction never below 0.30 nor above 0.95 — so the AMX
+    /// slice, and the BNNS workspace sized on it, is at most `m − cut(m, 0.30)` rows (`MemoryNeed.gemm`).
+    package static let fractionRange = 0.30...0.95
+
     private let queue: MTLCommandQueue
     private let job = UnsafeMutablePointer<Job>.allocate(capacity: 1)
     private let ready = Rendezvous(spinning: Conductor.spinning)
@@ -130,8 +134,8 @@ package final class Conductor: @unchecked Sendable {
     private var worker: Thread?
     /// The time the AMX actually spent on its slice, written by the worker thread.
     private let amxSeconds = UnsafeMutablePointer<Double>.allocate(capacity: 1)
-    private var workspace: UnsafeMutableRawPointer?
-    private var workspaceBytes = 0
+    /// The BNNS workspace, outside `malloc`: `Pages`, unmapped with the conductor.
+    private var workspace: Pages?
 
     /// The fraction of rows entrusted to the GPU, **per shape** — `k×n`. Two shapes have neither the same
     /// throughput ratio nor the same sensitivity to `m`: a single `T` would serve one and
@@ -173,15 +177,28 @@ package final class Conductor: @unchecked Sendable {
         self.queue = queue
         job.pointee = Job()
         amxSeconds.pointee = 0
-        let thread = Thread { [self] in
+        // **The worker must not own the conductor**: it captured `self` and never returned, so
+        // no conductor ever reached `deinit` — every model's `GEMM` left its thread and its BNNS
+        // workspace behind (65 MB after Z-Image's DiT, 149 MB after Qwen's three models, for the
+        // rest of the process). It holds the rendezvous and the job, and reaches the conductor only
+        // to run a job, which a caller holding the conductor is waiting on; `deinit` posts the stop.
+        // What the worker holds crosses threads by design: the rendezvous order every access to the
+        // job and to its time (the caller writes, posts `ready`, waits on `done`, then reads).
+        struct Shared: @unchecked Sendable {
+            let job: UnsafeMutablePointer<Job>, amxSeconds: UnsafeMutablePointer<Double>
+            let ready: Rendezvous, done: Rendezvous
+        }
+        let shared = Shared(job: job, amxSeconds: amxSeconds, ready: ready, done: done)
+        unowned(unsafe) let owner = self
+        let thread = Thread {
             while true {
-                ready.wait()
-                if job.pointee.stop { done.signal(); return }
-                let j = job.pointee
+                shared.ready.wait()
+                if shared.job.pointee.stop { shared.done.signal(); return }
+                let j = shared.job.pointee
                 let started = DispatchTime.now().uptimeNanoseconds
-                amx(j)
-                amxSeconds.pointee = Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
-                done.signal()
+                owner.amx(j)
+                shared.amxSeconds.pointee = Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
+                shared.done.signal()
             }
         }
         thread.qualityOfService = .userInitiated
@@ -198,7 +215,6 @@ package final class Conductor: @unchecked Sendable {
         }
         job.deallocate()
         amxSeconds.deallocate()
-        workspace?.deallocate()
     }
 
     // ── the AMX engine ───────────────────────────────────────────────────────────────────────
@@ -220,7 +236,38 @@ package final class Conductor: @unchecked Sendable {
         // The weight is stored `[input, output]` by forge v3, so nothing to transpose; if it
         // were not, it would be `[output, input]` and it is `B` that we would transpose — the same
         // decision as `transposeRight` on the MPS side, made at the same place.
-        func nd(_ p: UnsafeMutableRawPointer, _ r: Int, _ columns: Int) -> BNNSNDArrayDescriptor {
+        var (A, B, C) = Conductor.descriptors(a: aPointer.advanced(by: j.offset * j.k * 4), b: bPointer,
+                                              c: cPointer.advanced(by: j.offset * j.n * 4),
+                                              rows: j.rows, k: j.k, n: j.n, transposeWeight: j.transposeWeight)
+        var params = BNNSFilterParameters()
+        let size = amx_matmul_workspace(false, j.transposeWeight, 1.0, &A, &B, &C, &params)
+        lastWorkspace = size
+        guard size >= 0 else { refusals += 1; return }
+        // The workspace is kept and grown, never reallocated per call: 13 to 67 MB per GEMM, 238 GEMMs
+        // per evaluation, would be gigabytes of mapping and unmapping for nothing. It ends at the
+        // largest `workspaceBytes` of the AMX slices this conductor ran.
+        if size > (workspace?.capacity ?? 0) { workspace = Pages(bytes: size) }
+        lastStatus = amx_matmul(false, j.transposeWeight, 1.0, &A, &B, &C,
+                                size > 0 ? workspace?.base : nil, &params)
+        if lastStatus != 0 { refusals += 1 }
+    }
+
+    /// **The BNNS workspace of an AMX slice of `rows` rows** of `[rows, k] × [k, n]`: what `amx` asks of
+    /// BNNS for that job, with the same descriptors — BNNS answers from the shapes alone. A conductor
+    /// holds the largest over the slices it ran (`Pages`, rounded to the page); the slice is
+    /// `m − cut(m, T)` rows, at most `m − quantum`. 31 MB at Z-Image's `1536 × 3840 × 3840`, 67 MB at
+    /// `1536 × 10240 × 3840`.
+    package static func workspaceBytes(rows: Int, k: Int, n: Int, weightIsTransposed: Bool) -> Int {
+        guard rows > 0 else { return 0 }
+        var (A, B, C) = descriptors(a: nil, b: nil, c: nil, rows: rows, k: k, n: n, transposeWeight: !weightIsTransposed)
+        var params = BNNSFilterParameters()
+        return max(0, amx_matmul_workspace(false, !weightIsTransposed, 1.0, &A, &B, &C, &params))
+    }
+
+    private static func descriptors(a: UnsafeMutableRawPointer?, b: UnsafeMutableRawPointer?, c: UnsafeMutableRawPointer?,
+                                    rows: Int, k: Int, n: Int, transposeWeight: Bool)
+        -> (a: BNNSNDArrayDescriptor, b: BNNSNDArrayDescriptor, c: BNNSNDArrayDescriptor) {
+        func nd(_ p: UnsafeMutableRawPointer?, _ r: Int, _ columns: Int) -> BNNSNDArrayDescriptor {
             var d = BNNSNDArrayDescriptor()
             d.layout = BNNSDataLayoutRowMajorMatrix
             d.size = (columns, r, 0, 0, 0, 0, 0, 0)
@@ -230,23 +277,7 @@ package final class Conductor: @unchecked Sendable {
             d.data_bias = 0
             return d
         }
-        var A = nd(aPointer.advanced(by: j.offset * j.k * 4), j.rows, j.k)
-        var B = j.transposeWeight ? nd(bPointer, j.n, j.k) : nd(bPointer, j.k, j.n)
-        var C = nd(cPointer.advanced(by: j.offset * j.n * 4), j.rows, j.n)
-        var params = BNNSFilterParameters()
-        let size = amx_matmul_workspace(false, j.transposeWeight, 1.0, &A, &B, &C, &params)
-        lastWorkspace = size
-        guard size >= 0 else { refusals += 1; return }
-        // The workspace is kept and grown, never reallocated: 13 MB per GEMM, 238 GEMMs per
-        // evaluation, would be 3 GB of back-and-forth in the allocator for nothing.
-        if size > workspaceBytes {
-            workspace?.deallocate()
-            workspace = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 128)
-            workspaceBytes = size
-        }
-        lastStatus = amx_matmul(false, j.transposeWeight, 1.0, &A, &B, &C,
-                                size > 0 ? workspace : nil, &params)
-        if lastStatus != 0 { refusals += 1 }
+        return (nd(a, rows, k), transposeWeight ? nd(b, n, k) : nd(b, k, n), nd(c, rows, n))
     }
     // ── the cut ──────────────────────────────────────────────────────────────────────────────
 
@@ -308,7 +339,7 @@ package final class Conductor: @unchecked Sendable {
         if driven, gpuWall > 0, amxWall > 0 {
             let rateGPU = Double(gpuRows) / gpuWall, rateAMX = Double(amxRows) / amxWall
             let target = rateGPU / (rateGPU + rateAMX)
-            fraction[key] = min(0.95, max(0.30, T + 0.25 * (target - T)))
+            fraction[key] = min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, T + 0.25 * (target - T)))
         }
         return wall
     }

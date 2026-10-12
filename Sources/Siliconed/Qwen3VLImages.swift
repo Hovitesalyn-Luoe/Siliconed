@@ -19,13 +19,34 @@ import ImageIO
 /// — one rounding apart. Images with transparency are not ported (Pillow premultiplies RGBA
 /// around its resize); the app's images are RGB.
 package enum Qwen3VLImages {
-    /// One image, ready for the vision tower: `pixel_values` and `image_grid_thw[1:]`.
+    /// One image, ready for the vision tower: `pixel_values` and `image_grid_thw[1:]`. The values
+    /// live in `Pages`, `valueBytes` of them: 24 MB for a 1024² condition, held from the
+    /// processor to the tower — `malloc`ed, they stayed in the footprint after it.
     package struct Pixels {
-        package let values: [Float]
+        private let storage: Pages
         package let gridHeight: Int, gridWidth: Int
         package var patches: Int { gridHeight * gridWidth }
+        /// `[patches, 1536]`, valid while this value lives.
+        package var values: UnsafeMutableBufferPointer<Float> {
+            UnsafeMutableBufferPointer(start: storage.floats(), count: gridHeight * gridWidth * Pixels.patchValues)
+        }
+        /// `in_channels · temporal · patch²` of the published tower (`Qwen3VLVision.Config.patchValues`).
+        package static let patchValues = 3 * 2 * 16 * 16
+
+        package init(gridHeight: Int, gridWidth: Int) {
+            self.gridHeight = gridHeight; self.gridWidth = gridWidth
+            storage = Pages(bytes: Pixels.valueBytes(gridHeight: gridHeight, gridWidth: gridWidth))
+        }
+
         package init(values: [Float], gridHeight: Int, gridWidth: Int) {
-            self.values = values; self.gridHeight = gridHeight; self.gridWidth = gridWidth
+            self.init(gridHeight: gridHeight, gridWidth: gridWidth)
+            precondition(values.count == gridHeight * gridWidth * Pixels.patchValues, "pixel_values: \(values.count) values")
+            self.values.baseAddress!.update(from: values, count: values.count)
+        }
+
+        /// **What one condition image's `pixel_values` hold**: `[gh·gw, 1536]` fp32, rounded to the page.
+        package static func valueBytes(gridHeight: Int, gridWidth: Int) -> Int {
+            Arena.capacity(for: gridHeight * gridWidth * patchValues * 4)
         }
     }
 
@@ -117,7 +138,11 @@ package enum Qwen3VLImages {
         }
         let (gh, gw) = (image.height / patch, image.width / patch)
         let perPatch = 3 * temporal * patch * patch
-        var values = [Float](repeating: 0, count: gh * gw * perPatch)
+        guard perPatch == Pixels.patchValues else {
+            throw Unported(description: "patches of \(perPatch) values: the published tower's are \(Pixels.patchValues)")
+        }
+        let result = Pixels(gridHeight: gh, gridWidth: gw)
+        let values = result.values
         // `(x − 127.5) / 127.5`, both in fp32 like `tvF.normalize` (`sub_` then `div_`).
         let mean: Float = 127.5, std: Float = 127.5
         var index = 0
@@ -142,7 +167,7 @@ package enum Qwen3VLImages {
                 }
             }
         }
-        return Pixels(values: values, gridHeight: gh, gridWidth: gw)
+        return result
     }
 
     /// The `(row, column)` of each patch, in the 2×2 merge-block order of `pixel_values`

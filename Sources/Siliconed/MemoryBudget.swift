@@ -1,192 +1,70 @@
 import Foundation
-import Darwin
 import Synchronization
 
-/// **The memory a render may count on, read from the machine's real state at its launch** — and the
-/// execution settings that derive from it.
+/// **What this Mac offers a render, B — fixed by its RAM, and nothing else.**
 ///
-///     host_statistics64(HOST_VM_INFO64)                 phys_footprint (this process)
-///       free − speculative                                       │
-///     + purgeable                                                │
-///     + external − executable  ── × page ── reclaimable ◀────────┘ (+)
-///                                              │
-///                                         − reserve ── available ─┬─ Preflight: floor ≤ admissible, or refused
-///                                                                 ├─ the DiT: map tail, staging buffers (#1–#4)
-///                                                                 ├─ the text encoder: staging buffers (#5)
-///                                   re-read after the denoising ──┴─ the decoders: band size (#10, #11)
+///     physical RAM ── ¾ · RAM − 2 GiB ── B (`ceiling`) ─┬─ Preflight: the lean plan's need ≤ B, or refused
+///                                                       ├─ the app: greyed out ahead, « needs a Mac with N GB »
+///                                                       └─ MemoryPlan: the fastest plan whose need ≤ B
 ///
-///     admissible = reclaimable − max(0, reserve − credit)        (the refusal only; the plan reads `available`)
-///     credit     = min(others' anonymous × (1 − occupied / stored), compressor's headroom)
-///
-/// **What swaps is anonymous memory, never the map**: the map is clean and
-/// file-backed, the kernel drops its pages without writing them. So what the render may count on is
-/// the pages the kernel can hand it without swapping anyone: the free ones, the purgeable ones, and the
-/// file-backed ones (others' caches and our own map's), minus the executable ones (the running code,
-/// which would be paged straight back in). Plus our own footprint: the measured peaks are a process's
-/// whole `phys_footprint`, which includes what this process already holds.
-///
-/// What a reading by analogy would get wrong:
-///
-///   - **`free_count` includes `speculative_count`, and so does `external_page_count`.** `vm_stat`
-///     prints "Pages free" as `free_count − speculative_count`, and on this machine
-///     `File-backed + Anonymous = active + inactive + speculative` to the page: the speculative pages
-///     are file read-ahead, counted on both sides. Summing `free + external` counts them twice.
-///   - **"free" alone means nothing** (measured: 16 to 68 MB during a render that never swapped); the
-///     compressor and the other processes' anonymous pages are never counted.
-///   - `os_proc_available_memory` does not exist on macOS (`API_UNAVAILABLE(macos)`), and
-///     `kern.memorystatus_level` counts the others' active anonymous memory as available.
-///   - **The page cache is not protected by the reserve.** The reserve guards anonymous memory (what
-///     can swap). The map's head lives in clean cache: evicted, it costs a re-read, never a swap. So
-///     the head is sized on `reclaimable`, the anonymous buffers on `available`.
-///
-/// **No setting derived here changes a bit of the image** (inventory: proved or same bytes by
-/// construction). The ones that do — `mlpBudget`, the prefill's groups, `maxMatrix`,
-/// `vaeRequestBlock`, `vaeTile`, the decoder's band alignment — are not read here and stay fixed.
-public struct MemoryBudget: Sendable, Equatable {
+/// **B is a contract the engine imposes on itself** (12/10/2026): macOS has no reservation,
+/// and reading the kernel's state to decide oscillated, read stale figures and arrived after the cliff
+/// (measured); a reserve and a compression credit calibrated on six renders of one machine refused
+/// renders the kernel would have served. So nothing here reads the kernel: the same render on the same
+/// Mac gets the same answer and the same plan, always. What the others hold is theirs; the promise is
+/// that Siliconed takes at most B.
+public enum MemoryBudget {
 
-    /// The bytes the state reading found the render can have: the machine's reclaimable pages plus
-    /// this process's own footprint, **before** the reserve.
-    public let reclaimable: Int
-    /// What is held back for the system and the other applications.
-    public let reserve: Int
-    /// **What compressing the others would free** (`compressionCredit`): the part of the reserve the
-    /// kernel's own margin covers. The refusal only.
-    public let credit: Int
-    /// `true` when `SILICONED_MEMORY_AVAILABLE_GB` replaced the reading.
-    public let forced: Bool
+    /// **B = ¾ · RAM − 2 GiB** (decided on 12/10/2026): 8 GiB → 4, 16 → 10, 24 → 16, 32 → 22, 64 → 46.
+    /// A RAM is counted in GiB (`ProcessInfo.physicalMemory` of a "16 GB" Mac is 16 GiB), and so is B.
+    /// **Below 8 GiB nothing is aimed at**: the formula still answers — 6 GiB gives 2.5 (2.68 GB),
+    /// which refuses Z-Image (bf16) from 1024² (3.28 GB) and takes its 512² and every Qwen-Image-2.1
+    /// request (≤ 2.46 GB, 12/10) — nothing measured there; under 2⅔ GiB, 0: every render refused.
+    public static func ceiling(physical: Int) -> Int { max(0, physical / 4 * 3 - 2 * gib) }
 
-    /// **What the plan counts on** (`MemoryPlan`: the map's tail, the buffers, the bands): `reclaimable −
-    /// reserve`, the whole reserve. A render accepted on the credit thus starts lean whenever the
-    /// reserve would have refused it — the map wholly beside the cache, which is what kept the swapping
-    /// states measured (default plan, compressible ballast at 1.9×) at 0 swapout once coded.
-    public var available: Int { max(0, reclaimable - reserve) }
-
-    /// **What the refusal counts on**: `reclaimable` less what of the reserve the credit does not cover.
-    public var admissible: Int { max(0, reclaimable - max(0, reserve - credit)) }
-
-    /// **The reserve: 1.6 GB** — set so that no render observed without swap is refused: the
-    /// smallest `reclaimable` read at the launch of six normal renders (6.12 GB) minus the largest need
-    /// measured (4.51 GB, Qwen-Image-2.1's 1024² edit with 3 references), rounded down.
-    ///
-    /// Measured since (a freshly restarted machine, the refusal judged on the economical
-    /// floor): an ordinary desktop at rest (idle apps compressing 3×, 4.05 GB reclaimable) renders
-    /// Z-Image 1216×832 without swap. **Its known limit**: under 5–6 GiB of incompressible, active memory
-    /// held elsewhere, accepted renders still swap (6.69 GB reclaimable: 570 MB; 6.19 GB: 279 MB, during
-    /// step 1 with our footprint at 1.30 GB — the map's page cache against the others, not our memory).
-    /// No fixed reserve separates the two (the desktop wants ≤ ~1.97 GB, refusing 6.69 GB wants
-    /// ≥ ~3.5): swap comes from the compressor reaching its limit, which this reading does not see.
-    package static let reserve = 1_600_000_000
-
-    /// Below this much stored in the compressor, its ratio says nothing and the reserve stays whole.
-    package static let significantlyCompressed = 512_000_000
-
-    /// **The credit**: the room the kernel would make by compressing the others' anonymous memory at
-    /// the ratio it reaches now, within the compressor's limit (`MemoryPressure.limit`); 0 when too
-    /// little is stored to read a ratio.
-    ///
-    /// `reclaimable` already holds a render: its pages are the ones the kernel hands over without
-    /// touching anyone's memory. The reserve was a margin above it, and on an ordinary desktop the
-    /// kernel's own margin is larger — it compresses idle apps rather than swap. Read on the M1 Pro, at
-    /// rest with a browser (11/10): 8.09 GB anonymous, 3.06 GB stored in 1.07 GB (2.86×), limit 8.44 GB;
-    /// compressing the others frees ~5 GB, which covers the whole reserve, and Qwen-Image-2.1's 1024²
-    /// generation (3.84 GB) fits in the 4.47 GB reclaimable it was refused on (2.87 after the reserve).
-    ///
-    /// What it does not see: anonymous memory that will not compress and is not yet in the compressor
-    /// (a ballast of random bytes kept active) is credited at the ratio of what is there. The need
-    /// still has to fit in `reclaimable`, the plan keeps the whole reserve (`available`), and the
-    /// pressure read during the render goes lean (`MemoryPressure`).
-    package static func compressionCredit(_ p: Pages, pageSize: Int, ownFootprint: Int, physical: Int) -> Int {
-        let stored = p.compressorStored * pageSize, occupied = p.compressorOccupied * pageSize
-        guard stored >= significantlyCompressed, occupied > 0, stored > occupied else { return 0 }
-        let others = Double(max(0, p.anonymous * pageSize - ownFootprint))
-        let freed = Int(others * (1 - Double(occupied) / Double(stored)))
-        let headroom = MemoryPressure(compressor: occupied, wired: p.wired * pageSize, physical: physical).headroom
-        return max(0, min(freed, headroom))
+    /// **The smallest RAM whose B covers `need`**, in whole GiB — the inverse of `ceiling(physical:)`.
+    public static func physicalNeeded(for need: Int) -> Int {
+        var n = max(1, ((max(0, need) + 2 * gib) * 4 + 3 * gib - 1) / (3 * gib))
+        while n > 1, ceiling(physical: (n - 1) * gib) >= need { n -= 1 }
+        while ceiling(physical: n * gib) < need { n += 1 }
+        return n
     }
 
-    package init(reclaimable: Int, reserve: Int = MemoryBudget.reserve, credit: Int = 0, forced: Bool = false) {
-        self.reclaimable = max(0, reclaimable)
-        self.reserve = reserve
-        self.credit = max(0, credit)
-        self.forced = forced
+    /// **The memory sizes Macs are sold with**, in GB (Apple silicon, 2020–2026). A table, on purpose: a
+    /// « needs a Mac with 9 GB » answers nobody, the question is which Mac. It moves once a chip
+    /// generation; a size missing here falls to the next one listed, never to a figure that is not sold.
+    public static let soldSizes = [8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512]
+
+    /// **The N of the app's « Needs a Mac with N GB of memory »**: the smallest size sold whose B covers
+    /// `need` (`physicalNeeded` rounded up to `soldSizes`); beyond the largest, the raw inverse.
+    public static func macNeeded(for need: Int) -> Int {
+        let raw = physicalNeeded(for: need)
+        return soldSizes.first { $0 >= raw } ?? raw
     }
 
-    // ── the reading ────────────────────────────────────────────────────────────────────
-
-    /// The page counts the reading uses, from `vm_statistics64`.
-    package struct Pages: Sendable, Equatable {
-        package var free = 0, speculative = 0, purgeable = 0, external = 0, executable = 0
-        /// For the reserve: wired, anonymous, the compressor's pages and the pages stored in them.
-        package var wired = 0, anonymous = 0, compressorOccupied = 0, compressorStored = 0
-        package init(free: Int = 0, speculative: Int = 0, purgeable: Int = 0, external: Int = 0, executable: Int = 0,
-                     wired: Int = 0, anonymous: Int = 0, compressorOccupied: Int = 0, compressorStored: Int = 0) {
-            self.free = free; self.speculative = speculative; self.purgeable = purgeable
-            self.external = external; self.executable = executable
-            self.wired = wired; self.anonymous = anonymous
-            self.compressorOccupied = compressorOccupied; self.compressorStored = compressorStored
-        }
+    /// **B for this Mac**: the forcing (`SILICONED_MEMORY_BUDGET_GB`) when set, otherwise
+    /// `ceiling(physical:)` of its RAM. What the preflight refuses on, the app greys out with, and the
+    /// plan is chosen in.
+    public static func machineCeiling(environment: [String: String]? = nil) -> Int {
+        let environment = environment ?? liveEnvironment([forcingVariable])
+        return forcedCeiling(environment) ?? ceiling(physical: Int(ProcessInfo.processInfo.physicalMemory))
     }
 
-    /// **The formula**, pure: `page × (free − speculative + purgeable + external − executable) + own`.
-    package static func reclaimable(_ p: Pages, pageSize: Int, ownFootprint: Int) -> Int {
-        let pages = max(0, p.free - p.speculative) + p.purgeable + max(0, p.external - p.executable)
-        return pageSize * pages + ownFootprint
-    }
+    /// Whether `SILICONED_MEMORY_BUDGET_GB` replaces this Mac's B.
+    package static var isForced: Bool { forcedCeiling(liveEnvironment([forcingVariable])) != nil }
 
-    /// **The executable pages a kernel that does not count them is assumed to hold**: 2 GiB, above
-    /// the 1.5 GB measured on the M1 Pro under macOS 27 with an IDE and a browser open, and never more
-    /// than the file-backed pages. `executable_count` arrived with `HOST_VM_INFO64` rev5 (the macOS 27
-    /// kernel and SDK); before it the term would read 0 and the running code would count as
-    /// reclaimable — a reading too generous, which is the one thing the reserve cannot absorb. Too
-    /// high an estimate only selects a leaner plan: time, never swap.
-    package static let assumedExecutableBytes = 2 << 30
+    private static let gib = 1 << 30
 
-    /// **`vm_statistics64` as the kernel returned it**, read as raw integers: the fields at their
-    /// offsets in the structure (they never move from one revision to the next, revisions only append),
-    /// so it compiles against any SDK. `count` is what the kernel wrote, in `integer_t`s; a field past
-    /// it was not written.
-    package static func pages(raw: [integer_t], count: Int, pageSize: Int) -> Pages {
-        func u32(_ offset: Int) -> Int { Int(UInt32(bitPattern: raw[offset / 4])) }
-        func u64(_ offset: Int) -> Int {
-            Int(UInt64(UInt32(bitPattern: raw[offset / 4])) | UInt64(UInt32(bitPattern: raw[offset / 4 + 1])) << 32)
-        }
-        var p = Pages(free: u32(0), speculative: u32(92), purgeable: u32(88), external: u32(136),
-                      wired: u32(12), anonymous: u32(140), compressorOccupied: u32(128))
-        if count >= 152 / 4 { p.compressorStored = u64(144) }   // `total_uncompressed_pages_in_compressor`, rev1
-        let executableOffset = 280   // `executable_count`, rev5
-        p.executable = count >= executableOffset / 4 + 2 ? u64(executableOffset)
-                                                         : min(p.external, assumedExecutableBytes / pageSize)
-        return p
-    }
-
-    /// The machine's page counts now, or `nil` if the kernel does not answer.
-    package static func pages() -> (pages: Pages, pageSize: Int)? {
-        var raw = [integer_t](repeating: 0, count: 256)
-        var count = mach_msg_type_number_t(raw.count)
-        let result = raw.withUnsafeMutableBufferPointer {
-            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0.baseAddress!, &count)
-        }
-        var pageSize: vm_size_t = 0
-        guard result == KERN_SUCCESS, host_page_size(mach_host_self(), &pageSize) == KERN_SUCCESS else { return nil }
-        return (pages(raw: raw, count: Int(count), pageSize: Int(pageSize)), Int(pageSize))
-    }
-
-    /// **The forcing** (`SILICONED_MEMORY_AVAILABLE_GB`, GiB): what the reading would find —
-    /// `reclaimable`, before the reserve — on another machine or in another state. It replaces the
-    /// reading itself, not the machine's RAM: "8" simulates a render launched with 8 GiB reclaimable,
-    /// hence 8 GiB − 1.6 GB available after the reserve. A tool of measurement and of the tests, read in the
+    /// **The forcing** (`SILICONED_MEMORY_BUDGET_GB`, GiB): B itself — "4" simulates an 8 GB Mac, "22"
+    /// a 32 GB one, refused and planned as one. A tool of measurement and of the tests, read in the
     /// engine and in the app alike.
-    package static let forcingVariable = "SILICONED_MEMORY_AVAILABLE_GB"
+    package static let forcingVariable = "SILICONED_MEMORY_BUDGET_GB"
 
-    package static func forcedReclaimable(_ environment: [String: String]) -> Int? {
+    package static func forcedCeiling(_ environment: [String: String]) -> Int? {
         guard let text = environment[forcingVariable],
               let gib = Double(text.replacingOccurrences(of: ",", with: ".")), gib >= 0 else { return nil }
         return Int(gib * 1_073_741_824)
     }
-
-    /// **A forcing of measurement for the reserve** (`SILICONED_MEMORY_RESERVE_GB`, GiB): what 5(e)
-    /// renders with to put the machine where the reserve is measured — never a setting.
-    package static let reserveVariable = "SILICONED_MEMORY_RESERVE_GB"
 
     /// The process's environment, read live (`getenv`: a test may set it), for these variables only.
     package static func liveEnvironment(_ names: [String]) -> [String: String] {
@@ -195,290 +73,156 @@ public struct MemoryBudget: Sendable, Equatable {
         return environment
     }
 
-    /// **The budget now**: the forcing if set, otherwise the machine's state and this process's footprint.
-    /// `environment` is the process's own by default, read live.
-    public static func current(environment: [String: String]? = nil) -> MemoryBudget {
-        let environment = environment ?? liveEnvironment([forcingVariable, reserveVariable])
-        let forcedReserve = environment[reserveVariable].flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
-            .map { Int($0 * 1_073_741_824) }
-        if let forced = forcedReclaimable(environment) {
-            return MemoryBudget(reclaimable: forced, reserve: forcedReserve ?? MemoryBudget.reserve, forced: true)
-        }
-        let physical = Int(ProcessInfo.processInfo.physicalMemory)
-        guard let (pages, pageSize) = pages() else {
-            // The kernel did not answer: the physical memory, as the preflight used to, is the only figure left.
-            return MemoryBudget(reclaimable: physical, reserve: forcedReserve ?? MemoryBudget.reserve)
-        }
-        // A forced reserve is a measurement's: no credit beside it.
-        let own = Arena.processFootprint()
-        return MemoryBudget(reclaimable: reclaimable(pages, pageSize: pageSize, ownFootprint: own),
-                            reserve: forcedReserve ?? MemoryBudget.reserve,
-                            credit: forcedReserve == nil ? compressionCredit(pages, pageSize: pageSize, ownFootprint: own,
-                                                                             physical: physical) : 0)
-    }
-
-    package var summary: String {
-        String(format: "%.2f GB admissible, %.2f for the plan (%.2f reclaimable − %.2f reserve, %.2f covered by compression%@)",
-               Double(admissible) / 1e9, Double(available) / 1e9, Double(reclaimable) / 1e9, Double(reserve) / 1e9,
-               Double(min(credit, reserve)) / 1e9, (forced ? ", forced" : "") as NSString)
+    /// B in one line, for the developer's command line.
+    package static func summary(_ ceiling: Int) -> String {
+        String(format: "B %.2f GB%@", Double(ceiling) / 1e9, (isForced ? " (forced: \(forcingVariable))" : "") as NSString)
     }
 }
 
-// ── the pressure, read during the render ─────────────────────────────────────────────────────
+// ── the plan, chosen in B ────────────────────────────────────────────────────────────────────
 
-/// **How close the compressor is to the point where the kernel starts swapping** — read while the
-/// render runs, where the launch reading is blind.
+/// **The execution settings of one render, chosen in B before its first computation** —
+/// beside `EngineSettings.effective`, which is read once per process. Nothing is read from the machine,
+/// and nothing changes once the render runs: the same request on the same Mac takes the same plan.
 ///
-/// What the measurements established: the kernel swaps when the compressor's occupied memory passes
-/// ≈ 12/22 × (physical − wired) (deduced from the measurements, not read in XNU; −0.45 to +0.24 GB on
-/// the sample). And no reading at the launch separates an ordinary desktop (idle apps compress ~3×,
-/// renders without swap) from an incompressible ballast (which swaps): incompressibility is only visible
-/// once the kernel has compressed. **During a render it has** — it compresses nearly all the others'
-/// anonymous memory in the first evaluations. So the render reads how much room the compressor has
-/// left, continuously (`MemoryPlan.watchInterval`), and when that room runs out goes lean at its next
-/// safe point (`MemoryPlan.relieved`): slower, never other bits.
+///     request ── the lean plan: whole map streamed (two buffers),   ── need ≤ B, or refused (Preflight)
+///                no encoder buffer, the decoders' smallest bands
+///                  + the text encoder's four buffers                ── kept if the need stays ≤ B
+///                  + the decoders' standard bands                   ── kept if the need stays ≤ B
+///                  └─ the map's head left to the page cache: what B leaves beside the denoising (`released`)
 ///
-/// This is not an "early stop" (refuted: the compressor can climb 1.4 GB in a second, no stop
-/// guarantees zero swap). Nothing stops; the render changes how it reads its map and decodes.
-package struct MemoryPressure: Sendable, Equatable {
-    /// The compressor's occupied memory (`compressor_page_count`), bytes.
-    package var compressor: Int
-    /// The machine's wired memory (`wire_count`), bytes — ours included (arenas wrapped for the GEMMs,
-    /// MPSGraph's allocations).
-    package var wired: Int
-    package var physical: Int
-
-    package init(compressor: Int, wired: Int, physical: Int) {
-        self.compressor = compressor; self.wired = wired; self.physical = physical
-    }
-
-    /// **The measured limit**: 12/22 × (physical − wired).
-    package var limit: Int { (physical - wired) / 22 * 12 }
-    /// The room the compressor has left before the kernel swaps; negative past the limit.
-    package var headroom: Int { limit - compressor }
-
-    /// **Below this room, the render goes lean.** 1.5 GB: the largest measured error on the limit (0.45 GB)
-    /// plus one second of the fastest measured climb (6.25 → 7.64 GB). **Not a guard by itself**:
-    /// on the ordinary desktop it never fires; under an incompressible ballast, read only at the
-    /// evaluations' starts, it fired too late (step 3) or never — the room swings by several GB within a
-    /// second between two readings. Hence the watcher (`MemoryPlan.watchInterval`), which latches the
-    /// first short reading, and a lean plan that takes the whole map out of the cache instead of
-    /// handing back the buffers (~0.7 GB, less than a first full-size step adds, ~1.8 GB — and what
-    /// put the whole map back into the cache).
-    package static let margin = 1_500_000_000
-
-    /// **A forcing of measurement** (`SILICONED_MEMORY_HEADROOM_GB`, GiB): the room the reading would
-    /// find. `GIB@SECONDS` forces it only from that many seconds into the render (the machine's reading
-    /// before): how a lean plan triggered in the middle of a render is provoked. Never a setting.
-    package static let forcingVariable = "SILICONED_MEMORY_HEADROOM_GB"
-
-    /// The forced room in bytes, `nil` when the forcing is absent, malformed, or not yet due at
-    /// `elapsed` seconds into the render (a delayed forcing outside a render is never due).
-    package static func forcedRoom(_ text: String?, elapsed: Double?) -> Int? {
-        guard let text else { return nil }
-        let parts = text.split(separator: "@", maxSplits: 1).map { $0.replacingOccurrences(of: ",", with: ".") }
-        guard let gib = Double(parts[0]) else { return nil }
-        if parts.count == 2 {
-            guard let from = Double(parts[1]), let elapsed, elapsed >= from else { return nil }
-        }
-        return Int(gib * 1_073_741_824)
-    }
-
-    /// **The pressure now**: the forcing if set; `nil` under a forced budget (a measurement simulating
-    /// another machine reads no real pressure) or if the kernel does not answer — then nothing changes.
-    /// `elapsed`: seconds since the render's start, for a delayed forcing.
-    package static func current(environment: [String: String]? = nil, elapsed: Double? = nil) -> MemoryPressure? {
-        let environment = environment ?? MemoryBudget.liveEnvironment([forcingVariable, MemoryBudget.forcingVariable])
-        let physical = Int(ProcessInfo.processInfo.physicalMemory)
-        if let room = forcedRoom(environment[forcingVariable], elapsed: elapsed) {
-            // A machine with nothing wired whose compressor sits `room` below the limit.
-            let limit = MemoryPressure(compressor: 0, wired: 0, physical: physical).limit
-            return MemoryPressure(compressor: limit - room, wired: 0, physical: physical)
-        }
-        guard environment[MemoryBudget.forcingVariable] == nil else { return nil }
-        var stats = vm_statistics64()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &stats) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
-            }
-        }
-        var pageSize: vm_size_t = 0
-        guard result == KERN_SUCCESS, host_page_size(mach_host_self(), &pageSize) == KERN_SUCCESS else { return nil }
-        return MemoryPressure(compressor: Int(stats.compressor_page_count) * Int(pageSize),
-                              wired: Int(stats.wire_count) * Int(pageSize), physical: physical)
-    }
-}
-
-// ── the settings derived from the budget ─────────────────────────────────────────────────────
-
-/// **The execution settings of one render, derived from its budget** — beside `EngineSettings.effective`,
-/// which is read once per process. Pure functions (the tests drive them with simulated budgets), and
-/// the state of the render in progress (`during`), which the DiTs, the text encoder and the decoders
-/// read where they decide.
+/// What only buys time is chosen here. What changes a bit — `mlpBudget`, the prefill's groups,
+/// `maxMatrix`, `vaeRequestBlock`, `vaeTile`, the decoder's band alignment — is not, and stays fixed.
 ///
-/// Outside a render (a check, a bench) there is no budget: each site keeps the reference values it had
-/// before this file — the measurement tools stay what they were. Inside one, `SILICONED_MAP_TAIL` set in
-/// the environment is still a forcing of measurement: the DiT then streams that fraction with two
-/// buffers, at every size, whatever the budget and the pressure.
+/// What a reading by analogy would get wrong:
+///
+///   - **Each knob lives in its own phase** — the encoder's buffers in `text`, the bands in `decoding`,
+///     the map's buffers in `denoising` — and the need is the largest phase: each is kept or dropped
+///     alone, and adding one never raises another phase.
+///   - **The map's head is never in the need.** It is clean, file-backed page cache: the kernel drops
+///     it without writing, never swaps it. It is the soft part of B — what B leaves beside the
+///     denoising's anonymous need — and **capped at the model's own split** (0.5; Qwen-Image-2.1's
+///     generation 1, no head): on a 16 GB Mac a head larger than half was read back more, not less
+///     (measured: heads of 0.43–0.73 read 6.6–8.6 GB an evaluation, 5.4 at 0.5) — the page cache
+///     holds less than any figure says. Only a map that fits whole in that room leaves the stream (no
+///     buffer at all: a 32 GB Mac, an 8-bit map).
+///   - **Never one buffer**: measured, one serializes the reads behind the computation (Z-Image 512²
+///     14.4 s a step against 4.1 with two; Qwen 512 20 s against 6), the same bits. The lean plan streams
+///     the whole map with its two: a budget too short for a head is a cache too short for it, and the
+///     map through the cache is what swapped (234.7 GB through the compressor in a swapping render,
+///     13.1 with the whole map streamed).
+///   - **The check is against the plan's own need** (`Render.need`): a render on a smaller plan is
+///     judged on that plan, not on the fastest one it did not take. A map left wholly to the cache
+///     peaks below it (its two buffers are charged, not allocated).
+///
+/// Outside a render (a check, a bench) there is no plan: each site keeps the reference values it had
+/// before — the measurement tools stay what they were. `SILICONED_MAP_TAIL` set in the environment is a
+/// forcing of measurement: the DiT then streams that fraction with two buffers, whatever B.
 package enum MemoryPlan {
 
-    // #1–#4 · the map's tail, and its staging buffers
-
-    /// The DiT's plan for its map: the share of its layers streamed around the page cache, and how
-    /// many staging buffers of its largest block.
+    /// The DiT's plan for its map, as the need charges it: the share of its layers streamed around the
+    /// page cache, and how many staging buffers of its largest block.
     package struct Tail: Sendable, Equatable {
         package var fraction: Double
         package var slots: Int
         package static let none = Tail(fraction: 0, slots: 0)
         /// **The lean plan's map: all of it beside the cache, with its two buffers**.
         package static let lean = Tail(fraction: 1, slots: 2)
+        /// The first of `layers` streamed (`layers`: none).
+        package func released(layers: Int) -> Int {
+            slots == 0 ? layers : Prefetcher.firstReleasedLayer(of: layers, tail: fraction)
+        }
     }
 
-    /// **The tail, from the budget.** Measured mechanism: a map larger than the page cache
-    /// misses every page under LRU; streaming its tail leaves the cache to its head.
-    ///
-    /// - **the default plan**: the measured fraction (0.5, `EngineSettings.mapTail`) with two staging
-    ///   buffers, when the room above the floor holds them (`available − floor`, one block each). The
-    ///   fraction is not derived: a head sized on the reading (`reclaimable − floor − buffers`) gave
-    ///   0.43–0.73 on this machine and read 6.6–8.6 GB per evaluation against ~5.4 at 0.5 — the page
-    ///   cache holds less of the head than the reading says. Deriving it again waits for a timed
-    ///   comparison in series; so does turning the tail off for a map that fits whole (8-bit maps);
-    /// - **otherwise the lean plan: the whole map streamed, still with its two buffers** (`Tail.lean`),
-    ///   no longer none. A budget too short for the buffers is a page cache too short for the head:
-    ///   kept, the head is evicted by the others and read back through the cache at every evaluation.
-    ///   And the map through the cache is what swaps: 12.33 GB per step of file pages
-    ///   against incompressible anonymous memory elsewhere, the kernel compresses the others rather
-    ///   than drop the cache — 234.7 GB through the compressor in a swapping render, 13.1
-    ///   with the whole map streamed, which rendered without swap where the default swapped. The
-    ///   two buffers (~0.72 GB at Z-Image) cost less than the cache they spare; without a ballast the
-    ///   whole map costs nothing measurable at 1024² (84.6 against 85.8 s), but 512² read more slowly
-    ///   at 1 than at 0.5 (40.5 against 38.1 s) — hence not the default.
-    ///   **Never one buffer**: measured, one serializes the reads behind the computation
-    ///   (Z-Image 512² 14.4 s per step against 4.1 with two; Qwen 512 20 s against 6), the same bits;
-    /// - `.none` only when the fraction is 0 (a `map_tail = 0` setting).
-    ///
-    /// Same bits whatever the fraction and the buffers (`9beccc5b`, `078b9f41` on the whole sweep).
-    package static func tail(budget: MemoryBudget, floor: Int, blockBytes: Int,
-                             fraction: Double = EngineSettings.effective.mapTail) -> Tail {
-        guard blockBytes > 0, fraction > 0 else { return .none }
-        let slots = 2
-        guard budget.available - floor >= slots * blockBytes else { return .lean }
-        return Tail(fraction: fraction, slots: slots)
-    }
-
-    // #5 · the text encoder's staging buffers
-
-    /// The text encoder's reference: four buffers (three layers ahead).
+    /// The text encoder's reference: four buffers (three layers ahead). Nothing between four and none:
+    /// one buffer was measured worse than none on the DiT, two and three never.
     package static let encoderSlots = 4
-
-    /// **The text encoder's buffers**: four when the room left holds them, otherwise none —
-    /// every layer through the map, as before the buffers (Qwen3-VL text 4.63 s against 3.1–3.4). Nothing in
-    /// between: one buffer was measured worse than none on the DiT (`tail`), two and three never.
-    /// `footprint` is the process's, measured as the encoder starts — its arena already counted. Same
-    /// bytes read either way.
-    package static func encoderSlots(budget: MemoryBudget, footprint: Int, blockBytes: Int) -> Int {
-        guard blockBytes > 0 else { return encoderSlots }
-        return budget.available - footprint >= encoderSlots * blockBytes ? encoderSlots : 0
-    }
-
-    // #10, #11 · the decoders' bands
-
-    /// **A decoder's band, from the budget read after the denoising**: the measured size (FLUX's 2²³
-    /// elements; Qwen's 2¹⁸ pixels) when that budget covers the default plan's peak
-    /// (`floor` here is `Render.comfortable`: at the economical floor the band is the smallest), the smallest
-    /// proved size otherwise (FLUX 2²⁰; Qwen: every size down to 2 rows). Never larger:
-    /// 2²⁴ costs 140 MB more for the same time. The band's alignment is never derived (measured:
-    /// an odd window changes the bits).
-    package static func band(budget: MemoryBudget, floor: Int, standard: Int, minimum: Int) -> Int {
-        budget.available >= floor ? standard : min(standard, minimum)
-    }
 
     /// FLUX's decoder (Z-Image, klein, ERNIE): the smallest band proved and timed (7.3 s at 1024² against 4.4).
     package static let fluxMinimumBand = 1 << 20
     /// Qwen-Image-2.1's decoder: a quarter of the measured band (bits proved down to 2 rows; time not measured).
     package static let qwenMinimumBand = 1 << 16
 
-    // ── the render in progress ─────────────────────────────────────────────────────────────
-
-    /// The budget of the render in progress, its floor, and what was decided from them.
+    /// **One render's plan**, chosen by `choose` before its first computation.
     package struct Render: Sendable {
-        package var budget: MemoryBudget
+        /// B, the plan's ceiling.
+        package var ceiling: Int
+        /// The request at the plan chosen: its encoder buffers, its bands (the map's tail: `.lean`'s
+        /// buffers, the head decided by `released` where the map is open).
+        package var request: MemoryNeed.Request
+        /// The chosen plan's need, phase by phase — what the render's peak is checked against.
+        package var need: MemoryNeed?
+        /// The lean plan's peak: the floor the preflight judged.
         package var floor: Int
-        /// The default plan's peak (`ModelCard.memoryComfort`): the decoders' measured band needs it.
-        package var comfortable: Int
-        /// The budget read again after the denoising, for the decoding.
-        package var decoding: MemoryBudget?
+        /// The denoising's need with the map streamed (its two buffers), and with it wholly cached.
+        package var denoisingStreamed: Int
+        package var denoisingCached: Int
         /// What each site decided, in order, for the report (the developer's command line prints it).
         package var decisions: [String] = []
-        /// **Once the compressor ran short of room, the render stays lean to its end** (`relieved`):
-        /// a plan that comes back at the next evaluation would put the map back into the cache.
-        package var relieved = false
-        /// Where the pressure is read: the machine's by default, injected by the tests.
-        package var pressure: @Sendable () -> MemoryPressure? = { MemoryPressure.current() }
-        /// Which render this is: the watcher of a render that ended never latches the next one.
-        fileprivate var generation: UInt64 = 0
-        fileprivate var start = Date()
+        /// The lean plan, all of it: no encoder buffer and the smallest bands.
+        package var lean: Bool { request.encoderSlots == 0 && request.minimumBands }
     }
+
+    /// **The plan, from the request and B**: the lean plan, then each buffer that buys time while the
+    /// need stays ≤ B. Pure: the tests drive it with simulated ceilings.
+    package static func choose(_ request: MemoryNeed.Request, ceiling: Int) -> Render {
+        var plan = request.lean
+        let floor = MemoryNeed.of(plan)?.peak ?? 0
+        for faster in [{ (r: inout MemoryNeed.Request) in r.encoderSlots = encoderSlots },
+                       { (r: inout MemoryNeed.Request) in r.minimumBands = false }] {
+            var candidate = plan
+            faster(&candidate)
+            if (MemoryNeed.of(candidate)?.peak ?? 0) <= ceiling { plan = candidate }
+        }
+        let need = MemoryNeed.of(plan)
+        var cached = plan
+        cached.tail = .none
+        var render = Render(ceiling: ceiling, request: plan, need: need, floor: floor,
+                            denoisingStreamed: need?.need(of: .denoising) ?? 0,
+                            denoisingCached: MemoryNeed.of(cached)?.need(of: .denoising) ?? 0)
+        render.decisions.append(String(format: "plan: need %.2f GB in B %.2f (floor %.2f)%@", Double(need?.peak ?? 0) / 1e9,
+                                       Double(ceiling) / 1e9, Double(floor) / 1e9,
+                                       (render.lean ? " — lean plan" : "") as NSString))
+        return render
+    }
+
+    /// **The map's head, from B** — pure: the first layer streamed and the staging buffers.
+    /// `spans`: each layer's bytes in the map; `mapBytes`: the whole map; `streamed` / `cached`: the
+    /// denoising's need with the two buffers and without; `fraction`: the model's own split (its cap).
+    ///
+    /// The map fits whole beside the denoising's need: nothing streamed, no buffer. Otherwise the
+    /// layers from the front whose bytes fit in what B leaves (the map's non-layer tensors, cached
+    /// too, deducted first), never more than the model's split keeps.
+    package static func released(spans: [Int], mapBytes: Int, ceiling: Int, streamed: Int, cached: Int,
+                                 fraction: Double) -> (released: Int, slots: Int) {
+        let layers = spans.count
+        guard fraction > 0, layers > 0, mapBytes > ceiling - cached else { return (layers, 0) }
+        let room = ceiling - streamed - (mapBytes - spans.reduce(0, +))
+        var head = 0, held = 0
+        while head < layers, held + spans[head] <= room { held += spans[head]; head += 1 }
+        let released = min(head, Prefetcher.firstReleasedLayer(of: layers, tail: fraction))
+        return released < layers ? (released, 2) : (layers, 0)
+    }
+
+    // ── the render in progress ─────────────────────────────────────────────────────────────
 
     private static let state = Mutex<Render?>(nil)
     private static let last = Mutex<Render?>(nil)
-    private static let generations = Atomic<UInt64>(0)
-
-    /// **The watcher's period: 0.25 s** — the pressure read on a thread of its own for the whole
-    /// render, not only where a site decides. Measured: read at the evaluations' starts, the room had
-    /// gone under the margin 11.7 s before step 3 read it, or swung back up between two readings while
-    /// the kernel swapped; the compressor was seen climbing 1.4 GB in a second. The first short reading is
-    /// latched (`Render.relieved`), the plan changes at the next safe point (an evaluation's start, the
-    /// encoder's, the decoding's). The period of `SILICONED_MEMORY_TRACE` and of the measuring probe (0.25–0.5 s);
-    /// a reading is one `host_statistics64`, a few microseconds.
-    package static let watchInterval = 0.25
 
     /// The render in progress, or `nil` outside one.
     package static var current: Render? { state.withLock { $0 } }
     /// The last render's plan, once it is over (or while it runs).
     package static var lastRender: Render? { last.withLock { $0 } ?? current }
 
-    /// Wires a render's budget in for the duration of `body` — the engine, around a render (renders are
+    /// Wires a render's plan in for the duration of `body` — the engine, around a render (renders are
     /// serialized: the engine queue and `RenderLock.machine`).
-    /// `watch`: the watcher's period (`watchInterval`; the tests shorten it).
-    package static func during<T>(budget: MemoryBudget, floor: Int, comfortable: Int? = nil,
-                                  pressure: (@Sendable () -> MemoryPressure?)? = nil,
-                                  watch: Double = MemoryPlan.watchInterval,
-                                  _ body: () throws -> T) rethrows -> T {
-        var render = Render(budget: budget, floor: floor, comfortable: max(floor, comfortable ?? floor))
-        let start = Date()
-        render.start = start
-        render.pressure = pressure ?? { MemoryPressure.current(elapsed: Date().timeIntervalSince(start)) }
-        render.generation = generations.add(1, ordering: .relaxed).newValue
-        let generation = render.generation
+    package static func during<T>(_ render: Render, _ body: () throws -> T) rethrows -> T {
         state.withLock { $0 = render }
-        let watcher = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-        watcher.schedule(deadline: .now() + watch, repeating: watch, leeway: .milliseconds(Int(watch * 200)))
-        watcher.setEventHandler { _ = relieved(nil, generation: generation) }
-        watcher.resume()
         defer {
-            watcher.cancel()
             let ended = state.withLock { s -> Render? in let r = s; s = nil; return r }
             last.withLock { $0 = ended }
         }
         return try body()
-    }
-
-    /// **The decoding's budget: read again after the denoising** — the best point (inventory): the DiT
-    /// is gone, its arenas returned, and the machine has had a whole denoising to change.
-    package static func readForDecoding(environment: [String: String]? = nil) {
-        state.withLock { $0?.decoding = MemoryBudget.current(environment: environment) }
-    }
-
-    /// **The lean plan, forced** (`SILICONED_MEMORY_PLAN=economical`): the whole map streamed with its
-    /// two buffers (`Tail.lean`), no encoder buffer, the smallest decoder band — what a short budget at
-    /// the launch or a short compressor during the render leads to. A measuring tool; the bits are the
-    /// same. With `SILICONED_MAP_TAIL=0` beside it, the economical plan (no buffer at all, the map through the
-    /// cache), on which the floors of `ModelCard.measuredPeaks` were taken.
-    package static let planVariable = "SILICONED_MEMORY_PLAN"
-    package static var economical: Bool {
-        MemoryBudget.liveEnvironment([planVariable])[planVariable] == "economical"
     }
 
     package static func note(_ decision: String) {
@@ -490,85 +234,60 @@ package enum MemoryPlan {
         state.withLock { s in if s?.decisions.last != decision { s?.decisions.append(decision) } }
     }
 
-    /// **Has the compressor run short of room during this render?** (`MemoryPressure`). Asked where a
-    /// site can still change its plan — every DiT evaluation, the encoder's start, the decoding — and
-    /// read meanwhile by the watcher (`watchInterval`, `site` nil); sticky: once short, the rest of the
-    /// render is lean. Outside a render, `false`.
-    package static func relieved(_ site: String) -> Bool { relieved(site, generation: nil) }
-
-    private static func relieved(_ site: String?, generation: UInt64?) -> Bool {
-        guard let render = current, generation == nil || render.generation == generation else { return false }
-        if render.relieved { return true }
-        guard let pressure = render.pressure(), pressure.headroom < MemoryPressure.margin else { return false }
-        let latched = state.withLock { s -> Bool in
-            guard s?.generation == render.generation, s?.relieved == false else { return false }
-            s?.relieved = true
-            return true
-        }
-        guard latched else { return current?.relieved ?? false }
-        let at = site.map { "at the \($0)" }
-            ?? String(format: "%.1f s into the render", Date().timeIntervalSince(render.start))
-        note(String(format: "compressor short of room %@ (%.2f GB left before its limit of %.2f): the render goes lean",
-                    at as NSString, Double(pressure.headroom) / 1e9, Double(pressure.limit) / 1e9))
-        return true
-    }
-
     // ── what the sites ask ─────────────────────────────────────────────────────────────────
 
-    /// **The DiT's tail**, where it decides (`DiT.forward`, `QwenImage21DiT.pass`), at every evaluation:
-    /// the first released layer and the staging buffers. The default plan's half (`tail`) while the
-    /// budget holds the buffers and the compressor has room; **the whole map with its two buffers
-    /// once either runs short** (`Tail.lean`) — at the launch, or between two evaluations,
-    /// which changes which bytes go through the cache and never the bytes. Outside a render, or under
-    /// `SILICONED_MAP_TAIL` (a forcing of measurement): that fraction, two buffers, at every size
-    /// (the former guard, a tail only up to the area of a 1024², is lifted: its 1024×1536 swap was the
-    /// decoder's). The decision is journaled in every case, the forcing's included.
+    /// **The DiT's tail**, where it opens its map (`DiT.forward`, `QwenImage21DiT.pass`): the first
+    /// layer streamed and the staging buffers (`released`). The same at every evaluation of a render:
+    /// nothing it depends on moves. Outside a render, the model's split with two buffers; under
+    /// `SILICONED_MAP_TAIL` (a forcing of measurement), that fraction with two buffers, journaled.
     ///
-    /// `fraction`: the model's own default plan, when it has measured one — the setting's (0.5)
-    /// otherwise. A `map_tail` set in the profile or the environment still wins.
+    /// `fraction`: the model's own split, when it has measured one — the setting's (0.5) otherwise. A
+    /// `map_tail` set in the profile or the environment still wins.
     package static func ditTail(artifact: Artifact, layerBlocks: [[String]],
                                 fraction preferred: Double? = nil) -> (released: Int, slots: Int) {
         let layers = layerBlocks.count
-        let block = layerBlocks.map { artifact.span(of: $0) }.max() ?? 0
-        func decide(_ tail: Tail, _ why: String) -> (released: Int, slots: Int) {
-            let released = tail.slots == 0 ? layers : Prefetcher.firstReleasedLayer(of: layers, tail: tail.fraction)
-            let streamed = released < layers ? tail.slots : 0
-            noteOnce(String(format: "map tail %.2f (%d of %d layers), %d buffer(s) of %.0f MB%@", tail.fraction,
-                            layers - released, layers, streamed, Double(block) / 1e6, why as NSString))
-            return (released, tail.slots)
+        let spans = layerBlocks.map { artifact.span(of: $0) }
+        let block = spans.max() ?? 0
+        func decide(_ plan: (released: Int, slots: Int), _ why: String) -> (released: Int, slots: Int) {
+            let streamed = plan.released < layers ? plan.slots : 0
+            noteOnce(String(format: "map tail %d of %d layers, %d buffer(s) of %.0f MB%@", layers - plan.released,
+                            layers, streamed, Double(block) / 1e6, why as NSString))
+            return plan
         }
         let settings = EngineSettings.effective
         if settings.provenance["map_tail"] == .environment {
-            return decide(Tail(fraction: settings.mapTail, slots: 2), " (forced: SILICONED_MAP_TAIL)")
+            return decide((Tail(fraction: settings.mapTail, slots: 2).released(layers: layers), 2),
+                          " (forced: SILICONED_MAP_TAIL)")
         }
         let fraction = settings.provenance["map_tail"] == nil ? preferred ?? settings.mapTail : settings.mapTail
-        guard let render = current else { return decide(Tail(fraction: fraction, slots: 2), "") }
-        if economical { return decide(.lean, " (lean plan, forced)") }
-        if relieved("denoising") { return decide(.lean, " (lean plan: compressor short of room)") }
-        let tail = tail(budget: render.budget, floor: render.floor, blockBytes: block, fraction: fraction)
-        // A model whose default is the whole map (`fraction` 1) gets `Tail.lean`'s value without being
-        // short: only a budget short of the buffers is the lean plan (the diagnostic reads the word).
-        let short = render.budget.available - render.floor < Tail.lean.slots * block
-        return decide(tail, tail == .lean && short ? " (lean plan: no room for the head)" : "")
+        guard let render = current else {
+            return decide(fraction > 0 ? (Tail(fraction: fraction, slots: 2).released(layers: layers), 2) : (layers, 0), "")
+        }
+        let mapBytes = artifact.tensors.values.reduce(0) { $0 + $1.bytes }
+        let plan = released(spans: spans, mapBytes: mapBytes, ceiling: render.ceiling,
+                            streamed: render.denoisingStreamed, cached: render.denoisingCached, fraction: fraction)
+        let split = Prefetcher.firstReleasedLayer(of: layers, tail: fraction)
+        let why = plan.slots == 0 && fraction > 0 ? " (the whole map in B)"
+            : plan.released < split ? " (head: what B leaves beside the denoising)" : ""
+        return decide(plan, why)
     }
 
-    /// **The text encoder's buffers**, as it starts. Outside a render, the reference (4).
+    /// **The text encoder's buffers**, as it starts: the plan's. Outside a render, the reference (4).
     package static func encoderSlots(artifact: Artifact, layerBlocks: [[String]]) -> Int {
         guard let render = current else { return encoderSlots }
         let block = layerBlocks.map { artifact.span(of: $0) }.max() ?? 0
-        let slots = economical || relieved("text encoding") ? 0 : encoderSlots(budget: render.budget, footprint: Arena.processFootprint(), blockBytes: block)
-        note(String(format: "text encoder %d buffer(s) of %.0f MB", slots, Double(block) / 1e6))
-        return slots
+        note(String(format: "text encoder %d buffer(s) of %.0f MB", render.request.encoderSlots, Double(block) / 1e6))
+        return render.request.encoderSlots
     }
 
-    /// **A decoder's band**, as it starts decoding. Outside a render (or before the budget was read
-    /// again), `standard` — the static a check may have set.
+    /// **A decoder's band**, as it starts decoding: the plan's — the measured size (FLUX's 2²³ elements,
+    /// Qwen's 2¹⁸ pixels), or the smallest proved one on a plan that could not hold it. Never larger:
+    /// 2²⁴ costs 140 MB more for the same time. Outside a render, `standard` — the static a check may
+    /// have set.
     package static func decoderBand(standard: Int, minimum: Int, unit: String) -> Int {
-        guard let render = current, let decoding = render.decoding else { return standard }
-        // The decoding holds the peak of most formats: the last place the render can give back.
-        let band = economical || relieved("decoding") ? min(standard, minimum)
-            : band(budget: decoding, floor: render.comfortable, standard: standard, minimum: minimum)
-        note("decoder bands of 2^\(band.trailingZeroBitCount) \(unit) (budget at decoding: \(decoding.summary))")
+        guard let render = current else { return standard }
+        let band = render.request.minimumBands ? min(standard, minimum) : standard
+        note("decoder bands of 2^\(band.trailingZeroBitCount) \(unit)")
         return band
     }
 }

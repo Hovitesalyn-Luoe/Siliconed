@@ -2,6 +2,37 @@
 
 # Siliconed — notes de version
 
+## 0.7
+
+### Mémoire : un budget fixe
+
+- **Siliconed ne prend jamais plus que son budget** : les trois quarts de la mémoire du Mac moins
+  2 Go (10 Go sur un Mac de 16 Go, 4 sur un Mac de 8). Il ne lit plus l’occupation du Mac : le même
+  rendu sur le même Mac reçoit toujours la même réponse, quoi qu’il y ait d’autre d’ouvert. Ce que
+  les autres applications occupent leur appartient.
+- **Connu avant le premier pas.** Chaque rendu calcule la mémoire qu’il lui faut d’après son format,
+  son prompt, ses images et ses LoRA, prend le plan le plus rapide qui tient dans le budget, et
+  compare son propre pic à ce chiffre. Plus rien ne change de plan en cours de route.
+- **Grisé d’avance.** Un format ou un modèle au-delà du budget de ce Mac est grisé avant le clic,
+  avec le Mac qu’il demanderait : « demande un Mac de 24 Go ».
+- Mêmes images, au bit près. Mesuré sur le M1 Pro : Z-Image Turbo en 1024² en 81 s,
+  Qwen-Image-2.1 en 1024² en 126 s.
+- Le rapport de diagnostic (schéma 4) donne le budget, le besoin de chaque étage et le pic mesuré en
+  face.
+
+### Sujets nommés (Expérimental)
+
+- **Rien de gardé.** Les sujets vivent désormais en mémoire seulement, comme les images de la
+  session : rien n’est écrit sur le disque, ils partent quand l’app se ferme. Un dossier de sujets
+  écrit par la 0.6 est effacé au lancement.
+- **Images ou Sujets.** La boîte au-dessus du prompt tient soit les images d’une édition (1 à 3),
+  soit vos sujets (autant que vous voulez, le prompt en citant 3 au plus) — l’un ou l’autre, jamais
+  les deux.
+- **Le nom n’atteint jamais le modèle.** « @alice » devient « la personne de l’image 1 » : un nom lu
+  comme du contenu donnait Alice au pays des merveilles.
+
+Les temps et la mémoire sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
+
 ## 0.6
 
 ### Une seule boîte Images, au-dessus du prompt

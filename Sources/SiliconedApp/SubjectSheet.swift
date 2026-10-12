@@ -22,9 +22,9 @@ import SwiftUI
 struct SubjectDraft: Identifiable {
     struct Picture: Identifiable {
         let id = UUID()
-        /// The picture already in the subject's folder, or `nil` for one being added.
+        /// The picture the subject already holds, or `nil` for one being added.
         var existing: NamedSubjects.Picture?
-        var source: NamedSubjectStore.Source?
+        var source: SubjectSource?
         /// Upright, for display only (its long side ≤ 1600): the frame is in fractions.
         let image: CGImage
         var frame: NamedSubjects.Frame
@@ -36,20 +36,16 @@ struct SubjectDraft: Identifiable {
     var name: String
     var kind: NamedSubjects.Kind
     var pictures: [Picture]
-    /// **The subject's pictures that no longer decode** (a file damaged or changed since): not shown,
-    /// not framable — and kept as they are on Save, never deleted behind the user's back.
-    let unreadable: [NamedSubjects.Picture]
     /// The other subjects' names: a name must differ from them (ignoring case).
     let taken: [String]
 
     static let displaySide = 1600
 
-    init?(new source: NamedSubjectStore.Source, taken: [String]) {
+    init?(new source: SubjectSource, taken: [String]) {
         guard let picture = Self.picture(source) else { return nil }
         original = nil
         self.taken = taken
         pictures = [picture]
-        unreadable = []
         kind = .person
         // A name proposed from the file's, never imposed — and only when it is free.
         var suggested = ""
@@ -64,22 +60,15 @@ struct SubjectDraft: Identifiable {
         name = s.name
         kind = s.kind
         taken = library.all.map(\.name).filter { NamedSubjects.key($0) != s.id }
-        var shown: [Picture] = [], kept: [NamedSubjects.Picture] = []
-        for p in s.pictures {
-            if let image = SubjectPictures.upright(library.url(s, p), maxSide: Self.displaySide) {
-                shown.append(Picture(existing: p, source: nil, image: image, frame: p.frame))
-            } else {
-                kept.append(p)
-            }
+        // Its bytes decoded once already, when it was named.
+        pictures = s.pictures.compactMap { p in
+            library.upright(s, p, maxSide: Self.displaySide).map { Picture(existing: p, source: nil, image: $0, frame: p.frame) }
         }
-        pictures = shown
-        unreadable = kept
     }
 
-    /// All the subject's pictures, those kept unread included: what the limit of two counts.
-    var count: Int { pictures.count + unreadable.count }
+    var count: Int { pictures.count }
 
-    static func picture(_ source: NamedSubjectStore.Source) -> Picture? {
+    static func picture(_ source: SubjectSource) -> Picture? {
         let image: CGImage?
         switch source {
         case .file(let url): image = SubjectPictures.upright(url, maxSide: displaySide)
@@ -132,7 +121,7 @@ struct SubjectSheet: View {
                 dismiss()
             }
         } message: {
-            Text("Its folder and its pictures are deleted from the library. Prompts that cite it will be refused.")
+            Text("Prompts that cite it will be refused.")
         }
     }
 
@@ -167,13 +156,6 @@ struct SubjectSheet: View {
                 }
             }
             .controlSize(.small)
-            if !draft.unreadable.isEmpty {
-                Label(String(localized: "A picture of this subject can't be read. Its file is kept as it is: Show in Finder to replace it."),
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(Palette.failure)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: 430, alignment: .leading)
-            }
             Text("Drag to frame what the model should look at: inside to move, an edge to resize, outside to draw another frame.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -270,9 +252,7 @@ struct SubjectSheet: View {
             var s = original
             s.name = draft.name
             s.kind = draft.kind
-            // The pictures that did not decode stay, untouched: only a gesture deletes a picture.
             s.pictures = draft.pictures.compactMap { p in p.existing.map { NamedSubjects.Picture(file: $0.file, frame: p.frame) } }
-                + draft.unreadable
             let added = draft.pictures.compactMap { p in p.existing == nil ? p.source.map { ($0, p.frame) } : nil }
             problem = app.subjects.update(original.name, to: s, adding: added)
         } else {
