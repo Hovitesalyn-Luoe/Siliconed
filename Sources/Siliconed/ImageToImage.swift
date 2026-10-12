@@ -126,20 +126,6 @@ extension ImageRGB {
         return (l, h, (l - target.width) / 2, (h - target.height) / 2)
     }
 
-    /// **A reference image at the size FLUX.2 gives it**: its area brought under 1024²
-    /// (`_resize_to_target_area`), each side rounded down to a multiple of 16, at least 64 — its
-    /// proportions kept, **not** the request's. Already conforming: as is.
-    public func forReference(maxSurface: Int = 1024 * 1024) -> ImageRGB {
-        let size = ImageRGB.referenceSize(width: width, height: height, maxSurface: maxSurface)
-        return fitted(width: size.width, height: size.height)
-    }
-
-    /// `forReference`'s size, without pixels.
-    package static func referenceSize(width: Int, height: Int, maxSurface: Int = 1024 * 1024) -> (width: Int, height: Int) {
-        let scale = min(1, (Double(maxSurface) / Double(width * height)).squareRoot())
-        return (max(64, Int(Double(width) * scale) / 16 * 16), max(64, Int(Double(height) * scale) / 16 * 16))
-    }
-
     /// **The image at the request's format: filled and center-cropped.**
     ///
     /// ⚖️ **An app choice, not diffusers'**: `VaeImageProcessor.resize` **stretches** the image

@@ -58,7 +58,7 @@ import Foundation
 ///     with `convert("RGB")`, **without compositing**. (Only the vision encoder's copy of a reference
 ///     is composited over white — not the VAE's.) The product does the same: the RGB of the
 ///     decoded RGBA (`QwenImage21DecodingModule`);
-///   - **no 2×2 packing** (unlike FLUX.2): `_pack_latents` is a plain flatten, `[64, h, w]` ↔
+///   - **no 2×2 packing**: `_pack_latents` is a plain flatten, `[64, h, w]` ↔
 ///     `[h·w, 64]` (`pack` / `unpack`), and the normalization is per channel with the 64 `latents_mean`
 ///     / `latents_std` of `vae/config.json`, on the raw latent;
 ///   - the encoder returns the **mean** (`_encode_vae_image`, `sample_mode="argmax"`): the reference
@@ -601,27 +601,6 @@ package final class QwenImage21VAEDecoder {
         return (config.up(last).output, config.up(last).input, 1 << last)
     }
 
-    /// **The count of the registers before the tail** (floats, for an `h × w` latent), when each
-    /// resnet was one graph: a stage's input, the block's input kept for its shortcut, its output. Since
-    /// the cut into passes, they hold more of them (and MPSGraph none): the decoder's memory is `plan`'s, and this
-    /// count only a test's.
-    package static func stageRegisterFloats(config: QwenImage21VAE.Config, latentHeight h: Int, latentWidth w: Int) -> Int {
-        let dims = config.decoderDims
-        var peak = config.zDim * h * w + dims[0] * h * w        // mid: the latent in, 1152 out
-        var scale = 1
-        for i in 0..<(config.dimMult.count - 1) {
-            let block = config.up(i), area = scale * scale * h * w
-            // resnet 0: input (also the kept skip) + output; resnets 1, 2: input + skip + output.
-            peak = max(peak, (block.input + block.output) * area, (2 * block.output + block.input) * area)
-            if i == config.dimMult.count - 1 - tailLevels { break }
-            // upsample: input + skip + output at 4×; shortcut: input + skip + output, then the skip goes.
-            peak = max(peak, block.output * area + block.input * area + block.output * 4 * area)
-            peak = max(peak, 2 * block.output * 4 * area + block.input * area)
-            scale *= 2
-        }
-        return peak
-    }
-
     /// **The tail, by horizontal bands — exact.** From the second-to-last upsampling to `conv_out`,
     /// everything is local: convolutions, per-pixel RMSNorm, the shortcut's copies. A full-resolution row
     /// depends on the rows within **8 rows** of it at full resolution (the last upsampling conv, the six
@@ -777,23 +756,6 @@ package final class QwenImage21VAEEncoder {
         let moments = memory.isLive ? Array(UnsafeBufferPointer(start: out.values, count: out.count)) : []
         memory.free(out)
         return moments
-    }
-
-    /// **The count of an encoding's registers** (floats, for an `H × W` image), when each block was one
-    /// graph: the RGBA input, a block's input, its output. Since the cut into passes, they hold more of them (and
-    /// MPSGraph none): the encoder's memory is `plan`'s, and this count only a test's.
-    package static func registerFloats(config: QwenImage21VAE.Config, height: Int, width: Int) -> Int {
-        let input = config.inChannels * height * width
-        var (h, w, channels, peak) = (height, width, config.inChannels, input)
-        for i in 0..<config.dimMult.count {
-            let block = config.down(i)
-            let (oh, ow) = (h / block.spatial, w / block.spatial)
-            let output = (i == config.dimMult.count - 1 ? 2 * config.zDim : block.output) * oh * ow
-            // The input register stays held by `encode`: block 0's input is it.
-            peak = max(peak, input + (i == 0 ? 0 : channels * h * w) + output)
-            (h, w, channels) = (oh, ow, block.output)
-        }
-        return peak
     }
 
     /// Each block's passes — `conv_in` (block 0), the resnets (the first keeps the block's input as

@@ -1,16 +1,32 @@
 # The pure unit tests: no weights are downloaded and nothing touches the GPU.
+# A version is pushed to `release/<version>` first; main moves only once this run is green there
+# (the order is in the maintainer's release procedure).
 name: test
 
 on:
   push:
+    branches: [main, 'release/**']
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 jobs:
   swift-test:
     # Xcode 26 or later: the app uses macOS 26 APIs behind `#available`, which an older SDK does not declare.
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # The runner is not an M1 Pro: fewer performance cores, less memory, no AMX exposed. A test that
+      # depends on the machine shows it here first.
+      - name: Machine
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string || true
+          for k in hw.memsize hw.ncpu hw.perflevel0.physicalcpu hw.perflevel1.physicalcpu \
+                   hw.optional.arm.FEAT_SME hw.optional.arm.FEAT_SME2; do
+            printf '%s: %s\n' "$k" "$(sysctl -n "$k" 2>/dev/null || echo absent)"
+          done
       - name: Swift version
         run: swift --version
       - name: swift test

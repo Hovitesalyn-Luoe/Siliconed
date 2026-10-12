@@ -338,6 +338,4 @@ enum WeightList {
     /// Flux's bottleneck attention: its `GroupNorm`, q, k, v, the output projection.
     static func attentionFlux(_ c: Int) -> [Int] { groupNorm(c) + Array([[Int]](repeating: projection(c, c), count: 4).joined()) }
 
-    /// Wan's (Qwen-Image's): its RMS, the three rows of `to_qkv`, the output projection.
-    static func attentionQwen(_ c: Int) -> [Int] { rms(c) + Array([[Int]](repeating: projection(c, c), count: 4).joined()) }
 }

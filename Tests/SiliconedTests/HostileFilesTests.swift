@@ -155,18 +155,6 @@ final class HostileFilesTests: XCTestCase {
         func read(_ name: String) throws -> [Float] { [] }
     }
 
-    func testFlux2SplitRefusesAVectorUnderAMatrixName() throws {
-        for name in ["single_transformer_blocks.0.attn.to_qkv_mlp_proj.weight", "single_transformer_blocks.0.attn.to_out.weight"] {
-            XCTAssertThrowsError(try Recipes.flux2Split(Shapes(["p": [12]]), "p", name)) {
-                XCTAssertTrue("\($0)".contains("a matrix expected"), "\($0)")
-            }
-        }
-        // The same names as matrices still split.
-        XCTAssertEqual(try Recipes.flux2Split(Shapes(["p": [4 * 3 + 2 * 6, 4]]), "p",
-                                              "single_transformer_blocks.0.attn.to_qkv_mlp_proj.weight").count, 5)
-        XCTAssertEqual(try Recipes.flux2Split(Shapes(["p": [4, 10]]), "p", "single_transformer_blocks.0.attn.to_out.weight").count, 2)
-    }
-
     func testFusedRowsRefuseAScalarOrAnUnevenSplit() throws {
         // Split while the names are normalized, before any shape is checked: a scalar under a qkv name
         // was indexed past its end (a crash, not a refusal).

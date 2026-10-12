@@ -41,8 +41,6 @@ package struct Installer {
     static let animaBase = Repository(name: "circlestone-labs/Anima-Base-v1.0-Diffusers", revision: "073c3a9db359c31ad0e8aa268d15775473c2176c")
     static let anima = Repository(name: "circlestone-labs/Anima", revision: "f973fc41ec7545364ac9776c2440285f43ff2a30")
     static let krea2 = Repository(name: "krea/Krea-2-Turbo", revision: "98e0fe118d17c9e3547fbb2e25acdbae2cadf7c7")
-    static let klein4b = Repository(name: "black-forest-labs/FLUX.2-klein-4B", revision: "e7b7dc27f91deacad38e78976d1f2b499d76a294")
-    static let ernie = Repository(name: "baidu/ERNIE-Image-Turbo", revision: "bc68c81e2a1730a394d5fc9fae70713dee940140")
     /// The official Turbo, the Standard's every file: DiT, encoder, VAE, `processor/`, configs, schedule —
     /// and the Compact's and the Light's but their DiT and their encoder's weights. No recipe reads
     /// the base model (`Qwen/Qwen-Image-2.1`) any more.
@@ -77,15 +75,6 @@ package struct Installer {
                     File(repository: krea2, path: "model_index.json", destination: "model_index.json"),
                     File(repository: krea2, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
                     File(repository: krea2, path: "transformer/config.json", destination: "transformer.json")]
-        case .klein4b:
-            return [File(repository: klein4b, path: "tokenizer/tokenizer.json", destination: "tokenizer/tokenizer.json"),
-                    File(repository: klein4b, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
-                    File(repository: klein4b, path: "transformer/config.json", destination: "transformer.json")]
-        case .ernie:
-            // The VAE is FLUX.2 [klein]'s, bit for bit (same sha256); only the pipeline differs.
-            return [File(repository: ernie, path: "tokenizer/tokenizer.json", destination: "tokenizer/tokenizer.json"),
-                    File(repository: ernie, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
-                    File(repository: ernie, path: "transformer/config.json", destination: "transformer.json")]
         case .qwenImage21:
             // `processor/` as published (transformers 5's serialization: `tokenizer.json` holds the
             // vocabulary, `processor_config.json` the image processor's values). The engine reads
@@ -137,8 +126,6 @@ package struct Installer {
         case .anima: return [File(repository: anima, path: "LICENSE.md", destination: nil),
                              File(repository: animaBase, path: "LICENSE.md", destination: nil)]
         case .krea2: return [File(repository: krea2, path: "LICENSE.pdf", destination: nil)]
-        case .klein4b: return [File(repository: klein4b, path: "LICENSE.md", destination: nil)]
-        case .ernie: return [File(repository: ernie, path: "LICENSE", destination: nil)]
         case .qwenImage21: return [File(repository: qwenImage21Turbo, path: "LICENSE", destination: nil)]
         }
     }
@@ -175,13 +162,6 @@ package struct Installer {
             return ["config.json", "model.safetensors"].map { File(repository: animaBase, path: "text_encoder/" + $0, destination: nil) }
         case .krea2:
             return ["config.json", "model.safetensors"].map { File(repository: krea2, path: "text_encoder/" + $0, destination: nil) }
-        case .klein4b:
-            // Z-Image's Qwen3-4B, bit for bit: downloaded only if Z-Image has not already forged the map.
-            return ["config.json", "model.safetensors.index.json", "model-00001-of-00002.safetensors",
-                    "model-00002-of-00002.safetensors"]
-                .map { File(repository: klein4b, path: "text_encoder/" + $0, destination: nil) }
-        case .ernie:
-            return ["config.json", "model.safetensors"].map { File(repository: ernie, path: "text_encoder/" + $0, destination: nil) }
         case .qwenImage21:
             // One file, the base's four shards to the bit (750 tensors): the map's tensors are the same.
             return ["config.json", "model.safetensors"].map { File(repository: qwenImage21Turbo, path: "text_encoder/" + $0, destination: nil) }
@@ -219,11 +199,6 @@ package struct Installer {
                 .map { File(repository: krea2, path: "transformer/" + $0, destination: nil) }
         case .anima:
             return [File(repository: anima, path: "split_files/diffusion_models/anima-turbo-v1.1.safetensors", destination: nil)]
-        case .klein4b:
-            return [File(repository: klein4b, path: "transformer/diffusion_pytorch_model.safetensors", destination: nil)]
-        case .ernie:
-            return (["diffusion_pytorch_model.safetensors.index.json"] + (1...2).map { "diffusion_pytorch_model-0000\($0)-of-00002.safetensors" })
-                .map { File(repository: ernie, path: "transformer/" + $0, destination: nil) }
         case .qwenImage21:
             // The Turbo's two shards, pinned: the base's names, shapes, dtypes and sizes, other values.
             let shards = ["6cccd922767f01694461bdcf1f34ea7b771f3442e4d5e338ea9aa55277431cc0",

@@ -29,7 +29,7 @@ import Foundation
 //   strength, the model, the image an edit starts from. Not a batch: a cell is one image (the seed
 //   axis is the batch of a grid).
 // - **A model axis gives each cell its model's own step count** (`Cell.steps` nil) unless steps are
-//   an axis too: Z-Image takes 8, Qwen-Image-2.1 6, klein 4 — the base's count is one model's. And it
+//   an axis too: the base's count is one model's, and the families need not agree. And it
 //   refuses a LoRA stack (`loraAcrossModels`): a LoRA is forged for one model, the others would refuse
 //   it cell by cell.
 // - **A LoRA axis compares LoRAs** (`.addedLoRAs`): each cell adds one of them to the base's stack,

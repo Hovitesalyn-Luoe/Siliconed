@@ -51,13 +51,9 @@ package final class VAEEncoder {
         case flux
         /// `AutoencoderKLQwenImage` (Anima, Krea 2): RMSNorm, causal 3D kernels, `quant_conv`.
         case qwenImage
-        /// `AutoencoderKLFlux2` (FLUX.2): the 32-channel Flux encoder, followed by a `quant_conv`.
-        /// The returned latent is the **raw mean** `[32, H/8, W/8]`: the 2×2 packing and the
-        /// `BatchNorm` are done by `Flux2EncodingModule`, mirror of `Flux2DecodingModule`.
-        case flux2
 
         /// The latent channels (half of the moments).
-        var channels: Int { self == .flux2 ? 32 : 16 }
+        var channels: Int { 16 }
     }
 
     /// What an encoding returns: the normalized latent — the one the denoiser expects —, the
@@ -97,10 +93,9 @@ package final class VAEEncoder {
                  startingAt: String? = nil) throws {
         let weights = try Safetensors(path: path)
         let expectedShape = family == .qwenImage ? [96, 3, 3, 3, 3] : [128, 3, 3, 3]
-        guard weights.entries["encoder.conv_in.weight"]?.shape == expectedShape,
-              family != .flux2 || weights.entries["quant_conv.weight"] != nil else {
+        guard weights.entries["encoder.conv_in.weight"]?.shape == expectedShape else {
             throw Safetensors.Failure.badHeader("\(path): not the VAE encoder "
-                                                + [.flux: "of Flux", .qwenImage: "of Qwen-Image", .flux2: "of FLUX.2"][family]!)
+                                                + [.flux: "of Flux", .qwenImage: "of Qwen-Image"][family]!)
         }
         guard height % 8 == 0, width % 8 == 0 else {
             throw EngineError.formatRefused(width: width, height: height, reason: .notMultiple)
@@ -129,8 +124,8 @@ package final class VAEEncoder {
         }
         let moments: MPSGraphTensor
         switch family {
-        case .flux, .flux2:
-            moments = try VAEEncoder.flux(graph, weights, input, (height, width), quantConv: family == .flux2, probe: probe)
+        case .flux:
+            moments = try VAEEncoder.flux(graph, weights, input, (height, width), probe: probe)
         case .qwenImage: moments = try VAEEncoder.qwen(graph, weights, input, (height, width), probe: probe)
         }
         if let startingAt, entry === input {
@@ -149,8 +144,6 @@ package final class VAEEncoder {
     /// multiplies by `1/std`, the same thing to within one ulp).
     private static func normalize(_ graph: MPSGraph, _ z: MPSGraphTensor, _ family: Family) -> MPSGraphTensor {
         switch family {
-        case .flux2:
-            return z   // packed then normalized outside the graph (`Flux2EncodingModule`)
         case .flux:
             let config = VAE.Config()
             return graph.multiplication(
@@ -169,7 +162,7 @@ package final class VAEEncoder {
     /// Flux's encoder (`diffusers/models/autoencoders/vae.py`, `Encoder`): `block_out_channels
     /// [128, 256, 512, 512]`, two resnets per block, a downsampling after each except the last.
     private static func flux(_ graph: MPSGraph, _ weights: Safetensors, _ input: MPSGraphTensor,
-                             _ size: (h: Int, w: Int), quantConv: Bool = false,
+                             _ size: (h: Int, w: Int),
                              probe: (String, MPSGraphTensor) -> MPSGraphTensor) throws -> MPSGraphTensor {
         let b = VAEBuildingBlocks(graph: graph, weights: weights, name: "Flux encoder", groups: 32)
         var x = try b.conv(input, "encoder.conv_in", padding: 1)
@@ -198,10 +191,8 @@ package final class VAEEncoder {
         x = try b.resnetFlux(x, mid + ".resnets.1", inChannels: 512, outChannels: 512, size: t)
         x = probe("mid_block", x)
         x = try b.silu(b.groupNorm(x, "encoder.conv_norm_out", channels: 512, h: t.h, w: t.w))
-        // `use_quant_conv` is false in Z-Image's config: `conv_out` returns the moments. True
-        // for FLUX.2, and the 1×1 `quant_conv` mixes mean and log-variance.
-        x = try b.conv(x, "encoder.conv_out", padding: 1)
-        return quantConv ? try b.conv(x, "quant_conv", padding: 0) : x
+        // `use_quant_conv` is false in Z-Image's config: `conv_out` returns the moments.
+        return try b.conv(x, "encoder.conv_out", padding: 1)
     }
 
     /// Qwen-Image's encoder (`QwenImageEncoder3d`, `dims [96, 96, 192, 384, 384]`) at a single frame.
@@ -320,17 +311,9 @@ package final class VAEEncoder {
         x = try bands.resnet(x, mid + ".resnets.0", inChannels: 512, outChannels: 512)
         try bands.attention(x, mid + ".attentions.0")
         x = try bands.resnet(x, mid + ".resnets.1", inChannels: 512, outChannels: 512)
-        var moments = try bands.normConv(x, norm: "encoder.conv_norm_out", conv: "encoder.conv_out", outChannels: 2 * c,
+        let moments = try bands.normConv(x, norm: "encoder.conv_norm_out", conv: "encoder.conv_out", outChannels: 2 * c,
                                          residual: nil, into: nil)
         memory.free(x)
-        if family == .flux2 {
-            let y = try bands.whole([moments], moments.shape, weights: WeightList.conv(2 * c, 2 * c, kernel: 1),
-                                    workspace: VAELayout.reformattedWeights(4 * c * c) / 4) { b, p in
-                try b.conv(p[0], "quant_conv", padding: 0)
-            }
-            memory.free(moments)
-            moments = y
-        }
         let latent = try bands.whole([moments], [1, c, h, w], weights: []) { b, p in
             VAEEncoder.normalize(b.graph, b.graph.sliceTensor(p[0], dimension: 1, start: 0, length: c, name: nil), family)
         }

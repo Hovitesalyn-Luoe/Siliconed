@@ -308,8 +308,7 @@ struct ModelManagement: View {
     }
 
     /// The space the installation of `variant` will add once done: the parts missing, read from the
-    /// disk (`Library.InstallPlan.added`) — an encoder already there counts for nothing, also
-    /// Z-Image's Standard one kept by FLUX.2 [klein] while Z-Image is in Compact. The other version
+    /// disk (`Library.InstallPlan.added`) — an encoder already there counts for nothing. The other version
     /// counts for nothing either: it goes once the new one is ready.
     private func toDownload(_ p: Library.Occupancy.FamilyPart, baseDiT: Bool = true, variant: Variant = .standard) -> Int {
         if let plan = try? app.library.installPlan(p.family, variant: variant, baseDiT: baseDiT) { return plan.added }
@@ -381,14 +380,9 @@ struct ModelManagement: View {
 
     private func removalMessage(_ r: Removal) -> String {
         switch r {
-        case .family(let f):
-            let sharing = app.occupancy?.families.first { $0.family == f }?.encoderSharedWith ?? []
-            var m = String(localized: "The DiT, encoder and VAE are deleted; installing again downloads them again.")
-            if let other = sharing.first {
-                m += " " + String(localized: "The text encoder stays: \(other.name) uses it too.")
-            }
-            m += " " + String(localized: "This family's imported models and LoRAs stay.")
-            return m
+        case .family:
+            return String(localized: "The DiT, encoder and VAE are deleted; installing again downloads them again.")
+                + " " + String(localized: "This family's imported models and LoRAs stay.")
         case .model:
             return String(localized: "Its forged card is deleted. To get it back, import its file again.")
         case .lora:

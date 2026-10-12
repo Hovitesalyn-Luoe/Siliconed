@@ -90,11 +90,11 @@ final class RenderCacheTests: XCTestCase {
         XCTAssertEqual(back.imageSlots, [false, true, true])
         XCTAssertEqual([back.rows, back.width, back.tokens], [3, 2, 3])
 
-        let l = Latent(space: .flux2, height: 1, width: 1, values: (0..<128).map { Float($0) * -0.5 })
+        let l = Latent(space: .qwenImage21, height: 1, width: 1, values: (0..<64).map { Float($0) * -0.5 })
         let lk = key(["latent"])
         cache.store(l, key: lk)
         let latent = try! XCTUnwrap(cache.latent(lk))
-        XCTAssertEqual(latent.space, .flux2)
+        XCTAssertEqual(latent.space, .qwenImage21)
         XCTAssertEqual(latent.values.map(\.bitPattern), l.values.map(\.bitPattern))
         // A latent is not a conditioning, even under its own key.
         XCTAssertNil(cache.conditioning(lk))

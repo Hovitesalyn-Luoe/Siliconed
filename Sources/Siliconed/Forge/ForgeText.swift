@@ -18,9 +18,6 @@ import Foundation
 /// scales copied, transposed, the RoPE permutations done as row selections (each row keeps its scale;
 /// a convrot rotates the *input*, which a row order leaves alone). `map_dtype` says "mixed" then.
 ///
-/// ERNIE-Image reads the language model of a `Mistral3Model` (Ministral-3 3B): no QK-Norm, a yarn
-/// RoPE (`TextEncoder.Config.yarn`), 24 layers kept out of 26.
-///
 /// Krea 2 reads a `Qwen3VLModel`: its text part has the shapes of Z-Image's Qwen3-4B, under
 /// `language_model.`, next to a vision tower the text never goes through (dropped).
 ///
@@ -72,7 +69,7 @@ package enum ForgeText {
     /// The plan of a source: which tensors, under which names, in which order.
     package static func plan(_ source: TensorCatalog, published: OrderedJSON, family: Family) throws -> Plan {
         var config = published
-        if family == .krea2 || family == .ernie || family == .qwenImage21 {
+        if family == .krea2 || family == .qwenImage21 {
             guard let t = config["text_config"] else { throw Numerics.Failure(description: "text_config absent") }
             config = t
         }
@@ -88,10 +85,9 @@ package enum ForgeText {
             return d / h
         }
         let finalNorm = family == .anima
-        // `hidden_states[-2]`: the output of the second-to-last layer (34 of 36 for Qwen3-4B,
-        // 24 of 26 for ERNIE's Ministral-3 — checked against the oracle's text encoder). Qwen-Image-2.1:
-        // the last layer, without the final norm.
-        let lastLine = finalNorm || family == .qwenImage21 ? layers - 1 : family == .ernie ? layers - 2 : 34
+        // `hidden_states[-2]`: the output of the second-to-last layer (34 of 36 for Qwen3-4B —
+        // checked against the oracle's text encoder). Qwen-Image-2.1: the last layer, without the final norm.
+        let lastLine = finalNorm || family == .qwenImage21 ? layers - 1 : 34
 
         func wantedName(_ name: String) -> String? {
             let without: String
@@ -102,11 +98,6 @@ package enum ForgeText {
             } else if family == .krea2 {
                 guard name.hasPrefix("language_model.") else { return nil }
                 without = String(name.dropFirst("language_model.".count))
-            } else if family == .ernie {
-                // `Mistral3Model` published the old way: `language_model.model.*`, and a vision
-                // tower, a projector, that a text never goes through.
-                guard name.hasPrefix("language_model.model.") else { return nil }
-                without = String(name.dropFirst("language_model.model.".count))
             } else if name.hasPrefix("model.") {
                 without = String(name.dropFirst(6))
             } else if finalNorm && !name.hasPrefix("lm_head.") {
@@ -168,7 +159,7 @@ package enum ForgeText {
             tensors.append(t)
         }
         let parameters = tensors.reduce(0) { $0 + $1.shape.reduce(1, *) }
-        let kind = family == .ernie ? "mistral3-text-encoder" : family == .krea2 ? "qwen3-vl-text-encoder"
+        let kind = family == .krea2 ? "qwen3-vl-text-encoder"
             : family == .qwenImage21 ? "qwen3-vl-encoder" : finalNorm ? "qwen3-text-encoder-last-hidden" : "qwen3-4b-text-encoder"
         let files = source.files.map { ($0.path as NSString).lastPathComponent }
         return try MapWriter.write(to: path, tensors: tensors, header: { _ in

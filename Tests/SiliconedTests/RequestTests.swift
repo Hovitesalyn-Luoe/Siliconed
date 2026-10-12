@@ -25,9 +25,10 @@ final class RequestTests: XCTestCase {
     private let krea2 = Model(card: .krea2, chain: try! Chain(
         text: Krea2TextModule(map: "", tokenizer: "", sockets: []), denoising: Krea2DenoisingModule(map: ""),
         decoding: QwenImageDecodingModule(path: ""), encoding: QwenImageEncodingModule(path: "")))
-    private let klein = Model(card: .klein4b, chain: try! Chain(
-        text: KleinTextModule(map: "", tokenizer: ""), denoising: KleinDenoisingModule(map: ""),
-        decoding: Flux2DecodingModule(path: ""), encoding: Flux2EncodingModule(path: "")))
+    private let qwen = Model(card: .qwenImage21, chain: try! Chain(
+        text: QwenImage21TextModule(map: "", tokenizer: ""),
+        denoising: QwenImage21DenoisingModule(map: "", scheduler: .init()),
+        decoding: QwenImage21DecodingModule(path: ""), encoding: QwenImage21EncodingModule(path: "")))
 
     /// B1: with a single step, the schedule of the three models is finite (Anima rendered σ₀ = NaN).
     /// **A request is comparable**: a SwiftUI app relaunches a preview on `onChange(of: request)`.
@@ -74,7 +75,7 @@ final class RequestTests: XCTestCase {
     }
 
     func testASingleStepGivesFiniteSigmas() {
-        for m in [zImage, anima, krea2, klein] {
+        for m in [zImage, anima, krea2] {
             let σ = m.chain.denoising.sigmas(steps: 1)
             XCTAssertEqual(σ.count, 2, m.identifier)
             XCTAssertTrue(σ.allSatisfy(\.isFinite), "\(m.identifier) : \(σ)")
@@ -85,7 +86,7 @@ final class RequestTests: XCTestCase {
     /// B1: fewer than one step is refused before any computation, with a message about steps (no
     /// more `Range` crash at step < 0, nor a message about "strength" at step = 0).
     func testFewerThanOneStepIsRefused() {
-        for m in [zImage, anima, krea2, klein] {
+        for m in [zImage, anima, krea2] {
             for n in [0, -3] {
                 XCTAssertThrowsError(try Engine().render(Request("a 30 year old woman posing in a library", resolution: 512, steps: n), model: m)) {
                     XCTAssertEqual($0 as? EngineError, .invalidSteps(steps: n, allowed: []), "\(m.identifier) : \($0)")
@@ -95,33 +96,23 @@ final class RequestTests: XCTestCase {
     }
 
     /// A reference (editing) is refused before any computation by a model that does not read any —
-    /// and beyond what FLUX.2 [klein] reads.
+    /// and beyond what Qwen-Image-2.1 reads.
     func testReferencesAreRefusedBeforeAnyComputation() {
         let image = ImageRGB(pixels: [Float](repeating: 0, count: 3 * 64 * 64), height: 64, width: 64)
-        for (m, n, max) in [(zImage, 1, 0), (krea2, 1, 0), (klein, 5, 4)] {
+        for (m, n, max) in [(zImage, 1, 0), (krea2, 1, 0), (qwen, 4, 3)] {
             var r = Request("une bibliothèque", resolution: 512)
             r.references = Array(repeating: image, count: n)
             XCTAssertThrowsError(try Engine().render(r, model: m)) {
                 XCTAssertEqual($0 as? EngineError, .tooManyReferences(count: n, max: max), "\(m.identifier) : \($0)")
             }
         }
-        XCTAssertEqual(klein.chain.entries.map(\.kind), [.text, .image, .reference])
+        XCTAssertEqual(qwen.chain.entries.map(\.kind), [.text, .reference])
         XCTAssertEqual(zImage.chain.entries.map(\.kind), [.text, .image])
-    }
-
-    /// The size of a FLUX.2 reference: its area under 1024², its sides at a multiple of 16.
-    func testTheSizeOfAReference() {
-        let photo = ImageRGB(pixels: [Float](repeating: 0, count: 3 * 3000 * 2000), height: 2000, width: 3000)
-        let r = photo.forReference()
-        XCTAssertEqual([r.width, r.height], [1248, 832])
-        XCTAssertLessThanOrEqual(r.width * r.height, 1024 * 1024)
-        let square = ImageRGB(pixels: [Float](repeating: 0, count: 3 * 512 * 512), height: 512, width: 512)
-        XCTAssertEqual(square.forReference(), square)
     }
 
     /// An empty or blank prompt is refused by the three models, before any computation.
     func testTheEmptyPromptIsRefusedByAllThree() {
-        for m in [zImage, anima, krea2, klein] {
+        for m in [zImage, anima, krea2] {
             for prompt in ["", "  \n "] {
                 XCTAssertThrowsError(try Engine().render(Request(prompt, resolution: 512), model: m)) {
                     XCTAssertEqual($0 as? EngineError, .emptyPrompt, "\(m.identifier) : \($0)")

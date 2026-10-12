@@ -72,7 +72,7 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
     /// Imported by the user, rather than published by the family's publisher.
     public var isImported: Bool { map != nil }
     public let license: License
-    /// The denoiser's (Z-Image 8, Qwen-Image-2.1 8, FLUX.2 [klein] 4); the test target checks that they agree.
+    /// The denoiser's (Z-Image 8, Qwen-Image-2.1 8); the test target checks that they agree.
     public let defaultSteps: Int
     public let space: LatentSpace
     /// The square first, then portraits and landscapes, from stockiest to most elongated.
@@ -107,18 +107,6 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
                          commercial: true, requiredFilter: true, urls: Installer.licenseURLs(.krea2)),
         defaultSteps: 8, space: .qwenImage, formats: recommendedFormats)
 
-    /// FLUX.2 [klein] 4B, distilled: 4 steps.
-    public static let klein4b = ModelCard(
-        id: "klein-4b", name: "FLUX.2 [klein] 4B", family: .klein4b, map: nil,
-        license: License(text: "Apache 2.0", commercial: true, requiredFilter: false, urls: Installer.licenseURLs(.klein4b)),
-        defaultSteps: 4, space: .flux2, formats: recommendedFormats)
-
-    /// ERNIE-Image Turbo (Baidu), distilled: 8 steps.
-    public static let ernie = ModelCard(
-        id: "ernie-image", name: "ERNIE-Image Turbo", family: .ernie, map: nil,
-        license: License(text: "Apache 2.0", commercial: true, requiredFilter: false, urls: Installer.licenseURLs(.ernie)),
-        defaultSteps: 8, space: .flux2, formats: recommendedFormats)
-
     /// **Qwen-Image-2.1-Turbo (Qwen)**: 8 steps on its published schedule (any other count is
     /// refused), no CFG.
     ///
@@ -138,13 +126,12 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
         defaultSteps: 8, space: .qwenImage21, formats: recommendedFormats)
 
     /// The repository's models, in the order of `Model.identifiers`.
-    public static let allCards: [ModelCard] = [zImage, anima, krea2, klein4b, ernie, qwenImage21]
+    public static let allCards: [ModelCard] = [zImage, anima, krea2, qwenImage21]
 
     /// A family's sheet — that of its published model.
     public static func of(_ family: Family) -> ModelCard {
         switch family {
-        case .zImage: return zImage; case .anima: return anima; case .krea2: return krea2; case .klein4b: return klein4b
-        case .ernie: return ernie
+        case .zImage: return zImage; case .anima: return anima; case .krea2: return krea2
         case .qwenImage21: return qwenImage21
         }
     }

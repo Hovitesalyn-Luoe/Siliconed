@@ -35,12 +35,10 @@ final class QwenImage21PipelineTests: XCTestCase {
                        [0xbcb08360, 0xbcc6d820, 0xbce1b8e0, 0xbd013670, 0xbd4c8570, 0xbe0ffd20, 0xbe94766c, 0xbed44242])
         // The round trip the pipeline makes, `(σ·1000)/1000`, gives σ back to the bit for these nodes.
         for x in σ.dropLast() { XCTAssertEqual((x * 1000 / 1000).bitPattern, x.bitPattern) }
-        // The module: the same schedule at every size (no μ), 8 steps only.
+        // The module: the published schedule, 8 steps only.
         let module = QwenImage21DenoisingModule(map: "", scheduler: s)
         XCTAssertEqual(module.defaultSteps, 8)
-        for (h, w) in [(32, 32), (64, 64), (96, 64), (52, 78)] {
-            XCTAssertEqual(bits(module.sigmas(steps: 8, height: h, width: w)), bits(σ))
-        }
+        XCTAssertEqual(bits(module.sigmas(steps: 8)), bits(σ))
         XCTAssertEqual(QwenImage21Pipeline.acceptedSteps, [8])
         for n in [5, 6, 7, 9] { XCTAssertThrowsError(try QwenImage21Pipeline.sigmas(steps: n, scheduler: s), "\(n)") }
     }
@@ -105,6 +103,6 @@ final class QwenImage21PipelineTests: XCTestCase {
 
     func testAFormatThatReadsImagesNeedsAnImageTextModule() {
         XCTAssertTrue(TextFormat.qwenImage21.readsImages)
-        XCTAssertFalse(TextFormat.klein.readsImages)
+        XCTAssertFalse(TextFormat.zImage.readsImages)
     }
 }

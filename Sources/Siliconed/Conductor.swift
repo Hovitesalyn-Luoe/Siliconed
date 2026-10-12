@@ -182,8 +182,12 @@ package final class Conductor: @unchecked Sendable {
         // workspace behind (65 MB after Z-Image's DiT, 149 MB after Qwen's three models, for the
         // rest of the process). It holds the rendezvous and the job, and reaches the conductor only
         // to run a job, which a caller holding the conductor is waiting on; `deinit` posts the stop.
-        // What the worker holds crosses threads by design: the rendezvous order every access to the
-        // job and to its time (the caller writes, posts `ready`, waits on `done`, then reads).
+        // What the worker holds crosses threads by design. **Under the default rendezvous — two
+        // semaphores — every access to the job and to its time is ordered** (the caller writes, posts
+        // `ready`, waits on `done`, then reads; a semaphore's signal happens-before its wait's return).
+        // **Not under `SILICONED_AMX_SPIN`**: a plain `Int32` flag with `OSMemoryBarrier` is no
+        // synchronization in Swift's memory model, and that mode is known to return wrong products
+        // (`spinning`) — a fault injector kept so the AMX check can fail, never a mode of the product.
         struct Shared: @unchecked Sendable {
             let job: UnsafeMutablePointer<Job>, amxSeconds: UnsafeMutablePointer<Double>
             let ready: Rendezvous, done: Rendezvous

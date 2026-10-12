@@ -128,8 +128,6 @@ public struct EngineSettings: Sendable {
     /// eight here make sixty-four pixels of blend.
     package var vaeOverlap = 8
 
-    /// The map's prefetcher. Turning it off takes the widening to 18.4 s.
-    package var prefetch = true
     /// **The share of a DiT's layers whose pages are given back after use**, 0…1, counted
     /// from the end of the map. A map larger than what the page cache holds, swept in file order at
     /// every evaluation, misses everything under LRU: each evaluation reads it all again from disk.
@@ -323,7 +321,6 @@ public struct EngineSettings: Sendable {
         read("SILICONED_PARALLEL", "parallel")
         read("SILICONED_CACHE", "cache")
         read("SILICONED_MAP_TAIL", "map_tail")
-        if env["SILICONED_NO_PREFETCH"] != nil { fromEnv["prefetch"] = "0" }
         apply(fromEnv, .environment)
 
         if let refusal { warnings.insert(refusal, at: 0) }
@@ -388,10 +385,6 @@ public struct EngineSettings: Sendable {
             guard let raw = values[key], let n = EngineSettings.integer(raw) else { return }
             target = n; provenance[key] = source
         }
-        func optionalInteger(_ key: String, _ target: inout Int?) {
-            guard let raw = values[key], let n = EngineSettings.integer(raw) else { return }
-            target = n; provenance[key] = source
-        }
         func real(_ key: String, _ target: inout Double) {
             guard let raw = values[key], let d = EngineSettings.real(raw) else { return }
             target = d; provenance[key] = source
@@ -411,7 +404,6 @@ public struct EngineSettings: Sendable {
         integer("vae_bloc_requetes", &vaeRequestBlock)
         integer("vae_tuile", &vaeTile)
         integer("vae_recouvrement", &vaeOverlap)
-        flag("prefetch", &prefetch)
         integer("parallel", &parallel)
         flag("cache", &cache)
         real("map_tail", &mapTail)
@@ -455,7 +447,6 @@ public struct EngineSettings: Sendable {
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
             ("vae_tuile", vaeTile == 0 ? "no" : "\(vaeTile) (overlap \(vaeOverlap))"),
-            ("prefetch", "\(prefetch)"),
             ("map_tail", String(format: "%.2f", mapTail)),
             ("parallel", parallel == 0 ? "auto (2¹⁸)" : "\(parallel)"),
             ("cache", "\(cache)"),
@@ -472,7 +463,7 @@ public struct EngineSettings: Sendable {
             "flash": flash, "sdpa_fp16": sdpaFp16,
             "widen_gpu": widenGPU, "widen_fused": widenFused,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
-            "prefetch": prefetch, "parallel": parallel, "map_tail": mapTail,
+            "parallel": parallel, "map_tail": mapTail,
         ]
     }
 

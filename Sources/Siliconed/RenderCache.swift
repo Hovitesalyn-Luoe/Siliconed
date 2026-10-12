@@ -329,12 +329,6 @@ extension Krea2TextModule: CacheIdentified {
         identity(self, [output.name, sockets.map(String.init).joined(separator: ",")], files: [map, tokenizer])
     }
 }
-extension KleinTextModule: CacheIdentified {
-    package var cacheIdentity: [String] { identity(self, [output.name], files: [map, tokenizer]) }
-}
-extension ErnieTextModule: CacheIdentified {
-    package var cacheIdentity: [String] { identity(self, [output.name], files: [map, tokenizer]) }
-}
 extension QwenImage21TextModule: CacheIdentified {
     package var cacheIdentity: [String] { identity(self, [output.name], files: [map, tokenizer]) }
 }
@@ -343,9 +337,6 @@ extension FluxEncodingModule: CacheIdentified {
 }
 extension QwenImageEncodingModule: CacheIdentified {
     package var cacheIdentity: [String] { identity(self, [space.name], files: [path]) }
-}
-extension Flux2EncodingModule: CacheIdentified {
-    package var cacheIdentity: [String] { identity(self, [space.name, "eps \(eps.bitPattern)"], files: [path]) }
 }
 extension QwenImage21EncodingModule: CacheIdentified {
     package var cacheIdentity: [String] { identity(self, [space.name], files: [path]) }

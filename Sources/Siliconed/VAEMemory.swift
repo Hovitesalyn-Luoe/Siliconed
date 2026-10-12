@@ -416,16 +416,27 @@ package final class VAEMemory {
     /// The largest heap MPS asked for, in this process — against the plan's workspace, for the checks.
     nonisolated(unsafe) package static var largestAsk = 0
 
-    /// **Releases both heaps, and returns at once.** Every register must be dead: a placed buffer keeps
-    /// its heap alive. Metal takes the heaps back on its own time (0.05 to ~2 s), and reuses them
-    /// for the next allocation of the process meanwhile; nothing else of the VAE's is left to wait for.
+    /// **Releases both heaps, and returns once Metal has taken them back.** Every register must be
+    /// dead: a placed buffer keeps its heap alive. Metal takes the heaps back on its own time — under
+    /// 0.1 s since the VAEs run in single-kernel passes —, and the memory need says a VAE hands
+    /// everything back before it returns (`MemoryNeed`): without the wait, the next phase started beside
+    /// what was not yet returned (+35 MB between two Qwen-Image-2.1 references), uncharged. So the
+    /// graphics ledger is polled back to its level before the heaps (`baseline`, within
+    /// `releaseTolerance`), for `releaseWait` at most — past it, what is left is the check's to report.
     func finish() {
         guard heap != nil, workspace != nil else { return }
         precondition(walk.empty, "VAEMemory: registers still live at the end")
         VAEMemory.overflow = max(VAEMemory.overflow, workspace!.overflow)
         VAEMemory.largestAsk = max(VAEMemory.largestAsk, workspace!.largestAsk)
         heap = nil; workspace = nil; queue = nil
+        let deadline = Date().addingTimeInterval(VAEMemory.releaseWait)
+        while VAEMemory.graphicsFootprint() > baseline + VAEMemory.releaseTolerance, Date() < deadline { usleep(1000) }
     }
+
+    /// How long `finish` waits for Metal at most, and what it leaves above the baseline: measured
+    /// up to ~2 s before the passes, under 0.1 s after; 4 MiB is the ledger's noise at rest.
+    static let releaseWait: TimeInterval = 2
+    static let releaseTolerance = 4 << 20
 
     /// **What Metal holds beyond our two heaps, at most, in this process** — the graphics ledger after
     /// each graph or kernel, less the ledger once the VAE's heaps were made. ~0 when every tensor of

@@ -2,35 +2,45 @@ import Foundation
 
 /// **Qwen-Image-2.1's need** — the render of `Chain.render` for this family,
 /// phase by phase, each charged with what its constructors allocate: the same static functions they
-/// call, and `OperatorFootprint`'s few named terms outside our hand.
+/// call, on the configs and tensor tables of the installed maps (`QwenImage21Maps`).
 ///
 ///     references (originals) ─ Lanczos ~R² ─ prepared [3, Hᵢ, Wᵢ] ──────────────────────────────── crossing
 ///          │                                                                                       │
 ///          ├─ vision  : Qwen3VLVision arena (largest image's patches), every pixel_values, the    ┐
-///          │            features done  + the tower's SDPA (queries' copy) · its GEMM             │
-///          ├─ text    : TextEncoder arena (S = prompt + image tokens), its staging layers,        │ one at a
-///          │            pixel_values, features + causal SDPA (mask S², queries' copy) · its GEMM │ time:
+///          │            features done, the tokenizer's tables + the tower's SDPA (queries' copy)  │
+///          ├─ text    : TextEncoder arena (S = prompt + image tokens), its staging layers, the    │ one at a
+///          │            tokenizer's tables, pixel_values, features + causal SDPA (mask S²) · GEMM │ time:
 ///          ├─ refs    : the RGBA handed in + the encoder's two heaps (largest reference)          ┤ peak =
 ///          ├─ denoise : DiT arena (P + S rows, scratch, MLP chunk), K/V arena or file, staging     │ max +
-///          │            blocks (generation only), LoRA slots, reference copies                    │ crossing
+///          │            blocks (K/V in memory only), LoRA slots, reference copies                 │ crossing
 ///          │            + every SDPA the DiT keeps (masks, head splits, queries' copies) · GEMM   │
 ///          └─ decode  : the decoder's two heaps and its RGBA, then the RGB copy                    ┘
+///                       (a batch: the images already decoded, and every latent crossing until then)
 ///
 /// **What crosses** (alive from its birth to the end of the render, charged to every phase — the
 /// earlier phases are overcharged by a few tens of MB, never undercharged): the references as handed
 /// and as prepared (`Chain.render` keeps `prepared` to its end), the encoded text (`text`, read by the
-/// result), the reference latents, the target latent. **The K/V do not cross here**: the prefill runs
-/// inside the first step (`QwenImage21DiT.prefillPending`) and the cache dies with the DiT, before the
-/// decoding (`Context.keptDenoiser = nil`); in memory they are the denoising's, on disk nobody's.
+/// result), the reference latents, the target latent (and the batch's other latents). **The K/V do
+/// not cross here**: the prefill runs inside the first step (`QwenImage21DiT.prefillPending`) and the
+/// cache dies with the DiT, before the decoding (`Context.keptDenoiser = nil`); in memory they are the
+/// denoising's, on disk nobody's.
 ///
 /// What the formula has to know of the code that an estimate by analogy would miss:
 ///
-///   - **the K/V's place follows the prefix, not the operation** (`QwenImage21CachePolicy`): in memory
-///     up to 256 MB (P ≤ 256 rows), on disk beyond. A long prompt (P > 256 text rows) moves a
-///     *generation's* K/V to the file — and with it its staging blocks go (below);
+///   - **the K/V's place follows the prefix, not the operation** (`QwenImage21CachePolicy.storage`, the
+///     one rule the sampler applies too): in memory up to 256 MB (P ≤ 256 rows), on disk beyond. A long
+///     prompt (P > 256 text rows) moves a *generation's* K/V to the file — and with it its staging
+///     blocks go (below);
+///   - **the prompt's tokens are only bounded** (`Request.promptTokens`: its bytes, before any
+///     tokenizer): the bound may say « file » for a prompt whose real prefix stays in memory, where the
+///     K/V arena and the staging blocks are more than the longer arena the file needs. So **while
+///     the real prefix may fall on either side, both placements are charged and the larger kept**
+///     (`placements`): the memory one at the longest prefix it holds, the file one at the bound — the
+///     need never falls when the prompt grows;
 ///   - **the staging blocks of the map's tail exist only with the K/V in memory**
 ///     (`QwenImage21DiT.body`): an edit — or a long generation — streams nothing, whatever the plan's
-///     tail says; a generation takes the plan's slots (`Request.tail`), each a whole layer (~436 MB bf16);
+///     tail says; a generation takes the plan's slots (`Request.tail`), each the largest layer's run
+///     in the map (`QwenImage21Maps.ditLayerStaging`: 436 MB bf16, about half for an 8-bit map);
 ///   - **the scratch is not the prefix**: the prefill runs by groups of segments
 ///     (`QwenImage21DiT.layout`), so `normed`, `o`, the MLP chunk scale with the largest group; `x`,
 ///     `keys`, `values` and the RoPE table scale with the whole sequence `P + S`;
@@ -41,17 +51,73 @@ import Foundation
 ///   - **the modulation is tabulated before the first attention exists** (`tabulateModulation`):
 ///     `modulation.1` widened to fp32 (`Krea2Exact.widenedBytes`, `d × 4d`) is alive beside the arenas,
 ///     not beside the attentions — the larger of the two moments is charged;
-///   - **the tokenizer lives through the whole text phase** (`Qwen3VL` holds it) — its two tables
-///     (`Tokenizer.tableBytes`, ~20 MB) are sized from the file's counts, which no shape function
-///     gives yet: **not charged** (open);
+///   - **the tokenizer lives through the vision and text phases** (`Qwen3VLEncoder` holds it): its two
+///     tables (`Tokenizer.tableBytes(file:)`, ~20 MB, from the installed file's counts);
 ///   - **a generation's half-size DiT** (the spectral schedule, `QwenImage21Sampler`) is built and
-///     released before the full one: never both, the full one is the larger;
-///   - **the VAEs hand everything back before they return**: nothing of the encoder is carried
-///     into the denoising any more, and the decoder's RGBA outlives its heaps only by the RGB copy.
+///     released before the full one: never both, the full one is the larger — and a batch's next image
+///     does not keep the previous full DiT when it builds a half-size one first
+///     (`QwenImage21DenoisingModule.keepsDenoiser`);
+///   - **the VAEs hand everything back before they return** (`VAEMemory.finish` waits for Metal's
+///     ledger): nothing of the encoder is carried into the denoising, and the decoder's RGBA outlives
+///     its heaps only by the RGB copy.
 extension MemoryNeed {
-    static func qwenImage21(_ request: Request, app: Bool) -> MemoryNeed? {
-        QwenImage21Need(request).need(app: app)
+    static func qwenImage21(_ request: Request) -> MemoryNeed? {
+        guard let maps = request.qwenMaps ?? QwenImage21Maps(card: request.card, library: request.library) else { return nil }
+        return QwenImage21Need(request, maps: maps).need
     }
+}
+
+/// **What Qwen-Image-2.1's formula reads beside the request**: the DiT's and the encoder's configs and
+/// tensor tables (their headers, never a tensor), and the tokenizer's table sizes (its file scanned,
+/// `Tokenizer.tableBytes(file:)`) — each file read once, by its stamp. A map whose header does not
+/// parse makes no maps: the need is unknown and the render refused (`EngineError.memoryNeedUnknown`).
+package struct QwenImage21Maps: Sendable {
+    package let dit: QwenImage21DiT.Config
+    package let encoder: TextEncoder.Config
+    package let vision: Qwen3VLVision.Config
+    /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): what a staging block holds.
+    package let ditLayerStaging: Int
+    /// The largest layer's staging run in the encoder's map: what one of its buffers holds.
+    package let encoderLayerStaging: Int
+    /// What the tokenizer's two tables map (`Tokenizer.tableBytes`).
+    package let tokenizerTables: Int
+
+    /// From the headers and the tokenizer's count — pure: the tests hand it headers written in memory.
+    /// `nil` when a config does not parse or a map has no tensor table.
+    package init?(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max,
+                  tokenizerTables: Int) {
+        guard let encoderConfig = try? TextEncoder.Config(header: encoder),
+              let vision = try? Qwen3VLVision.Config(header: encoder) else { return nil }
+        let ditConfig = QwenImage21DiT.Config(header: dit)
+        let ditStaging = Artifact.stagingBytes(header: dit, prefixes: (0..<ditConfig.layers).map(QwenImage21DiT.layerPrefix),
+                                               fileSize: ditSize)
+        let encoderStaging = Artifact.stagingBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig),
+                                                   fileSize: encoderSize)
+        guard ditStaging > 0, encoderStaging > 0 else { return nil }
+        self.dit = ditConfig; self.encoder = encoderConfig; self.vision = vision
+        ditLayerStaging = ditStaging; encoderLayerStaging = encoderStaging; self.tokenizerTables = tokenizerTables
+    }
+
+    /// The maps this card renders with: its own DiT (an imported one) or the library's installed
+    /// version, that version's encoder, the family's tokenizer. `nil` when one cannot be read.
+    package init?(card: ModelCard, library: Library = .processWide) {
+        let ditPath = card.map ?? library.map(library.ditMap(.qwenImage21))
+        let encoderPath = library.map(library.encoderMap(.qwenImage21))
+        guard let processor = try? library.component(.qwenImage21, "processor") else { return nil }
+        let tokenizerPath = processor + "/tokenizer.json"
+        let maps = QwenImage21Maps.installed(MemoryNeed.InstalledFiles(paths: [ditPath, encoderPath, tokenizerPath])) {
+            () -> QwenImage21Maps? in
+            guard let dit = try? Artifact.header(ditPath), let encoder = try? Artifact.header(encoderPath),
+                  let tables = try? Tokenizer.tableBytes(file: tokenizerPath) else { return nil }
+            return QwenImage21Maps(dit: dit, ditSize: MemoryNeed.InstalledFiles.size(ditPath), encoder: encoder,
+                                   encoderSize: MemoryNeed.InstalledFiles.size(encoderPath), tokenizerTables: tables)
+        }
+        guard let maps else { return nil }
+        self = maps
+    }
+
+    /// The maps read, by their files' stamps.
+    private static let installed = ShapeMemo<MemoryNeed.InstalledFiles, QwenImage21Maps?>(capacity: 8)
 }
 
 /// **The shapes of one Qwen-Image-2.1 render**, derived from a `MemoryNeed.Request` as the engine
@@ -76,29 +142,31 @@ package struct QwenImage21Need {
     /// space merged in), `<|vision_end|>` after — the oracle's edit-2 layout has 8 text rows before
     /// image 1 (3 of `<|im_start|>user\n`) and 6 between. What `promptTokens` includes per reference.
     package static let tokensBefore = 5, tokensAfter = 1
-    /// The published map is bf16 (`Family.installedSize(.standard)`): a staging block is a layer of it.
-    /// The card does not say its type yet (open: an 8-bit card's blocks are about half).
-    package static let weightBytes = 2
 
     package let request: MemoryNeed.Request
+    package let maps: QwenImage21Maps
     package let references: [Reference]
     /// The encoder's sequence: the prompt with its template, plus every image token.
     package let encoderTokens: Int
-    /// The DiT's text rows: the encoder's rows past the system turn, image slots excluded.
+    /// The DiT's text rows: the encoder's rows past the system turn, image slots excluded — at most
+    /// (the request's tokens are a bound).
     package let textRows: Int
+    /// The fewest text rows any prompt gives: the template with an empty prompt.
+    package let fewestTextRows: Int
     package let target: (height: Int, width: Int)
-    /// The DiT's joint sequence: text and references in the template's order, the target last.
+    /// The DiT's joint sequence at `textRows`: text and references in the template's order, the target last.
     package let sequence: QwenImage21Sequence
-    package let dit = QwenImage21DiT.Config(header: [:])
+    package var dit: QwenImage21DiT.Config { maps.dit }
     package let vae = QwenImage21VAE.Config()
-    package let vision = Qwen3VLVision.Config.published
+    package var vision: Qwen3VLVision.Config { maps.vision }
     /// The P cores the head split runs on.
-    package var threads = EngineSettings.effective.machine.performanceCores
+    package var threads: Int { request.threads }
 
     /// - `request.promptTokens`: the encoder's tokens **without the image slots** — the template
     ///   (system turn included), the prompt, each image's tags; at least what the template needs.
-    package init(_ request: MemoryNeed.Request) {
+    package init(_ request: MemoryNeed.Request, maps: QwenImage21Maps) {
         self.request = request
+        self.maps = maps
         references = request.references.map { r in
             Reference(original: (r.width, r.height),
                       prepared: Qwen3VLImages.conditionSize(width: r.width, height: r.height,
@@ -107,23 +175,27 @@ package struct QwenImage21Need {
         let n = references.count
         // `<|im_start|>user\n` (3), each image's tags, and after the last image at least the closing
         // `<|im_end|>\n<|im_start|>assistant\n` (5): what the template has with an empty prompt.
-        let fixed = 3 + n * (QwenImage21Need.tokensBefore + QwenImage21Need.tokensAfter) + 5
-        textRows = max(request.promptTokens - QwenImage21Need.dropCount, fixed)
+        fewestTextRows = 3 + n * (QwenImage21Need.tokensBefore + QwenImage21Need.tokensAfter) + 5
+        textRows = max(request.promptTokens - QwenImage21Need.dropCount, fewestTextRows)
         encoderTokens = textRows + QwenImage21Need.dropCount + references.reduce(0) { $0 + $1.slots }
         target = (request.height / 16, request.width / 16)
-        let (references, textRows, target) = (references, textRows, target)
+        sequence = QwenImage21Need.jointSequence(textRows: textRows, references: references, target: target)
+    }
+
+    /// **The joint sequence's layout** for `textRows` text rows: the user header, each image between its
+    /// tags, the rest of the text after the last image, then the target's slots.
+    package static func jointSequence(textRows: Int, references: [Reference],
+                                 target: (height: Int, width: Int)) -> QwenImage21Sequence {
         // Its inputs: the text rows, each reference's latent grid, the target's (`sequences`).
         let key = [textRows, target.height, target.width] + references.flatMap { [$0.latent.height, $0.latent.width] }
-        sequence = QwenImage21Need.sequences(key) {
-            // The joint sequence's layout: the user header, each image between its tags, the rest of the
-            // text after the last image, then the target's slots.
+        return sequences(key) {
             var slots: [Bool] = []
             func text(_ count: Int) { slots += [Bool](repeating: false, count: count) }
             text(3)
             for (i, reference) in references.enumerated() {
                 text(QwenImage21Need.tokensBefore)
                 slots += [Bool](repeating: true, count: reference.slots)
-                if i < n - 1 { text(QwenImage21Need.tokensAfter) }
+                if i < references.count - 1 { text(QwenImage21Need.tokensAfter) }
             }
             text(textRows - slots.filter { !$0 }.count)
             slots += [Bool](repeating: true, count: target.height * target.width / 4)
@@ -142,13 +214,14 @@ package struct QwenImage21Need {
 
     /// The vision tower, one image at a time in an arena sized for the largest (its `Attention` built
     /// per image and dropped with it); every image's `pixel_values` and the features of those done are
-    /// held (they feed the language model).
+    /// held (they feed the language model), and the tokenizer the encoder holds.
     package var visionPhase: MemoryNeed.Phase? {
         guard let largest = references.map(\.patches).max() else { return nil }
         let (d, i, m, o) = (vision.hidden, vision.intermediate, vision.merged, vision.output)
         return .init(kind: .vision, terms: [
             Term("vision arena", Qwen3VLVision.arenaBytes(config: vision, patches: largest)),
             Term("pixel_values", pixelValues), Term("vision features", features),
+            Term("tokenizer tables", maps.tokenizerTables),
         ] + MemoryNeed.attention("vision", heads: vision.heads, rows: largest, keys: largest, headDim: vision.headDim,
                                  causal: false, split: false, threads: threads)
           + MemoryNeed.gemm("vision", products: [(largest, vision.patchValues, d), (largest, d, 3 * d), (largest, d, d),
@@ -157,16 +230,16 @@ package struct QwenImage21Need {
 
     /// The language model on the whole sequence, with its staging layers (`Request.encoderSlots`).
     package var textPhase: MemoryNeed.Phase {
-        let s = encoderTokens
-        let (h, kv, i) = (QwenImage21Need.encoderHidden, QwenImage21Need.encoderKV, QwenImage21Need.encoderIntermediate)
-        let a = QwenImage21Need.encoderHeads * QwenImage21Need.encoderHeadDim
+        let s = encoderTokens, e = maps.encoder
+        let (h, a, kv, i) = (e.hidden, e.attentionWidth, e.kvWidth, e.intermediate)
         return .init(kind: .text, terms: [
-            Term("encoder arena", TextEncoder.arenaBytes(config: QwenImage21Need.encoderConfig, sequence: s)),
-            Term("encoder staging", TextEncoder.stagingSlots(granted: request.encoderSlots) * QwenImage21Need.encoderLayerBytes),
+            Term("encoder arena", TextEncoder.arenaBytes(config: e, sequence: s)),
+            Term("encoder staging", TextEncoder.stagingSlots(granted: request.encoderSlots) * maps.encoderLayerStaging),
             Term("pixel_values", pixelValues), Term("vision features", features),
-        ] + MemoryNeed.attention("encoder", heads: QwenImage21Need.encoderHeads, rows: s, keys: s,
-                                 headDim: QwenImage21Need.encoderHeadDim, causal: true, split: false, threads: threads)
-          + MemoryNeed.gemm("encoder", products: [(s, h, a), (s, h, kv), (s, a, h), (s, h, i), (s, i, h)]))
+            Term("tokenizer tables", maps.tokenizerTables),
+        ] + MemoryNeed.attention("encoder", heads: e.heads, rows: s, keys: s, headDim: e.headDim, causal: true,
+                                 split: false, threads: threads)
+          + MemoryNeed.gemm("encoder", bounded: [(s, h, a), (s, h, kv), (s, a, h), (s, h, i), (s, i, h)]))
     }
 
     /// The pixels of the largest prepared reference: what the encoder is planned for.
@@ -184,11 +257,37 @@ package struct QwenImage21Need {
                                                                          width: largest.width)))
     }
 
-    /// Where the conditions' K/V live (`QwenImage21CachePolicy`, the pipeline's choice).
+    /// Where the conditions' K/V live at the bound (`QwenImage21CachePolicy`, the sampler's rule).
     package var storage: QwenImage21DiT.CacheStorage { QwenImage21CachePolicy.storage(prefix: sequence.prefix) }
 
-    /// The full-size DiT (the half-size one, a generation's first steps, is gone before it is built).
+    /// **Every placement the real prefix may take, with the text rows charged for it**: the bound's,
+    /// and — when the bound's prefix is on disk but the fewest text rows' would stay in memory — the
+    /// memory one at the longest prefix it holds. The real token count lies between the two ends; each
+    /// placement's need grows with the rows, so its longest case bounds it.
+    package var placements: [(storage: QwenImage21DiT.CacheStorage, textRows: Int)] {
+        var cases = [(storage, textRows)]
+        let imageRows = sequence.prefix - textRows
+        let longest = QwenImage21CachePolicy.largestMemoryPrefix - imageRows
+        if storage == .file, longest >= fewestTextRows,
+           QwenImage21CachePolicy.storage(prefix: longest + imageRows) == .memory {
+            cases.append((.memory, min(longest, textRows)))
+        }
+        return cases
+    }
+
+    /// The full-size DiT (the half-size one, a generation's first steps, is gone before it is built):
+    /// the larger over the placements the prefix may take (`placements`).
     package var denoisingPhase: MemoryNeed.Phase {
+        placements.map { placement in
+            denoisingPhase(sequence: placement.textRows == textRows ? sequence
+                                : QwenImage21Need.jointSequence(textRows: placement.textRows, references: references, target: target),
+                           textRows: placement.textRows, storage: placement.storage)
+        }.max { $0.bytes < $1.bytes }!
+    }
+
+    /// The full-size DiT on `sequence`, its K/V `storage`.
+    package func denoisingPhase(sequence: QwenImage21Sequence, textRows: Int,
+                                storage: QwenImage21DiT.CacheStorage) -> MemoryNeed.Phase {
         let p = sequence.prefix, s = sequence.target, all = sequence.count
         let (_, scratch) = QwenImage21DiT.layout(sequence, fullPass: storage == .recompute)
         let rank = request.loraRanks.reduce(0, +)
@@ -200,7 +299,8 @@ package struct QwenImage21Need {
                                                         fullPass: storage == .recompute)),
             Term("K/V arena", p > 0 && storage == .memory ? QwenImage21DiT.cacheArenaBytes(config: dit, prefix: p) : 0),
             // The map's staging blocks: only with the K/V in memory (`QwenImage21DiT.body`).
-            Term("map staging", storage == .memory && request.tail.fraction > 0 ? request.tail.slots * ditLayerBytes : 0),
+            Term("map staging", storage == .memory && request.tail.fraction > 0
+                ? request.tail.slots * maps.ditLayerStaging : 0),
         ]
         // Two slots of the user's stack, on the 7 Linears of a block (`StreamedLoRA`), and, with more
         // than one LoRA, the `down` staging of the module a slot fills (`LoRA.downBytes`).
@@ -219,11 +319,14 @@ package struct QwenImage21Need {
             + vae.zDim * s * 4 + QwenImage21Pipeline.defaultSteps * dit.modulation * 4))
         // The two moments past the arenas: the modulation tabulated (`modulation.1` widened, and under a
         // LoRA its `down`/`up` in `Pages`), then every attention and the GEMM. The larger is charged.
-        let attentions = ditAttentions(scratch: scratch)
+        let attentions = ditAttentions(sequence: sequence, scratch: scratch)
         let mlpRows = QwenImage21DiT.mlpRows(scratch: scratch, hidden: h)
-        let running = attentions + MemoryNeed.gemm("DiT", products: [(scratch, d, d), (mlpRows, d, h), (mlpRows, h, d),
-                                                                     (textRows, dit.context, d),
-                                                                     (largestImage, dit.channels, d)])
+        // The images' rows are exact; the scratch (the prefill's groups hold text) and the text's follow
+        // the tokens' bound.
+        let running = attentions + MemoryNeed.gemm("DiT", products: [(largestImage, dit.channels, d)],
+                                                   bounded: [(scratch, d, d), (mlpRows, d, h), (mlpRows, h, d),
+                                                             (textRows, dit.context, d)],
+                                                   rank: rank)
         let widened = Krea2Exact.widenedBytes(inputs: d, outputs: 4 * d)
             + (rank > 0 ? Arena.capacity(for: d * rank * 4) + Arena.capacity(for: rank * 4 * d * 4) : 0)
         let runningBytes = running.reduce(0) { $0 + $1.bytes }
@@ -234,7 +337,7 @@ package struct QwenImage21Need {
 
     /// The decoder's two heaps and the RGBA it returns (`QwenImage21VAEDecoder.plan`); then, its heaps
     /// handed back, the RGB copy `QwenImage21DecodingModule` takes of the RGBA (`Array(rgba.prefix(3·H·W))`)
-    /// — the larger of the two moments.
+    /// — the larger of the two moments; and a batch's images already decoded.
     package var decodingPhase: MemoryNeed.Phase {
         let (H, W) = (vae.factor * target.height, vae.factor * target.width)
         let band = request.minimumBands ? min(QwenImage21VAEDecoder.bandPixels, MemoryPlan.qwenMinimumBand)
@@ -243,22 +346,26 @@ package struct QwenImage21Need {
                                               bandPixels: band)
         let rgb = 3 * H * W * 4
         return .init(kind: .decoding, terms: MemoryNeed.vae("Qwen decoder", plan)
-            + [Term("RGB copy beyond the heaps", max(0, rgb - plan.registers - plan.workspace))])
+            + [Term("RGB copy beyond the heaps", max(0, rgb - plan.registers - plan.workspace)),
+               MemoryNeed.batchImages(request)])
     }
 
-    /// The references as handed and as prepared, the encoded text, the reference latents, the target latent.
+    /// The references as handed and as prepared, the encoded text, the reference latents, the target
+    /// latent — and the batch's other targets, waiting for their decoding.
     package var crossing: Int {
         let images = references.reduce(0) {
             $0 + 3 * ($1.original.width * $1.original.height + $1.prepared.width * $1.prepared.height)
         }
         let rows = encoderTokens - QwenImage21Need.dropCount
-        let latents = references.reduce(0) { $0 + vae.zDim * $1.patches } + vae.zDim * target.height * target.width
-        return (images + rows * QwenImage21Need.encoderHidden + latents) * 4 + rows
+        let targetLatent = vae.zDim * target.height * target.width
+        let latents = references.reduce(0) { $0 + vae.zDim * $1.patches } + targetLatent
+        return (images + rows * maps.encoder.hidden + latents) * 4 + rows
+            + MemoryNeed.batchLatents(request, latent: targetLatent * 4)
     }
 
-    package func need(app: Bool) -> MemoryNeed {
+    package var need: MemoryNeed {
         MemoryNeed(phases: [visionPhase, textPhase, referencesPhase, denoisingPhase, decodingPhase].compactMap { $0 },
-                   crossing: crossing, base: OperatorFootprint.processBase(app: app))
+                   crossing: crossing, base: request.base)
     }
 
     // ── the pieces ───────────────────────────────────────────────────────────────────────────
@@ -274,17 +381,10 @@ package struct QwenImage21Need {
                                                                levels: vision.deepstack.count) }
     }
 
-    /// One layer of the DiT's map, as `Artifact.span` measures a staging block: 4 attention
-    /// projections `d²`, the 3 MLP weights `d·h`, the two QK-Norm weights, rounded to a page.
-    private var ditLayerBytes: Int {
-        let (d, h) = (dit.dim, dit.hidden)
-        return Arena.capacity(for: (4 * d * d + 3 * d * h + 2 * dit.headDim) * QwenImage21Need.weightBytes)
-    }
-
     /// **Every SDPA the DiT keeps** (`attentions`, `headSplits`: one per cache key, alive to the end of
     /// the denoising), enumerated as `QwenImage21DiT.attend` builds them — each slice's rows and visible
     /// keys, the causal text segments with their mask, the target cut by heads.
-    private func ditAttentions(scratch: Int) -> [Term] {
+    private func ditAttentions(sequence: QwenImage21Sequence, scratch: Int) -> [Term] {
         let heads = dit.heads, headDim = dit.headDim, p = sequence.prefix, all = sequence.count
         var terms: [Term] = []
         var built = Set<String>()
@@ -306,26 +406,5 @@ package struct QwenImage21Need {
         }
         attend(count: all - p, keys: all, causal: false, target: true)
         return terms
-    }
-
-    // ── Qwen3-VL-8B's language model, as `TextEncoder` sizes it ─────────────────────────────
-
-    /// Qwen3-VL-8B's text config (`text_config` of the encoder's map): hidden = attention width 4096,
-    /// 32 heads of 128, 8 K/V heads, MLP 12 288.
-    private static let encoderHidden = 4096, encoderHeads = 32, encoderHeadDim = 128, encoderKV = 1024,
-                       encoderIntermediate = 12_288
-
-    /// Qwen3-VL-8B's text config as published, through the encoder's own parser: the formula does not
-    /// open the card, and the arena then comes from the very function `TextEncoder.init` calls.
-    private static let encoderConfig = try! TextEncoder.Config(
-        ["config": ["hidden_size": encoderHidden, "num_attention_heads": encoderHeads,
-                    "num_key_value_heads": encoderKV / encoderHeadDim, "head_dim": encoderHeadDim,
-                    "intermediate_size": encoderIntermediate]], lastLayer: 35)
-
-    /// One layer of the encoder's map (bf16), a staging buffer of `TextEncoder.encode`: q, o `h·a`,
-    /// k, v `h·kv`, the 3 MLP weights `h·i`, two RMSNorms and the QK-Norms.
-    private static var encoderLayerBytes: Int {
-        let (h, kv, i) = (encoderHidden, encoderKV, encoderIntermediate)
-        return Arena.capacity(for: (2 * h * h + 2 * h * kv + 3 * h * i + 2 * h + 2 * encoderHeadDim) * weightBytes)
     }
 }

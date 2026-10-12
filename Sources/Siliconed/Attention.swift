@@ -129,13 +129,8 @@ package final class Attention {
     ///   query axis (`[1, kvHeads, g·S, Dh]`), by permutation (+1 GB of footprint at 1024²) or by
     ///   `reshape` after the transposition (+300 MB) — `MPSGraph` materializes an intermediate there.
     ///   Beyond `maxMatrix`, the queries are split into slices (see `isSplit`).
-    /// - Parameter visibleKeys: with `causal`, **the keys beyond it are masked for all
-    ///   queries** — the right padding of an encoder that keeps it (FLUX.2 [klein] re-reads its 512
-    ///   positions). A padding query then sees only the real tokens, never itself:
-    ///   it is `transformers`' `causal ∧ attention_mask` mask. `nil`: the previous mask.
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
-                causal: Bool = false, queryChunk: Int = 0, keySequence: Int? = nil, kvHeads: Int? = nil,
-                visibleKeys: Int? = nil) {
+                causal: Bool = false, queryChunk: Int = 0, keySequence: Int? = nil, kvHeads: Int? = nil) {
         let keys = keySequence ?? sequence
         let kvHeads = kvHeads ?? heads
         precondition(keys == sequence || queryChunk == 0, "cross-attention: no split")
@@ -179,9 +174,9 @@ package final class Attention {
         if causal {
             let pages = Pages(bytes: Attention.maskBytes(sequence: sequence, keys: keys))
             let values = pages.floats()           // zero-filled by the kernel: the visible keys
-            let visible = min(visibleKeys ?? keys, keys), offset = keys - sequence
+            let offset = keys - sequence
             for row in 0..<sequence {
-                for column in min(offset + row + 1, visible)..<keys { values[row * keys + column] = -.infinity }
+                for column in (offset + row + 1)..<keys { values[row * keys + column] = -.infinity }
             }
             let shape: [NSNumber] = [1, 1, NSNumber(value: sequence), NSNumber(value: keys)]
             let buffer = device.makeBuffer(bytesNoCopy: pages.base, length: pages.capacity,

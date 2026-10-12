@@ -2,7 +2,10 @@
 
 # Siliconed — notes de version
 
-## 0.7
+## 0.7.1
+
+La 0.7 n’a jamais été publiée : la 0.7.1 la porte, avec le calcul de la mémoire rendu exact dans
+les cas qu’il manquait.
 
 ### Mémoire : un budget fixe
 
@@ -12,11 +15,16 @@
   les autres applications occupent leur appartient.
 - **Connu avant le premier pas.** Chaque rendu calcule la mémoire qu’il lui faut d’après son format,
   son prompt, ses images et ses LoRA, prend le plan le plus rapide qui tient dans le budget, et
-  compare son propre pic à ce chiffre. Plus rien ne change de plan en cours de route.
+  compare son propre pic à ce chiffre. Plus rien ne change de plan en cours de route. Ce chiffre est
+  une borne haute : un long prompt sur Qwen-Image-2.1, un lot de plusieurs images et la mémoire de
+  l’app elle-même sont comptés, et un rendu dont le besoin ne se calcule pas est refusé plutôt que
+  lancé à l’aveugle.
 - **Grisé d’avance.** Un format ou un modèle au-delà du budget de ce Mac est grisé avant le clic,
   avec le Mac qu’il demanderait : « demande un Mac de 24 Go ».
+- **Les lots de Qwen-Image-2.1** ne gardent plus deux copies du modèle à la fois.
 - Mêmes images, au bit près. Mesuré sur le M1 Pro : Z-Image Turbo en 1024² en 81 s,
-  Qwen-Image-2.1 en 1024² en 126 s.
+  Qwen-Image-2.1 en 1024² en 116 s ; la plus grande édition (1024×1536, trois images) culmine à
+  3,2 Go.
 - Le rapport de diagnostic (schéma 4) donne le budget, le besoin de chaque étage et le pic mesuré en
   face.
 

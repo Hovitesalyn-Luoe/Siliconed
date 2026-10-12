@@ -15435,58 +15435,86 @@
         }
       }
     },
-    "The memory %@ needs at this size (measured peak)" : {
+    "The memory %@ needs at this size (computed)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Arbeitsspeicher, den %@ in diesem Format braucht (gemessene Spitze)"
+            "value" : "Der Arbeitsspeicher, den %@ in diesem Format braucht (berechnet)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La memoria que necesita %@ a este tamaño (pico medido)"
+            "value" : "La memoria que necesita %@ a este tamaño (calculada)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La mémoire qu’il faut à %@ à cette taille (pic mesuré)"
+            "value" : "La mémoire qu’il faut à %@ à cette taille (calculée)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La memoria che serve a %@ a questa dimensione (picco misurato)"
+            "value" : "La memoria che serve a %@ a questa dimensione (calcolata)"
           }
         }
       }
     },
-    "The memory this render needs at this size (measured peak)" : {
+    "The memory %@ needs can't be computed: its files can't be read." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Arbeitsspeicher, den dieses Rendering in diesem Format braucht (gemessene Spitze)"
+            "value" : "Der Arbeitsspeicher, den %@ braucht, lässt sich nicht berechnen: seine Dateien sind nicht lesbar."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La memoria que necesita este renderizado a este tamaño (pico medido)"
+            "value" : "No se puede calcular la memoria que necesita %@: sus archivos no se pueden leer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La mémoire qu’il faut à ce rendu à cette taille (pic mesuré)"
+            "value" : "La mémoire qu’il faut à %@ ne peut pas être calculée : ses fichiers sont illisibles."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La memoria che serve a questo rendering a questa dimensione (picco misurato)"
+            "value" : "La memoria che serve a %@ non si può calcolare: i suoi file non sono leggibili."
+          }
+        }
+      }
+    },
+    "The memory this render needs at this size (computed)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Arbeitsspeicher, den dieses Rendering in diesem Format braucht (berechnet)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La memoria que necesita este renderizado a este tamaño (calculada)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La mémoire qu’il faut à ce rendu à cette taille (calculée)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La memoria che serve a questo rendering a questa dimensione (calcolata)"
           }
         }
       }
@@ -16299,34 +16327,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le due immagini del soggetto: ognuna ha la sua cornice"
-          }
-        }
-      }
-    },
-    "The text encoder stays: %@ uses it too." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Text-Encoder bleibt: %@ verwendet ihn ebenfalls."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El codificador de texto se queda: %@ también lo usa."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’encodeur de texte reste : %@ le lit aussi."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’encoder di testo resta: lo usa anche %@."
           }
         }
       }

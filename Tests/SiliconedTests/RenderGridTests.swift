@@ -130,7 +130,7 @@ final class RenderGridTests: XCTestCase {
         XCTAssertEqual(g.cells.map(\.model), ["z-image", "qwen-image-2.1", "z-image", "qwen-image-2.1"])
         XCTAssertEqual(Set(g.cells.map(\.steps)), [nil])
         XCTAssertEqual(g.values(of: g.x), [.model("z-image"), .model("qwen-image-2.1")])
-        let stepped = try RenderGrid(base, x: .models(["z-image", "klein-4b"]), y: .steps([4, 8]))
+        let stepped = try RenderGrid(base, x: .models(["z-image", "anima"]), y: .steps([4, 8]))
         XCTAssertEqual(stepped.cells.map(\.steps), [4, 4, 8, 8])
         XCTAssertEqual(Set(try RenderGrid(base, x: .consecutiveSeeds(count: 2)).cells.map(\.model)), [nil])
 

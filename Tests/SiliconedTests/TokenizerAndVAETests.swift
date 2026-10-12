@@ -231,7 +231,7 @@ final class TokenizerAndVAETests: XCTestCase {
            "vocab": {"a": 0, "b": 1, "c": 2, "ab": 3, "abc": 4, "q\"\\": 5, "b": 6, "😀": 7},
            "merges": ["a b", ["ab", "c"], ["a", "b"]]}}
         """#
-        let path = NSTemporaryDirectory() + "m171-tokenizer-\(getpid()).json"
+        let path = NSTemporaryDirectory() + "siliconed-tokenizer-\(getpid()).json"
         try json.write(toFile: path, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: path) }
         let t = try Tokenizer(file: path)
@@ -245,5 +245,9 @@ final class TokenizerAndVAETests: XCTestCase {
         XCTAssertEqual(t.rank(of: "a", "b"), 2)
         XCTAssertEqual(t.rank(of: "ab", "c"), 1)
         XCTAssertEqual(t.encode("abc<|x|>"), [4, 9])
+        // **What the memory need charges for it is what it maps**: the file's counts, scanned without
+        // building a table (`Tokenizer.tableBytes(file:)`, `QwenImage21Maps`).
+        XCTAssertEqual(try Tokenizer.tableBytes(file: path), t.tableBytes)
+        XCTAssertThrowsError(try Tokenizer.tableBytes(file: path + ".absent"))
     }
 }

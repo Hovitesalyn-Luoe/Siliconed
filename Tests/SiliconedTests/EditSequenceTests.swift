@@ -18,9 +18,6 @@ final class EditSequenceTests: XCTestCase {
         text: QwenImage21TextModule(map: "", tokenizer: ""),
         denoising: QwenImage21DenoisingModule(map: "", scheduler: .init()),
         decoding: QwenImage21DecodingModule(path: ""), encoding: QwenImage21EncodingModule(path: "")))
-    private let klein = Model(card: .klein4b, chain: try! Chain(
-        text: KleinTextModule(map: "", tokenizer: ""), denoising: KleinDenoisingModule(map: ""),
-        decoding: Flux2DecodingModule(path: ""), encoding: Flux2EncodingModule(path: "")))
 
     private func image(_ width: Int, _ height: Int, rgb: (Float, Float, Float) = (0, 0, 0)) -> ImageRGB {
         let plane = width * height
@@ -59,33 +56,23 @@ final class EditSequenceTests: XCTestCase {
         XCTAssertTrue(d.editFormat(referenceWidth: 1, referenceHeight: 1) == (1024, 1024))
     }
 
-    /// **FLUX.2 [klein]'s rule** (the protocol's default): the reference's own size under 1024², at
-    /// multiples of 16, each side raised to 512. It does not cap the area: beyond a ratio of about
-    /// 9:1, raising the short side to 512 puts the format over `Format.maxSurface`, and the render
-    /// is refused (`EngineError.formatRefused`, `.tooLarge`) instead of being given a smaller format.
-    func testKleinEditFormat() throws {
-        let d = klein.chain.denoising
+    /// **The protocol's default** (a denoiser that does not edit): the reference's own size floored
+    /// to a multiple of 16, each side raised to 512, the long side shrunk under `Format.maxSurface`.
+    func testTheDefaultEditFormatIsAlwaysRenderable() {
+        let d = ZImageDenoisingModule(map: "")
         for (w, h) in sizes {
             let f = d.editFormat(referenceWidth: w, referenceHeight: h)
-            XCTAssertGreaterThanOrEqual(min(f.width, f.height), Format.minimumSide, "\(w)×\(h) → \(f)")
-            XCTAssertEqual(f.width % 16, 0); XCTAssertEqual(f.height % 16, 0)
-            if max(w, h) <= 9 * min(w, h) {
-                XCTAssertNoThrow(try Format.check(width: f.width, height: f.height), "\(w)×\(h) → \(f)")
-            }
+            XCTAssertEqual(f.width % 16, 0, "\(w)×\(h) → \(f)"); XCTAssertEqual(f.height % 16, 0, "\(w)×\(h) → \(f)")
+            XCTAssertNoThrow(try Format.check(width: f.width, height: f.height), "\(w)×\(h) → \(f)")
         }
         XCTAssertTrue(d.editFormat(referenceWidth: 1216, referenceHeight: 832) == (1216, 832))
-        XCTAssertTrue(d.editFormat(referenceWidth: 3000, referenceHeight: 2000) == (1248, 832))
-        let strip = d.editFormat(referenceWidth: 10_000, referenceHeight: 1000)
-        XCTAssertNoThrow(try Format.check(width: strip.width, height: strip.height), "\(strip) for a 10:1 reference")
-        XCTAssertEqual(strip.height, Format.minimumSide)
+        XCTAssertTrue(d.editFormat(referenceWidth: 1000, referenceHeight: 1) == (992, 512))
     }
 
     /// **The app's former copy (`EditFormat`, since removed) against the engine's rule.** The
     /// copy is kept here, frozen as it was at `879475b`, to say exactly where the two differed:
     ///
-    /// - FLUX.2 [klein]: the same code — identical wherever the copy respected the area cap; past
-    ///   ~6:1 it did not (10:1 gave 3232×512, refused by `Format`), and the engine now caps it;
-    /// - Qwen-Image-2.1: identical as long as both sides of `calculate_dimensions(1024², ratio)`
+    /// Identical as long as both sides of `calculate_dimensions(1024², ratio)`
     ///   reach 512, i.e. up to a ratio of about 4.2:1. Beyond, the copy raised the short side to 512
     ///   **alone** (the ratio lost), the engine raises it keeping the ratio, then caps the area:
     ///   a 5:1 reference gave 2304×512 in the app and gives 2560×512 now. The app and the CLI
@@ -101,19 +88,8 @@ final class EditSequenceTests: XCTestCase {
             }
             return (w, h)
         }
-        func h1Klein(_ width: Int, _ height: Int) -> (width: Int, height: Int) {
-            let scale = min(1, (Double(1024 * 1024) / Double(width * height)).squareRoot())
-            let w = max(64, Int(Double(width) * scale) / 16 * 16), h = max(64, Int(Double(height) * scale) / 16 * 16)
-            return (max(Format.minimumSide, w), max(Format.minimumSide, h))
-        }
         var differing: [String] = []
         for (w, h) in sizes {
-            let kleinNow = klein.chain.denoising.editFormat(referenceWidth: w, referenceHeight: h), kleinThen = h1Klein(w, h)
-            if kleinThen.width * kleinThen.height <= Format.maxSurface {
-                XCTAssertTrue(kleinNow == kleinThen, "\(w)×\(h)")
-            } else {   // past ~6:1 the old rule broke the area cap; the engine's long side now gives way
-                XCTAssertNoThrow(try Format.check(width: kleinNow.width, height: kleinNow.height), "\(w)×\(h)")
-            }
             let engine = qwen.chain.denoising.editFormat(referenceWidth: w, referenceHeight: h), copy = h1Qwen(w, h)
             let c = Qwen3VLImages.conditionSize(width: w, height: h, resolution: 1024)
             if min(c.width, c.height) >= Format.minimumSide {
@@ -165,7 +141,6 @@ final class EditSequenceTests: XCTestCase {
     func testTheChainDeclaresTheEdit() {
         XCTAssertTrue(qwen.chain.text.output.readsImages)
         XCTAssertTrue(qwen.chain.text is any ImageTextModule)
-        XCTAssertFalse(klein.chain.text.output.readsImages)
         XCTAssertTrue(qwen.chain.entries.contains { $0.kind == .reference })
         XCTAssertFalse(qwen.chain.entries.contains { $0.kind == .image })
     }

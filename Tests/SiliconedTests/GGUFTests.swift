@@ -222,32 +222,6 @@ final class GGUFTests: XCTestCase {
         try assertDequantizes(map, "txt_in.text_norm.weight", to: [Float](repeating: 1.5, count: 8))
     }
 
-    /// FLUX.2's single-block `to_out`, cut on its input: on a block boundary the two shares stay
-    /// 8-bit with their blocks' scales; across a block, both go to fp32, and the journal says why.
-    func testColumnSplitKeepsBlocksOnlyOnTheirBoundary() throws {
-        for d in [64, 48] {
-            let k = 128, m = k - d
-            let w = q8(d, k)
-            let path = try write([Tensor(name: "single_blocks.0.linear2.weight", shape: [d, k], type: 8, bytes: w.bytes)],
-                                 name: "klein-\(d).gguf")
-            let (map, outcomes) = try forge(try TensorSource(paths: [path]), family: .klein4b)
-            let full = reference(w, d, k)
-            for (part, begin, number) in [("attn", 0, d), ("mlp", d, m)] {
-                let name = "single_transformer_blocks.0.attn.to_out.\(part).weight"
-                let share = (0..<d).flatMap { r in full[(r * k + begin)..<(r * k + begin + number)] }
-                try assertDequantizes(map, name, to: transposed(share, rows: d, columns: number))
-                if d % 32 == 0 {
-                    XCTAssertEqual(outcomes[name], .kept8bit)
-                    XCTAssertEqual(map.tensors[name]?.scale?.shape, [number / 32, d])
-                } else {
-                    XCTAssertEqual(map.tensors[name]?.dtype, .float32)
-                    guard case .dequantized(let why)? = outcomes[name] else { return XCTFail("\(name): \(String(describing: outcomes[name]))") }
-                    XCTAssertTrue(why.contains("cut its blocks"), why)
-                }
-            }
-        }
-    }
-
     /// Any ggml type below the floor (Q3_K, Q2_K, the I-quants, Q8_1, MXFP4…) or unknown
     /// refuses the file — by name, at the import's door. (Q4_0…Q6_K are read: `KQuantTests`.)
     func testOtherTypesRefuseTheWholeFile() throws {

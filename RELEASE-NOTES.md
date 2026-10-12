@@ -2,7 +2,10 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
-## 0.7
+## 0.7.1
+
+0.7 was never released: 0.7.1 carries it, with the memory computation made exact in the cases it
+missed.
 
 ### Memory: a fixed budget
 
@@ -12,11 +15,14 @@ English · [Français](RELEASE-NOTES.fr.md)
   theirs.
 - **Known before the first step.** Each render computes the memory it needs from its format, its
   prompt, its images and its LoRAs, takes the fastest plan that fits in the budget, and checks its
-  own peak against that figure. Nothing switches plans halfway through any more.
+  own peak against that figure. Nothing switches plans halfway through any more. The figure is an
+  upper bound: a long prompt on Qwen-Image-2.1, a batch of several images and the app's own memory
+  are counted, and a render whose need cannot be computed is refused rather than started blind.
 - **Greyed out ahead.** A format or a model beyond this Mac's budget is greyed out before you click,
   with the Mac it would need: “needs a Mac with 24 GB”.
+- **Batches of Qwen-Image-2.1** no longer keep two copies of the model at once.
 - Same images, bit for bit. Measured on the M1 Pro: Z-Image Turbo 1024² in 81 s, Qwen-Image-2.1
-  1024² in 126 s.
+  1024² in 116 s; the largest edit (1024×1536, three images) peaks at 3.2 GB.
 - The diagnostic report (schema 4) gives the budget, the need of each stage and the peak measured
   against it.
 

@@ -46,7 +46,7 @@ enum SubjectSource {
 /// thumbnails, the switch.
 @MainActor @Observable
 final class SubjectLibrary {
-    /// **The switch** — a flag in the product, against the rule « one version lives » (`CLAUDE.md`):
+    /// **The switch** — a flag in the product, against the rule « one version lives, no flag in the product »:
     /// an exception wanted for an experimental feature, so that it ships hidden until its words have
     /// been judged by eye. One key; off by default. A preference, not the user's content.
     static let enabledKey = "namedSubjects"

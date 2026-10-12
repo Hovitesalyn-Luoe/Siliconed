@@ -81,6 +81,29 @@ package final class GEMM {
     }
     private lazy var tiers = Tiers(device: device)
 
+    /// Whether `m` rows go through the padding tiers: 8 to 32 (`poisonedRows`), or a tail under 64 rows
+    /// past a body (`rowSplit`) — what `linear` and `lora` do.
+    package static func goesThroughTiers(_ m: Int) -> Bool { poisonedRows.contains(m) || rowSplit(m).tail > 0 }
+
+    /// **The tiers' bytes over these products** — what `Tiers` grows to: `a` at `submittedRows · k`, `c`
+    /// at `submittedRows · n` for the widest `k` and `n` among the products that go through them, and,
+    /// under a LoRA of cumulative rank `rank`, `mid` at `submittedRows · rank`; each an `MTLBuffer`, a
+    /// whole number of pages. 0 when no product goes through. An upper bound: the conductor's GPU slices
+    /// are multiples of 256 rows and never go through, but whether it takes a product is decided at run.
+    ///
+    /// `bounded`: products whose height is only an upper bound (it follows the prompt's tokens, which
+    /// the need bounds by its bytes) — any height from 8 to it may be the real one, and one of them goes
+    /// through: charged whenever the bound reaches 8. A height that becomes a multiple of 64 would
+    /// otherwise make the need *fall* as the prompt grows (by 6 MB at Qwen-Image-2.1's MLP width).
+    package static func tierBytes(products: [(m: Int, k: Int, n: Int)], bounded: [(m: Int, k: Int, n: Int)] = [],
+                                  rank: Int = 0) -> Int {
+        let tiered = products.filter { goesThroughTiers($0.m) } + bounded.filter { $0.m >= poisonedRows.lowerBound }
+        guard let k = tiered.map(\.k).max(), let n = tiered.map(\.n).max() else { return 0 }
+        let rows = submittedRows
+        return Arena.capacity(for: rows * k * 4) + Arena.capacity(for: rows * n * 4)
+            + (rank > 0 ? Arena.capacity(for: rows * rank * 4) : 0)
+    }
+
     /// **A GPU submission's height is a multiple of 64, or below 64 — never in between.**
     ///
     /// MPS's fast fp32 kernel (the one the padding tiers leave in place) writes **canonical NaN**
@@ -306,10 +329,7 @@ package final class GEMM {
 
     /// **`C += A · W`** — a GEMM that accumulates instead of writing, weight stored `[input, output]`.
     ///
-    /// Two callers: the `to_out` of a FLUX.2 [klein] single block, which reads `[attention | MLP]`
-    /// side by side (two products on the two halves of `k`, the second accumulated, make the same
-    /// product without copying the two inputs into a third); and Qwen-Image-2.1's merged LoRA,
-    /// `W += down · up` (`m` = the weight's `k`). Outside the conductor, like `lora` and for the
+    /// Qwen-Image-2.1's merged LoRA, `W += down · up` (`m` = the weight's `k`). Outside the conductor, like `lora` and for the
     /// same reason: the GPU/AMX cut writes its slice, it does not accumulate.
     ///
     /// ⚠️ **It does not split the rows into a multiple of 64 plus a padded tail** as `linear` and

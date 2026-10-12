@@ -418,8 +418,6 @@ package final class Artifact {
         through = ReadThrough(descriptor: fd)
     }
     private var through: ReadThrough?
-    /// In `readThrough` mode, a pointer lives until the next tensor is read: nothing may keep it.
-    package var readsThrough: Bool { through != nil }
 
     /// The pointer into the map itself, never a staging copy: for the prefetcher's `madvise`.
     package func mappedPointer(_ name: String) -> UnsafeRawPointer? {

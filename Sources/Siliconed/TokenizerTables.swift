@@ -26,15 +26,27 @@ struct ByteTable {
 
     /// For at most `entries` keys of at most `keyBytes` bytes in all.
     init(entries: Int, keyBytes: Int) {
-        var capacity = 16
-        while capacity < 2 * max(1, entries) { capacity *= 2 }
+        let capacity = ByteTable.slotCount(entries: entries)
         mask = capacity - 1
         heap = Pages(bytes: max(1, keyBytes))
         slots = Pages(bytes: capacity * MemoryLayout<Slot>.stride)   // zero-filled: every slot empty
     }
 
+    /// The slots for `entries` keys: a power of two, at least twice the keys (and 16).
+    private static func slotCount(entries: Int) -> Int {
+        var capacity = 16
+        while capacity < 2 * max(1, entries) { capacity *= 2 }
+        return capacity
+    }
+
     /// What the table maps: its key heap and its slots.
     var mapped: Int { heap.capacity + slots.capacity }
+
+    /// **What a table of `entries` keys of `keyBytes` bytes in all maps** — `mapped`, from the counts
+    /// alone (`init`'s two `Pages`).
+    static func mappedBytes(entries: Int, keyBytes: Int) -> Int {
+        Arena.capacity(for: max(1, keyBytes)) + Arena.capacity(for: slotCount(entries: entries) * MemoryLayout<Slot>.stride)
+    }
 
     private var table: UnsafeMutablePointer<Slot> { slots.base.assumingMemoryBound(to: Slot.self) }
     private var bytes: UnsafeMutablePointer<UInt8> { heap.base.assumingMemoryBound(to: UInt8.self) }

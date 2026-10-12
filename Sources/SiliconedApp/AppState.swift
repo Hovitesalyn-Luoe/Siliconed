@@ -10,8 +10,8 @@
 // engine refuses a render without them. The named subjects (`Subjects.swift`) live in memory, like
 // the history.
 //
-// **Two models in front**: Z-Image Turbo and Qwen-Image-2.1 Turbo. The four
-// other families (Anima, Krea 2, FLUX.2 [klein] 4B, ERNIE-Image) exist and render, but the list, the
+// **Two models in front**: Z-Image Turbo and Qwen-Image-2.1 Turbo. The two
+// other families (Anima, Krea 2) exist and render, but the list, the
 // Models sheet, the diagnostic and `silicontrol models` show them only in Developer Mode. The filter
 // is here, in the app: the library is the same.
 //
@@ -270,8 +270,7 @@ struct Job: Identifiable {
     var sketch: Int? = nil
 
     /// The key of the learned speed: same model, same format, same number of references (each one
-    /// lengthens the sequence: one 1024² reference takes Klein from 10.7 to 26.6 s per evaluation,
-    /// measured), with or without LoRA (the spectral turns off under a LoRA, and the LoRA weighs on
+    /// lengthens the sequence and every evaluation with it), with or without LoRA (the spectral turns off under a LoRA, and the LoRA weighs on
     /// every evaluation).
     var speedKey: String {
         Speed.key(settings.identifier, settings.format, references: references.count, lora: !settings.loras.isEmpty)
@@ -425,7 +424,7 @@ final class AppState {
     /// Developer Mode.
     static let frontFamilies: Set<Family> = [.zImage, .qwenImage21]
     private static let developerModeKey = "developerMode"
-    /// **Developer Mode**: the four other families.
+    /// **Developer Mode**: the two other families.
     /// One of the app's two preferences (the other is `Curtain.preferred`) — written without a render
     /// gesture, because the user switched it.
     var developerMode = UserDefaults.standard.bool(forKey: AppState.developerModeKey) {
@@ -728,8 +727,7 @@ final class AppState {
     }
     var canAddReference: Bool { references.count < maxReferences }
     /// The model's encoder sees the images (`TextFormat.readsImages`), so the prompt can name them
-    /// (`<image1>`, `<image2>`… in Qwen-Image-2.1's template). FLUX.2 [klein]'s is blind: its
-    /// references only enter the DiT.
+    /// (`<image1>`, `<image2>`… in Qwen-Image-2.1's template).
     var promptNamesImages: Bool { chain?.text.output.readsImages ?? false }
 
     /// **The format the render will have**: when editing, the one the denoiser derives from image 1
@@ -754,12 +752,12 @@ final class AppState {
         return RecommendedFormat(f.width, editingSurface / f.width / 32 * 32)
     }
 
-    /// **The memory this render needs**: the model's measured peak at this size (`ModelCard.memoryNeed`),
-    /// what the engine's preflight compares to the machine's memory.
+    /// **The memory this render needs**: its floor computed from the request's shapes, with what the
+    /// app already holds (`ModelCard.memoryNeed`; the two hidden families: their measured peaks, a marked
+    /// fallback) — what the engine's preflight compares to B. `nil` when it cannot be computed.
     var memoryNeed: Int? {
         let f = outputFormat
-        return card.map { $0.memoryNeed(width: f.width, height: f.height, references: references.count + subjectImageCount) }
-            .flatMap { $0 > 0 ? $0 : nil }
+        return card.flatMap { $0.memoryNeed(width: f.width, height: f.height, references: references.count + subjectImageCount) }
     }
 
     /// Why "Generate" is grayed out, or `nil`: the app does not try what the request would refuse.
@@ -831,10 +829,11 @@ final class AppState {
         let f = outputFormat
         let images = references.count + subjectImageCount
         do { try card.checkMemory(width: f.width, height: f.height, references: images, ceiling: memoryCeiling) } catch {
-            guard case let .insufficientMemory(needed, budget) = error else { return nil }
+            // A need that cannot be computed refuses too, with its own sentence (`memoryNeedUnknown`).
+            guard case let .insufficientMemory(needed, budget) = error else { return MemoryRefusal(text: Problem(error).text, smaller: nil) }
             let smaller = references.isEmpty
                 ? RecommendedFormat.largestFitting(formats, budget: budget, current: f) {
-                    card.memoryNeed(width: $0.width, height: $0.height, references: images)
+                    card.memoryNeed(width: $0.width, height: $0.height, references: images) ?? .max
                   }
                 : nil
             return MemoryRefusal(text: Self.needsMac(needed), smaller: smaller)
@@ -849,7 +848,7 @@ final class AppState {
         let f = references.isEmpty ? RecommendedFormat(1024, 1024) : outputFormat
         let images = references.count + adding + 1
         guard let card, macNeeded(f, images: images) != nil else { return nil }
-        return Self.needsMac(card.memoryNeed(width: f.width, height: f.height, references: images))
+        return card.memoryNeed(width: f.width, height: f.height, references: images).map(Self.needsMac)
     }
 
     /// The way forward the footer offers: the size that fits, chosen as the picker would.
@@ -1590,7 +1589,7 @@ final class AppState {
     /// **« Variations »**: cousins of a history image — exactly its settings (model, prompt, LoRA,
     /// size, steps, seed, edit images), each with a variation seed drawn at random at `strength`
     /// (`Variation.Amount`, its strength for the model's family), ordinary jobs whose images join the history.
-    /// **As many as the rack's « Images »** (`batch`, 1 by default): at ERNIE's ~200 s an image, a fixed
+    /// **As many as the rack's « Images »** (`batch`, 1 by default): at Qwen's ~200 s an edit, a fixed
     /// four made one click a quarter of an hour.
     ///
     /// **A variation of a variation turns the clicked image's noise**, not its parent's: the new

@@ -25,11 +25,6 @@ extension Library {
             public let components: Int
             /// The text encoder map.
             public let encoder: Int
-            /// The other families present that read the same encoder map (Z-Image and FLUX.2
-            /// [klein]): uninstalling it does not remove the map as long as they are there. When
-            /// absent, the family does not count this map (`encoder` is 0): it belongs to its
-            /// neighbors.
-            public let encoderSharedWith: [Family]
             /// The vendor's DiT (and Anima's adapter).
             public let dit: Int
             /// The version on disk (`nil`: nothing of the family's own is there).
@@ -75,24 +70,19 @@ extension Library {
         }
         let parts = Family.offered.map { f -> Occupancy.FamilyPart in
             let dit = map(ditMap(f))
-            let neighbors = encoderNeighbors(f)
-            // A shared encoder map belongs to the families present: the one that was uninstalled no
-            // longer counts it, and does not look "half installed".
             let own = isOwn(f)
             // The other version's maps still there — a switch under way, or one stopped before the
             // new version was complete (`Installer.install` removes the old one only then): they
-            // occupy the disk too. An encoder another family reads stays that family's.
-            // The Compact and the Light share their encoder: counted once, and not at all when it
+            // occupy the disk too. The Compact and the Light share their encoder: counted once, and not at all when it
             // is the current version's.
             let current = variant(of: f)
             let other = f.variants.filter { $0 != current }
             let otherDiT = other.reduce(0) { $0 + Self.size(map(f.ditMap($1))) + Self.size(adapterPath(fromMap: map(f.ditMap($1)))) }
             let otherEncoder = Set(other.map { f.encoderMap($0) })
-                .filter { $0 != f.encoderMap(current) && !isRead($0, byOtherThan: f) }
+                .filter { $0 != f.encoderMap(current) }
                 .reduce(0) { $0 + Self.size(map($1)) }
             return .init(family: f, components: Self.size(i.componentsFolder(f)) - partialBytes(in: i.componentsFolder(f)),
-                         encoder: (own || neighbors.isEmpty ? Self.size(map(encoderMap(f))) : 0) + otherEncoder,
-                         encoderSharedWith: neighbors,
+                         encoder: Self.size(map(encoderMap(f))) + otherEncoder,
                          dit: Self.size(dit) + Self.size(adapterPath(fromMap: dit)) + otherDiT
                             + (f == .qwenImage21 ? Family.supersededQwenImage21Maps.reduce(0) { $0 + Self.size(map($1)) } : 0),
                          variant: own ? variant(of: f) : nil,
@@ -109,8 +99,7 @@ extension Library {
             free: freeSpace())
     }
 
-    /// **Uninstalls a vendor family**: its DiT, its components, and its encoder if no other family
-    /// present reads it. The family's imported models and LoRAs stay — they belong to the user;
+    /// **Uninstalls a vendor family**: its DiT, its components, and its encoder. The family's imported models and LoRAs stay — they belong to the user;
     /// they will only render once the family is reinstalled (`install(_:baseDiT: false)` is
     /// enough for an imported model).
     public func uninstall(_ f: Family) throws(EngineError) {
@@ -120,7 +109,7 @@ extension Library {
             let dit = map(f.ditMap(v))
             targets += [dit, adapterPath(fromMap: dit)]
             let encoder = map(f.encoderMap(v))
-            if !isRead(f.encoderMap(v), byOtherThan: f), !targets.contains(encoder) { targets.append(encoder) }
+            if !targets.contains(encoder) { targets.append(encoder) }
         }
         for c in targets where Self.exists(c) { try EngineError.boundary { try fm.removeItem(atPath: c) } }
     }
@@ -149,8 +138,8 @@ extension Library {
         return others.first { Self.exists(map(f.encoderMap($0))) } ?? .standard
     }
 
-    /// The version of the family's own installation; `nil` when nothing of it is on disk (FLUX.2
-    /// [klein]'s encoder alone does not make Z-Image installed).
+    /// The version of the family's own installation; `nil` when nothing of it is on disk (an
+    /// encoder map alone does not make a family installed).
     public func installedVariant(of f: Family) -> Variant? { isOwn(f) ? variant(of: f) : nil }
 
     /// A version whose maps are all there: its encoder, and its DiT — unless no version has a DiT.
@@ -179,29 +168,15 @@ extension Library {
         Self.exists(Installer(library: self).componentsFolder(f)) || f.variants.contains { Self.exists(map(f.ditMap($0))) }
     }
 
-    /// The other families present that read the same encoder map as `f` (Z-Image Standard and FLUX.2
-    /// [klein] share the publisher's Qwen3-4B; Z-Image Compact shares nothing).
-    func encoderNeighbors(_ f: Family) -> [Family] {
-        let mine = encoderMap(f)
-        return Family.allCases.filter { $0 != f && isOwn($0) && encoderMap($0) == mine }
-    }
-
-    /// Does a family present, other than `f`, read the encoder map `name`? (Z-Image's Standard
-    /// encoder while FLUX.2 [klein] is there, whichever version Z-Image is in.)
-    func isRead(_ name: String, byOtherThan f: Family) -> Bool {
-        Family.allCases.contains { $0 != f && isOwn($0) && encoderMap($0) == name }
-    }
-
     /// What `release(_:keeping:)` would remove: the other versions' DiT, and their encoder unless
-    /// `kept` reads it too (the Compact's and the Light's are one map) or another family present
-    /// does. The components are the same in every version: they stay.
+    /// `kept` reads it too (the Compact's and the Light's are one map). The components are the same in every version: they stay.
     func releasable(_ f: Family, keeping kept: Variant) -> [String] {
         var targets: [String] = []
         for v in f.variants where v != kept {
             let dit = map(f.ditMap(v))
             targets += [dit, adapterPath(fromMap: dit)]
             let encoder = map(f.encoderMap(v))
-            if f.encoderMap(v) != f.encoderMap(kept), !isRead(f.encoderMap(v), byOtherThan: f), !targets.contains(encoder) {
+            if f.encoderMap(v) != f.encoderMap(kept), !targets.contains(encoder) {
                 targets.append(encoder)
             }
         }
@@ -405,8 +380,6 @@ extension Family {
         case .zImage: return (12_333_072_384, 7_845_068_800, 179_122_176)
         case .anima: return (4_184_088_192, 1_193_871_360, 267_694_080)
         case .krea2: return (26_284_982_272, 7_845_068_800, 531_697_664)
-        case .klein4b: return (7_752_122_368, 7_845_068_800, 196_112_384)
-        case .ernie: return (16_068_853_760, 6_625_787_904, 186_089_472)
         // The maps measured on 2026-10-03 (the Turbo's DiT has the base's shapes and dtypes, its encoder
         // the base's tensors); the components summed from the Turbo's published files (VAE in bf16).
         case .qwenImage21: return (14_231_355_392, 16_295_034_880, 686_958_986)

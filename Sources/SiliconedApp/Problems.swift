@@ -158,6 +158,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "These modules don't connect: \(output) comes out where \(input) is expected.")
         case let .insufficientMemory(needed, _):                     // insufficient_memory
             return AppState.needsMac(needed)
+        case .memoryNeedUnknown(let m):                              // memory_need_unknown
+            return String(localized: "The memory \(name(m)) needs can't be computed: its files can't be read.")
         case .renderAlreadyRunning:                                  // render_already_running
             return String(localized: "Another program is already rendering on this library.")
         case .cancelled:                                             // cancelled
@@ -183,7 +185,7 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Choose the file again, or reinstall the model it belongs to.")
         case .fileUnreadable:
             return String(localized: "Check the file's permissions, and that its disk is connected.")
-        case .corruptMap:
+        case .corruptMap, .memoryNeedUnknown:
             return String(localized: "Reinstall the model from the Models sheet, or import it again.")
         case .diskFull:
             return String(localized: "Make room — uninstall a model, or discard the interrupted downloads in the Models sheet — then start again: the files already downloaded are kept.")

@@ -136,12 +136,10 @@ package final class Prefetcher {
 ///
 /// The staging buffers are **anonymous memory**, the only kind that can swap: `slots` buffers of
 /// the largest block, allocated once, reused at every evaluation. A block requested while no slot
-/// is free waits for the next request; read with no slot free at all, it goes through the map
-/// (`fallbacks` counts those reads): slower, never wrong.
+/// is free waits for the next request; read with no slot free at all, it goes through the map:
+/// slower, never wrong.
 package final class TailStream {
     package let blocks: [[String]]
-    /// Tensor reads that found no staged copy and no free slot, and went through the map.
-    package private(set) var fallbacks = 0
     package let slotBytes: Int
     /// The staging buffers allocated.
     package var slotCount: Int { slots.count }
@@ -276,7 +274,7 @@ package final class TailStream {
         lock.lock()
         if staged[name] == nil {
             // Not requested ahead (or no slot was free then): staged now, or read from the map.
-            if let slot = free.popLast() { start(block: b, in: slot) } else { fallbacks += 1 }
+            if let slot = free.popLast() { start(block: b, in: slot) }
         }
         let entry = staged[name]
         lock.unlock()

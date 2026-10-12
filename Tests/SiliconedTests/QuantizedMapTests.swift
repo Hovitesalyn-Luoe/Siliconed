@@ -294,9 +294,8 @@ final class QuantizedMapTests: XCTestCase {
 
     // ── the transformations that move rows or columns ─────────────────────────────────────
 
-    /// Anima's RoPE permutation on an 8-bit `to_q` (rows **and** their scales move), and FLUX.2's
-    /// single-block `to_out` split on its **input** (each row keeps its scale).
-    func testPermutationAndColumnSplit() throws {
+    /// Anima's RoPE permutation on an 8-bit `to_q`: rows **and** their scales move.
+    func testPermutation() throws {
         let (n, k) = (128, 4)
         let q = values(n * k, fp8: false), s = scales(n, type: "F32")
         let path = try write([Piece(name: "transformer_blocks.0.attn1.to_q.weight", dtype: "I8", shape: [n, k], bytes: q),
@@ -309,17 +308,6 @@ final class QuantizedMapTests: XCTestCase {
         XCTAssertEqual(mapBytes(map, "transformer_blocks.0.attn1.to_q.weight").scale, ps)
         try assertDequantizes(map, "transformer_blocks.0.attn1.to_q.weight",
                               to: reference(pq, rows: n, columns: k, fp8: false, scale: ps, type: "F32", perRow: true))
-
-        let (d, m) = (4, 8)                                   // to_out: input = attention (d) + MLP (m − d)
-        let o = values(d * m, fp8: true), os = scales(d, type: "BF16")
-        let path2 = try write([Piece(name: "single_transformer_blocks.0.attn.to_out.weight", dtype: "F8_E4M3", shape: [d, m], bytes: o),
-                               Piece(name: "single_transformer_blocks.0.attn.to_out.weight_scale", dtype: "BF16", shape: [d, 1], bytes: os)],
-                              as: "klein.safetensors")
-        let (map2, outcomes) = try forge(try TensorSource(paths: [path2]), family: .klein4b)
-        XCTAssertEqual(outcomes["single_transformer_blocks.0.attn.to_out.mlp.weight"], .kept8bit)
-        let mlp = (0..<d).flatMap { r in o[(r * m + d)..<((r + 1) * m)] }
-        try assertDequantizes(map2, "single_transformer_blocks.0.attn.to_out.mlp.weight",
-                              to: reference(mlp, rows: d, columns: m - d, fp8: true, scale: os, type: "BF16", perRow: true))
     }
 
     /// A folded `1 +` (Qwen-Image-2.1's zero-centered norm) on an 8-bit tensor cannot stay 8-bit:
@@ -447,30 +435,6 @@ final class QuantizedMapTests: XCTestCase {
             if let (widener, _) = gpu { XCTAssertNil(widener.source(name, in: map), "no GPU kernel for a rotated weight") }
             var row = [Float](repeating: 0, count: n)
             XCTAssertThrowsError(try row.withUnsafeMutableBufferPointer { try map.materializeRows(name, first: 0, count: 1, into: $0.baseAddress!) })
-        }
-    }
-
-    /// A share of the **input** keeps the rotation on a group boundary only; off it, the weight is
-    /// stored dequantized in fp32 (rotated), and the outcome says why. FLUX.2's single-block
-    /// `to_out` (input = attention d, then MLP), group 16.
-    func testConvrotColumnSplit() throws {
-        for (d, m, kept) in [(16, 48, true), (8, 32, false)] {
-            let layer = convrotLayer("single_transformer_blocks.0.attn.to_out", n: d, k: m, group: 16)
-            let path = try write(layer.pieces, as: "klein-\(d).safetensors")
-            let (map, outcomes) = try forge(try TensorSource(paths: [path]), family: .klein4b)
-            let name = "single_transformer_blocks.0.attn.to_out.mlp.weight"
-            let full = rotatedReference(layer.q, rows: d, columns: m, scale: layer.s, group: 16)    // [m, d]
-            let mlp = Array(full[(d * d)...])
-            var cpu = [Float](repeating: -1, count: mlp.count)
-            try cpu.withUnsafeMutableBufferPointer { _ = try map.materialize(name, into: $0) }
-            XCTAssertEqual(cpu.map(\.bitPattern), mlp.map(\.bitPattern), "d = \(d)")
-            if kept {
-                XCTAssertEqual(outcomes[name], .kept8bit)
-                XCTAssertEqual(map.tensors[name]?.rotation?.group, 16)
-            } else {
-                XCTAssertEqual(outcomes[name], .dequantized(" (columns [8, 32) cut its convrot groups of 16)"))
-                XCTAssertEqual(map.tensors[name]?.dtype, .float32)
-            }
         }
     }
 
@@ -610,30 +574,6 @@ final class QuantizedMapTests: XCTestCase {
         var rows = [Float](repeating: 0, count: 3 * n)
         try rows.withUnsafeMutableBufferPointer { try map.materializeRows("w", first: 3, count: 3, into: $0.baseAddress!) }
         XCTAssertEqual(rows.map(\.bitPattern), expected[(3 * n)..<(6 * n)].map(\.bitPattern), "rows 3, 4, 5: blocks 0 and 1")
-    }
-
-    /// FLUX.2's `final_layer.adaLN_modulation.1` (halves swapped) and `to_qkv_mlp_proj` (unequal row
-    /// shares) on 8-bit weights: rows and their scales move together.
-    func testSwappedHalvesAndRowSharesStay8Bit() throws {
-        let (d, h) = (4, 2), rows = 3 * d + 2 * h
-        let fused = values(rows * d, fp8: true), fs = scales(rows, type: "F32")
-        let last = values(2 * d * d, fp8: false), ls = scales(2 * d, type: "BF16")
-        let path = try write([Piece(name: "single_blocks.0.linear1.weight", dtype: "F8_E4M3", shape: [rows, d], bytes: fused),
-                              Piece(name: "single_blocks.0.linear1.weight_scale", dtype: "F32", shape: [rows, 1], bytes: fs),
-                              Piece(name: "final_layer.adaLN_modulation.1.weight", dtype: "I8", shape: [2 * d, d], bytes: last),
-                              Piece(name: "final_layer.adaLN_modulation.1.scale", dtype: "BF16", shape: [2 * d, 1], bytes: ls),
-                              Piece(name: "single_blocks.0.norm.query_norm.scale", dtype: "BF16", shape: [2], bytes: [0x80, 0x3F, 0x80, 0x3F])],
-                             as: "klein.safetensors")
-        let (map, outcomes) = try forge(try TensorSource(paths: [path]), family: .klein4b)
-        XCTAssertEqual(outcomes["norm_out.linear.weight"], .kept8bit)
-        let swapped = Array(last[(d * d)...] + last[..<(d * d)]), sws = Array(ls[(2 * d)...] + ls[..<(2 * d)])
-        XCTAssertEqual(mapBytes(map, "norm_out.linear.weight").scale, sws)
-        try assertDequantizes(map, "norm_out.linear.weight",
-                              to: reference(swapped, rows: 2 * d, columns: d, fp8: false, scale: sws, type: "BF16", perRow: true))
-        let up = Array(fused[((3 * d + h) * d)...]), us = Array(fs[((3 * d + h) * 4)...])
-        let name = "single_transformer_blocks.0.attn.to_qkv_mlp_proj.up.weight"
-        XCTAssertEqual(outcomes[name], .kept8bit)
-        try assertDequantizes(map, name, to: reference(up, rows: h, columns: d, fp8: true, scale: us, type: "F32", perRow: true))
     }
 
     /// 8-bit tensors that are not Linears (a cast norm, an int8 bias with one scale) stay 8-bit.

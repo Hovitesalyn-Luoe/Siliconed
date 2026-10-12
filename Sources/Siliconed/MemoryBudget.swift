@@ -11,8 +11,14 @@ import Synchronization
 /// and reading the kernel's state to decide oscillated, read stale figures and arrived after the cliff
 /// (measured); a reserve and a compression credit calibrated on six renders of one machine refused
 /// renders the kernel would have served. So nothing here reads the kernel: the same render on the same
-/// Mac gets the same answer and the same plan, always. What the others hold is theirs; the promise is
-/// that Siliconed takes at most B.
+/// Mac gets the same answer and the same plan, always — give or take what the process itself holds.
+/// What the others hold is theirs; the promise is that Siliconed takes at most B.
+///
+/// **What B covers**: Siliconed's whole process, `phys_footprint` — what it holds when the render
+/// starts (the app's interface and history, the command line's runtime: `MemoryNeed.Request.base`,
+/// read from the process itself) plus the render's computed need (`MemoryNeed`). Not the page cache
+/// of the maps it reads (clean, file-backed, nobody's footprint: `MemoryPlan`), nor the frameworks'
+/// constants no shape gives (`OperatorFootprint`), which the render's check reports.
 public enum MemoryBudget {
 
     /// **B = ¾ · RAM − 2 GiB** (decided on 12/10/2026): 8 GiB → 4, 16 → 10, 24 → 16, 32 → 22, 64 → 46.
@@ -60,11 +66,21 @@ public enum MemoryBudget {
     /// engine and in the app alike.
     package static let forcingVariable = "SILICONED_MEMORY_BUDGET_GB"
 
+    /// A forcing that is not a finite number of GiB from 0 to `maximumForcedGiB` (`inf`, `nan`, `-1`,
+    /// `1e30`, a word) is **refused with a warning** and B stays this Mac's: `Int(Double)` traps on
+    /// anything it cannot hold.
     package static func forcedCeiling(_ environment: [String: String]) -> Int? {
-        guard let text = environment[forcingVariable],
-              let gib = Double(text.replacingOccurrences(of: ",", with: ".")), gib >= 0 else { return nil }
+        guard let text = environment[forcingVariable] else { return nil }
+        guard let gib = Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")),
+              gib.isFinite, gib >= 0, gib <= maximumForcedGiB else {
+            Warnings.emit("\(forcingVariable)=\(text) ignored: B is a number of GiB from 0 to \(Int(maximumForcedGiB))")
+            return nil
+        }
         return Int(gib * 1_073_741_824)
     }
+
+    /// The largest forcing taken: 1 TiB, beyond any Mac sold (`soldSizes`).
+    package static let maximumForcedGiB = 1024.0
 
     /// The process's environment, read live (`getenv`: a test may set it), for these variables only.
     package static func liveEnvironment(_ names: [String]) -> [String: String] {
@@ -99,10 +115,14 @@ public enum MemoryBudget {
 ///   - **Each knob lives in its own phase** — the encoder's buffers in `text`, the bands in `decoding`,
 ///     the map's buffers in `denoising` — and the need is the largest phase: each is kept or dropped
 ///     alone, and adding one never raises another phase.
-///   - **The map's head is never in the need.** It is clean, file-backed page cache: the kernel drops
-///     it without writing, never swaps it. It is the soft part of B — what B leaves beside the
-///     denoising's anonymous need — and **capped at the model's own split** (0.5; Qwen-Image-2.1's
-///     generation 1, no head): on a 16 GB Mac a head larger than half was read back more, not less
+///   - **No map read through the page cache is in the need** — B bounds the process's footprint
+///     (`phys_footprint`), and a mapped map's pages are clean and file-backed: the kernel drops them
+///     without writing, never swaps them, and they are nobody's footprint. So the text encoder with no
+///     buffer (the lean plan) reads its whole map through the cache, a Qwen-Image-2.1 edit its whole DiT
+///     map, uncharged — and the DiT's head is not charged either: it is **sized from B as a speed
+///     choice**, not counted in it. It is the soft part of B — what B leaves beside the denoising's
+///     anonymous need, so that the head has a chance to stay cached — and **capped at the model's own
+///     split** (0.5; Qwen-Image-2.1's generation 1, no head): on a 16 GB Mac a head larger than half was read back more, not less
 ///     (measured: heads of 0.43–0.73 read 6.6–8.6 GB an evaluation, 5.4 at 0.5) — the page cache
 ///     holds less than any figure says. Only a map that fits whole in that room leaves the stream (no
 ///     buffer at all: a 32 GB Mac, an 8-bit map).
@@ -138,7 +158,7 @@ package enum MemoryPlan {
     /// one buffer was measured worse than none on the DiT, two and three never.
     package static let encoderSlots = 4
 
-    /// FLUX's decoder (Z-Image, klein, ERNIE): the smallest band proved and timed (7.3 s at 1024² against 4.4).
+    /// Flux's decoder (Z-Image): the smallest band proved and timed (7.3 s at 1024² against 4.4).
     package static let fluxMinimumBand = 1 << 20
     /// Qwen-Image-2.1's decoder: a quarter of the measured band (bits proved down to 2 rows; time not measured).
     package static let qwenMinimumBand = 1 << 16
@@ -164,25 +184,32 @@ package enum MemoryPlan {
     }
 
     /// **The plan, from the request and B**: the lean plan, then each buffer that buys time while the
-    /// need stays ≤ B. Pure: the tests drive it with simulated ceilings.
+    /// need stays ≤ B. Pure: the tests drive it with simulated ceilings. **A need that cannot be computed
+    /// buys nothing**: no buffer taken, the whole map streamed (no head), `need` `nil` — the preflight
+    /// refuses such a request before (`ModelCard.checkMemory`), and the engine refuses a plan without one.
     package static func choose(_ request: MemoryNeed.Request, ceiling: Int) -> Render {
         var plan = request.lean
-        let floor = MemoryNeed.of(plan)?.peak ?? 0
+        let floor = MemoryNeed.of(plan)?.peak ?? .max
         for faster in [{ (r: inout MemoryNeed.Request) in r.encoderSlots = encoderSlots },
                        { (r: inout MemoryNeed.Request) in r.minimumBands = false }] {
             var candidate = plan
             faster(&candidate)
-            if (MemoryNeed.of(candidate)?.peak ?? 0) <= ceiling { plan = candidate }
+            if let peak = MemoryNeed.of(candidate)?.peak, peak <= ceiling { plan = candidate }
         }
         let need = MemoryNeed.of(plan)
         var cached = plan
         cached.tail = .none
+        // Unknown: the denoising takes all of B — no room left for a head (`released`).
         var render = Render(ceiling: ceiling, request: plan, need: need, floor: floor,
-                            denoisingStreamed: need?.need(of: .denoising) ?? 0,
-                            denoisingCached: MemoryNeed.of(cached)?.need(of: .denoising) ?? 0)
-        render.decisions.append(String(format: "plan: need %.2f GB in B %.2f (floor %.2f)%@", Double(need?.peak ?? 0) / 1e9,
-                                       Double(ceiling) / 1e9, Double(floor) / 1e9,
-                                       (render.lean ? " — lean plan" : "") as NSString))
+                            denoisingStreamed: need?.need(of: .denoising) ?? ceiling,
+                            denoisingCached: MemoryNeed.of(cached)?.need(of: .denoising) ?? ceiling)
+        guard let need else {
+            render.decisions.append(String(format: "plan: need unknown in B %.2f — refused", Double(ceiling) / 1e9))
+            return render
+        }
+        render.decisions.append(String(format: "plan: need %.2f GB in B %.2f (floor %.2f, process base %.2f)%@",
+                                       Double(need.peak) / 1e9, Double(ceiling) / 1e9, Double(floor) / 1e9,
+                                       Double(need.base) / 1e9, (render.lean ? " — lean plan" : "") as NSString))
         return render
     }
 

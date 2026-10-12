@@ -431,7 +431,7 @@ public enum Diagnostic {
     /// The encoder's states sit at 2.2·10⁻⁵ of the oracle's (worst channel): the DiT damps them. There
     /// is no fp64 witness of this step under the turbo (`witness-qwen21-lora-f64-512` holds `temb` and
     /// the modulation only); the oracle's own distance to the exact is 5.3·10⁻⁶ without LoRA.
-    /// The threshold is the repository's DiT threshold, **5·10⁻⁴** (`kleinVerdict`, every
+    /// The threshold is the repository's DiT threshold, **5·10⁻⁴** (`stageVerdict`, every
     /// `qwen21-*` check), so a user's figure reads like a check's: 54× what this machine reads, room for
     /// another chip's GPU/AMX cut and summation order; and still ~300× under what a real fault moves —
     /// the turbo LoRA lost moves `model_out` by 0.43 (worst channel, `goldens-qwen21-dit-512` vs
@@ -551,6 +551,10 @@ public enum Diagnostic {
                 report.memory?.peakMethod = check.peakMethod   // a kernel failing mid-run switched it
                 for defect in check.defects {
                     MemoryCheck.log.error("\(defect, privacy: .public) — diagnostic \(card.id, privacy: .public)")
+                }
+                // The JSON carries every phase's gap, negative included (`gapBytes`): the slack is read there too.
+                for slack in check.slack {
+                    MemoryCheck.log.info("\(slack, privacy: .public) — diagnostic \(card.id, privacy: .public)")
                 }
             }
         } catch {
@@ -689,7 +693,7 @@ public enum Diagnostic {
     private static func noGoldenInputs(_ model: Model, height: Int, width: Int) throws -> ([[Float]], [Float]) {
         let denoising = model.chain.denoising
         let noise = Latent.noise(denoising.space, height: height, width: width, seed: seed).values
-        let σ = denoising.sigmas(steps: denoising.defaultSteps, height: height, width: width)
+        let σ = denoising.sigmas(steps: denoising.defaultSteps)
         switch denoising {
         case is ZImageDenoisingModule:
             let schedule = FlowMatchSchedule(steps: denoising.defaultSteps)

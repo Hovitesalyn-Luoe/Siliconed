@@ -13,7 +13,7 @@ final class EngineErrorTests: XCTestCase {
     func testEveryCaseHasAUniqueCodeAndASentence() {
         let codes = EngineError.samples.map(\.code)
         XCTAssertEqual(Set(codes).count, codes.count, "two cases share a code: \(codes)")
-        XCTAssertEqual(codes.count, 38, "a case was added: give it a sample, a code, a sentence")
+        XCTAssertEqual(codes.count, 39, "a case was added: give it a sample, a code, a sentence")
         for e in EngineError.samples {
             XCTAssertTrue(e.code.allSatisfy { $0.isLowercase || $0 == "_" }, e.code)
             let sentence = e.errorDescription ?? ""
@@ -80,7 +80,21 @@ final class EngineErrorTests: XCTestCase {
                            license: Bool = true, memory: Int? = nil) throws {
         // `memory` is B, the one figure the refusal reads (a 16 GB Mac's by default).
         try Preflight.check(card: card, width: w, height: h, installed: installed, licenseAccepted: license,
-                            ceiling: memory ?? sixteen)
+                            ceiling: memory ?? sixteen, memory: request(card, w, h))
+    }
+
+    /// The card's request on the fixtures' maps (`MemoryFixtures`), 6 P cores, no process base: the
+    /// same need on every Mac, the CI's included, maps installed or not.
+    private func request(_ card: ModelCard, _ w: Int, _ h: Int, references: Int = 0) -> MemoryNeed.Request {
+        var r = card.memoryRequest(width: w, height: h, references: Array(repeating: (w, h), count: references), base: 0)
+        r.threads = 6
+        r.zImageMaps = MemoryFixtures.zImageMaps()
+        r.qwenMaps = MemoryFixtures.qwenMaps()
+        return r
+    }
+
+    private func need(_ card: ModelCard, _ w: Int, _ h: Int, references: Int = 0) -> Int {
+        card.memoryNeed(request(card, w, h, references: references))!
     }
 
     /// The order is the contract: installed, license, format, memory — the first that fails throws.
@@ -101,7 +115,7 @@ final class EngineErrorTests: XCTestCase {
         XCTAssertThrowsError(try preflight(.zImage, 2048, 2048)) {
             XCTAssertEqual($0 as? EngineError, .formatRefused(width: 2048, height: 2048, reason: .tooLarge))
         }
-        let qwen = ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024)
+        let qwen = need(.qwenImage21, 1024, 1024)
         XCTAssertThrowsError(try preflight(.qwenImage21, 1024, 1024, memory: qwen - 1)) {
             XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: qwen, budget: qwen - 1))
         }
@@ -109,24 +123,23 @@ final class EngineErrorTests: XCTestCase {
 
     /// **The memory refused is the floor, computed from the request**: on a 16 GB Mac (B = 10 GiB)
     /// every model fits at 1024×1536 (Krea 2's 7.8 GB, the hidden families' measured fallback, is the
-    /// largest); with B = 2 GiB none does at 1024². Z-Image's need reads its installed maps: where they
-    /// are absent it is 0, and the first preflight refuses the render before.
+    /// largest); with B = 2 GiB none does at 1024². On the fixtures' maps and 6 P cores: the figures do
+    /// not depend on the Mac (the CI's runner, with fewer P cores, once found a generation above an
+    /// edit — true there, and no property: no test compares them any more).
     func testTheMemoryNeedIsComputed() {
         for card in ModelCard.allCards {
-            let needs = [(512, 512), (832, 1216), (1024, 1024), (1024, 1536)].map { card.memoryNeed(width: $0, height: $1) }
-            guard needs[0] > 0 else { XCTAssertEqual(card.family, .zImage); continue }
+            let needs = [(512, 512), (832, 1216), (1024, 1024), (1024, 1536)].map { need(card, $0, $1) }
             XCTAssertNoThrow(try preflight(card, 1024, 1536, memory: sixteen), card.id)
             XCTAssertThrowsError(try preflight(card, 1024, 1024, memory: 2 << 30), card.id)
             // Never decreases with the area.
             XCTAssertEqual(needs, needs.sorted(), card.id)
         }
         // Anima's 832×1216 peaks above its 1024²: the 1024² takes the larger (fallback).
-        XCTAssertEqual(ModelCard.anima.memoryNeed(width: 1024, height: 1024), 5_300_000_000)
+        XCTAssertEqual(ModelCard.anima.memoryNeed(ModelCard.anima.memoryRequest(width: 1024, height: 1024, base: 0)), 5_300_000_000)
         // Never measured at 1024×1536: the largest peak any hidden family measured there.
-        XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1536), 7_800_000_000)
-        // A generation is charged its own need, an edit its references'.
-        XCTAssertLessThan(ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024),
-                          ModelCard.qwenImage21.memoryNeed(width: 1024, height: 1024, references: 3))
+        XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1536, base: 0)), 7_800_000_000)
+        // An edit is charged its references: more references, never less.
+        XCTAssertLessThan(need(.qwenImage21, 1024, 1024, references: 1), need(.qwenImage21, 1024, 1024, references: 3))
     }
 
     // ── the license registry ────────────────────────────────────────────────────────────────

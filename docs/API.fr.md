@@ -1136,7 +1136,9 @@ le modèle est installé (`card.missing(in:)`) → sa licence est acceptée
 (`library.isLicenseAccepted(card)`) → le format (`Format.check`) → la mémoire
 (`card.checkMemory(width:height:references:)` : le plancher du modèle à ce format et avec ce nombre
 d'images de référence, `card.memoryNeed(width:height:references:)` — une génération ne paie pas le pic
-d'une édition ; le besoin du plan le plus économe, calculé depuis la requête —, contre **B, le budget
+d'une édition ; le besoin du plan le plus économe, calculé depuis la requête, plus ce que le
+processus tient déjà (B couvre tout le processus, interface et historique d'une app compris) ; `nil`,
+et le rendu refusé (`memoryNeedUnknown`), quand les fichiers du modèle sont illisibles —, contre **B, le budget
 de ce Mac** : `MemoryBudget.ceiling(physical:)` = ¾ · RAM − 2 Gio, soit 4 Gio sur un Mac de 8 Go, 10
 sur 16, 16 sur 24, 22 sur 32, 46 sur 64 ; `MemoryBudget.machineCeiling()` pour celui-ci. B ne dépend
 que de la mémoire physique — aucune lecture de l'état de la machine : la même requête sur le même Mac
@@ -1170,6 +1172,7 @@ deux premiers et le verrou ne s'y appliquent pas.
 | `unsupportedLoRA(file:reason:)`, `loraForOtherModel(lora:target:model:)` | `unsupported_lora`, `lora_for_other_model` | rendu (~0,3 s) | ne proposer que `loras(for:)` ; sinon réimporter |
 | `incompatibleChain(output:input:)` | `incompatible_chain` | `Chain(…)` | bug de programmation : n'arrive pas avec `model.chain` |
 | `insufficientMemory(needed:budget:)` | `insufficient_memory` | au-delà du budget de ce Mac (B) : rendu ; `card.checkMemory` avant le clic | griser d'avance ; un format plus petit, moins d'images de référence, un modèle plus léger ; « demande un Mac de `MemoryBudget.macNeeded(for: needed)` Go » |
+| `memoryNeedUnknown(model:)` | `memory_need_unknown` | rendu ; `card.checkMemory` avant le clic : les fichiers du modèle sont illisibles, son besoin ne se calcule pas | réinstaller ou réimporter le modèle |
 | `renderAlreadyRunning` | `render_already_running` | rendu, pendant qu'un autre processus rend sur la machine | attendre, ou mettre en file |
 | `cancelled` | `cancelled` | l'utilisateur a annulé (une `Task` annulée aussi) | rien : revenir à l'état prêt |
 | `settingsAlreadyLoaded(loaded:requested:)` | `settings_already_loaded` | `EngineSettings.load(from:)` après un rendu | appeler `load` au lancement |

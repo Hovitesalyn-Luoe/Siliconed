@@ -201,17 +201,12 @@ final class RobustnessTests: XCTestCase {
         XCTAssertFalse(Sampler.divides([0, 2], height: 128, width: 128))
     }
 
-    /// A golden is not installed: its message names the oracle that writes it.
-    func testAMissingGoldenNamesItsOracle() {
-        let qwen = MissingFile("/repo/bench/oracle/qwen21/goldens-qwen21-dit-512.safetensors", .published)
+    /// A golden is not installed: its message says the reference oracle writes it, never « install ».
+    func testAMissingGoldenIsNotInstalled() {
+        let qwen = MissingFile("/repo/goldens/goldens-qwen21-dit-512.safetensors", .published)
         XCTAssertEqual(qwen.nature, .golden)
-        XCTAssertTrue(qwen.description.contains("tools/machine.sh tools/.venv/bin/python bench/oracle/qwen21/oracle_qwen21.py"),
-                      qwen.description)
-        XCTAssertFalse(qwen.description.contains("siliconed-dev install"))
-        XCTAssertEqual(MissingFile.oracle(forGolden: "/repo/bench/oracle/goldens-vae-encode-512x768.safetensors"),
-                       "bench/oracle/oracle_vae_encode.py")
-        XCTAssertEqual(MissingFile.oracle(forGolden: "/repo/bench/oracle/goldens-trajectory-512.safetensors"),
-                       "bench/oracle/oracle_trajectory.py")
+        XCTAssertTrue(qwen.description.contains("written by the reference oracle"), qwen.description)
+        XCTAssertFalse(qwen.description.contains("install the model"))
         XCTAssertEqual(MissingFile("/lib/store/composants/z/vae.safetensors", .published).nature, .published)
     }
 

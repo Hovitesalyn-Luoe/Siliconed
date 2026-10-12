@@ -3,18 +3,21 @@ import XCTest
 
 /// **Qwen-Image-2.1's memory need, without a byte of weights**: the formula
 /// charges what the constructors allocate — the same static functions —, and it grows with every
-/// input that makes a render larger.
+/// input that makes a render larger. On the maps of `MemoryFixtures` and 6 P cores, unless a test says
+/// otherwise: no figure depends on the Mac that runs them.
 final class MemoryNeedQwenTests: XCTestCase {
     typealias Grid = QwenImage21Sequence.Grid
 
     /// The library prompt's template: 27 tokens, 6 more per reference (its tags).
     static func request(_ width: Int, _ height: Int, references: [(width: Int, height: Int)] = [],
-                        tokens: Int? = nil, ranks: [Int] = []) -> MemoryNeed.Request {
-        MemoryNeed.Request(card: .qwenImage21, width: width, height: height, references: references,
-                           promptTokens: tokens ?? 27 + 6 * references.count, loraRanks: ranks)
+                        tokens: Int? = nil, ranks: [Int] = [], threads: Int = 6) -> MemoryNeed.Request {
+        MemoryFixtures.qwenRequest(width, height, references: references, tokens: tokens ?? 27 + 6 * references.count,
+                                   ranks: ranks, threads: threads)
     }
 
     static func need(_ request: MemoryNeed.Request) -> MemoryNeed { MemoryNeed.of(request)! }
+
+    static func shapes(_ request: MemoryNeed.Request) -> QwenImage21Need { QwenImage21Need(request, maps: request.qwenMaps!) }
 
     static func phase(_ need: MemoryNeed, _ kind: MemoryNeed.Phase.Kind) -> MemoryNeed.Phase? {
         need.phases.first { $0.kind == kind }
@@ -40,7 +43,7 @@ final class MemoryNeedQwenTests: XCTestCase {
 
     /// The arena of a 1024² generation, written out float by float — what `QwenImage21DiT.init` asks.
     func testTheDiTArenaIsItsSlots() {
-        let need = QwenImage21Need(Self.request(1024, 1024))
+        let need = Self.shapes(Self.request(1024, 1024))
         let seq = need.sequence
         XCTAssertEqual(seq.target, 4096); XCTAssertEqual(seq.prefix, 13)   // 27 − 14 text rows
         let (d, h, all, n) = (4096, 12_288, seq.count, 4096)
@@ -60,15 +63,19 @@ final class MemoryNeedQwenTests: XCTestCase {
     /// staging blocks of a generation, plus the sampler's copies.
     func testTheDenoisingIsTheConstructorsSum() {
         let request = Self.request(1024, 1024, ranks: [32])
-        let need = QwenImage21Need(request)
+        let need = Self.shapes(request)
         let seq = need.sequence
         XCTAssertEqual(need.storage, .memory)
         let scratch = QwenImage21DiT.layout(seq, fullPass: false).scratch
         let arena = QwenImage21DiT.arenaBytes(config: need.dit, rows: seq.count, prefix: seq.prefix, scratch: scratch,
                                               largestImage: seq.target, rank: 32, fullPass: false)
         let cache = QwenImage21DiT.cacheArenaBytes(config: need.dit, prefix: seq.prefix)
-        let block = (4 * 4096 * 4096 + 3 * 4096 * 12_288 + 256) * 2
-        let staging = 2 * ((block + Arena.alignment - 1) / Arena.alignment * Arena.alignment)
+        // A block is a layer's run in the map, read from its header: the 7 weights and the two QK-norms,
+        // each on its own 16 KB pages — 436 240 384 bytes in bf16, as the installed map lays it.
+        let block = 4 * 4096 * 4096 * 2 + 3 * 4096 * 12_288 * 2 + 2 * 16384
+        XCTAssertEqual(block, 436_240_384)
+        XCTAssertEqual(need.maps.ditLayerStaging, block)
+        let staging = 2 * block
         let module = { (k: Int, n: Int) in (k, n, 32) }
         let lora = 2 * StreamedLoRA.layout([
             "attn.to_q": module(4096, 4096), "attn.to_k": module(4096, 4096), "attn.to_v": module(4096, 4096),
@@ -113,12 +120,6 @@ final class MemoryNeedQwenTests: XCTestCase {
         XCTAssertEqual([band.margin, band.core, band.window], [6, 64, 76])
         // A tail shorter than a band reads it whole.
         XCTAssertEqual(QwenImage21VAEDecoder.band(config: config, tailHeight: 40, tailWidth: 40, bandPixels: 1 << 18).window, 40)
-        // Before the tail: the second up block's shortcut — 1152 in at ×4, its skip at ×2, 1152 out.
-        XCTAssertEqual(QwenImage21VAEDecoder.stageRegisterFloats(config: config, latentHeight: 64, latentWidth: 64),
-                       (2 * 1152 * 16 + 1152 * 4) * 64 * 64)
-        // The encoder: block 1 — the RGBA input still held, block 0's 96 channels at ½, its 192 at ¼.
-        XCTAssertEqual(QwenImage21VAEEncoder.registerFloats(config: config, height: 1024, width: 1024),
-                       (4 + 96 / 4 + 192 / 16) * 1024 * 1024)
     }
 
     /// The vision tower's arena is its constructor's formula; one reference of 1024² is 4 096 patches.
@@ -130,20 +131,82 @@ final class MemoryNeedQwenTests: XCTestCase {
         XCTAssertEqual(Qwen3VLVision.arenaBytes(config: config, patches: n),
                        (n * 1536 + 10 * n * d + n * 4304 + n / 4 * 4096 + n * 72 + largest) * 4
                         + 3 * Arena.capacity(for: widest * 4))   // whole pages but the bias rows: no margin
-        let need = QwenImage21Need(Self.request(1024, 1024, references: [(1024, 1024)]))
+        let need = Self.shapes(Self.request(1024, 1024, references: [(1024, 1024)]))
         XCTAssertEqual(need.references[0].patches, 4096)
         XCTAssertEqual(need.encoderTokens, 33 + 1024)
         XCTAssertEqual(need.sequence.prefix, 19 + 4096)
     }
 
-    /// The K/V's place follows the prefix: in memory to 256 rows, on disk beyond — a long prompt
-    /// moves a generation's K/V to the file, and its staging blocks with it.
-    func testALongPromptTakesTheFile() {
-        XCTAssertEqual(QwenImage21Need(Self.request(1024, 1024, tokens: 270)).storage, .memory)   // P = 256
-        let long = QwenImage21Need(Self.request(1024, 1024, tokens: 271))
+    /// **The need never falls as the prompt grows, across the K/V's move to the file.** The tokens are a
+    /// bound (the prompt's bytes): past 256 text rows the bound says « file », the real prefix may still
+    /// be in memory — where the K/V arena and the staging blocks cost more than the file's longer arena.
+    /// Both placements are charged while either is possible: the need at the bound is never below the
+    /// need at a shorter one (it dropped by ~1 GB here before, 12/10/2026).
+    func testTheNeedNeverFallsAcrossTheFileThreshold() {
+        for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
+            for lean in [false, true] {
+                // Every 23 tokens, every token around the threshold (P = 256 at 270), and around each
+                // height that becomes a multiple of 64 (a GEMM's tiers, `GEMM.tierBytes`).
+                let edges = [64, 128, 192, 256].flatMap { rows in (rows + 13)...(rows + 15) } + [31, 32, 33, 34]
+                let tokens = Set(Array(stride(from: 27, through: 300, by: 23)) + Array(264...278) + edges + [400, 526]).sorted()
+                var previous = (tokens: 0, denoising: 0, peak: 0)
+                for t in tokens {
+                    var request = Self.request(w, h, tokens: t)
+                    if lean { request = request.lean }
+                    let need = Self.need(request)
+                    let denoising = Self.phase(need, .denoising)!.bytes
+                    XCTAssertGreaterThanOrEqual(denoising, previous.denoising, "\(w)×\(h) \(previous.tokens) → \(t) tokens")
+                    XCTAssertGreaterThanOrEqual(need.peak, previous.peak, "\(w)×\(h) \(previous.tokens) → \(t) tokens")
+                    previous = (t, denoising, need.peak)
+                }
+            }
+        }
+        // Past the threshold, the bound says « file » and the memory case at 256 rows is charged too.
+        let long = Self.shapes(Self.request(1024, 1024, tokens: 271))
         XCTAssertEqual(long.storage, .file)
-        XCTAssertLessThan(long.denoisingPhase.own, QwenImage21Need(Self.request(1024, 1024, tokens: 270)).denoisingPhase.own)
-        XCTAssertEqual(QwenImage21Need(Self.request(1024, 1024, references: [(1024, 1024)])).storage, .file)
+        XCTAssertEqual(long.placements.map(\.storage), [.file, .memory])
+        XCTAssertEqual(long.placements.last?.textRows, QwenImage21CachePolicy.largestMemoryPrefix)
+        let atThreshold = Self.shapes(Self.request(1024, 1024, tokens: 270))
+        XCTAssertEqual(atThreshold.storage, .memory)   // P = 256
+        XCTAssertEqual(atThreshold.placements.count, 1)
+        XCTAssertGreaterThanOrEqual(long.denoisingPhase.bytes, atThreshold.denoisingPhase.bytes)
+        // An edit's prefix is always past it: one placement, the file.
+        XCTAssertEqual(Self.shapes(Self.request(1024, 1024, references: [(1024, 1024)])).placements.map(\.storage), [.file])
+    }
+
+    /// **The formula places the K/V by the engine's own rule, on the engine's own prefix.** For the
+    /// exact tokens of a prompt (what the encoder returns), the formula's prefix is the one the module
+    /// and the sampler compute from the conditioning — its rows, its image slots — and the placement
+    /// is `QwenImage21CachePolicy.storage` on it; the formula charges that placement among its own.
+    func testThePlacementIsTheEnginesForTheSamePrompt() throws {
+        for references in [[], [(width: 1024, height: 1024)], [(width: 1216, height: 832), (width: 640, height: 640)]]
+            as [[(width: Int, height: Int)]] {
+            for tokens in [27, 200, 269, 270, 271, 300, 526] {
+                let need = Self.shapes(Self.request(1024, 1024, references: references,
+                                                    tokens: tokens + 6 * references.count))
+                // The conditioning the encoder returns: its rows past the system turn, image slots included.
+                let slots = need.references.reduce(0) { $0 + $1.slots }
+                let conditioningRows = need.textRows + slots
+                let enginePrefix = QwenImage21CachePolicy.prefix(conditioningRows: conditioningRows, imageSlots: slots)
+                XCTAssertEqual(need.sequence.prefix, enginePrefix, "\(references.count) refs, \(tokens) tokens")
+                // The sampler's own sequence, from the same slots (`QwenImage21Sampler.run`).
+                var textSlots = [Bool](repeating: false, count: 3)
+                for (i, r) in need.references.enumerated() {
+                    textSlots += [Bool](repeating: false, count: QwenImage21Need.tokensBefore)
+                    textSlots += [Bool](repeating: true, count: r.slots)
+                    if i < need.references.count - 1 { textSlots += [Bool](repeating: false, count: QwenImage21Need.tokensAfter) }
+                }
+                textSlots += [Bool](repeating: false, count: conditioningRows - textSlots.count)
+                let sampler = try QwenImage21Sequence(
+                    slots: textSlots + [Bool](repeating: true, count: 64 * 64 / 4),
+                    images: need.references.map { .init(height: $0.latent.height, width: $0.latent.width) }
+                        + [.init(height: 64, width: 64)])
+                XCTAssertEqual(sampler.prefix, enginePrefix)
+                let engine = QwenImage21CachePolicy.storage(prefix: sampler.prefix)
+                XCTAssertEqual(need.storage, engine, "\(references.count) refs, \(tokens) tokens")
+                XCTAssertTrue(need.placements.contains { $0.storage == engine })
+            }
+        }
     }
 
     // ── what makes a render larger makes its need larger ─────────────────────────────────────
@@ -180,10 +243,10 @@ final class MemoryNeedQwenTests: XCTestCase {
 
     func testTheNeedGrowsWithThePrompt() {
         for references in [[], [(width: 1024, height: 1024)]] as [[(width: Int, height: Int)]] {
-            // Within one storage: the generation's K/V moves to the file past 256 text rows (above).
-            let tokens = references.isEmpty ? [27, 100, 200, 270] : [33, 100, 400, 540]
+            // Across the generation's K/V move to the file past 256 text rows too (above).
+            let tokens = references.isEmpty ? [27, 100, 200, 270, 300, 526] : [33, 100, 400, 540]
             let peaks = tokens.map { Self.need(Self.request(1024, 1024, references: references, tokens: $0)).peak }
-            XCTAssertEqual(peaks, peaks.sorted()); XCTAssertEqual(Set(peaks).count, peaks.count)
+            XCTAssertEqual(peaks, peaks.sorted())
         }
     }
 
@@ -201,18 +264,11 @@ final class MemoryNeedQwenTests: XCTestCase {
         XCTAssertEqual(denoising, denoising.sorted()); XCTAssertEqual(Set(denoising).count, 3)
     }
 
-    func testAGenerationCostsLessThanAnEdit() {
-        for (w, h) in [(512, 512), (1024, 1024), (1248, 832), (1024, 1536)] {
-            XCTAssertLessThan(Self.need(Self.request(w, h)).peak,
-                              Self.need(Self.request(w, h, references: [(w, h)])).peak, "\(w)×\(h)")
-        }
-    }
-
     /// Three references of mixed sizes: each prepared at its own ratio, the tower sized for the
     /// largest, the prefill in groups, every phase present.
     func testThreeReferencesOfMixedSizes() {
         let request = Self.request(1024, 1536, references: [(3000, 2000), (800, 1200), (640, 640)])
-        let need = QwenImage21Need(request)
+        let need = Self.shapes(request)
         XCTAssertEqual(need.references.map { [$0.prepared.width, $0.prepared.height] }, [[1248, 832], [832, 1248], [1024, 1024]])
         XCTAssertEqual(need.sequence.images.count, 4)
         XCTAssertEqual(need.sequence.prefix, need.textRows + 78 * 52 * 2 + 64 * 64)
@@ -230,7 +286,7 @@ final class MemoryNeedQwenTests: XCTestCase {
         // The denoising: the target's SDPA cut by heads, one GEMM.
         let terms = Self.phase(full, .denoising)!.terms
         XCTAssertTrue(terms.contains { $0.name.hasSuffix("head split") })
-        XCTAssertEqual(terms.filter { $0.name.hasSuffix("MPS GEMM") }.count, 1)
+        XCTAssertLessThanOrEqual(terms.filter { $0.name.hasSuffix("GEMM tiers") }.count, 1)
     }
 
     // ── the VAEs, the attentions: their shape functions ──────────────────────────────────────
@@ -239,18 +295,17 @@ final class MemoryNeedQwenTests: XCTestCase {
     /// reference with the RGBA the module hands it; the decoder's, then the RGB copy beyond its heaps.
     func testTheVAEsAreTheirPlans() {
         for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
-            let need = QwenImage21Need(Self.request(w, h, references: [(w, h), (640, 640)]))
+            let need = Self.shapes(Self.request(w, h, references: [(w, h), (640, 640)]))
             let decoder = QwenImage21VAEDecoder.plan(config: need.vae, latentHeight: h / 16, latentWidth: w / 16)
             XCTAssertEqual(need.decodingPhase.bytes,
-                           max(decoder.bytes, decoder.host + 3 * w * h * 4) + decoder.outside + OperatorFootprint.sdpaExecutable, "\(w)×\(h)")
+                           max(decoder.bytes, decoder.host + 3 * w * h * 4) + decoder.outside, "\(w)×\(h)")
             let largest = need.references.map(\.prepared).max { $0.width * $0.height < $1.width * $1.height }!
             XCTAssertEqual(need.referencesPhase!.bytes,
                            4 * largest.width * largest.height * 4
-                            + { $0.bytes + $0.outside }(QwenImage21VAEEncoder.plan(config: need.vae, height: largest.height, width: largest.width))
-                            + OperatorFootprint.sdpaExecutable)
+                            + { $0.bytes + $0.outside }(QwenImage21VAEEncoder.plan(config: need.vae, height: largest.height, width: largest.width)))
         }
         // The lean plan's decoder takes the smallest band.
-        let lean = QwenImage21Need(Self.request(1024, 1024).lean)
+        let lean = Self.shapes(Self.request(1024, 1024).lean)
         XCTAssertEqual(lean.decodingPhase.bytes("Qwen decoder registers"),
                        QwenImage21VAEDecoder.plan(config: lean.vae, latentHeight: 64, latentWidth: 64,
                                                   bandPixels: min(QwenImage21VAEDecoder.bandPixels, MemoryPlan.qwenMinimumBand)).registers)
@@ -259,7 +314,7 @@ final class MemoryNeedQwenTests: XCTestCase {
     /// **Nothing of the encoder reaches the later phases** (`finish` hands its heaps back before it
     /// returns): an edit's denoising and decoding carry no encoder term.
     func testTheEncoderDoesNotOutliveItself() {
-        let edit = QwenImage21Need(Self.request(1024, 1024, references: [(1024, 1024)]))
+        let edit = Self.shapes(Self.request(1024, 1024, references: [(1024, 1024)]))
         for phase in [edit.denoisingPhase, edit.decodingPhase] {
             XCTAssertFalse(phase.terms.contains { $0.name.hasPrefix("Qwen encoder") })
         }
@@ -268,7 +323,7 @@ final class MemoryNeedQwenTests: XCTestCase {
     /// Every attention the DiT keeps, by its cache key: the causal text segments with their masks, the
     /// reference segments plain, the target cut by heads.
     func testEveryCachedAttentionIsCharged() {
-        let need = QwenImage21Need(Self.request(1024, 1024, references: [(1024, 1024)]))
+        let need = Self.shapes(Self.request(1024, 1024, references: [(1024, 1024)]))
         let terms = need.denoisingPhase.terms
         let texts = need.sequence.segments.filter(\.isText).count
         let masks = terms.filter { $0.name.hasSuffix("causal mask") }
@@ -283,15 +338,120 @@ final class MemoryNeedQwenTests: XCTestCase {
                        Attention.maskBytes(sequence: need.encoderTokens, keys: need.encoderTokens))
     }
 
-    /// **No fitted term remains**: the outside terms are `OperatorFootprint`'s named ones only.
+    /// **No fitted term remains**: the outside terms are the shapes' copies only — MPSGraph's queries
+    /// and the VAEs' SDPA — and no constant of the frameworks (`OperatorFootprint`) is charged.
     func testNoFittedTermRemains() {
         for request in [Self.request(1024, 1024), Self.request(1024, 1536, references: [(1024, 1024), (640, 640)], ranks: [64])] {
             let need = Self.need(request)
             for term in need.phases.flatMap(\.terms) where term.outside {
-                XCTAssertTrue(term.name.hasSuffix("SDPA queries") || term.name.hasSuffix("MPS GEMM")
-                              || term.name.hasSuffix(" outside") || term.name.hasSuffix("SDPA executable"), term.name)
+                XCTAssertTrue(term.name.hasSuffix("SDPA queries") || term.name.hasSuffix(" outside"), term.name)
+            }
+            XCTAssertFalse(need.phases.flatMap(\.terms).contains { $0.name.contains("executable") || $0.name.contains("MPS GEMM") })
+            XCTAssertEqual(need.base, 0)
+        }
+    }
+
+    // ── the inputs the need was blind to (12/10/2026) ───────────────────────────────────────
+
+    /// **The head split's threads, injected**: on 2 to 12 P cores, an edit with more references never
+    /// needs less than with fewer, and each head split charged is exactly `HeadSplitAttention.hostBytes`
+    /// at that thread count — the arena `init` maps. (The CI's runner, with fewer P cores, had a
+    /// generation above a three-reference edit: true there — a generation's staging blocks against
+    /// thinner per-thread scratches —, so no test compares a generation with an edit any more.)
+    func testThreadsAreAnInputNotTheMachine() {
+        let refs: [(width: Int, height: Int)] = [(1024, 1024), (1216, 832), (1024, 1536)]
+        for threads in 2...12 {
+            for (w, h) in [(1024, 1024), (1024, 1536)] {
+                for lean in [false, true] {
+                    let peaks = (1...3).map { n -> Int in
+                        var r = Self.request(w, h, references: Array(refs.prefix(n)), threads: threads)
+                        if lean { r = r.lean }
+                        return Self.need(r).peak
+                    }
+                    XCTAssertEqual(peaks, peaks.sorted(), "\(threads) threads, \(w)×\(h)\(lean ? " lean" : "")")
+                }
+            }
+            let need = Self.shapes(Self.request(1024, 1024, references: [(1024, 1024)], threads: threads))
+            let target = need.sequence.target
+            let gpu = HeadSplitAttention.partition(heads: 32, fraction: HeadSplitAttention.cpuFraction).gpu.count
+            let split = MemoryNeed.attention("t", heads: 32, rows: target, keys: need.sequence.count, headDim: 128,
+                                             causal: false, split: true, threads: threads)
+            XCTAssertEqual(split, [.init("t head split", HeadSplitAttention.hostBytes(heads: 32, sequence: target,
+                                                                                    keys: need.sequence.count, headDim: 128,
+                                                                                    threads: threads)),
+                                   .init("t SDPA queries", target * gpu * 128 * 4, outside: true)])
+            // The need's own head splits are those, at this thread count — never the machine's.
+            let charged = need.denoisingPhase.terms.filter { $0.name.hasSuffix("head split") }
+            XCTAssertFalse(charged.isEmpty)
+            for term in charged {
+                let other = Self.shapes(Self.request(1024, 1024, references: [(1024, 1024)], threads: threads + 1))
+                    .denoisingPhase.terms.first { $0.name == term.name }!
+                XCTAssertLessThan(term.bytes, other.bytes, "a thread more, a scratch more")
             }
         }
+    }
+
+    /// **The tokenizer is charged while it lives** — its tables, from the file's counts, in the vision
+    /// and text phases (`Qwen3VLEncoder` holds it), never after.
+    func testTheTokenizerIsCharged() {
+        let need = Self.need(Self.request(1024, 1024, references: [(1024, 1024)]))
+        XCTAssertEqual(MemoryFixtures.qwenTokenizerTables, 28_213_248)
+        for kind in [MemoryNeed.Phase.Kind.vision, .text] {
+            XCTAssertEqual(Self.phase(need, kind)!.bytes("tokenizer tables"), MemoryFixtures.qwenTokenizerTables, "\(kind)")
+        }
+        for kind in [MemoryNeed.Phase.Kind.references, .denoising, .decoding] {
+            XCTAssertEqual(Self.phase(need, kind)!.bytes("tokenizer"), 0, "\(kind)")
+        }
+    }
+
+    /// **A batch of 2 and more**: the other images' latents cross every phase, the images decoded
+    /// before the last wait in the decoding; one DiT at a time — the next image keeps the previous
+    /// full DiT only when it builds no half-size one first (`keepsDenoiser`), so the denoising is
+    /// the same as one image's.
+    func testABatchHoldsItsOtherImages() {
+        for (w, h) in [(1024, 1024), (1024, 1536)] {
+            var one = Self.request(w, h), three = one
+            three.batch = 3
+            let a = Self.need(one), b = Self.need(three)
+            let latent = 64 * (h / 16) * (w / 16) * 4
+            XCTAssertEqual(b.crossing - a.crossing, 2 * latent)
+            XCTAssertEqual(Self.phase(b, .decoding)!.bytes - Self.phase(a, .decoding)!.bytes, 2 * 3 * w * h * 4)
+            XCTAssertEqual(Self.phase(b, .denoising)!.bytes, Self.phase(a, .denoising)!.bytes)
+            XCTAssertGreaterThan(b.peak, a.peak)
+            one.batch = 2
+            XCTAssertLessThan(Self.need(one).peak, b.peak)
+        }
+        // A generation that halves first (1024²: two half-size steps) does not keep the full DiT; an
+        // edit, or a format that never halves, does.
+        let module = QwenImage21DenoisingModule(map: "", scheduler: .init())
+        XCTAssertGreaterThan(module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        XCTAssertFalse(QwenImage21DenoisingModule.keepsDenoiser(reduced: 2))
+        XCTAssertTrue(QwenImage21DenoisingModule.keepsDenoiser(reduced: 0))
+        XCTAssertEqual(module.plan(height: 32, width: 32, steps: 8, start: 0, withLoRA: false).reduced, 0)
+    }
+
+    /// **The map's type is read from its header**: an 8-bit map's staging blocks are about half a
+    /// bf16 one's, and so are the encoder's buffers.
+    func testAnEightBitMapNeedsSmallerBuffers() {
+        let bf16 = MemoryFixtures.qwenMaps(), int8 = MemoryFixtures.qwenMaps(bytesPerValue: 1)
+        XCTAssertEqual(bf16.ditLayerStaging, 436_240_384)
+        XCTAssertLessThan(int8.ditLayerStaging, bf16.ditLayerStaging * 6 / 10)
+        XCTAssertLessThan(int8.encoderLayerStaging, bf16.encoderLayerStaging * 6 / 10)
+        let generation = Self.request(1024, 1024)
+        let a = Self.need(generation)
+        let b = Self.need(MemoryFixtures.qwenRequest(1024, 1024, tokens: 27, maps: int8))
+        XCTAssertEqual(Self.phase(a, .denoising)!.bytes("map staging") - Self.phase(b, .denoising)!.bytes("map staging"),
+                       2 * (bf16.ditLayerStaging - int8.ditLayerStaging))
+    }
+
+    /// **Maps that do not parse make no maps** — and no need: the render is refused, never planned on 0.
+    func testUnreadableMapsMakeNoNeed() {
+        XCTAssertNil(QwenImage21Maps(dit: [:], encoder: [:], tokenizerTables: 1))
+        // A DiT header without a tensor table: no staging block to size.
+        let encoder: [String: Any] = ["last_layer": 1, "config": ["hidden_size": 8, "num_attention_heads": 2,
+                                                                  "num_key_value_heads": 1, "head_dim": 4,
+                                                                  "intermediate_size": 16]]
+        XCTAssertNil(QwenImage21Maps(dit: ["config": [String: Any]()], encoder: encoder, tokenizerTables: 1))
     }
 
     /// **The figures of the report**: generation 1024², edit 1024² with 3 references of

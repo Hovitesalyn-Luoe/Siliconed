@@ -386,43 +386,6 @@ final class KQuantTests: XCTestCase {
         try assertDequantizes(z, "cap_pad_token", to: pad.reference)
     }
 
-    /// FLUX.2's single-block `to_out`, cut on its input: on a block boundary (256 for a K-quant, 32
-    /// for Q4_0…Q5_1) both shares stay packed with their bytes; inside a block, the file is refused.
-    func testColumnSplitOnlyOnABlockBoundary() throws {
-        let k = 512
-        let d = 256, w = tensor(13, d, k)
-        let path = try write([Tensor(name: "single_blocks.0.linear2.weight", shape: [d, k], type: 13, bytes: w.bytes)], name: "klein.gguf")
-        let (map, outcomes) = try forge(try TensorSource(paths: [path]), family: .klein4b)
-        for (part, begin, number) in [("attn", 0, d), ("mlp", d, k - d)] {
-            let name = "single_transformer_blocks.0.attn.to_out.\(part).weight"
-            XCTAssertEqual(outcomes[name], .keptPacked, name)
-            let share = (0..<d).flatMap { r in w.reference[(r * k + begin)..<(r * k + begin + number)] }
-            try assertDequantizes(map, name, to: transposed(share, rows: d, columns: number))
-        }
-
-        let cut = 128, c = tensor(12, cut, k)
-        let bad = try write([Tensor(name: "single_blocks.0.linear2.weight", shape: [cut, k], type: 12, bytes: c.bytes)], name: "klein-cut.gguf")
-        XCTAssertThrowsError(try Recipes.normalize(try TensorSource(paths: [bad]), family: .klein4b)) { e in
-            XCTAssertTrue("\(e)".contains("Q4_K") && "\(e)".contains("inside a block of 256") && "\(e)".contains("[0, 128)"), "\(e)")
-        }
-
-        // Q4_0's blocks are 32: a share of 64 inputs keeps them, one of 48 cuts one.
-        let (d0, k0) = (64, 128), w0 = tensor(2, d0, k0)
-        let legacy = try write([Tensor(name: "single_blocks.0.linear2.weight", shape: [d0, k0], type: 2, bytes: w0.bytes)], name: "klein-q4_0.gguf")
-        let (m0, o0) = try forge(try TensorSource(paths: [legacy]), family: .klein4b)
-        for (part, begin, number) in [("attn", 0, d0), ("mlp", d0, k0 - d0)] {
-            let name = "single_transformer_blocks.0.attn.to_out.\(part).weight"
-            XCTAssertEqual(o0[name], .keptPacked, name)
-            let share = (0..<d0).flatMap { r in w0.reference[(r * k0 + begin)..<(r * k0 + begin + number)] }
-            try assertDequantizes(m0, name, to: transposed(share, rows: d0, columns: number))
-        }
-        let c0 = tensor(7, 48, 128)
-        let bad0 = try write([Tensor(name: "single_blocks.0.linear2.weight", shape: [48, 128], type: 7, bytes: c0.bytes)], name: "klein-q5_1-cut.gguf")
-        XCTAssertThrowsError(try Recipes.normalize(try TensorSource(paths: [bad0]), family: .klein4b)) { e in
-            XCTAssertTrue("\(e)".contains("Q5_1") && "\(e)".contains("inside a block of 32"), "\(e)")
-        }
-    }
-
     /// 4 bits is the floor: Q3_K, Q2_K, the I-quants, TQ, MXFP4 and Q8_1 refuse the whole file, by
     /// name; so does a row that is not whole blocks, or a non-finite fp16 scale.
     func testBelowTheFloorAndMalformedAreRefused() throws {

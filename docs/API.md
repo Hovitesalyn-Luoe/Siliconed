@@ -1099,7 +1099,9 @@ that fails: the model is installed (`card.missing(in:)`) → its license is acce
 (`library.isLicenseAccepted(card)`) → the format (`Format.check`) → the memory
 (`card.checkMemory(width:height:references:)`: the model's floor at this format and with this many
 reference images, `card.memoryNeed(width:height:references:)` — a generation is not charged an edit's
-peak; the need of the most economical plan, computed from the request —, against **B, this Mac's
+peak; the need of the most economical plan, computed from the request, plus what the process already
+holds (B covers the whole process, an app's interface and history included); `nil`, and the render
+refused (`memoryNeedUnknown`), when the model's files cannot be read —, against **B, this Mac's
 budget**: `MemoryBudget.ceiling(physical:)` = ¾ · RAM − 2 GiB, i.e. 4 GiB on an 8 GB Mac, 10 on 16,
 16 on 24, 22 on 32, 46 on 64; `MemoryBudget.machineCeiling()` for this one. B depends on the RAM and
 nothing else — no reading of the machine's state: the same request on the same Mac always gets the
@@ -1132,6 +1134,7 @@ An installation checks the disk **before its first byte** (`diskFull`). A hand-c
 | `unsupportedLoRA(file:reason:)`, `loraForOtherModel(lora:target:model:)` | `unsupported_lora`, `lora_for_other_model` | render (~0.3 s) | offer only `loras(for:)`; otherwise re-import |
 | `incompatibleChain(output:input:)` | `incompatible_chain` | `Chain(…)` | programming bug: does not happen with `model.chain` |
 | `insufficientMemory(needed:budget:)` | `insufficient_memory` | beyond this Mac's budget (B): render; `card.checkMemory` before the click | grey out ahead; a smaller format, fewer reference images, a lighter model; « needs a Mac with `MemoryBudget.macNeeded(for: needed)` GB » |
+| `memoryNeedUnknown(model:)` | `memory_need_unknown` | render; `card.checkMemory` before the click: the model's files cannot be read, so its need cannot be computed | reinstall or re-import the model |
 | `renderAlreadyRunning` | `render_already_running` | render, while another process renders on the machine | wait, or queue |
 | `cancelled` | `cancelled` | the user cancelled (a cancelled `Task` too) | nothing: return to the ready state |
 | `settingsAlreadyLoaded(loaded:requested:)` | `settings_already_loaded` | `EngineSettings.load(from:)` after a render | call `load` at launch |

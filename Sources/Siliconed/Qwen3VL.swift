@@ -261,7 +261,7 @@ package enum Qwen3VLPrompt {
     /// whole prompt, no `max_sequence_length` (its predecessor Qwen-Image cut at 1024) — so a bound
     /// here is the product's, not a port's: it refuses, it never truncates, and a prompt it accepts
     /// is encoded exactly as the reference does. 512 is the cut of every other text the engine reads
-    /// (Z-Image, FLUX.2 [klein] pad or cut at 512), and what it costs is computed, not measured:
+    /// (Z-Image cuts at 512), and what it costs is computed, not measured:
     ///
     ///   - encoder: `TextEncoder`'s arena takes `(5h + 3a + 2kv + 3i + Dh) · 4` B = 287 KB per token
     ///     (Qwen3-VL-8B: h = a = 4096, kv = 1024, i = 12288, Dh = 128): 147 MB for 512 tokens, plus the

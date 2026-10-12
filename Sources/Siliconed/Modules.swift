@@ -7,8 +7,6 @@ import Foundation
 //   Z-Image    ZImageText ─────────── FluxEncoding ──────────── ZImageDenoising ──────── FluxDecoding
 //   Anima      AnimaText ──────────── QwenImageEncoding ─┬───── AnimaDenoising ─┬─────── QwenImageDecoding
 //   Krea 2     Krea2Text ──────────── QwenImageEncoding ─┘      Krea2Denoising ─┘
-//   Klein 4B   KleinText ──────────── Flux2Encoding ─────────── KleinDenoising ───────── Flux2Decoding
-//   ERNIE      ErnieText ──────────── Flux2Encoding (eps 1e-5) ─ ErnieDenoising ──────── Flux2Decoding (eps 1e-5)
 //   Qwen 2.1   QwenImage21Text ◀─ refs ── QwenImage21Encoding ── QwenImage21Denoising ── QwenImage21Decoding
 //              (the encoder sees the references: one Lanczos copy feeds it and the VAE)
 //
@@ -426,243 +424,6 @@ public struct Krea2DenoisingModule: DenoisingModule {
     }
 }
 
-// ── FLUX.2 [klein] ──────────────────────────────────────────────────────────────────────────
-
-/// Chat template, Qwen tokenizer padded to 512, Qwen3-4B with its three layers taken — Z-Image's
-/// map, bit for bit. The padding is computed (`KleinText`): the DiT receives it without a mask.
-public struct KleinTextModule: TextModule {
-    public var map: String
-    public var tokenizer: String
-    public var output: TextFormat { .klein }
-    public var name: String { "Qwen3-4B" }
-
-    public init(map: String, tokenizer: String) { self.map = map; self.tokenizer = tokenizer }
-
-    public func encoder(_ prompt: String, context: Context) throws -> Conditioning {
-        let begin = Date()
-        let (ids, realCount) = KleinText.identifiers(prompt, tokenizer: try Tokenizer(directory: tokenizer))
-        context.timings.tokenizer = Date().timeIntervalSince(begin)
-        context.footprints.tokenizer = Arena.processFootprint()
-        try context.check()
-        let hiddenValues = try KleinText.hiddenStates(ids, realCount: realCount, encoder: map,
-                                                freezeCut: context.reproducible, cancellation: context.cancellation)
-        context.footprints.encoder = Arena.processFootprint()
-        return Conditioning(format: .klein, rows: ids.count, width: hiddenValues.count / ids.count,
-                               values: hiddenValues, tokens: realCount)
-    }
-}
-
-/// The FLUX.2 [klein] DiT: Euler, CFG 1 (distilled), schedule shifted according to the grid.
-public struct KleinDenoisingModule: DenoisingModule {
-    public var map: String
-    public var family: Family
-    public var model: String { family.rawValue }
-    public var name: String { "DiT FLUX.2 [klein]" }
-    public var entry: TextFormat { .klein }
-    public var space: LatentSpace { .flux2 }
-    /// The model's card: `num_inference_steps=4`.
-    public var defaultSteps: Int { 4 }
-
-    public init(map: String, family: Family = .klein4b) { self.map = map; self.family = family }
-
-    /// Outside a grid, that of 1024² (4,096 tokens) — the reference format. A render always takes
-    /// that of its grid (`sigmas(step:height:width:)`).
-    public func sigmas(steps: Int) -> [Float] { KleinDiT.sigmas(steps: steps, imageTokens: 4096) }
-
-    public func sigmas(steps: Int, height: Int, width: Int) -> [Float] {
-        KleinDiT.sigmas(steps: steps, imageTokens: height * width)
-    }
-
-    public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
-        DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps, height: height, width: width)[start],
-                         evaluations: steps - start, reduced: 0, reducedHeight: height, reducedWidth: width)
-    }
-
-    /// The multi-reference editing of `Flux2KleinPipeline`: four, as ComfyUI offers it — the
-    /// sequence grows by that many images, and the time with it.
-    public var maxReferences: Int { 4 }
-
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
-                          context: Context) throws {
-        try denoise(&latent, text: text, steps: steps, start: start, references: [], lora: lora, context: context)
-    }
-
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int,
-                          references: [Latent], lora: LoRA?, context: Context) throws {
-        guard references.allSatisfy({ $0.space == space }), references.count <= maxReferences else {
-            throw Request.Failure.references(references.count, max: maxReferences)
-        }
-        let dit = try KleinDiT(artifact: try Artifact(path: map), latentHeight: latent.height,
-                               latentWidth: latent.width, references: references.map { ($0.height, $0.width) },
-                               textRows: text.rows, freezeCut: context.reproducible, lora: lora)
-        dit.cancellation = context.cancellation
-        try text.values.withUnsafeBufferPointer { try dit.prepareText($0.baseAddress!) }
-        try dit.prepareReferences(references.map(\.values))
-        try context.check()
-        // The modulation of only the σs evaluated, in one pass; the following images of a batch reuse it.
-        let σ = sigmas(steps: steps, height: latent.height, width: latent.width)
-        let key = "klein.modulation " + map
-        if let table = context.reserve[key] as? KleinDiT.ModulationTable { dit.modulations = table }
-        try dit.tabulateModulation(sigmas: Array(context.told(σ, start: start)[start..<(σ.count - 1)]))
-        context.reserve[key] = dit.modulations
-        try euler(&latent, sigmas: σ, start: start, context: context) { x, sigma in
-            try dit.forward(latent: x, sigma: sigma)
-        }
-        context.footprints.denoising = Arena.processFootprint()
-    }
-}
-
-/// The FLUX.2 VAE's decoder: the latent's `BatchNorm` undone, the 2×2 cells unpacked, then Flux's
-/// 32-channel decoder (`VAE.Config.flux2`).
-public struct Flux2DecodingModule: DecodingModule {
-    public var path: String
-    public var space: LatentSpace { .flux2 }
-    public var name: String { "VAE FLUX.2" }
-    /// The `BatchNorm`'s eps: `batch_norm_eps` from the published `vae/config.json` (1e-4) for
-    /// FLUX.2, **1e-5 hard-coded** in `ErnieImagePipeline` — same VAE, bit for bit, other pipeline.
-    public var eps: Float
-    public init(path: String, eps: Float = 1e-4) { self.path = path; self.eps = eps }
-
-    public func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
-        let z = try Flux2DecodingModule.unpack(latent, path: path, eps: eps)
-        let vae = try VAE(path: path, latentHeight: 2 * latent.height, latentWidth: 2 * latent.width,
-                          config: .flux2)
-        let (image, seconds) = try z.withUnsafeBufferPointer { try vae.decode(latent: $0.baseAddress!) }
-        context.timings.decoding = seconds
-        return ImageRGB(pixels: image, height: vae.imageHeight, width: vae.imageWidth)
-    }
-
-    /// The VAE's `BatchNorm` statistics: `(mean, √(var + eps))` per packed channel.
-    static func normPerBatch(_ path: String, eps: Float) throws -> (mean: [Float], deviation: [Float]) {
-        let weights = try Safetensors(path: path)
-        guard let mean = weights.materialize("bn.running_mean"), let variance = weights.materialize("bn.running_var"),
-              mean.count == LatentSpace.flux2.channels, variance.count == LatentSpace.flux2.channels else {
-            throw Safetensors.Failure.missingTensor(file: path, name: "bn.running_mean / bn.running_var")
-        }
-        return (mean, variance.map { ($0 + eps).squareRoot() })
-    }
-
-    /// `[128, h, w]` → `x · √(var + eps) + mean`, then `_unpatchify_latents` → `[32, 2h, 2w]`:
-    /// channel `c·4 + ph·2 + pw` goes to `(c, 2y + ph, 2x + pw)`.
-    package static func unpack(_ latent: Latent, path: String, eps: Float = 1e-4) throws -> [Float] {
-        let (mean, deviations) = try normPerBatch(path, eps: eps)
-        let (h, w) = (latent.height, latent.width), channels = latent.space.channels / 4
-        var z = [Float](repeating: 0, count: latent.values.count)
-        for c in 0..<channels {
-            for ph in 0..<2 {
-                for pw in 0..<2 {
-                    let k = c * 4 + ph * 2 + pw
-                    let deviation = deviations[k], m = mean[k]
-                    for y in 0..<h {
-                        for x in 0..<w {
-                            z[(c * 2 * h + 2 * y + ph) * 2 * w + 2 * x + pw] = latent.values[(k * h + y) * w + x] * deviation + m
-                        }
-                    }
-                }
-            }
-        }
-        return z
-    }
-}
-
-/// The FLUX.2 VAE's encoder (img2img): the mean `[32, H/8, W/8]`, packed 2×2
-/// (`_patchify_latents`) then normalized by the `BatchNorm` — the exact inverse of `Flux2DecodingModule`.
-public struct Flux2EncodingModule: ImageEncodingModule {
-    public var path: String
-    public var space: LatentSpace { .flux2 }
-    public var name: String { "VAE FLUX.2" }
-    /// That of the decoder it inverts (`Flux2DecodingModule.eps`).
-    public var eps: Float
-    public init(path: String, eps: Float = 1e-4) { self.path = path; self.eps = eps }
-
-    public func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
-        let raw = try encoderImage(image, path: path, family: .flux2, space: .flux2, context: context)
-        let (mean, deviations) = try Flux2DecodingModule.normPerBatch(path, eps: eps)
-        let (h, w) = (raw.height / 2, raw.width / 2)
-        var z = [Float](repeating: 0, count: raw.values.count)
-        for c in 0..<(space.channels / 4) {
-            for ph in 0..<2 {
-                for pw in 0..<2 {
-                    let k = c * 4 + ph * 2 + pw
-                    for y in 0..<h {
-                        for x in 0..<w {
-                            z[(k * h + y) * w + x] = (raw.values[(c * 2 * h + 2 * y + ph) * 2 * w + 2 * x + pw] - mean[k]) / deviations[k]
-                        }
-                    }
-                }
-            }
-        }
-        return Latent(space: .flux2, height: h, width: w, values: z)
-    }
-}
-
-// ── ERNIE-Image ────────────────────────────────────────────────────────────────────────────
-
-/// Mistral tokenizer (`<s>` in front, **no template**), Ministral-3 up to `hidden_states[-2]`:
-/// real tokens only, `[T, 3072]` — the pipeline does not pad.
-public struct ErnieTextModule: TextModule {
-    public var map: String
-    public var tokenizer: String
-    public var output: TextFormat { .ernie }
-    public var name: String { "Ministral-3 3B" }
-
-    public init(map: String, tokenizer: String) { self.map = map; self.tokenizer = tokenizer }
-
-    public func encoder(_ prompt: String, context: Context) throws -> Conditioning {
-        let begin = Date()
-        let ids = ErnieText.identifiers(prompt, tokenizer: try Tokenizer(directory: tokenizer))
-        context.timings.tokenizer = Date().timeIntervalSince(begin)
-        context.footprints.tokenizer = Arena.processFootprint()
-        try context.check()
-        let hiddenValues = try ErnieText.hiddenStates(ids, encoder: map, freezeCut: context.reproducible,
-                                                cancellation: context.cancellation)
-        context.footprints.encoder = Arena.processFootprint()
-        return Conditioning(format: .ernie, rows: ids.count, width: hiddenValues.count / ids.count,
-                               values: hiddenValues, tokens: ids.count)
-    }
-}
-
-/// The ERNIE-Image Turbo DiT: Euler, CFG 1 (distilled), 8 steps, fixed schedule (`shift = 4`).
-public struct ErnieDenoisingModule: DenoisingModule {
-    public var map: String
-    public var family: Family
-    public var model: String { family.rawValue }
-    public var name: String { "DiT ERNIE-Image" }
-    public var entry: TextFormat { .ernie }
-    public var space: LatentSpace { .flux2 }
-    /// The model's card: `num_inference_steps=8, guidance_scale=1.0`.
-    public var defaultSteps: Int { 8 }
-
-    public init(map: String, family: Family = .ernie) { self.map = map; self.family = family }
-
-    public func sigmas(steps: Int) -> [Float] { ErnieDiT.sigmas(steps: steps) }
-
-    public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
-        DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start],
-                         evaluations: steps - start, reduced: 0, reducedHeight: height, reducedWidth: width)
-    }
-
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
-                          context: Context) throws {
-        let dit = try ErnieDiT(artifact: try Artifact(path: map), latentHeight: latent.height,
-                               latentWidth: latent.width, textRows: text.rows,
-                               freezeCut: context.reproducible, lora: lora)
-        dit.cancellation = context.cancellation
-        try text.values.withUnsafeBufferPointer { try dit.prepareText($0.baseAddress!) }
-        try context.check()
-        // The modulation of only the σs evaluated, in one pass; the following images of a batch reuse it.
-        let σ = sigmas(steps: steps)
-        let key = "ernie.modulation " + map
-        if let table = context.reserve[key] as? ErnieDiT.ModulationTable { dit.modulations = table }
-        try dit.tabulateModulation(sigmas: Array(context.told(σ, start: start)[start..<(σ.count - 1)]))
-        context.reserve[key] = dit.modulations
-        try euler(&latent, sigmas: σ, start: start, context: context) { x, sigma in
-            try dit.forward(latent: x, sigma: sigma)
-        }
-        context.footprints.denoising = Arena.processFootprint()
-    }
-}
-
 // ── Qwen-Image-2.1 ─────────────────────────────────────────────────────────────────────────
 
 /// **Qwen3-VL-8B on the prompt and the references together** — the raw template, each image its
@@ -726,8 +487,6 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     /// `check(steps:)` has refused that count before.
     public func sigmas(steps: Int) -> [Float] { scheduler.sigmas }
 
-    public func sigmas(steps: Int, height: Int, width: Int) -> [Float] { sigmas(steps: steps) }
-
     /// The Turbo's spectral schedule: **its first two evaluations at half size** (`spectralSteps`, the
     /// half-size phase of `QwenImage21Sampler`), a generation at 1024² −18 % (~160 → ~131 s), clean
     /// by eye on two prompts × three seeds. A fixed `k`, not Z-Image's threshold rule (`f* ≤ 0.10`):
@@ -747,13 +506,20 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
                                           floor: Spectral.floor(factor: space.factor))
         let rule = withLoRA ? 0 : QwenImage21DenoisingModule.spectralSteps
         let k = start > 0 || !halvable ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
-        return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps, height: height, width: width)[start],
+        return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start],
                              evaluations: steps - start, reduced: k,
                              reducedHeight: k > 0 ? height / 2 : height, reducedWidth: k > 0 ? width / 2 : width)
     }
 
     /// The half-size evaluations of a generation (`plan`).
     package static let spectralSteps = 2
+
+    /// **Whether a batch's next image may reuse this one's DiT** (`Context.keptDenoiser`): only when its
+    /// denoising builds no half-size DiT first (`reduced` 0) — kept beside the half-size one, the full
+    /// DiT would be two DiTs at once, which the memory need never charges (`QwenImage21Need`). A batch
+    /// with the spectral schedule rebuilds its full DiT per image: the same bits (an isolated render
+    /// builds it too), a few milliseconds and, for a generation, a prefill fused into the first step.
+    package static func keepsDenoiser(reduced: Int) -> Bool { reduced == 0 }
 
     public func check(steps: Int, startImage: Bool) throws {
         try QwenImage21Pipeline.check(steps: steps)
@@ -793,12 +559,23 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
         sampler.freezeCut = context.reproducible
         sampler.cancellation = context.cancellation
         sampler.storage = storage
+        let (height, width) = (latent.height, latent.width)
+        // Detail, like a LoRA, turns it off (`plan`); an edit has none.
+        let reduced = references.isEmpty
+            ? plan(height: height, width: width, steps: steps, start: start,
+                   withLoRA: lora != nil || context.detail != .normal).reduced : 0
+        // **The previous image's DiT is reused only when no half-size DiT comes first**
+        // (`keepsDenoiser`): the memory need charges one DiT at a time — the half-size one is built and
+        // released before the full one —, and the full DiT of image n kept beside the half-size one of
+        // image n + 1 was both (+1.1 GB at 1024²). Between keeping and rebuilding, rebuilding: B.
+        if !QwenImage21DenoisingModule.keepsDenoiser(reduced: reduced) { context.keptDenoiser = nil }
         sampler.reusable = context.keptDenoiser as? QwenImage21DiT
         // **The last edit's K/V, kept** (`RenderCache`): only where the policy puts them on disk anyway
         // (a prefix with images); a text-only prefix is computed inside the first step for nearly
         // nothing. The map and the user's stack change the conditions' K/V: both are in the key.
         if let cache = context.cache, storage == nil {
-            let prefix = text.rows + 3 * text.imageSlots.filter { $0 }.count
+            let prefix = QwenImage21CachePolicy.prefix(conditioningRows: text.rows,
+                                                       imageSlots: text.imageSlots.filter { $0 }.count)
             if QwenImage21CachePolicy.storage(prefix: prefix) == .file {
                 let key = kvKey(stack: lora?.layers ?? [], text: text, references: references, latent: latent,
                                 reproducible: context.reproducible)
@@ -807,13 +584,8 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
                 sampler.keptReserve = cache.keptReserve
             }
         }
-        let σ = sigmas(steps: steps, height: latent.height, width: latent.width)
+        let σ = sigmas(steps: steps)
         context.beginDenoising(evaluations: steps)
-        let (height, width) = (latent.height, latent.width)
-        // Detail, like a LoRA, turns it off (`plan`); an edit has none.
-        let reduced = references.isEmpty
-            ? plan(height: height, width: width, steps: steps, start: start,
-                   withLoRA: lora != nil || context.detail != .normal).reduced : 0
         try sampler.run(latent: &latent.values, height: height, width: width, hidden: text.values,
                         slots: text.imageSlots, references: references, sigmas: σ,
                         told: context.told(σ, start: start, bell: .late), reduced: reduced) { step in
@@ -821,7 +593,7 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
                                  evaluatedWidth: step.evaluatedWidth, space: space, x: step.latent, v: step.velocity,
                                  nextSigma: σ[step.index + 1], fullHeight: height, fullWidth: width)
         }
-        context.keptDenoiser = sampler.reused
+        context.keptDenoiser = QwenImage21DenoisingModule.keepsDenoiser(reduced: reduced) ? sampler.reused : nil
         context.footprints.denoising = Arena.processFootprint()
         // What a check that measures reads back: the prefill/steps split and the cache's storage.
         context.reserve["qwen21.denoising"] = (sampler.timings, sampler.used)
@@ -922,8 +694,6 @@ public struct Model: Sendable {
         case "z-image": return try zImage(in: b, card: .zImage, dit: b.ditMap(.zImage))
         case "anima": return try anima(in: b, card: .anima, dit: b.ditMap(.anima))
         case "krea2": return try krea2(in: b, card: .krea2, dit: b.ditMap(.krea2))
-        case "klein-4b": return try klein4b(in: b, card: .klein4b, dit: b.ditMap(.klein4b))
-        case "ernie-image": return try ernie(in: b, card: .ernie, dit: b.ditMap(.ernie))
         case "qwen-image-2.1": return try qwenImage21(in: b, card: .qwenImage21, dit: b.ditMap(.qwenImage21))
         default:
             guard let card = b.importedCards().first(where: { $0.id == identifier }), let dit = card.map else {
@@ -933,8 +703,6 @@ public struct Model: Sendable {
             case .zImage: return try zImage(in: b, card: card, dit: dit)
             case .anima: return try anima(in: b, card: card, dit: dit)
             case .krea2: return try krea2(in: b, card: card, dit: dit)
-            case .klein4b: return try klein4b(in: b, card: card, dit: dit)
-            case .ernie: return try ernie(in: b, card: card, dit: dit)
             case .qwenImage21: return try qwenImage21(in: b, card: card, dit: dit)
             }
         }
@@ -998,35 +766,6 @@ public struct Model: Sendable {
                    denoising: Krea2DenoisingModule(map: try map(dit, b)),
                    decoding: QwenImageDecodingModule(path: try b.component(.krea2, "vae.safetensors")),
                    encoding: QwenImageEncodingModule(path: try b.component(.krea2, "vae.safetensors"))))
-    }
-
-    /// FLUX.2 [klein] 4B, distilled to 4 steps. Apache 2.0.
-    public static func klein4b(in b: Library) throws(EngineError) -> Model {
-        try building(ModelCard.klein4b.id) { try klein4b(in: b, card: .klein4b, dit: b.ditMap(.klein4b)) }
-    }
-
-    static func klein4b(in b: Library, card: ModelCard, dit: String) throws -> Model {
-        Model(card: card, library: b, chain: try Chain(
-                   text: KleinTextModule(map: try map(b.encoderMap(.klein4b), b),
-                                     tokenizer: try b.component(.klein4b, "tokenizer")),
-                   denoising: KleinDenoisingModule(map: try map(dit, b), family: .klein4b),
-                   decoding: Flux2DecodingModule(path: try b.component(.klein4b, "vae.safetensors")),
-                   encoding: Flux2EncodingModule(path: try b.component(.klein4b, "vae.safetensors"))))
-    }
-
-    /// ERNIE-Image Turbo, distilled to 8 steps. Apache 2.0.
-    public static func ernie(in b: Library) throws(EngineError) -> Model {
-        try building(ModelCard.ernie.id) { try ernie(in: b, card: .ernie, dit: b.ditMap(.ernie)) }
-    }
-
-    static func ernie(in b: Library, card: ModelCard, dit: String) throws -> Model {
-        let vae = try b.component(.ernie, "vae.safetensors")
-        return Model(card: card, library: b, chain: try Chain(
-                   text: ErnieTextModule(map: try map(b.encoderMap(.ernie), b),
-                                     tokenizer: try b.component(.ernie, "tokenizer")),
-                   denoising: ErnieDenoisingModule(map: try map(dit, b), family: .ernie),
-                   decoding: Flux2DecodingModule(path: vae, eps: 1e-5),
-                   encoding: Flux2EncodingModule(path: vae, eps: 1e-5)))
     }
 
     /// Qwen-Image-2.1-Turbo: 8 steps, generation and editing by instruction (1 to 3

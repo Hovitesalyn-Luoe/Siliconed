@@ -105,6 +105,9 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     /// (`ModelCard.memoryNeed`, the most economical plan) exceeds B (`MemoryBudget.ceiling`, fixed by
     /// the RAM: ¾ · RAM − 2 GiB). The same request on the same Mac is always refused. Bytes.
     case insufficientMemory(needed: Int, budget: Int)
+    /// **The memory a render needs cannot be computed** (`ModelCard.memoryNeed` is `nil`): the model's
+    /// maps are missing or their headers do not parse. Refused rather than rendered on a need of 0.
+    case memoryNeedUnknown(model: String)
     /// Another process is rendering on this machine (the app, the CLI, whatever their library or
     /// user — `RenderLock.machine`): two models do not fit
     /// in 16 GB. Within one process, renders queue instead.
@@ -206,6 +209,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .loraForOtherModel: return "lora_for_other_model"
         case .incompatibleChain: return "incompatible_chain"
         case .insufficientMemory: return "insufficient_memory"
+        case .memoryNeedUnknown: return "memory_need_unknown"
         case .renderAlreadyRunning: return "render_already_running"
         case .cancelled: return "cancelled"
         case .settingsAlreadyLoaded: return "settings_already_loaded"
@@ -299,6 +303,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
             return "These modules do not connect: \(output) comes out where \(input) is expected."
         case let .insufficientMemory(needed, budget):
             return "Beyond this Mac's memory budget: this render needs \(gigabytes(needed)), this Mac offers \(gigabytes(budget))."
+        case .memoryNeedUnknown(let model):
+            return "The memory a render of \(model) needs cannot be computed: its model files cannot be read."
         case .renderAlreadyRunning: return "Another render is already running on this machine."
         case .cancelled: return "Cancelled."
         case .settingsAlreadyLoaded: return "The engine settings were already loaded from another profile."
@@ -327,7 +333,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
             return "Choose " + allowed.map(String.init).joined(separator: ", ") + " steps."
         case .invalidSteps: return "Leave the number of steps at the model's default."
         case .tooManyReferences(_, let max) where max == 0:
-            return "Choose a model that edits by reference (Qwen-Image-2.1, FLUX.2 [klein])."
+            return "Choose a model that edits by reference (Qwen-Image-2.1)."
         case .tooManyReferences(_, let max): return "Keep at most \(max) reference images."
         case .promptSyntax:
             return "Write alternatives as {a|b|c}, without nesting; \\{, \\} and \\| are the characters themselves."
@@ -357,6 +363,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .loraForOtherModel: return "Choose a LoRA made for this model, or remove this one from the stack."
         case .incompatibleChain: return "Render with the model as installed, rather than modules assembled by hand."
         case .insufficientMemory: return "Choose a smaller format, fewer reference images or a lighter model."
+        case .memoryNeedUnknown: return "Reinstall the model, or import it again."
         case .renderAlreadyRunning: return "Wait for it to finish, or add the request to the app's queue."
         case .cancelled: return nil
         case .settingsAlreadyLoaded: return "Load the settings at launch, before the first render."
@@ -499,7 +506,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         .unsupportedLoRA(file: "x.lora.silicon", reason: .noTarget),
         .loraForOtherModel(lora: "PopArt", target: "z-image", model: "krea2"),
         .incompatibleChain(output: "flux", input: "qwen-image"),
-        .insufficientMemory(needed: 7_800_000_000, budget: 8_589_934_592), .renderAlreadyRunning, .cancelled,
+        .insufficientMemory(needed: 7_800_000_000, budget: 8_589_934_592), .memoryNeedUnknown(model: "z-image"),
+        .renderAlreadyRunning, .cancelled,
         .settingsAlreadyLoaded(loaded: "/a", requested: "/b"), .internalFailure(component: "gpu", detail: "no Metal device"),
     ]
 }
@@ -545,26 +553,13 @@ package struct MissingFile: Error, CustomStringConvertible, Equatable {
         return name.hasPrefix("goldens-") && name.hasSuffix(".safetensors")
     }
 
-    /// **The oracle that writes a golden**: the family's own oracle for a family's folder, the
-    /// stage's oracle for Z-Image's (named by the words of the golden's name before the first number).
-    package static func oracle(forGolden path: String) -> String {
-        let folder = ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent
-        if folder != "oracle", !folder.isEmpty, folder != "." {
-            return "bench/oracle/\(folder)/oracle_\(folder).py"
-        }
-        let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
-        let words = stem.split(separator: "-").dropFirst().prefix { !($0.first?.isNumber ?? true) }
-        return "bench/oracle/oracle_\(words.isEmpty ? "<stage>" : words.joined(separator: "_")).py"
-    }
-
     package var description: String {
         switch nature {
         case .map: return "map missing: \(path) — install the model or import it"
         case .published: return "component missing: \(path) — install the model"
         case .golden:
-            return "golden missing: \(path) — goldens are written by the reference, not installed: "
-                + "tools/machine.sh tools/.venv/bin/python \(Self.oracle(forGolden: path)) … "
-                + "(the .json of the same name records how it was made)"
+            return "golden missing: \(path) — goldens are written by the reference oracle, not installed "
+                + "(the .json of the same name records the command that made it)"
         }
     }
 }

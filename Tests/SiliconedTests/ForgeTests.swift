@@ -49,9 +49,6 @@ final class ForgeTests: XCTestCase {
                                                  "model.diffusion_model.cap_embedder.1.weight"]), .zImage)
         XCTAssertEqual(Recipes.family(fromNames: ["blocks.0.attn.wq.weight"]), .krea2)
         XCTAssertEqual(Recipes.family(fromNames: ["net.blocks.0.self_attn.q_proj.weight"]), .anima)
-        XCTAssertEqual(Recipes.family(fromNames: ["single_transformer_blocks.3.attn.to_qkv_mlp_proj.weight"]), .klein4b)
-        XCTAssertEqual(Recipes.family(fromNames: ["model.diffusion_model.double_stream_modulation_img.lin.weight"]), .klein4b)
-        XCTAssertEqual(Recipes.family(fromNames: ["layers.0.adaLN_sa_ln.weight", "layers.0.self_attention.to_q.weight"]), .ernie)
         XCTAssertNil(Recipes.family(fromNames: ["encoder.down.0.weight"]))
     }
 
@@ -67,65 +64,10 @@ final class ForgeTests: XCTestCase {
         XCTAssertEqual(try ForgeLoRA.targets("blocks.1.self_attn.q_proj", family: .anima).map(\.module), ["transformer_blocks.1.attn1.to_q"])
     }
 
-    /// FLUX.2's BFL names → diffusers (`convert_flux2_transformer_checkpoint_to_diffusers`).
-    func testTheNamesOfFLUX2() throws {
-        XCTAssertEqual(try Recipes.flux2("double_blocks.2.img_attn.norm.query_norm.scale"), "transformer_blocks.2.attn.norm_q.weight")
-        XCTAssertEqual(try Recipes.flux2("double_blocks.2.txt_attn.proj.weight"), "transformer_blocks.2.attn.to_add_out.weight")
-        XCTAssertEqual(try Recipes.flux2("double_blocks.0.txt_mlp.2.weight"), "transformer_blocks.0.ff_context.linear_out.weight")
-        XCTAssertEqual(try Recipes.flux2("single_blocks.7.linear1.weight"), "single_transformer_blocks.7.attn.to_qkv_mlp_proj.weight")
-        XCTAssertEqual(try Recipes.flux2("time_in.out_layer.weight"), "time_guidance_embed.timestep_embedder.linear_2.weight")
-        XCTAssertThrowsError(try Recipes.flux2("double_blocks.0.inconnu.weight"))
-    }
-
-    /// **Splitting the fused weights**: each part at the right position, with the right values — on
-    /// a miniature FLUX.2 (d = 2, MLP 3) where each value tells its row and its column.
-    func testFLUX2Split() throws {
-        final class Mini: TensorCatalog {
-            var shapes: [String: [Int]] = [:]
-            var names: [String] { Array(shapes.keys) }
-            func shape(_ name: String) -> [Int]? { shapes[name] }
-            func dtype(_ name: String) -> String? { "F32" }
-            func read(_ name: String) throws -> [Float] {
-                let f = shapes[name]!
-                return (0..<f[0]).flatMap { l in (0..<f[1]).map { Float(l * 100 + $0) } }
-            }
-        }
-        let m = Mini()
-        m.shapes = ["single_transformer_blocks.0.attn.to_qkv_mlp_proj.weight": [12, 2],   // 3·2 + 2·3
-                    "single_transformer_blocks.0.attn.to_out.weight": [2, 5],             // input 2 + 3
-                    "transformer_blocks.0.ff.linear_in.weight": [6, 2],
-                    "double_blocks.0.txt_attn.qkv.weight": [6, 2]]
-        func parts(_ published: String, _ name: String) throws -> [String: [Float]] {
-            try Dictionary(uniqueKeysWithValues: Recipes.flux2Split(m, published, name).map { ($0.0, try $0.1.read()) })
-        }
-        let qkv = try parts("single_transformer_blocks.0.attn.to_qkv_mlp_proj.weight", "single_transformer_blocks.0.attn.to_qkv_mlp_proj.weight")
-        XCTAssertEqual(qkv["single_transformer_blocks.0.attn.to_qkv_mlp_proj.k.weight"], [200, 201, 300, 301])
-        XCTAssertEqual(qkv["single_transformer_blocks.0.attn.to_qkv_mlp_proj.up.weight"], [900, 901, 1000, 1001, 1100, 1101])
-        let output = try parts("single_transformer_blocks.0.attn.to_out.weight", "single_transformer_blocks.0.attn.to_out.weight")
-        XCTAssertEqual(output["single_transformer_blocks.0.attn.to_out.attn.weight"], [0, 1, 100, 101])
-        XCTAssertEqual(output["single_transformer_blocks.0.attn.to_out.mlp.weight"], [2, 3, 4, 102, 103, 104])
-        let ff = try parts("transformer_blocks.0.ff.linear_in.weight", "transformer_blocks.0.ff.linear_in.weight")
-        XCTAssertEqual(ff["transformer_blocks.0.ff.linear_in.gate.weight"], [0, 1, 100, 101, 200, 201])
-        let text = try parts("double_blocks.0.txt_attn.qkv.weight", try Recipes.flux2("double_blocks.0.txt_attn.qkv.weight"))
-        XCTAssertEqual(text["transformer_blocks.0.attn.add_v_proj.weight"], [400, 401, 500, 501])
-    }
-
-    /// FLUX.2 [klein]'s schedule against the oracle's (`FlowMatchEulerDiscreteScheduler`, empirical
-    /// μ): 4 steps at 512² (1,024 tokens) and at 1024² (4,096).
-    func testKleinSchedule() {
-        XCTAssertEqual(KleinDiT.empiricalMu(imageTokens: 1024, steps: 4), 2.0306897079499455, accuracy: 1e-12)
-        for (σ, oracle) in zip(KleinDiT.sigmas(steps: 4, imageTokens: 1024), [1, 0.958085, 0.883982, 0.717497, 0] as [Float]) {
-            XCTAssertEqual(σ, oracle, accuracy: 1e-6)
-        }
-        for (σ, oracle) in zip(KleinDiT.sigmas(steps: 4, imageTokens: 4096), [1, 0.967384, 0.908144, 0.767200, 0] as [Float]) {
-            XCTAssertEqual(σ, oracle, accuracy: 1e-6)
-        }
-    }
-
     // ── Qwen-Image-2.1 ─────────────────────────────────────────────────────────────────────
 
     /// The DiT is recognized by its names; a LoRA in PEFT's naming (`transformer.` prefix) by
-    /// its modules — the modulation and the σ embedding included, which ERNIE and FLUX.2 refuse.
+    /// its modules — the modulation and the σ embedding included.
     func testQwenImage21NamesAndTurboKeys() throws {
         XCTAssertEqual(Recipes.family(fromNames: ["transformer_blocks.0.img_mlp.gate_layer.weight",
                                                  "txt_in.text_norm.weight", "modulation.1.weight"]), .qwenImage21)
@@ -136,7 +78,6 @@ final class ForgeTests: XCTestCase {
         for m in ["modulation.1", "time_text_embed.timestep_embedder.linear_1", "transformer_blocks.3.img_mlp.out"] {
             XCTAssertEqual(try ForgeLoRA.targets(m, family: .qwenImage21).map(\.module), [m])
         }
-        XCTAssertThrowsError(try ForgeLoRA.targets("time_embedding.linear_1", family: .ernie), "ERNIE still refuses it")
     }
 
     /// **ai-toolkit's fused `img_mlp.gate_up`**, on a miniature Qwen (d = 2, MLP 3, r = 2): `up`
@@ -409,37 +350,40 @@ final class ForgeTests: XCTestCase {
         if dit { try Data(repeating: 3, count: 1000).write(to: URL(fileURLWithPath: b.map(f.ditMap(variant)))) }
     }
 
-    /// **Uninstalling does not break the neighbor**: Z-Image and FLUX.2 [klein] read the same
-    /// encoder map; it only goes away with the last of the two. The inventory counts it once.
-    func testUninstallKeepsTheSharedEncoder() throws {
+    /// **Uninstalling does not break the neighbor**: Z-Image's DiT, encoder and components go,
+    /// Krea 2's stay. The inventory counts each family's maps once.
+    func testUninstallSparesTheNeighbor() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-gestion-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let b = Library(root: root)
         try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
         try place(.zImage, in: b)
-        try place(.klein4b, in: b)
+        try place(.krea2, in: b)
 
         let o = b.occupancy()
         let z = try XCTUnwrap(o.families.first { $0.family == .zImage })
         XCTAssertTrue(z.isReady)
         XCTAssertEqual(z.dit, 1000)
-        XCTAssertEqual(z.encoderSharedWith, [.klein4b])
-        XCTAssertFalse(try XCTUnwrap(o.families.first { $0.family == .krea2 }).present)
-        XCTAssertEqual(o.total, 2 * 1000 + 100 + 30 + 30 + 2 * 10, "the shared encoder counts once")
-        XCTAssertEqual(Set(b.models().map(\.id)), ["z-image", "klein-4b"])
+        XCTAssertEqual(z.encoder, 100)
+        XCTAssertFalse(try XCTUnwrap(o.families.first { $0.family == .anima }).present)
+        XCTAssertEqual(o.total, 2 * 1000 + 2 * 100 + o.families.reduce(0) { $0 + $1.components })
+        XCTAssertTrue(try XCTUnwrap(o.families.first { $0.family == .krea2 }).present)
 
         try b.uninstall(.zImage)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: b.map(Family.klein4b.encoderMap)), "klein still reads it")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: b.map(Family.zImage.ditMap)))
+        for gone in [Family.zImage.ditMap, Family.zImage.encoderMap] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: b.map(gone)), gone)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: b.map(Family.krea2.encoderMap)))
         XCTAssertFalse(b.occupancy().families.first { $0.family == .zImage }!.present)
+        XCTAssertTrue(b.occupancy().families.first { $0.family == .krea2 }!.present)
 
-        try b.uninstall(.klein4b)
-        XCTAssertEqual(b.occupancy().total, 0, "nothing left: the encoder went away with the last family")
+        try b.uninstall(.krea2)
+        XCTAssertEqual(b.occupancy().total, 0, "nothing left")
     }
 
     /// **One version at a time**: switching Z-Image to Compact removes its Standard DiT and
-    /// keeps the Standard encoder as long as FLUX.2 [klein] reads it; the Compact encoder is Z-Image's
-    /// alone, and goes with it. The render reads the maps of the version on disk.
+    /// encoder; the Compact encoder goes with the Compact. The render reads the maps of the version
+    /// on disk, and a neighbor family is never touched.
     func testSwitchingVersionReplacesTheOtherAndSparesTheNeighbor() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-versions-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -447,33 +391,29 @@ final class ForgeTests: XCTestCase {
         let fm = FileManager.default
         try fm.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
         try place(.zImage, in: b)
-        try place(.klein4b, in: b)
+        try place(.krea2, in: b)
         XCTAssertEqual(b.variant(of: .zImage), .standard)
         XCTAssertEqual(b.ditMap(.zImage), Family.zImage.ditMap)
 
         // What `Installer.install(.zImage, variant: .compact)` does before its first byte, then its maps.
-        XCTAssertEqual(try b.release(.zImage, keeping: .compact), 1000, "the Standard DiT; the encoder stays, klein reads it")
+        XCTAssertEqual(try b.release(.zImage, keeping: .compact), 1100, "the Standard DiT and its encoder")
         try place(.zImage, in: b, variant: .compact)
         XCTAssertFalse(fm.fileExists(atPath: b.map(Family.zImage.ditMap)))
-        XCTAssertTrue(fm.fileExists(atPath: b.map(Family.klein4b.encoderMap)))
+        XCTAssertFalse(fm.fileExists(atPath: b.map(Family.zImage.encoderMap)))
         XCTAssertEqual(b.variant(of: .zImage), .compact)
         XCTAssertEqual(b.ditMap(.zImage), "z-image-turbo-dit.compact.v0.silicon")
         XCTAssertEqual(b.encoderMap(.zImage), "qwen3-4b-encoder.compact.v0.silicon")
-        XCTAssertEqual(b.encoderMap(.klein4b), Family.klein4b.encoderMap, "klein has one version, the publisher's encoder")
         let o = b.occupancy()
         let z = try XCTUnwrap(o.families.first { $0.family == .zImage })
         XCTAssertEqual(z.variant, .compact)
         XCTAssertTrue(z.isReady)
-        XCTAssertEqual(z.encoderSharedWith, [], "the Compact encoder is Z-Image's alone")
-        XCTAssertEqual(try XCTUnwrap(o.families.first { $0.family == .klein4b }).encoderSharedWith, [])
-        XCTAssertNil(try XCTUnwrap(o.families.first { $0.family == .krea2 }).variant, "nothing of Krea 2 is there")
-        XCTAssertEqual(o.total, 2 * 1000 + 2 * 100 + 30 + 30 + 2 * 10, "two encoders now, each counted once")
-        XCTAssertEqual(Set(b.models().map(\.id)), ["z-image", "klein-4b"])
+        XCTAssertNil(try XCTUnwrap(o.families.first { $0.family == .anima }).variant, "nothing of Anima is there")
+        XCTAssertEqual(o.total, 2 * 1000 + 2 * 100 + o.families.reduce(0) { $0 + $1.components })
+        XCTAssertTrue(try XCTUnwrap(o.families.first { $0.family == .krea2 }).present)
 
-        // Back to Standard: the Compact maps go, all of them (nobody else reads them).
+        // Back to Standard: the Compact maps go, all of them.
         XCTAssertEqual(try b.release(.zImage, keeping: .standard), 1100)
         XCTAssertEqual(b.variant(of: .zImage), .standard)
-        XCTAssertTrue(fm.fileExists(atPath: b.map(Family.zImage.encoderMap)), "klein's encoder untouched")
 
         // Uninstalling a Compact removes its encoder, never the neighbor's.
         try place(.zImage, in: b, variant: .compact)
@@ -482,8 +422,8 @@ final class ForgeTests: XCTestCase {
             XCTAssertFalse(fm.fileExists(atPath: b.map(Family.zImage.ditMap(v))))
         }
         XCTAssertFalse(fm.fileExists(atPath: b.map(Family.zImage.encoderMap(.compact))))
-        XCTAssertTrue(fm.fileExists(atPath: b.map(Family.klein4b.encoderMap)))
-        XCTAssertEqual(Set(b.models().map(\.id)), ["klein-4b"])
+        XCTAssertTrue(fm.fileExists(atPath: b.map(Family.krea2.encoderMap)))
+        XCTAssertTrue(b.occupancy().families.first { $0.family == .krea2 }!.present)
     }
 
     /// **The Compact and the Light share their encoder**: switching between them
@@ -562,7 +502,6 @@ final class ForgeTests: XCTestCase {
         let fm = FileManager.default
         try fm.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
         try place(.zImage, in: b)
-        try place(.klein4b, in: b)
         let standard = (dit: Family.zImage.ditMap, encoder: Family.zImage.encoderMap)
 
         // Standard → Compact. Before the first byte: the version aimed at, nothing removed.
@@ -582,13 +521,14 @@ final class ForgeTests: XCTestCase {
         // The Compact DiT forged: both complete for an instant — the version aimed at wins.
         try Data(repeating: 3, count: 1000).write(to: URL(fileURLWithPath: b.map(Family.zImage.ditMap(.compact))))
         XCTAssertEqual(b.variant(of: .zImage), .compact)
-        // Then the old one goes: its DiT; the Standard encoder stays, klein reads it.
-        XCTAssertEqual(try b.release(.zImage, keeping: .compact), 1000)
+        // Then the old one goes: its DiT and its encoder.
+        XCTAssertEqual(try b.release(.zImage, keeping: .compact), 1100)
         XCTAssertEqual(b.variant(of: .zImage), .compact)
-        XCTAssertTrue(fm.fileExists(atPath: b.map(standard.encoder)))
+        XCTAssertFalse(fm.fileExists(atPath: b.map(standard.encoder)))
 
-        // Compact → Standard: the Standard encoder is already there (klein's), its DiT is not — Compact still.
+        // Compact → Standard: the Standard encoder forged, its DiT not yet — Compact still.
         try Data("standard".utf8).write(to: URL(fileURLWithPath: b.intendedVariantPath(.zImage)))
+        try Data(repeating: 2, count: 100).write(to: URL(fileURLWithPath: b.map(standard.encoder)))
         XCTAssertEqual(b.variant(of: .zImage), .compact, "the Standard has no DiT yet: it is not complete")
         XCTAssertEqual(b.ditMap(.zImage), Family.zImage.ditMap(.compact))
         try Data(repeating: 3, count: 1000).write(to: URL(fileURLWithPath: b.map(standard.dit)))
@@ -599,8 +539,6 @@ final class ForgeTests: XCTestCase {
         // nothing is complete, the version aimed at is what the panel and a resumed install take.
         try Data("compact".utf8).write(to: URL(fileURLWithPath: b.intendedVariantPath(.zImage)))
         try b.release(.zImage, keeping: .compact)
-        try b.uninstall(.klein4b)
-        try fm.removeItem(atPath: b.map(standard.encoder))
         XCTAssertEqual(b.variant(of: .zImage), .compact)
         XCTAssertEqual(b.installedVariant(of: .zImage), .compact)
         XCTAssertEqual(try b.resolvedVariant(.zImage, requested: nil, baseDiT: true), .compact, "resumed in the version aimed at")
@@ -649,11 +587,11 @@ final class ForgeTests: XCTestCase {
         XCTAssertNil(same.replacing)
         XCTAssertEqual(same.added, 0)
 
-        // An encoder already there counts for nothing: Z-Image back to Standard while FLUX.2 [klein]
-        // keeps the Standard encoder — only the DiT is added.
+        // An encoder already there counts for nothing: Z-Image back to Standard with the Standard
+        // encoder left on disk — only the DiT is added.
         try b.release(.zImage, keeping: .compact)
         try place(.zImage, in: b, variant: .compact)
-        try place(.klein4b, in: b)
+        try Data(repeating: 2, count: 100).write(to: URL(fileURLWithPath: b.map(Family.zImage.encoderMap)))
         let back = try b.installPlan(.zImage, variant: .standard, baseDiT: true, free: nil)
         XCTAssertEqual(back.replacing, .compact)
         XCTAssertEqual(back.added, Family.zImage.installedSize(.standard).dit)
@@ -668,8 +606,8 @@ final class ForgeTests: XCTestCase {
         let b = Library(root: root)
         try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
 
-        // Nothing installed — FLUX.2 [klein]'s encoder alone does not make Z-Image installed: Standard.
-        try place(.klein4b, in: b)
+        // Nothing installed — an encoder map alone does not make Z-Image installed: Standard.
+        try Data(repeating: 2, count: 100).write(to: URL(fileURLWithPath: b.map(Family.zImage.encoderMap)))
         XCTAssertNil(b.installedVariant(of: .zImage))
         XCTAssertEqual(try b.resolvedVariant(.zImage, requested: nil, baseDiT: true), .standard)
         XCTAssertEqual(try b.resolvedVariant(.zImage, requested: nil, baseDiT: false), .standard)
@@ -678,6 +616,7 @@ final class ForgeTests: XCTestCase {
             XCTAssertTrue("\($0)".contains("not compact"), "\($0)")
         }
 
+        try FileManager.default.removeItem(atPath: b.map(Family.zImage.encoderMap))
         // Z-Image in Compact for imported models only (its encoder and components, no DiT).
         try place(.zImage, in: b, dit: false, variant: .compact)
         XCTAssertEqual(b.installedVariant(of: .zImage), .compact)
@@ -693,8 +632,8 @@ final class ForgeTests: XCTestCase {
         XCTAssertNil(plan.replacing, "the prerequisites of an import replace nothing")
 
         // A family with one version: no flag is Standard, and Compact is refused.
-        XCTAssertEqual(try b.resolvedVariant(.klein4b, requested: nil, baseDiT: true), .standard)
-        XCTAssertThrowsError(try b.resolvedVariant(.klein4b, requested: .compact, baseDiT: true))
+        XCTAssertEqual(try b.resolvedVariant(.krea2, requested: nil, baseDiT: true), .standard)
+        XCTAssertThrowsError(try b.resolvedVariant(.krea2, requested: .compact, baseDiT: true))
     }
 
     /// A family with one version refuses the other before anything — no network, no file touched.

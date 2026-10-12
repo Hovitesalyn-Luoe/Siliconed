@@ -74,49 +74,20 @@ package final class AnimaGELU {
         if (i >= n) return;
         x[i] = gelu_exacte(x[i]);
     }
-
-    // ERNIE-Image's MLP: `up · GELU(gate)`, the GELU rounded then the product — the two
-    // roundings of the reference.
-    kernel void geglu(device float *a [[buffer(0)]], device const float *b [[buffer(1)]],
-                      constant uint &n [[buffer(2)]], uint i [[thread_position_in_grid]]) {
-        if (i >= n) return;
-        a[i] = gelu_exacte(a[i]) * b[i];
-    }
     """
 
     private let queue: MTLCommandQueue
-    private let pipeline, pipelineGeglu: MTLComputePipelineState
+    private let pipeline: MTLComputePipelineState
 
     package init(device: MTLDevice, queue: MTLCommandQueue) throws {
         self.queue = queue
         let options = MTLCompileOptions()
         options.mathMode = .safe          // no fast-math: `exp` and `fma` as written
         let library = try device.makeLibrary(source: Self.source, options: options)
-        guard let function = library.makeFunction(name: "gelu"), let geglu = library.makeFunction(name: "geglu") else {
+        guard let function = library.makeFunction(name: "gelu") else {
             throw GEMM.Failure.noDevice
         }
         pipeline = try device.makeComputePipelineState(function: function)
-        pipelineGeglu = try device.makeComputePipelineState(function: geglu)
-    }
-
-    /// `a ← GELU(a) · b` over `count` elements, in place in `a`. Returns the GPU time.
-    @discardableResult
-    package func geglu(_ a: MTLBuffer, _ b: MTLBuffer, count: Int) -> Double {
-        guard let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
-            return 0
-        }
-        var n = UInt32(count)
-        encoder.setComputePipelineState(pipelineGeglu)
-        encoder.setBuffer(a, offset: 0, index: 0)
-        encoder.setBuffer(b, offset: 0, index: 1)
-        encoder.setBytes(&n, length: 4, index: 2)
-        encoder.dispatchThreads(MTLSize(width: count, height: 1, depth: 1),
-                                threadsPerThreadgroup: MTLSize(width: min(256, pipelineGeglu.maxTotalThreadsPerThreadgroup),
-                                                               height: 1, depth: 1))
-        encoder.endEncoding()
-        commands.commit()
-        commands.waitUntilCompleted()
-        return Attention.verdict(commands, what: "geglu")
     }
 
     /// In place, on a shared buffer. Returns the GPU time.

@@ -7,10 +7,6 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     case zImage = "z-image"
     case anima
     case krea2
-    /// FLUX.2 [klein] 4B. The 9B will have its own family: other shapes, other encoder (Qwen3-8B).
-    case klein4b = "klein-4b"
-    /// ERNIE-Image Turbo (Baidu): single-stream DiT, Ministral-3 encoder, FLUX.2 VAE.
-    case ernie = "ernie-image"
     /// Qwen-Image-2.1-Turbo (Qwen): single-stream DiT, Qwen3-VL-8B encoder that sees the reference
     /// images, 64-channel VAE; generation and editing by instruction, 8 steps.
     case qwenImage21 = "qwen-image-2.1"
@@ -25,14 +21,9 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case .zImage: return "Z-Image"
         case .anima: return "Anima"
         case .krea2: return "Krea 2"
-        case .klein4b: return "FLUX.2 [klein] 4B"
-        case .ernie: return "ERNIE-Image"
         case .qwenImage21: return "Qwen-Image-2.1"
         }
     }
-
-    /// A FLUX.2 [klein] DiT — what `KleinDiT` reads, size aside.
-    package var isKlein: Bool { self == .klein4b }
 
     /// The `kind` of the DiT map — what the engine requires in order to read it.
     package var ditKind: String {
@@ -40,8 +31,6 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case .zImage: return "z-image-turbo-dit"
         case .anima: return "anima-turbo-dit"
         case .krea2: return "krea2-turbo-dit"
-        case .klein4b: return "flux2-klein-4b-dit"
-        case .ernie: return "ernie-image-turbo-dit"
         // The official Turbo's checkpoint. Another kind than the base model's (`supersededQwenImage21Kind`),
         // which rendered under a third-party turbo LoRA: a map of it is not taken for this one.
         case .qwenImage21: return "qwen-image-2.1-turbo-dit"
@@ -54,8 +43,6 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case .zImage: return "z-image-turbo-dit.v1.silicon"
         case .anima: return "anima-turbo-dit.v0.silicon"
         case .krea2: return "krea2-turbo-dit.v0.silicon"
-        case .klein4b: return "flux2-klein-4b-dit.v0.silicon"
-        case .ernie: return "ernie-image-turbo-dit.v0.silicon"
         case .qwenImage21: return "qwen-image-2.1-turbo-dit.v0.silicon"
         }
     }
@@ -66,10 +53,6 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case .zImage: return "qwen3-4b-encoder.v0.silicon"
         case .anima: return "qwen3-0.6b-encoder.v0.silicon"
         case .krea2: return "qwen3-vl-4b-encoder.v0.silicon"
-        // Z-Image's Qwen3-4B, bit for bit (checked tensor by tensor): a single map for two families.
-        case .klein4b: return "qwen3-4b-encoder.v0.silicon"
-        // The language model of the published `Mistral3Model` (Ministral-3 3B), without its vision tower.
-        case .ernie: return "ministral3-3b-encoder.v0.silicon"
         // The whole `Qwen3VLModel`: language model **and** vision tower — the references go through it.
         case .qwenImage21: return "qwen3-vl-8b-encoder.v0.silicon"
         }
@@ -101,9 +84,8 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         }
     }
 
-    /// The text encoder map of a version, in `store/`. **Z-Image's Compact encoder is not FLUX.2
-    /// [klein]'s**: klein reads the publisher's Qwen3-4B (`qwen3-4b-encoder.v0`), the map Z-Image
-    /// Standard shares with it; the Compact's is Disty0's 8-bit one, under a name of its own. **The
+    /// The text encoder map of a version, in `store/`. The Standard reads the publisher's encoder; the
+    /// Compact's is a third party's 8-bit one, under a name of its own. **The
     /// Light reads the Compact's encoder, the same map**: no text encoder is published under 8 bits
     /// in a form the forge reads, and quantifying one ourselves is excluded (never below the publisher's
     /// weights unless the user chooses so). Switching between
@@ -245,67 +227,6 @@ package enum Recipes {
         return name
     }
 
-    /// The rows `[begin, begin + number)` of a `[rows, columns]` tensor — an unequal share of a
-    /// fused weight (FLUX.2's `to_qkv_mlp_proj`: q, k, v, gate, up).
-    static func rows(_ source: TensorCatalog, _ name: String, begin: Int, number: Int) -> Provenance {
-        let f = source.shape(name)!
-        let columns = f.dropFirst().reduce(1, *)
-        return Provenance(shape: [number] + f.dropFirst(), dtypeSource: source.dtype(name)!) {
-            let all = try source.read(name)
-            return Array(all[(begin * columns)..<((begin + number) * columns)])
-        }.quantized(source, name) { $0.rows(begin: begin, number: number) }
-            .bits { try source.read16(name).map { Array($0[(begin * columns)..<((begin + number) * columns)]) } }
-    }
-
-    /// The columns `[begin, begin + number)` of a `[rows, columns]` tensor — a share of a `Linear`'s
-    /// **input** (`to_out` of a FLUX.2 single block: attention, then MLP). The caller has checked
-    /// that the tensor is a matrix and that the columns exist (`matrix`).
-    ///
-    /// A packed GGUF weight's share must be whole blocks (32 inputs for
-    /// Q4_0…Q5_1, 256 for a K-quant): a block's inputs share scales that nobody published for a part
-    /// of them, and the map does not widen a 4-bit weight to fp32 — the file is refused, with the reason.
-    static func columns(_ source: TensorCatalog, _ name: String, begin: Int, number: Int) throws -> Provenance {
-        if let kind = source.quantization(name)?.kind, let block = kind.packedBlock,
-           !QuantizedTensor.columnsKeepBlocks(begin: begin, number: number, block: block.values) {
-            throw Numerics.Failure(description: "\(name) : \(source.dtype(name) ?? kind.rawValue) cut on its input at columns "
-                                   + "[\(begin), \(begin + number)), inside a block of \(block.values) — "
-                                   + "a GGUF block is kept whole, never widened: this file cannot be imported")
-        }
-        let f = source.shape(name)!
-        let (rows, width) = (f[0], f[1])
-        let p = Provenance(shape: [rows, number], dtypeSource: source.dtype(name)!) {
-            let all = try source.read(name)
-            var part = [Float](repeating: 0, count: rows * number)
-            for l in 0..<rows {
-                for j in 0..<number { part[l * number + j] = all[l * width + begin + j] }
-            }
-            return part
-        }
-        if let b = source.quantization(name)?.block, !QuantizedTensor.columnsKeepBlocks(begin: begin, number: number, block: b) {
-            var q = p
-            q.dequantizedBecause = " (columns [\(begin), \(begin + number)) cut its blocks of \(b) scales)"
-            return q
-        }
-        // A convrot weight mixes the inputs of each group: a share of the input keeps it only on a
-        // group boundary.
-        if let g = source.quantization(name)?.rotation, !QuantizedTensor.columnsKeepBlocks(begin: begin, number: number, block: g) {
-            var q = p
-            q.dequantizedBecause = " (columns [\(begin), \(begin + number)) cut its convrot groups of \(g))"
-            return q
-        }
-        return p.quantized(source, name) { $0.columns(begin: begin, number: number) }
-    }
-
-    /// The two halves of a tensor swapped on axis 0: BFL's `(shift, scale)` → diffusers'
-    /// `(scale, shift)` (`swap_scale_shift`, FLUX.2's final layer).
-    static func swappedHalves(_ source: TensorCatalog, _ name: String) -> Provenance {
-        let f = source.shape(name)!
-        return Provenance(shape: f, dtypeSource: source.dtype(name)!) {
-            let all = try source.read(name), half = all.count / 2
-            return Array(all[half...] + all[..<half])
-        }.quantized(source, name) { q in q.selectingRows(Array((q.rows / 2)..<q.rows) + Array(0..<(q.rows / 2))) }
-    }
-
     /// The rows `[begin, end)` of a `[rows, columns]` tensor — a share of a fused qkv. It runs while
     /// the names are normalized, **before** the shapes are checked against `dit.json`: a scalar or a
     /// row count the parts don't divide (a hostile or broken file) is refused here, not indexed.
@@ -332,8 +253,6 @@ package enum Recipes {
     package static func family(fromNames names: [String]) -> Family? {
         let n = Set(names.map(withoutPrefix))
         func a(_ pattern: String) -> Bool { n.contains { $0.range(of: pattern, options: .regularExpression) != nil } }
-        if a(#"^(single_transformer_blocks\.\d+\.attn\.to_qkv_mlp_proj|double_stream_modulation_img\.lin)"#) { return .klein4b }
-        if a(#"^layers\.\d+\.adaLN_sa_ln\.weight$"#) && a(#"^layers\.\d+\.self_attention\.to_q\."#) { return .ernie }
         if a(#"^transformer_blocks\.\d+\.img_mlp\.(gate_layer|gate_up)\."#) && a(#"^txt_in\.text_norm\."#) { return .qwenImage21 }
         if a(#"^(layers|noise_refiner|context_refiner)\.\d+\.attention\.(qkv|to_q)\."#) && a(#"^cap_embedder\."#) { return .zImage }
         if a(#"^(blocks\.\d+\.attn\.wq|txtfusion\.|transformer_blocks\.\d+\.attn\.to_gate)"#) { return .krea2 }
@@ -392,16 +311,6 @@ package enum Recipes {
                 }
                 try place(name, asPublished(source, published, shape: reshaped))
             }
-        case .klein4b:
-            let origin = keys.contains { $0.name.hasPrefix("double_blocks.") || $0.name.hasPrefix("single_blocks.") }
-            r.naming = origin ? "original FLUX.2 (BFL, ComfyUI)" : "diffusers"
-            for (published, raw) in keys {
-                if origin, raw == "final_layer.adaLN_modulation.1.weight" {
-                    try place("norm_out.linear.weight", swappedHalves(source, published)); continue
-                }
-                let name = origin ? try flux2(raw) : raw
-                for (target, p) in try flux2Split(source, published, name) { try place(target, p) }
-            }
         case .qwenImage21:
             // The diffusers naming, no bias — and in unsloth's GGUF (the ComfyUI layout) the MLP's two
             // input projections fused, `img_mlp.gate_up` = `[gate_layer; proj]` on the output axis:
@@ -415,18 +324,6 @@ package enum Recipes {
                     let root = String(name.dropLast("gate_up.weight".count))
                     try place(root + "gate_layer.weight", try rows(source, published, part: 0, outOf: 2))
                     try place(root + "proj.weight", try rows(source, published, part: 1, outOf: 2))
-                } else {
-                    try place(name, asPublished(source, published))
-                }
-            }
-        case .ernie:
-            // A single published naming (diffusers). `x_embedder` is a 1×1 convolution:
-            // `[4096, 128, 1, 1]` reads as the `Linear` `[4096, 128]` that it is.
-            r.naming = "diffusers"
-            for (published, name) in keys {
-                let f = source.shape(published)!
-                if name == "x_embedder.proj.weight", f.count == 4, f[2] == 1, f[3] == 1 {
-                    try place(name, asPublished(source, published, shape: [f[0], f[1]]))
                 } else {
                     try place(name, asPublished(source, published))
                 }
@@ -476,80 +373,6 @@ package enum Recipes {
         if remaining == "postnorm.scale" { return (head + "norm2.weight", shape) }
         if remaining == "mod.lin", shape.count == 1, shape[0] % 6 == 0 { return (head + "scale_shift_table", [6, shape[0] / 6]) }
         return nil
-    }
-
-    // ── FLUX.2: BFL → diffusers (`convert_flux2_transformer_checkpoint_to_diffusers`) ───────
-    static let flux2Top: [String: String] = [
-        "img_in.weight": "x_embedder.weight", "txt_in.weight": "context_embedder.weight",
-        "time_in.in_layer.weight": "time_guidance_embed.timestep_embedder.linear_1.weight",
-        "time_in.out_layer.weight": "time_guidance_embed.timestep_embedder.linear_2.weight",
-        "double_stream_modulation_img.lin.weight": "double_stream_modulation_img.linear.weight",
-        "double_stream_modulation_txt.lin.weight": "double_stream_modulation_txt.linear.weight",
-        "single_stream_modulation.lin.weight": "single_stream_modulation.linear.weight",
-        "final_layer.linear.weight": "proj_out.weight",
-    ]
-    static let flux2Double: [String: String] = [
-        "img_attn.qkv.weight": "attn.qkv", "txt_attn.qkv.weight": "attn.added_qkv",
-        "img_attn.norm.query_norm.scale": "attn.norm_q.weight", "img_attn.norm.key_norm.scale": "attn.norm_k.weight",
-        "txt_attn.norm.query_norm.scale": "attn.norm_added_q.weight", "txt_attn.norm.key_norm.scale": "attn.norm_added_k.weight",
-        "img_attn.proj.weight": "attn.to_out.0.weight", "txt_attn.proj.weight": "attn.to_add_out.weight",
-        "img_mlp.0.weight": "ff.linear_in.weight", "img_mlp.2.weight": "ff.linear_out.weight",
-        "txt_mlp.0.weight": "ff_context.linear_in.weight", "txt_mlp.2.weight": "ff_context.linear_out.weight",
-    ]
-    static let flux2Simple: [String: String] = [
-        "linear1.weight": "attn.to_qkv_mlp_proj.weight", "linear2.weight": "attn.to_out.weight",
-        "norm.query_norm.scale": "attn.norm_q.weight", "norm.key_norm.scale": "attn.norm_k.weight",
-    ]
-
-    /// A BFL name → the diffusers name (before splitting; `attn.qkv` and `attn.added_qkv` are the
-    /// two fused qkv of a double block, which `flux2Split` splits).
-    static func flux2(_ name: String) throws -> String {
-        if let h = flux2Top[name] { return h }
-        if let x = name.firstMatch(#"^double_blocks\.(\d+)\.(.+)$"#), let c = flux2Double[x[2]] { return "transformer_blocks.\(x[1]).\(c)" }
-        if let x = name.firstMatch(#"^single_blocks\.(\d+)\.(.+)$"#), let c = flux2Simple[x[2]] { return "single_transformer_blocks.\(x[1]).\(c)" }
-        throw Numerics.Failure(description: "\(name) : no FLUX.2 renaming rule")
-    }
-
-    /// **Splitting the fused weights**, so that each `KleinDiT` GEMM writes a contiguous slice:
-    /// `to_qkv_mlp_proj` → `q, k, v, gate, up`; `linear_in` → `gate, up` (the half passed through
-    /// SiLU first, `Flux2SwiGLU`); a single block's `to_out` → `attn, mlp` on its input; a BFL qkv
-    /// → `to_q/to_k/to_v` or `add_{q,k,v}_proj`. The rest passes through as is.
-    static func flux2Split(_ source: TensorCatalog, _ published: String, _ name: String) throws -> [(String, Provenance)] {
-        let f = source.shape(published)!
-        if name.hasSuffix(".attn.qkv") || name.hasSuffix(".attn.added_qkv") {
-            let root = String(name.prefix(upTo: name.range(of: ".attn.", options: .backwards)!.upperBound))
-            let parts = name.hasSuffix(".added_qkv") ? ["add_q_proj", "add_k_proj", "add_v_proj"] : ["to_q", "to_k", "to_v"]
-            return try parts.enumerated().map { (root + $1 + ".weight", try rows(source, published, part: $0, outOf: 3)) }
-        }
-        // A file's header decides the shape: a 1-D tensor under a weight's name is refused by name,
-        // not indexed past its end.
-        func matrix() throws {
-            guard f.count == 2 else { throw Numerics.Failure(description: "\(published) : a matrix expected, shape \(f)") }
-        }
-        if name.hasSuffix(".attn.to_qkv_mlp_proj.weight") {
-            try matrix()
-            let d = f[1], h = (f[0] - 3 * d) / 2
-            guard h > 0, 3 * d + 2 * h == f[0] else { throw Numerics.Failure(description: "\(published) : unexpected shape \(f)") }
-            let root = String(name.dropLast("weight".count))
-            var begin = 0
-            return zip(["q", "k", "v", "gate", "up"], [d, d, d, h, h]).map { part, n in
-                defer { begin += n }
-                return (root + part + ".weight", rows(source, published, begin: begin, number: n))
-            }
-        }
-        if name.hasSuffix(".linear_in.weight") {
-            let root = String(name.dropLast("weight".count))
-            return [(root + "gate.weight", try rows(source, published, part: 0, outOf: 2)),
-                    (root + "up.weight", try rows(source, published, part: 1, outOf: 2))]
-        }
-        if name.hasPrefix("single_transformer_blocks."), name.hasSuffix(".attn.to_out.weight") {
-            try matrix()
-            let d = f[0], root = String(name.dropLast("weight".count))
-            guard f[1] > d else { throw Numerics.Failure(description: "\(published) : unexpected shape \(f)") }
-            return [(root + "attn.weight", try columns(source, published, begin: 0, number: d)),
-                    (root + "mlp.weight", try columns(source, published, begin: d, number: f[1] - d))]
-        }
-        return [(name, asPublished(source, published))]
     }
 
     // ── Anima: ComfyUI (Cosmos-Predict2) → diffusers — the rules of the earlier Python forge ───────

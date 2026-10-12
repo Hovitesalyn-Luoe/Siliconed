@@ -500,9 +500,17 @@ package enum QwenImage21CachePolicy {
     package static func bytes(prefix: Int, layers: Int = 32, dim: Int = 4096) -> Int { 2 * layers * prefix * dim * 4 }
     package static let memoryBudget = 256 << 20
 
+    /// **The one placement rule** — the sampler's, the module's and the memory need's (`QwenImage21Need`).
     package static func storage(prefix: Int) -> QwenImage21DiT.CacheStorage {
         bytes(prefix: prefix) <= memoryBudget ? .memory : .file
     }
+
+    /// The longest prefix whose K/V stay in memory (256 rows).
+    package static var largestMemoryPrefix: Int { memoryBudget / bytes(prefix: 1) }
+
+    /// **The DiT's prefix of a conditioning**: its rows, each image slot being 4 rows of the DiT (one 2×2
+    /// group of latent tokens) where the encoder has one — what `QwenImage21Sequence.prefix` counts.
+    package static func prefix(conditioningRows rows: Int, imageSlots: Int) -> Int { rows + 3 * imageSlots }
 }
 
 /// **The conditions' K/V on disk** — `QwenImage21DiT.CacheStorage.file`: one unlinked temporary file

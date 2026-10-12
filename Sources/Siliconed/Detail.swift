@@ -32,7 +32,7 @@ import Foundation
 ///     (Qwen-Image-2.1) the node's default lands where the composition is decided, and changes the picture instead of
 ///     its texture. Hence one bell per family (`Bell`), hidden like the rest.
 ///
-/// Every denoiser honours it — Z-Image through `Sampler`, Anima, Krea 2, FLUX.2 [klein] and ERNIE
+/// Every denoiser honours it — Z-Image through `Sampler`, Anima and Krea 2
 /// through `euler` (their modulation tables tabulated at σ'), Qwen-Image-2.1 through its own
 /// sampler (late bell). The preview, the spectral schedule and img2img's start read the true σ.
 ///
@@ -75,7 +75,7 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     /// visible families at their default steps (Z-Image 8; Qwen-Image-2.1 6, the third-party turbo's,
     /// not yet re-judged on the Turbo's 8), checked on a second seed. `more` ≈ +10 % of high-frequency energy (mean |Laplacian| of the luminance) and the same
     /// picture; `most` ≈ +20 %, the strongest that stayed clean, a step short of where artifacts
-    /// begin. The four hidden families take the standard bell, unjudged.
+    /// begin. The two hidden families take the standard bell, unjudged.
     package func schedule(_ bell: Bell = .standard) -> Schedule? {
         switch (self, bell) {
         case (.normal, _): return nil

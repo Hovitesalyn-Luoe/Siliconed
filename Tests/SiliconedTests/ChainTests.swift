@@ -55,8 +55,7 @@ final class ChainTests: XCTestCase {
     /// target a LoRA must declare.
     func testTheDenoisersNameTheirModel() {
         XCTAssertEqual([ZImageDenoisingModule(map: "").model, AnimaDenoisingModule(map: "").model,
-                        Krea2DenoisingModule(map: "").model, KleinDenoisingModule(map: "").model,
-                        ErnieDenoisingModule(map: "").model,
+                        Krea2DenoisingModule(map: "").model,
                         QwenImage21DenoisingModule(map: "", scheduler: .init()).model], Model.identifiers)
     }
 

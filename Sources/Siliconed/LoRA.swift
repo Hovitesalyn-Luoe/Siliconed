@@ -82,6 +82,10 @@ public final class LoRA {
     /// and `maxRank` is what must be reserved.
     package private(set) var rankPerTarget: [String: Int] = [:]
     package private(set) var maxRank = 0
+    /// **Each LoRA's own largest rank**, in stack order — what the memory need is computed on
+    /// (`MemoryNeed.Request.loraRanks`): their sum bounds `maxRank`, and two or more mean a `down`
+    /// staged through `downBytes` wherever two of them touch one module.
+    package private(set) var layerRanks: [Int] = []
     /// The largest dimensions encountered, to size the slices only once.
     package private(set) var maxEntry = 0
     package private(set) var maxOutput = 0
@@ -91,6 +95,7 @@ public final class LoRA {
         for layerPass in layers {
             let kind = layerPass.artifact.header["kind"] as? String ?? "(absent)"
             guard kind == "lora" else { throw Failure.notALoRA(layerPass.artifact.path, kind) }
+            layerRanks.append(0)
             for name in layerPass.artifact.order where name.hasSuffix(".down") {
                 let target = String(name.dropLast(5))
                 guard let down = layerPass.artifact.tensors[name],
@@ -103,6 +108,7 @@ public final class LoRA {
                         target: target, reason: "down \(down.shape) and up \(up.shape) do not compose")
                 }
                 rankPerTarget[target, default: 0] += down.shape[1]
+                layerRanks[layerRanks.count - 1] = max(layerRanks[layerRanks.count - 1], down.shape[1])
                 maxEntry = max(maxEntry, down.shape[0])
                 maxOutput = max(maxOutput, up.shape[1])
             }

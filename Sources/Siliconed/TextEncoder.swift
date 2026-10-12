@@ -2,8 +2,8 @@ import Foundation
 import Metal
 
 /// The decoder-only text encoder: first Z-Image Turbo's Qwen3-4B, stopped at `hidden_states[-2]`,
-/// then the language models of the other families on the same code (Krea 2, FLUX.2 [klein],
-/// ERNIE-Image, and Qwen-Image-2.1's Qwen3-VL-8B through `Qwen3VLEncoder`). The notes below are
+/// then the language models of the other families on the same code (Anima, Krea 2, and
+/// Qwen-Image-2.1's Qwen3-VL-8B through `Qwen3VLEncoder`). The notes below are
 /// Z-Image's; what each family adds is in its own file. The tokenizer is in `Tokenizer.swift`.
 ///
 /// ## Three things not to rediscover
@@ -32,9 +32,6 @@ package final class TextEncoder {
     package struct Config {
         package let hidden: Int, layers: Int, heads: Int, kvHeads: Int, headDim: Int
         package let intermediate: Int, eps: Float, theta: Float
-        /// The inverse frequencies of RoPE when they are not `θ^(−2j/Dh)`: the **yarn** RoPE
-        /// of ERNIE-Image's Ministral-3 (`rope_type: yarn`). `nil`: ordinary RoPE.
-        package let frequencies: [Float]?
         /// Qwen3-VL's **interleaved mRoPE** sections `(t, h, w)` — `(24, 20, 20)` —, `nil` elsewhere.
         /// Only `setPositions` reads them: without a call, the 1D table stays (Krea 2's verified bits).
         package let mropeSections: [Int]?
@@ -78,13 +75,9 @@ package final class TextEncoder {
             } else {
                 self.mropeSections = nil
             }
-            switch rope["rope_type"] as? String ?? rope["type"] as? String ?? "default" {
-            case "default":
-                self.frequencies = nil
-            case "yarn":
-                self.frequencies = try Config.yarn(rope, theta: Double(self.theta), dim: headDim)
-            case let other:
-                throw Artifact.Failure.badHeader("RoPE \"\(other)\": this port only knows ordinary RoPE and yarn")
+            let ropeType = rope["rope_type"] as? String ?? rope["type"] as? String ?? "default"
+            guard ropeType == "default" else {
+                throw Artifact.Failure.badHeader("RoPE \"\(ropeType)\": this port only knows ordinary RoPE")
             }
             // GQA is stated here, once: `heads` queries for `kvHeads` keys. The DiT has 30/30,
             // Qwen3-4B has 32/8, the other families their own. A non-integer ratio does not exist.
@@ -92,42 +85,6 @@ package final class TextEncoder {
                 throw Artifact.Failure.badHeader("GQA: \(heads) q heads for \(kvHeads) k/v")
             }
         }
-        /// **The yarn RoPE frequencies**, as `_compute_yarn_parameters` in `transformers`
-        /// computes them — in fp32, operation by operation: `θ^(2j/d)`, the extrapolated inverse and
-        /// the interpolated inverse (`/ factor`), blended by a ramp between two correction
-        /// dimensions (`beta_fast`, `beta_slow`, truncated). The attention factor (`mscale`)
-        /// must be 1: this port does not multiply cos and sin.
-        static func yarn(_ r: [String: Any], theta: Double, dim: Int) throws -> [Float] {
-            func real(_ k: String) -> Double? { (r[k] as? Double) ?? (r[k] as? Int).map(Double.init) }
-            guard let factor = real("factor"), let origin = real("original_max_position_embeddings") else {
-                throw Artifact.Failure.badHeader("yarn RoPE without `factor` or `original_max_position_embeddings`")
-            }
-            func mscale(_ m: Double) -> Double { factor <= 1 ? 1 : 0.1 * m * log(factor) + 1 }
-            let attention: Double
-            if let a = real("attention_factor") { attention = a }
-            else if let m = real("mscale"), let mad = real("mscale_all_dim"), m != 0, mad != 0 { attention = mscale(m) / mscale(mad) }
-            else { attention = mscale(1) }
-            guard attention == 1 else {
-                throw Artifact.Failure.badHeader("yarn RoPE: attention factor \(attention) ≠ 1, not supported")
-            }
-            let fast = real("beta_fast") ?? 32, lent = real("beta_slow") ?? 1
-            func dimension(_ turns: Double) -> Double {
-                Double(dim) * log(origin / (turns * 2 * .pi)) / (2 * log(theta))
-            }
-            var down = dimension(fast), up = dimension(lent)
-            if (r["truncate"] as? Bool) ?? true { down = down.rounded(.down); up = up.rounded(.up) }
-            down = max(down, 0); up = min(up, Double(dim - 1))
-            if down == up { up += 0.001 }
-            let (b, h) = (Float(down), Float(up)), base = Float(theta), f = Float(factor)
-            return (0..<(dim / 2)).map { j in
-                let power = powf(base, Float(2 * j) / Float(dim))
-                let extrapolated = 1 / power, interpolated = 1 / (f * power)
-                let ramp = min(max((Float(j) - b) / (h - b), 0), 1)
-                let part = 1 - ramp
-                return interpolated * (1 - part) + extrapolated * part
-            }
-        }
-
         /// How many `q` heads share one `k`/`v` head.
         package var groupSize: Int { heads / kvHeads }
         /// The width of the attention projections — `heads · headDim`, which is **not** `hidden`.
@@ -158,11 +115,7 @@ package final class TextEncoder {
     ///   applies there and is slaved to it. An engine that froze only the DiT would render
     ///   different captions on every run, and the image behind them too — it is
     ///   exactly the kind of half-fix that reads like a fix.
-    /// - Parameter visibleKeys: the real positions, when the padding is **computed** and not
-    ///   removed (FLUX.2 [klein]: its 512 rows enter the DiT without a mask). The rows beyond
-    ///   only attend to real tokens; the real rows do not change by a single bit.
-    package init(artifact: Artifact, sequence: Int,
-                freezeCut: Bool = EngineSettings.effective.frozenCut, visibleKeys: Int? = nil) throws {
+    package init(artifact: Artifact, sequence: Int, freezeCut: Bool = EngineSettings.effective.frozenCut) throws {
         guard let lastLayer = artifact.header["last_layer"] as? Int else {
             throw Artifact.Failure.badHeader("`last_layer` missing: this artifact is not an encoder")
         }
@@ -200,7 +153,7 @@ package final class TextEncoder {
 
         self.attention = Attention(device: gemm.device, queue: gemm.queue,
                                    heads: config.heads, sequence: s, headDim: config.headDim,
-                                   causal: true, visibleKeys: visibleKeys)
+                                   causal: true)
 
         xBuf = try gemm.wrap(x, bytes: s * h * 4, name: "x")
         normedBuf = try gemm.wrap(normed, bytes: s * h * 4, name: "normed")
@@ -217,20 +170,9 @@ package final class TextEncoder {
 
         // A 1D table: `rope_theta` is 10⁶ here against 256 for the DiT, and the position is
         // the token index. Written once — it depends on neither the prompt nor the layer.
-        if let frequencies = config.frequencies {
-            // yarn: `inv_freq @ position` in fp32 (a single product, hence one rounding), then cos, sin.
-            for position in 0..<s {
-                let rowLine = freqs + position * config.headDim
-                for (j, f) in frequencies.enumerated() {
-                    let angle = Float(position) * f
-                    rowLine[2 * j] = cosf(angle); rowLine[2 * j + 1] = sinf(angle)
-                }
-            }
-        } else {
-            let tables = RopeTables(axesDims: [config.headDim], axesLens: [s], theta: config.theta)
-            for position in 0..<s {
-                tables.write(ids: [position], into: freqs + position * config.headDim)
-            }
+        let tables = RopeTables(axesDims: [config.headDim], axesLens: [s], theta: config.theta)
+        for position in 0..<s {
+            tables.write(ids: [position], into: freqs + position * config.headDim)
         }
     }
 
@@ -495,13 +437,11 @@ package final class TextEncoder {
                             weightIsTransposed: true)
 
             if layer == 0 { record("l0_q", q, sequence * a); record("l0_v", v, sequence * kv) }
-            // Qwen3's QK-Norm; Mistral has none.
-            if artifact.tensors[p + "self_attn.q_norm.weight"] != nil {
-                try widen(p + "self_attn.q_norm.weight", count: config.headDim, into: scratch)
-                normHeads(q, weight: scratch, heads: config.heads)
-                try widen(p + "self_attn.k_norm.weight", count: config.headDim, into: scratch)
-                normHeads(k, weight: scratch, heads: config.kvHeads)
-            }
+            // Qwen3's QK-Norm.
+            try widen(p + "self_attn.q_norm.weight", count: config.headDim, into: scratch)
+            normHeads(q, weight: scratch, heads: config.heads)
+            try widen(p + "self_attn.k_norm.weight", count: config.headDim, into: scratch)
+            normHeads(k, weight: scratch, heads: config.kvHeads)
 
             if layer == 0 { record("l0_qnormed", q, sequence * a) }
             Ops.rope(q, freqs: freqs, sequence: sequence, heads: config.heads, headDim: config.headDim)

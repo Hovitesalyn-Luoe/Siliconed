@@ -30,7 +30,6 @@ final class VAEMemoryTests: XCTestCase {
         for (h, w) in [(512, 512), (1024, 1024), (1536, 1024)] {
             let plans: [(String, VAELayout)] = [
                 ("Flux decoder", VAE.plan(latentHeight: h / 8, latentWidth: w / 8)),
-                ("FLUX.2 decoder", VAE.plan(latentHeight: h / 8, latentWidth: w / 8, config: .flux2)),
                 ("Flux encoder", VAEEncoder.plan(family: .flux, height: h, width: w)),
                 ("Qwen decoder", QwenImage21VAEDecoder.plan(config: qwen, latentHeight: h / 16, latentWidth: w / 16)),
                 ("Qwen encoder", QwenImage21VAEEncoder.plan(config: qwen, height: h, width: w)),
@@ -55,7 +54,6 @@ final class VAEMemoryTests: XCTestCase {
         let qwen = QwenImage21VAE.Config()
         let plans: [(String, (Int, Int) -> VAELayout)] = [
             ("Flux decoder", { VAE.plan(latentHeight: $0 / 8, latentWidth: $1 / 8) }),
-            ("FLUX.2 decoder", { VAE.plan(latentHeight: $0 / 8, latentWidth: $1 / 8, config: .flux2) }),
             ("Flux encoder", { VAEEncoder.plan(family: .flux, height: $0, width: $1) }),
             ("Qwen decoder", { QwenImage21VAEDecoder.plan(config: qwen, latentHeight: $0 / 16, latentWidth: $1 / 16) }),
             ("Qwen encoder", { QwenImage21VAEEncoder.plan(config: qwen, height: $0, width: $1) }),

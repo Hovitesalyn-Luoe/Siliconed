@@ -11,8 +11,6 @@ import Foundation
 /// The weights are published in **bf16**: reading them as fp32 would give finite and wrong numbers.
 /// The VAE weighs 84 M parameters, so it has no forge: we read the published file directly.
 ///
-/// **Z-Image's decoder, and FLUX.2's** (klein, ERNIE: `Config.flux2`, which changes only the head).
-///
 /// ## Memory: by layers, bands and passes of one kernel — the same bits
 ///
 /// In one graph the decoder held 5.1 GB at 1024² and **7.2 GB at 1024×1536, where Z-Image swapped**
@@ -33,19 +31,10 @@ package final class VAE {
     package struct Config: Hashable, Sendable {
         package let scaling: Float, shift: Float
         package let groups: Int, latentChannels: Int
-        /// A 1×1 `post_quant_conv` before `conv_in` — that of the FLUX.2 VAE (Flux 1 has none).
-        package let postQuantConv: Bool
-        package init(scaling: Float = 0.3611, shift: Float = 0.1159,
-                    groups: Int = 32, latentChannels: Int = 16, postQuantConv: Bool = false) {
+        package init(scaling: Float = 0.3611, shift: Float = 0.1159, groups: Int = 32, latentChannels: Int = 16) {
             self.scaling = scaling; self.shift = shift
             self.groups = groups; self.latentChannels = latentChannels
-            self.postQuantConv = postQuantConv
         }
-
-        /// **The FLUX.2 VAE**: the 32-channel Flux decoder, preceded by a `post_quant_conv`.
-        /// Neither scale nor shift: the pipeline's denormalization (the `BatchNorm` on the
-        /// unpacked latent) is done beforehand, by `Flux2DecodingModule`.
-        package static let flux2 = Config(scaling: 1, shift: 0, latentChannels: 32, postQuantConv: true)
     }
 
     private let weights: Safetensors
@@ -108,7 +97,7 @@ package final class VAE {
     }
 
     /// **The head: everything at the latent's resolution, in one graph** — the denormalization,
-    /// `post_quant_conv` (FLUX.2), `conv_in`, the middle block and its attention, the first up block's
+    /// `conv_in`, the middle block and its attention, the first up block's
     /// three resnets. Its tensors are 512 channels at `h × w` (48 MB at 1024×1536): the only large
     /// term is the bottleneck attention, which `vae_bloc_requetes` slices.
     private static func head(_ b: VAEBuildingBlocks, _ input: MPSGraphTensor, height H: Int, width W: Int,
@@ -121,7 +110,6 @@ package final class VAE {
                 graph.division(input, graph.constant(Double(config.scaling), dataType: .float32), name: nil),
                 graph.constant(Double(config.shift), dataType: .float32), name: "denormalize")
         }
-        if config.postQuantConv { x = try b.conv(x, "post_quant_conv", padding: 0) }
 
         /// The attention of the middle block, over `H·W` tokens of 512 channels.
         func attention(_ x: MPSGraphTensor, _ prefix: String, channels: Int, size: (h: Int, w: Int)) throws -> MPSGraphTensor {
@@ -213,7 +201,7 @@ package final class VAE {
         let memory = bands.memory
         let input = try memory.register([1, config.latentChannels, h, w])
         if let latent, memory.isLive { input.values.update(from: latent, count: input.count) }
-        // The head, at the latent's grid: the denormalization, `post_quant_conv` (FLUX.2), `conv_in`, the
+        // The head, at the latent's grid: the denormalization, `conv_in`, the
         // middle block and its attention, the first up block's three resnets — `head`'s operations, by passes.
         var x = input
         if config.scaling != 1 || config.shift != 0 {
@@ -222,15 +210,6 @@ package final class VAE {
                                  b.graph.constant(Double(config.shift), dataType: .float32), name: "denormalize")
             }
             memory.free(input)
-        }
-        if config.postQuantConv {
-            let z = config.latentChannels
-            let y = try bands.whole([x], x.shape, weights: WeightList.conv(z, z, kernel: 1),
-                                    workspace: VAELayout.reformattedWeights(z * z) / 4) { b, p in
-                try b.conv(p[0], "post_quant_conv", padding: 0)
-            }
-            memory.free(x)
-            x = y
         }
         let entry = try bands.conv(x, "decoder.conv_in", outChannels: VAE.levels[0])
         memory.free(x)

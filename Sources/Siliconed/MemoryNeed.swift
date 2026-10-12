@@ -8,14 +8,22 @@ import Synchronization
 ///     Request ── family's phases ──┬─ text        ┐
 ///      (family, W×H, references,   ├─ vision      │  peak = max over phases of
 ///       prompt tokens, LoRA ranks, ├─ references  │        (what is alive at the phase's peak)
-///       card, plan)                ├─ denoising   │        + what crosses the phases
+///       batch, maps, plan)         ├─ denoising   │        + what crosses the phases
 ///                                  └─ decoding    ┘        + the process's base
 ///
 /// **Every term is a shape function its allocator calls** — `DiT.arenaBytes`, `TextEncoder.arenaBytes`,
-/// `HeadSplitAttention.hostBytes`, `Attention.maskBytes`, `Conductor.workspaceBytes`, `VAE.plan`, … —
-/// so the formula equals the allocation by construction: an arena, a `Pages`, a VAE heap is mapped at
-/// the size the formula charges. What no constructor of ours sizes is in `OperatorFootprint`, named,
-/// bounded, and short (MPSGraph's copy of the queries, MPS's GEMM state, the process's base).
+/// `HeadSplitAttention.hostBytes`, `Attention.maskBytes`, `Conductor.workspaceBytes`, `GEMM.tierBytes`,
+/// `Tokenizer.tableBytes`, `VAE.plan`, … — so the formula equals the allocation by construction: an
+/// arena, a `Pages`, a VAE heap is mapped at the size the formula charges. What no constructor of ours
+/// sizes but a shape still gives: MPSGraph's copy of the queries (`OperatorFootprint.sdpaQueries`) and
+/// its VAE SDPA's copies (`VAELayout.sdpaOutside`).
+///
+/// **What B covers** (`MemoryBudget`): the whole process — the base it already holds when the render
+/// starts (`Request.base`: the app's interface and history, or the command line's runtime, read from
+/// the process itself, never from the kernel's state of the others), plus this formula. **What it does
+/// not charge**: the frameworks' constants no shape gives — MPSGraph's compiled SDPA, MPS's GEMM state,
+/// Metal's first use in a process, what a phase leaves to the next (`OperatorFootprint`). Removed where
+/// the structure allows, never folded in as figures: the check reports what is left of them.
 ///
 /// A phase charges **only what is alive at its peak**, following the pipeline's real order: a
 /// tokenizer dropped before its encoder maps its arena, a half-size attention dropped when the full
@@ -37,7 +45,8 @@ package struct MemoryNeed: Sendable, Equatable {
         /// The prompt's tokens (template included, as the encoder sees them) — or an upper bound of
         /// them (`promptTokens(_:family:references:)`).
         package var promptTokens: Int
-        /// The rank of each LoRA applied.
+        /// The rank of each LoRA of the stack (`LoRA.layerRanks`): their sum bounds the cumulative
+        /// rank the arenas reserve, their count says whether a `down` is staged (two LoRAs or more).
         package var loraRanks: [Int] = []
         /// The DiT's map plan (tail fraction and staging buffers).
         package var tail: MemoryPlan.Tail = .init(fraction: 0.5, slots: 2)
@@ -46,6 +55,23 @@ package struct MemoryNeed: Sendable, Equatable {
         /// The decoders' smallest bands (`MemoryPlan.fluxMinimumBand`, `qwenMinimumBand`), as the lean
         /// plan takes them; otherwise the standard ones.
         package var minimumBands = false
+        /// The images of the batch (`Engine.renderBatch`): every latent waits for the decodings, every
+        /// image decoded waits for the batch's end.
+        package var batch = 1
+        /// The P cores the head split's threads run on (`HeadSplitAttention`: a scratch per thread).
+        /// The machine's by default; the tests pass their own, so that no figure depends on the Mac.
+        package var threads = EngineSettings.effective.machine.performanceCores
+        /// **The process's footprint when the render starts** (`OperatorFootprint.processBase()`): what
+        /// the process already holds — the app's interface and history, the command line's runtime —,
+        /// read from the process itself. B covers it with the render. `ModelCard.memoryRequest` reads
+        /// it; 0 here, for a need of shapes alone (the tests).
+        package var base = 0
+        /// The library whose installed maps the need reads — the model's own, never another root's.
+        package var library: Library = .processWide
+        /// The family's maps, given rather than read from the installed ones (the tests); `nil`: the
+        /// library's (`ZImageMaps(card:library:)`, `QwenImage21Maps(card:library:)`).
+        package var zImageMaps: ZImageMaps? = nil
+        package var qwenMaps: QwenImage21Maps? = nil
 
         package init(card: ModelCard, width: Int, height: Int, references: [(width: Int, height: Int)] = [],
                      promptTokens: Int, loraRanks: [Int] = [], tail: MemoryPlan.Tail = .init(fraction: 0.5, slots: 2)) {
@@ -114,7 +140,7 @@ package struct MemoryNeed: Sendable, Equatable {
     package var phases: [Phase]
     /// What crosses the phases (latents, encoded text, images handed in), held through all of them.
     package var crossing: Int
-    /// The process's own base (`OperatorFootprint.processBase`).
+    /// The process's footprint when the render starts (`Request.base`).
     package var base: Int
     /// **No formula for this family yet**: the need is the fallback of measured peaks
     /// (`MemoryNeed.unmodelled`), not a computation.
@@ -129,14 +155,14 @@ package struct MemoryNeed: Sendable, Equatable {
         phases.filter { $0.kind == kind }.map(\.bytes).max().map { $0 + crossing + base }
     }
 
-    /// **The need of a request.** Z-Image and Qwen-Image-2.1 are computed; the four hidden families
-    /// (Anima, Krea 2, klein, ERNIE) have no shape functions for their DiTs yet and take the marked
-    /// fallback (`unmodelled`). `nil` only when Z-Image's maps are not installed (the render is
-    /// refused before, by the preflight's first check).
-    package static func of(_ request: Request, app: Bool = false) -> MemoryNeed? {
+    /// **The need of a request.** Z-Image and Qwen-Image-2.1 are computed; the two hidden families
+    /// (Anima, Krea 2) have no shape functions for their DiTs yet and take the marked
+    /// fallback (`unmodelled`). `nil` when the maps' headers cannot be read — **the render is then
+    /// refused** (`EngineError.memoryNeedUnknown`), never planned nor accepted on a need of 0.
+    package static func of(_ request: Request) -> MemoryNeed? {
         switch request.card.family {
-        case .zImage: zImage(request, app: app)
-        case .qwenImage21: qwenImage21(request, app: app)
+        case .zImage: zImage(request)
+        case .qwenImage21: qwenImage21(request)
         default: unmodelled(request)
         }
     }
@@ -153,24 +179,27 @@ package struct MemoryNeed: Sendable, Equatable {
             return [Term("\(name) head split", HeadSplitAttention.hostBytes(heads: heads, sequence: rows, keys: keys,
                                                                            headDim: headDim, threads: threads)),
                     Term("\(name) SDPA queries", OperatorFootprint.sdpaQueries(rows: rows, heads: gpu, headDim: headDim),
-                         outside: true),
-                    Term("\(name) SDPA executable", OperatorFootprint.sdpaExecutable, outside: true)]
+                         outside: true)]
         }
         return [Term("\(name) SDPA queries", OperatorFootprint.sdpaQueries(rows: rows, heads: heads, headDim: headDim),
-                     outside: true),
-                Term("\(name) SDPA executable", OperatorFootprint.sdpaExecutable, outside: true)]
+                     outside: true)]
             + (causal ? [Term("\(name) causal mask", Attention.maskBytes(sequence: rows, keys: keys))] : [])
     }
 
-    /// **One model's `GEMM` over a phase**: MPS's state, and the conductor's BNNS workspace — the
+    /// **One model's `GEMM` over a phase**: its padding tiers (`GEMM.tierBytes`: what a height of 8 to
+    /// 32 rows, or one that is not a multiple of 64, sends through them, at the widest such product;
+    /// `rank`: a LoRA's, whose `mid` goes through them too), and the conductor's BNNS workspace — the
     /// largest it can grow to over the products the phase runs (`Conductor.workspaceBytes` of the AMX
     /// slice, either weight layout), when the cut applies. The slice is at most `m − cut(m, T)` with the
     /// servo's `T` held in `Conductor.fractionRange`: the bound is its lower end (and the frozen cut's).
-    package static func gemm(_ name: String, products: [(m: Int, k: Int, n: Int)],
+    /// MPS's own state is not charged: no shape gives it (`OperatorFootprint`). `bounded`: the products
+    /// whose height follows the prompt's tokens — a bound, not the height (`GEMM.tierBytes`).
+    package static func gemm(_ name: String, products: [(m: Int, k: Int, n: Int)] = [],
+                             bounded: [(m: Int, k: Int, n: Int)] = [], rank: Int = 0,
                              amx: Bool = EngineSettings.effective.amx) -> [Term] {
         var workspace = 0
         if amx {
-            for p in products where p.m >= Conductor.minimumRows {
+            for p in products + bounded where p.m >= Conductor.minimumRows {
                 let slices = Set([p.m - Conductor.cut(p.m, Conductor.fractionRange.lowerBound),
                                   p.m - Conductor.cut(p.m, EngineSettings.effective.amxFraction)])
                 for rows in slices where rows > 0 {
@@ -181,7 +210,8 @@ package struct MemoryNeed: Sendable, Equatable {
                 }
             }
         }
-        return [Term("\(name) MPS GEMM", OperatorFootprint.mpsGEMM, outside: true)]
+        let tiers = GEMM.tierBytes(products: products, bounded: bounded, rank: rank)
+        return (tiers > 0 ? [Term("\(name) GEMM tiers", tiers)] : [])
             + (workspace > 0 ? [Term("\(name) conductor workspace", Arena.capacity(for: workspace))] : [])
     }
 
@@ -190,17 +220,24 @@ package struct MemoryNeed: Sendable, Equatable {
     package static func vae(_ name: String, _ layout: VAELayout) -> [Term] {
         [Term("\(name) registers", layout.registers), Term("\(name) workspace", layout.workspace),
          Term("\(name) host", layout.host), Term("\(name) SDPA outside", layout.outside, outside: true)]
-            + (layout.outside > 0 ? [Term("\(name) SDPA executable", OperatorFootprint.sdpaExecutable, outside: true)] : [])
+    }
+
+    /// **What the rest of a batch holds** (`Engine.renderBatch`: every image denoised, then every image
+    /// decoded): the other images' latents, waiting for their decoding — `latent` bytes each, crossing
+    /// every phase —, and at the last decoding the images already decoded, `ImageRGB`'s three fp32
+    /// planes each, returned together. One image: nothing.
+    package static func batchLatents(_ request: Request, latent: Int) -> Int { max(0, request.batch - 1) * latent }
+    package static func batchImages(_ request: Request) -> Term {
+        Term("earlier images of the batch", max(0, request.batch - 1) * 3 * request.width * request.height * 4)
     }
 
     // ── the families without a formula ────────────────────────────────────────────────────────
 
-    /// **⚠ FALLBACK — not a computation.** Anima, Krea 2, FLUX.2 [klein] and ERNIE have no shape
+    /// **⚠ FALLBACK — not a computation.** Anima and Krea 2 have no shape
     /// functions for their DiTs and encoders yet (their constructors size their buffers inline): their
-    /// need is still the whole-render peak measured on the M1 Pro, the table `measuredPeaks`
-    /// held for them. A format falls in the smallest measured area that holds it and takes the largest
+    /// need is still the whole-render peak measured on the M1 Pro. A format falls in the smallest measured area that holds it and takes the largest
     /// figure up to it; beyond the family's measurements, the largest figure any of these families
-    /// measured at or beyond it (klein and ERNIE at 1024×1536 take Krea 2's 7.8 GB). The references
+    /// measured at or beyond it. The references
     /// are not modelled (these families were measured without). Hidden families: to be replaced by
     /// their formulas when their constructors expose their sizes.
     package static func unmodelled(_ request: Request) -> MemoryNeed? {
@@ -211,8 +248,6 @@ package struct MemoryNeed: Sendable, Equatable {
             case .anima: return [p(832, 1216, 5.3, "M1 Pro"), p(1024, 1024, 5.2, "M1 Pro"), p(1024, 1536, 7.6, "M1 Pro")]
             case .krea2: return [p(512, 512, 0.984, "M1 Pro"), p(832, 1216, 5.2, "M1 Pro"), p(1024, 1024, 5.1, "M1 Pro"),
                                  p(1024, 1536, 7.8, "M1 Pro")]
-            case .klein4b: return [p(1024, 1024, 5.1, "M1 Pro")]
-            case .ernie: return [p(1024, 1024, 4.9, "M1 Pro")]
             default: return []
             }
         }
@@ -223,13 +258,15 @@ package struct MemoryNeed: Sendable, Equatable {
             let best = own.filter { $0.area <= tier }.max { $0.bytes < $1.bytes }!
             figure = (best.bytes, best.source)
         } else {
-            let beyond = [Family.anima, .krea2, .klein4b, .ernie].flatMap(table).filter { $0.area >= area }
+            let beyond = [Family.anima, .krea2].flatMap(table).filter { $0.area >= area }
             let best = (beyond + own).max { $0.bytes < $1.bytes }!
             figure = (best.bytes, best.source)
         }
+        // The base on top: the figures are a command line's whole peaks (its ~13 MB inside), an app holds
+        // more — counted twice for the command line, never missed for the app.
         return MemoryNeed(phases: [Phase(kind: .denoising,
                                          terms: [Term("measured peak (fallback, \(figure.source))", figure.bytes, outside: true)])],
-                          crossing: 0, base: 0, isFallback: true)
+                          crossing: 0, base: request.base, isFallback: true)
     }
 }
 
@@ -283,10 +320,14 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
     public var gapBytes: Int
     /// How the phases' peaks were read (`FootprintInterval`): exact, or sampled every 10 ms.
     public var peakMethod: PeakMethod
+    /// **The process's footprint when the render started** (`MemoryNeed.Request.base`), inside every
+    /// need above: the peaks are the process's, the app's interface and history or the command line's
+    /// runtime included, and so are the needs. `nil` in a report written before it was carried.
+    public var baseBytes: Int?
     public init(needBytes: Int, measuredBytes: Int, phases: [Phase], fallback: Bool,
-                peakMethod: PeakMethod = .kernelInterval) {
+                peakMethod: PeakMethod = .kernelInterval, baseBytes: Int? = nil) {
         self.needBytes = needBytes; self.measuredBytes = measuredBytes; self.phases = phases; self.fallback = fallback
-        self.peakMethod = peakMethod
+        self.peakMethod = peakMethod; self.baseBytes = baseBytes
         gapBytes = measuredBytes - needBytes
     }
     /// **The phases above their need** — each one a defect.
@@ -319,7 +360,7 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
                   measuredBytes: mark.peak)
         }
         self.init(needBytes: need.peak, measuredBytes: marks.map(\.peak).max() ?? 0, phases: phases,
-                  fallback: need.isFallback, peakMethod: peakMethod)
+                  fallback: need.isFallback, peakMethod: peakMethod, baseBytes: need.base)
     }
 
     /// One line per defect, for the log and the CLI.
@@ -328,6 +369,17 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
             String(format: "memory defect: %@ peaked at %.0f MB, its need is %.0f MB (+%.0f MB)%@", $0.name as NSString,
                    Double($0.measuredBytes) / 1e6, Double($0.needBytes ?? needBytes) / 1e6,
                    Double($0.gapBytes ?? gapBytes) / 1e6, fallback ? " — need from the measured fallback" : "")
+        }
+    }
+
+    /// **The phases below their need**, one line each — reported, never a failure: a check that only
+    /// looks up is blind to an over-charge, and an over-charge can hide an under-charge in the same
+    /// phase (two terms compensating). The slack is what the formula charges that the render did not take.
+    public var slack: [String] {
+        phases.compactMap { phase -> String? in
+            guard let need = phase.needBytes, let gap = phase.gapBytes, gap < 0 else { return nil }
+            return String(format: "memory slack: %@ peaked at %.0f MB, its need is %.0f MB (%.0f MB)", phase.name as NSString,
+                          Double(phase.measuredBytes) / 1e6, Double(need) / 1e6, Double(gap) / 1e6)
         }
     }
 }

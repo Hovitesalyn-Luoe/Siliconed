@@ -26,7 +26,7 @@ import Foundation
 /// depend on the step — computed once per render. The *full* pass (the whole sequence under the
 /// block-causal mask) exists as the check of the two others.
 ///
-/// What sets it apart from the five other targets, and what a port by analogy would miss:
+/// What sets it apart from the other targets, and what a port by analogy would miss:
 ///
 ///   - **block-causal attention** (`(q ≥ kv) ∨ same image`): text is strictly causal, each image
 ///     block bidirectional in itself, and everything sees what precedes it. It is done as the
@@ -113,6 +113,9 @@ package final class QwenImage21DiT {
     /// 7.2–10.7 GB read; at 1, no fault, 0.41 s, 9.7 GB, the same peak (the two staging buffers
     /// either way) and the same bits.
     package static let generationTail = 1.0
+
+    /// A layer's tensors in the map: what a staging block holds (`MemoryPlan.ditTail`, `QwenImage21Maps`).
+    package static func layerPrefix(_ layer: Int) -> String { "transformer_blocks.\(layer)." }
 
     /// The rows of one MLP chunk for `scratch` rows: the fewest equal chunks whose two buffers fit
     /// `budget` — `ceil(scratch / chunks)`, at least one row.
@@ -471,7 +474,7 @@ package final class QwenImage21DiT {
         // (`MemoryPlan.ditTail`): **the whole map** (`generationTail`), unless B holds it all; an edit's
         // stays off on every plan — its map through the cache is what was timed fastest, and
         // its own K/V reader is already beside the cache.
-        let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: "transformer_blocks.\($0).") }
+        let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: QwenImage21DiT.layerPrefix($0)) }
         var (released, slots) = (config.layers, 0)
         if storage == .memory {
             (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
@@ -661,14 +664,18 @@ package final class QwenImage21DiT {
         }
     }
 
+    private static func silu(_ x: inout [Double]) {
+        for i in x.indices { x[i] = x[i] / (1 + exp(-x[i])) }
+    }
+
     /// `(temb, modulation.1, norm_out.linear)` per timestep, before `1 +` and `tanh`.
     private func exactModulation(timesteps: [Float]) throws -> (temb: [[Double]], layers: [[Double]], final: [[Double]]) {
         let sinusoids = timesteps.map { QwenImage21DiT.sinusoid(timestep: $0) }
         var hidden = try exactLinears("time_text_embed.timestep_embedder.linear_1", xs: sinusoids)
-        for i in hidden.indices { KleinDiT.silu(&hidden[i]) }
+        for i in hidden.indices { Self.silu(&hidden[i]) }
         let temb = try exactLinears("time_text_embed.timestep_embedder.linear_2", xs: hidden)
         var enabled = temb
-        for i in enabled.indices { KleinDiT.silu(&enabled[i]) }
+        for i in enabled.indices { Self.silu(&enabled[i]) }
         return (temb, try exactLinears("modulation.1", xs: enabled), try exactLinears("norm_out.linear", xs: enabled))
     }
 

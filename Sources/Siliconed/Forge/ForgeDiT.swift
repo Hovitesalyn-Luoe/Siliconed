@@ -79,10 +79,8 @@ package enum ForgeDiT {
         }
     }
 
-    /// After normalization — for FLUX.2 [klein] 4B, the 169 published tensors and their 110 split
-    /// parts (`Recipes.flux2Split`): 279.
-    static let expectedCounts: [Family: Int] = [.zImage: 521, .krea2: 430, .anima: 567, .klein4b: 279, .ernie: 409,
-                                                  .qwenImage21: 297]
+    /// After normalization.
+    static let expectedCounts: [Family: Int] = [.zImage: 521, .krea2: 430, .anima: 567, .qwenImage21: 297]
     static let animaHeadSize = 128
 
     /// The order the engine reads in: a sequential read of the file is an execution.
@@ -112,15 +110,6 @@ package enum ForgeDiT {
                 if n.hasPrefix("transformer_blocks.") { return (1, index(n, 1)) }
                 if n.hasPrefix("norm_out.") || n.hasPrefix("proj_out.") { return (2, 0) }
                 return (0, 0)
-            case .ernie:
-                if n.hasPrefix("layers.") { return (1, index(n, 1)) }
-                if n.hasPrefix("final_norm.") || n.hasPrefix("final_linear.") { return (2, 0) }
-                return (0, 0)
-            case .klein4b:
-                if n.hasPrefix("transformer_blocks.") { return (1, index(n, 1)) }
-                if n.hasPrefix("single_transformer_blocks.") { return (2, index(n, 1)) }
-                if n.hasPrefix("norm_out.") || n.hasPrefix("proj_out.") { return (3, 0) }
-                return (0, 0)
             }
         }
         let keys: [(Int, Int, String)] = names.map { n in let r = rank(n); return (r.0, r.1, n) }
@@ -142,7 +131,7 @@ package enum ForgeDiT {
         switch family {
         case .zImage:
             return name.contains("t_embedder") || name.contains("cap_embedder") ? .float32 : .bfloat16
-        case .anima, .klein4b, .ernie, .qwenImage21:
+        case .anima, .qwenImage21:
             return .bfloat16
         case .krea2:
             if name.firstMatch(#"\.attn\.to_(q|k|v|gate|out\.0)\.weight$"#) != nil
@@ -272,20 +261,11 @@ package enum ForgeDiT {
             case .anima:
                 h += [.init("rope_layout", "interleaved"), .init("config", config), .init("source", .object(source)),
                       .init("weight_absmax", .real(Double(m?.absMax ?? 0)))]
-            case .ernie:
-                // ERNIE's RoPE (repeated angles, `rotate_half`) is neither interleaved nor split:
-                // nothing is permuted, `ErnieRope` applies it as is.
-                h += [.init("rope_layout", "ernie"), .init("config", config),
-                      .init("source", .object(source)), .init("weight_absmax", .real(Double(m?.absMax ?? 0)))]
             case .qwenImage21:
                 h += [.init("rope_layout", "interleaved"),
                       .init("zero_centered_norms_folded", .list(qwenZeroCentered.map { .string($0) })),
                       .init("config", config), .init("source", .object(source)),
                       .init("weight_absmax", .real(Double(m?.absMax ?? 0)))]
-            case .klein4b:
-                // FLUX.2's RoPE is interleaved to begin with: nothing is permuted.
-                h += [.init("rope_layout", "interleaved"), .init("fused_split", true), .init("config", config),
-                      .init("source", .object(source)), .init("weight_absmax", .real(Double(m?.absMax ?? 0)))]
             }
             if let name { h.append(.init("nom", .string(name))) }
             h.append(.init("order", .list(order.map { .string($0) })))

@@ -12,14 +12,16 @@ import Foundation
 ///                 + the full-size attentions the 3 blocks keep (a head split from 1024 rows:     │ back its
 ///                   host arena ⊕ the GPU heads' queries; MPSGraph below) · its GEMM               │ memory
 ///     decoding    the Flux decoder's two heaps and the image it returns (`VAE.plan`)              ┘
+///                 (a batch: the images already decoded, and every latent crossing until then)
 ///
 ///     peak = max(phases) + crossing + process base     S = (H/16)(W/16) + ⌈T⌉₃₂, r = Σ ranks
 ///
 /// Ours, each the function its allocator calls: `TextEncoder.arenaBytes`, `TextEncoder.stagingSlots`,
 /// `Artifact.stagingBytes`, `DiT.arenaBytes`, `CacheLoRA.bytes`, `LoRA.downBytes`,
-/// `HeadSplitAttention.hostBytes`, `Attention.maskBytes`, `Conductor.workspaceBytes`, `VAEEncoder.plan`,
-/// `VAE.plan`. Outside our hand (`OperatorFootprint`): MPSGraph's copy of the queries, MPS's GEMM state,
-/// the process's base, the VAE's SDPA copies (`VAELayout.outside`).
+/// `HeadSplitAttention.hostBytes`, `Attention.maskBytes`, `Conductor.workspaceBytes`, `GEMM.tierBytes`,
+/// `VAEEncoder.plan`, `VAE.plan`. Outside our hand, from the shapes: MPSGraph's copy of the queries
+/// (`OperatorFootprint.sdpaQueries`), the VAE's SDPA copies (`VAELayout.outside`); the process's base is
+/// the request's, read from the process (`Request.base`). The frameworks' constants are not charged.
 ///
 /// What the formula has to know and a port by analogy with Qwen-Image-2.1 would miss:
 ///
@@ -37,16 +39,17 @@ import Foundation
 ///   - **a LoRA costs three things**: the `mid [S, r]` slice in each block's arena, the `CacheLoRA` (every
 ///     module `Block` can apply a stack to — the worst case), and, with more than one LoRA, the `down`
 ///     staging of one module while the cache fills (`LoRA.downBytes`);
-///   - **the VAEs hand everything back before they return** (two heaps of ours, `finish` waits for
-///     Metal): the encoder's memory is not carried into the denoising any more, nor the DiT's into the
-///     decoding;
+///   - **the VAEs hand everything back before they return** (two heaps of ours; `finish` waits until
+///     Metal's ledger is back to its level before them, under 0.1 s): the encoder's memory is not
+///     carried into the denoising any more, nor the DiT's into the decoding (`Context.keptDenoiser`
+///     released first);
 ///   - Z-Image has no reference image: `references` are img2img's (and Détail's) starting image as
 ///     handed to the engine, kept by the request through the render (crossing), encoded at the render's
 ///     format (`fitted`, a copy when the size differs) before the DiT; its z₀ crosses at the render's grid.
 extension MemoryNeed {
 
     /// **What Z-Image's formula reads beside the request**: its maps' headers — configs and tensor
-    /// tables, a few hundred KB, never a tensor — and the P cores the head split runs on. The staging
+    /// tables, a few hundred KB, never a tensor. The staging
     /// span of each layer is read once, here (`Artifact.stagingSpans`: `stagingBytes` bridges the whole
     /// tensor table at each call, 2 ms a map in a debug build); a set of layers spans the largest of theirs.
     ///
@@ -56,16 +59,13 @@ extension MemoryNeed {
         package let ditSize: Int
         package let encoder: [String: Any]
         package let encoderSize: Int
-        package let performanceCores: Int
         /// `Artifact.stagingSpans` of each DiT layer alone, by index.
         private let ditLayerStaging: [Int?]
         /// `Artifact.stagingBytes` of the encoder's layers (0 when its config does not parse).
         package let encoderLayerStaging: Int
 
-        package init(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max,
-                     performanceCores: Int = EngineSettings.effective.machine.performanceCores) {
+        package init(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
             self.dit = dit; self.ditSize = ditSize; self.encoder = encoder; self.encoderSize = encoderSize
-            self.performanceCores = performanceCores
             ditLayerStaging = Artifact.stagingSpans(header: dit, prefixes: (0..<DiT.Config(header: dit).layers).map(DiT.layerPrefix),
                                                     fileSize: ditSize)
             encoderLayerStaging = (try? TextEncoder.Config(header: encoder)).map { config in
@@ -83,38 +83,46 @@ extension MemoryNeed {
         package init?(card: ModelCard, library: Library = .processWide) {
             let ditPath = card.map ?? library.map(library.ditMap(.zImage))
             let encoderPath = library.map(library.encoderMap(.zImage))
-            func stamp(_ path: String) -> [Int] {
-                var info = stat()
-                guard stat(path, &info) == 0 else { return [-1] }
-                return [Int(info.st_size), Int(info.st_mtimespec.tv_sec), Int(info.st_mtimespec.tv_nsec), Int(info.st_ino)]
-            }
-            let cores = EngineSettings.effective.machine.performanceCores
-            let key = InstalledKey(paths: [ditPath, encoderPath], stamps: stamp(ditPath) + stamp(encoderPath) + [cores])
+            let key = InstalledFiles(paths: [ditPath, encoderPath])
             let maps = ZImageMaps.installed(key) { () -> ZImageMaps? in
-                func size(_ path: String) -> Int {
-                    ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.intValue ?? .max
-                }
                 guard let dit = try? Artifact.header(ditPath), let encoder = try? Artifact.header(encoderPath) else { return nil }
-                return ZImageMaps(dit: dit, ditSize: size(ditPath), encoder: encoder, encoderSize: size(encoderPath),
-                                  performanceCores: cores)
+                return ZImageMaps(dit: dit, ditSize: InstalledFiles.size(ditPath), encoder: encoder,
+                                  encoderSize: InstalledFiles.size(encoderPath))
             }
             guard let maps else { return nil }
             self = maps
         }
 
-        private struct InstalledKey: Hashable, Sendable { var paths: [String]; var stamps: [Int] }
         /// The maps read, by their files' stamps.
-        private static let installed = ShapeMemo<InstalledKey, ZImageMaps?>(capacity: 8)
+        private static let installed = ShapeMemo<InstalledFiles, ZImageMaps?>(capacity: 8)
+    }
+
+    /// **The files a formula reads, by their stamps** — path, size, date and inode: a file replaced
+    /// (reinstalled, another version) is read again, an unchanged one never twice.
+    package struct InstalledFiles: Hashable, Sendable {
+        var paths: [String]
+        var stamps: [Int]
+        init(paths: [String]) {
+            self.paths = paths
+            stamps = paths.flatMap { path -> [Int] in
+                var info = stat()
+                guard stat(path, &info) == 0 else { return [-1] }
+                return [Int(info.st_size), Int(info.st_mtimespec.tv_sec), Int(info.st_mtimespec.tv_nsec), Int(info.st_ino)]
+            }
+        }
+        static func size(_ path: String) -> Int {
+            ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.intValue ?? .max
+        }
     }
 
     /// **Z-Image's need** on the installed maps.
-    static func zImage(_ request: Request, app: Bool) -> MemoryNeed? {
-        guard let maps = ZImageMaps(card: request.card) else { return nil }
-        return zImage(request, app: app, maps: maps)
+    static func zImage(_ request: Request) -> MemoryNeed? {
+        guard let maps = request.zImageMaps ?? ZImageMaps(card: request.card, library: request.library) else { return nil }
+        return zImage(request, maps: maps)
     }
 
     /// **Z-Image's need on these maps** — pure: the tests hand it headers written in memory.
-    package static func zImage(_ request: Request, app: Bool, maps: ZImageMaps) -> MemoryNeed? {
+    package static func zImage(_ request: Request, maps: ZImageMaps) -> MemoryNeed? {
         let dit = DiT.Config(header: maps.dit)
         guard let encoder = try? TextEncoder.Config(header: maps.encoder) else { return nil }
         let f = MemoryLayout<Float>.size
@@ -131,7 +139,7 @@ extension MemoryNeed {
         //    (kept by the request through the render) and its z₀ at the render's grid ────────────
         let caps = tokens * encoder.hidden * f
         let starts = request.references.reduce(0) { $0 + 3 * $1.width * $1.height * f + latent }
-        let crossing = caps + latent + starts
+        let crossing = caps + latent + starts + batchLatents(request, latent: latent)
 
         // ── text: the encoder's arena, its staging buffers, its causal SDPA, its GEMM ─────────────
         let encoderLayer = maps.encoderLayerStaging
@@ -140,8 +148,8 @@ extension MemoryNeed {
             Term("encoder arena", TextEncoder.arenaBytes(config: encoder, sequence: tokens)),
             Term("encoder staging", TextEncoder.stagingSlots(granted: request.encoderSlots) * encoderLayer),
         ] + attention("encoder", heads: encoder.heads, rows: tokens, keys: tokens, headDim: encoder.headDim,
-                      causal: true, split: false, threads: maps.performanceCores)
-          + gemm("encoder", products: [(tokens, h, a), (tokens, h, kv), (tokens, a, h), (tokens, h, i), (tokens, i, h)]))
+                      causal: true, split: false, threads: request.threads)
+          + gemm("encoder", bounded: [(tokens, h, a), (tokens, h, kv), (tokens, a, h), (tokens, h, i), (tokens, i, h)]))
 
         // ── img2img's starting image, encoded at the render's format (`fitted`: a copy when the size
         //    handed differs), one encoder at a time: its heaps and the latent it returns ─────────
@@ -169,7 +177,7 @@ extension MemoryNeed {
         let attentions = [("image refiners", image), ("layers", sequence), ("context refiners", capPadded)].flatMap {
             attention($0.0, heads: dit.heads, rows: $0.1, keys: $0.1, headDim: headDim, causal: false,
                       split: !Attention.useHalfPrecision && $0.1 >= HeadSplitAttention.minimumSequence,
-                      threads: maps.performanceCores)
+                      threads: request.threads)
         }
         let (d, hidden) = (dit.dim, dit.hidden), inDim = dit.patch * dit.patch * dit.channels
         let loraModules = DiT.loraModules(config: dit)
@@ -184,16 +192,18 @@ extension MemoryNeed {
             // The DiT's velocity `[C, h, w]` and, under the spectral schedule, one descent level.
             Term("sampler", latent + (halfSteps > 0 ? latent / 4 : 0)),
         ] + attentions
-          + gemm("DiT", products: [(sequence, d, d), (sequence, d, hidden), (sequence, hidden, d),
-                                   (capPadded, dit.capDim, d), (image, inDim, d), (sequence, d, inDim)]))
+          // The image's rows are exact; the caption's, and the unified sequence's, follow the tokens' bound.
+          + gemm("DiT", products: [(image, inDim, d)],
+                 bounded: [(sequence, d, d), (sequence, d, hidden), (sequence, hidden, d), (capPadded, dit.capDim, d),
+                           (sequence, d, inDim)],
+                 rank: rank))
 
         // ── decoding: the decoder's two heaps and the image it returns; the latent it reads crosses ──
         let band = request.minimumBands ? min(VAE.bandElements, MemoryPlan.fluxMinimumBand) : VAE.bandElements
         let decoding = Phase(kind: .decoding,
                              terms: vae("Flux decoder", VAE.plan(latentHeight: latentHeight, latentWidth: latentWidth,
-                                                                 band: band)))
+                                                                 band: band)) + [batchImages(request)])
 
-        return MemoryNeed(phases: [text] + references + [denoising, decoding], crossing: crossing,
-                          base: OperatorFootprint.processBase(app: app))
+        return MemoryNeed(phases: [text] + references + [denoising, decoding], crossing: crossing, base: request.base)
     }
 }

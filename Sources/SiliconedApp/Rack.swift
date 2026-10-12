@@ -675,7 +675,7 @@ private struct DiTBox: View {
                             Text("\(Figures.memory(need)) of memory").monospacedDigit()
                         }
                         .font(.caption).foregroundStyle(.secondary)
-                        .help("The memory this render needs at this size (measured peak)")
+                        .help("The memory this render needs at this size (computed)")
                     }
                 }
             }

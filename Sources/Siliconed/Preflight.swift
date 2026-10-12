@@ -6,7 +6,8 @@ import Synchronization
 //     1. the model is installed          its maps and published files are all there (`ModelCard.missing`)
 //     2. its license is accepted         `<racine>/accepted-licenses.json`, written by the app
 //     3. the format                      side ≥ 512, multiple of 16, area ≤ 1024×1536 (`Format.check`)
-//     4. the memory                      the request's computed floor ≤ B, this Mac's budget (`MemoryBudget`)
+//     4. the memory                      the request's computed floor ≤ B, this Mac's budget (`MemoryBudget`);
+//                                        a floor that cannot be computed is refused too
 //     5. no other render                 `RenderLock.machine`, one for the machine, held for the whole render
 //
 // The first that fails throws its `EngineError`. 1, 2 and 5 need the model's library: a
@@ -17,7 +18,8 @@ import Synchronization
 // **The memory is B, fixed by this Mac's RAM and nothing else** (`MemoryBudget.ceiling(physical:)`,
 // ¾ · RAM − 2 GiB): no reading of the kernel's state decides — the same render on the same Mac gets
 // the same answer, always. Against it, the **floor**: the need of the most economical plan,
-// computed from the request's shapes (`MemoryNeed`, `ModelCard.memoryNeed`) — what remains above it
+// computed from the request's shapes (`MemoryNeed`, `ModelCard.memoryNeed`), plus what the process
+// already holds (the app's interface and history: B covers the whole process) — what remains above it
 // buys time (`MemoryPlan`), never another image. The app asks the same function ahead, to grey out
 // what this Mac cannot do (`ModelCard.checkMemory`).
 //
@@ -27,13 +29,15 @@ package enum Preflight {
 
     /// **The checks 1 to 4, pure** — what the test target drives with an injected machine and catalog.
     /// `memory`: the request's own inputs (prompt, references' sizes); without it, the references
-    /// at the output's size and a typical prompt.
+    /// at the output's size and a typical prompt. `checksMemory`: false for a hand-composed chain,
+    /// whose modules are its caller's — the need describes the published families' constructors only.
     package static func check(card: ModelCard, width: Int, height: Int, references: Int = 0, installed: Bool,
                               licenseAccepted: Bool, ceiling: Int,
-                              memory: MemoryNeed.Request? = nil) throws(EngineError) {
+                              memory: MemoryNeed.Request? = nil, checksMemory: Bool = true) throws(EngineError) {
         guard installed else { throw .modelNotInstalled(model: card.id) }
         guard licenseAccepted else { throw .licenseNotAccepted(model: card.id) }
         try Format.check(width: width, height: height)
+        guard checksMemory else { return }
         if let memory {
             try card.checkMemory(memory, ceiling: ceiling)
         } else {
@@ -49,7 +53,7 @@ package enum Preflight {
         try check(card: model.card, width: width, height: height, references: references,
                   installed: library.map { model.card.missing(in: $0) == nil } ?? true,
                   licenseAccepted: library.map { Licenses.implicit || $0.isLicenseAccepted(model.card) } ?? true,
-                  ceiling: ceiling, memory: memory)
+                  ceiling: ceiling, memory: memory, checksMemory: library != nil)
         return library == nil ? nil : try RenderLock.acquire(RenderLock.machine)
     }
 }
@@ -59,13 +63,18 @@ package enum Preflight {
 extension ModelCard {
     /// **The request the need is computed on** (`MemoryNeed.Request`): the format, each reference at
     /// its size, the prompt's tokens (or `MemoryNeed.Request.typicalPromptTokens` when no prompt is known
-    /// yet — the app's display), the LoRA ranks.
+    /// yet — the app's display), the LoRA ranks, and **the process's footprint now** (`base`: what the
+    /// app or the command line already holds — B covers the whole process; a test passes its own).
     package func memoryRequest(width: Int, height: Int, references: [(width: Int, height: Int)] = [],
-                               promptTokens: Int? = nil, loraRanks: [Int] = []) -> MemoryNeed.Request {
+                               promptTokens: Int? = nil, loraRanks: [Int] = [], base: Int? = nil,
+                               library: Library = .processWide) -> MemoryNeed.Request {
         let tokens = promptTokens ?? MemoryNeed.Request.promptTokens(text: MemoryNeed.Request.typicalPromptTokens,
                                                                      family: family, references: references.count)
-        return MemoryNeed.Request(card: self, width: width, height: height, references: references,
-                                  promptTokens: tokens, loraRanks: loraRanks)
+        var request = MemoryNeed.Request(card: self, width: width, height: height, references: references,
+                                         promptTokens: tokens, loraRanks: loraRanks)
+        request.base = base ?? OperatorFootprint.processBase()
+        request.library = library
+        return request
     }
 
     /// **Refuses a render whose floor exceeds B** — the one memory check, the engine's preflight and the
@@ -79,28 +88,30 @@ extension ModelCard {
     }
 
     /// **The same check on a whole request** — what the engine asks, with the prompt, the references'
-    /// own sizes and the LoRA ranks: the lean plan's need against B, nothing else.
+    /// own sizes and the LoRA ranks: the lean plan's need against B, nothing else. **A need that cannot
+    /// be computed is a refusal** (`memoryNeedUnknown`: maps missing, or a header that does not parse),
+    /// never a need of 0 that every B would hold.
     package func checkMemory(_ request: MemoryNeed.Request, ceiling: Int = MemoryBudget.machineCeiling()) throws(EngineError) {
-        let needed = memoryNeed(request)
+        guard let needed = memoryNeed(request) else { throw .memoryNeedUnknown(model: id) }
         guard needed <= ceiling else { throw .insufficientMemory(needed: needed, budget: ceiling) }
     }
 
     /// **The memory a render of this model needs at `width × height`**, in bytes: its floor — the peak
     /// of the most economical plan (`MemoryNeed.Request.lean`), computed from the shapes
-    /// (`MemoryNeed.of`). Above the floor the plan buys time (`MemoryPlan.choose`); at the floor the render is
-    /// slower, never another image. The four hidden families take the marked fallback of their
-    /// measured peaks (`MemoryNeed.unmodelled`). 0 when the model's maps are not installed (the
-    /// preflight's first check refuses it before).
-    public func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int {
+    /// (`MemoryNeed.of`), with what this process holds now. Above the floor the plan buys time
+    /// (`MemoryPlan.choose`); at the floor the render is slower, never another image. The two hidden
+    /// families take the marked fallback of their measured peaks (`MemoryNeed.unmodelled`). `nil` when
+    /// it cannot be computed: the model's maps are not installed, or their headers do not parse.
+    public func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int? {
         memoryNeed(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))
     }
 
-    package func memoryNeed(_ request: MemoryNeed.Request) -> Int { MemoryNeed.of(request.lean)?.peak ?? 0 }
+    package func memoryNeed(_ request: MemoryNeed.Request) -> Int? { MemoryNeed.of(request.lean)?.peak }
 
     /// **The fastest plan's peak at `width × height`**: every buffer that buys time taken — what
     /// `MemoryPlan.choose` takes whole when B holds it.
-    package func memoryComfort(width: Int, height: Int, references: Int = 0) -> Int {
-        MemoryNeed.of(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))?.peak ?? 0
+    package func memoryComfort(width: Int, height: Int, references: Int = 0) -> Int? {
+        MemoryNeed.of(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))?.peak
     }
 }
 

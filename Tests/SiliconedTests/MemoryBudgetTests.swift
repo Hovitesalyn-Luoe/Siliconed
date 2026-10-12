@@ -3,28 +3,91 @@ import XCTest
 @testable import Siliconed
 
 /// **B and the plan chosen in it** (`MemoryBudget`, `MemoryPlan`) — without a byte of weights: B is
-/// simulated, the needs are Qwen-Image-2.1's (computed without its maps), a map's layers are of
-/// Z-Image's order.
+/// simulated, the needs are Qwen-Image-2.1's on the maps of `MemoryFixtures` and 6 P cores, a map's
+/// layers are of Z-Image's order.
 final class MemoryBudgetTests: XCTestCase {
 
     private let gib = 1 << 30
 
+    /// A Qwen-Image-2.1 request as the card builds it (a typical prompt, each reference at the output's
+    /// size), on the fixture's maps, no process base.
+    private func request(_ w: Int, _ h: Int, references: Int = 0) -> MemoryNeed.Request {
+        var r = ModelCard.qwenImage21.memoryRequest(width: w, height: h, references: Array(repeating: (w, h), count: references),
+                                                    base: 0)
+        r.threads = 6
+        r.qwenMaps = MemoryFixtures.qwenMaps()
+        return r
+    }
+
+    private func floor(_ w: Int, _ h: Int, references: Int = 0) -> Int {
+        ModelCard.qwenImage21.memoryNeed(request(w, h, references: references))!
+    }
+
     /// **A generation is not charged its edits' peak**; the need never falls as references are added,
     /// and a count with no tier for the format takes the next one up.
     func testTheNeedFollowsTheReferences() {
-        let q = ModelCard.qwenImage21
         // Each reference adds its tokens to the text and the prefix: the edits grow with them. A
         // generation is not an edit (its denoising streams the map's tail, an edit's K/V go to the file).
-        let needs = (1...3).map { q.memoryNeed(width: 1024, height: 1024, references: $0) }
+        let needs = (1...3).map { floor(1024, 1024, references: $0) }
         XCTAssertEqual(needs, needs.sorted()); XCTAssertEqual(Set(needs).count, 3)
         // The need is the computed floor: the lean plan's peak, below the default plan's.
-        XCTAssertEqual(q.memoryNeed(width: 1024, height: 1024), MemoryNeed.of(q.memoryRequest(width: 1024, height: 1024).lean)!.peak)
-        XCTAssertLessThanOrEqual(q.memoryNeed(width: 1024, height: 1024), q.memoryComfort(width: 1024, height: 1024))
-        XCTAssertLessThan(q.memoryNeed(width: 512, height: 512), q.memoryNeed(width: 1024, height: 1024))
-        XCTAssertLessThan(q.memoryNeed(width: 1024, height: 1024), q.memoryNeed(width: 1024, height: 1536))
+        XCTAssertEqual(floor(1024, 1024), MemoryNeed.of(request(1024, 1024).lean)!.peak)
+        XCTAssertLessThanOrEqual(floor(1024, 1024), MemoryNeed.of(request(1024, 1024))!.peak)
+        XCTAssertLessThan(floor(512, 512), floor(1024, 1024))
+        XCTAssertLessThan(floor(1024, 1024), floor(1024, 1536))
         // A family measured without references keeps its one figure (the marked fallback).
-        XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1024, references: 2),
-                       ModelCard.klein4b.memoryNeed(width: 1024, height: 1024))
+        XCTAssertEqual(ModelCard.anima.memoryNeed(ModelCard.anima.memoryRequest(width: 1024, height: 1024, references: [(1024, 1024), (1024, 1024)], base: 0)),
+                       ModelCard.anima.memoryNeed(ModelCard.anima.memoryRequest(width: 1024, height: 1024, base: 0)))
+    }
+
+    /// **The process's base is in the need**: B covers the whole process — what the app or the
+    /// command line holds when the render starts —, so a larger base is a larger need, byte for byte,
+    /// in every phase; the card reads it from the process itself (`OperatorFootprint.processBase`).
+    func testTheBaseIsInTheNeed() {
+        var r = request(1024, 1024)
+        let bare = MemoryNeed.of(r)!
+        r.base = 300_000_000   // an app with its history
+        let app = MemoryNeed.of(r)!
+        XCTAssertEqual(app.peak - bare.peak, 300_000_000)
+        for kind in bare.phases.map(\.kind) { XCTAssertEqual(app.need(of: kind)! - bare.need(of: kind)!, 300_000_000) }
+        // Refused one byte short with it, accepted without it.
+        XCTAssertThrowsError(try ModelCard.qwenImage21.checkMemory(r, ceiling: MemoryNeed.of(r.lean)!.peak - 1))
+        XCTAssertNoThrow(try ModelCard.qwenImage21.checkMemory(r, ceiling: MemoryNeed.of(r.lean)!.peak))
+        // The card's own request reads this process.
+        let read = ModelCard.qwenImage21.memoryRequest(width: 1024, height: 1024).base
+        XCTAssertGreaterThan(read, 1_000_000)
+        // The check compares the process's peaks with needs that hold the same base.
+        let check = MemoryCheck(need: app, marks: [("text", app.need(of: .text)! - 1)])
+        XCTAssertEqual(check.baseBytes, 300_000_000)
+        XCTAssertFalse(check.isDefect)
+        XCTAssertEqual(check.slack.count, 1)
+    }
+
+    /// **A need that cannot be computed is a refusal**, with its own code — never a need of 0 that
+    /// every B would hold, nor a plan with buffers bought on it.
+    func testAnUnknownNeedIsRefused() {
+        var r = request(1024, 1024)
+        r.qwenMaps = nil
+        let library = Library(root: FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-empty-\(UUID())"))
+        XCTAssertNil(QwenImage21Maps(card: .qwenImage21, library: library))
+        // A card whose maps are read from a library that has none: its need is unknown.
+        let q = ModelCard.qwenImage21
+        let imported = ModelCard(id: "qwen-image-2.1/absent", name: "Absent", family: .qwenImage21,
+                                 map: library.map("absent.silicon"), license: q.license, defaultSteps: q.defaultSteps,
+                                 space: q.space, formats: q.formats)
+        var unknown = r
+        unknown.card = imported
+        XCTAssertNil(MemoryNeed.of(unknown))
+        XCTAssertThrowsError(try imported.checkMemory(unknown, ceiling: 1 << 40)) {
+            XCTAssertEqual($0 as? EngineError, .memoryNeedUnknown(model: imported.id))
+            XCTAssertEqual(($0 as? EngineError)?.code, "memory_need_unknown")
+        }
+        let plan = MemoryPlan.choose(unknown, ceiling: 1 << 40)
+        XCTAssertNil(plan.need)
+        XCTAssertTrue(plan.lean)
+        XCTAssertEqual(plan.denoisingStreamed, 1 << 40)   // no room left for a head
+        XCTAssertThrowsError(try Preflight.check(card: imported, width: 1024, height: 1024, installed: true,
+                                                 licenseAccepted: true, ceiling: 1 << 40, memory: unknown))
     }
 
     /// `SILICONED_MEMORY_BUDGET_GB` replaces B (GiB, comma or point); without it, B is this Mac's RAM's.
@@ -32,8 +95,16 @@ final class MemoryBudgetTests: XCTestCase {
         XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "4"]), 4 << 30)
         XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "4,5"]), 9 << 29)
         XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "22"]), 22 << 30)
+        XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: "0"]), 0)
         let physical = Int(ProcessInfo.processInfo.physicalMemory)
         XCTAssertEqual(MemoryBudget.machineCeiling(environment: [:]), MemoryBudget.ceiling(physical: physical))
+        // What `Int(Double)` cannot hold, or is no budget, is refused — B stays this Mac's.
+        for text in ["inf", "-inf", "nan", "-1", "1e30", "1025", "four", ""] {
+            XCTAssertNil(MemoryBudget.forcedCeiling([MemoryBudget.forcingVariable: text]), text)
+            XCTAssertEqual(MemoryBudget.machineCeiling(environment: [MemoryBudget.forcingVariable: text]),
+                           MemoryBudget.ceiling(physical: physical), text)
+        }
+        XCTAssertEqual(MemoryBudget.forcedCeiling([MemoryBudget.forcingVariable: "1024"]), 1 << 40)
     }
 
     // ── B ──────────────────────────────────────────────────────────────────────────────────
@@ -78,19 +149,21 @@ final class MemoryBudgetTests: XCTestCase {
     func testTheFloorIsRefusedAboveB() {
         // Refused one byte short, with both figures.
         let q = ModelCard.qwenImage21
-        let floor = q.memoryNeed(width: 1024, height: 1024)
-        XCTAssertThrowsError(try q.checkMemory(width: 1024, height: 1024, ceiling: floor - 1)) {
+        let floor = self.floor(1024, 1024)
+        XCTAssertThrowsError(try q.checkMemory(request(1024, 1024), ceiling: floor - 1)) {
             XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: floor, budget: floor - 1))
         }
-        XCTAssertNoThrow(try q.checkMemory(width: 1024, height: 1024, ceiling: floor))
-        XCTAssertNoThrow(try q.checkMemory(width: 512, height: 512, ceiling: floor - 1))
+        XCTAssertNoThrow(try q.checkMemory(request(1024, 1024), ceiling: floor))
+        XCTAssertNoThrow(try q.checkMemory(request(512, 512), ceiling: floor - 1))
         // A 16 GB Mac takes Qwen's worst case, 1024×1536 with 3 references.
-        XCTAssertNoThrow(try q.checkMemory(width: 1024, height: 1536, references: 3,
-                                           ceiling: MemoryBudget.ceiling(physical: 16 * gib)))
+        XCTAssertNoThrow(try q.checkMemory(request(1024, 1536, references: 3), ceiling: MemoryBudget.ceiling(physical: 16 * gib)))
         // The engine's request: a LoRA and a long prompt raise the need it is judged on.
-        let plain = q.memoryRequest(width: 1024, height: 1024, promptTokens: 50)
+        var plain = request(1024, 1024)
+        plain.promptTokens = 50
         var loaded = plain; loaded.loraRanks = [128]
-        XCTAssertGreaterThan(q.memoryNeed(loaded), q.memoryNeed(plain))
+        XCTAssertGreaterThan(q.memoryNeed(loaded)!, q.memoryNeed(plain)!)
+        var long = plain; long.promptTokens = 526
+        XCTAssertGreaterThan(q.memoryNeed(long)!, q.memoryNeed(plain)!)
     }
 
     // ── the plan, chosen in B ───────────────────────────────────────────────────────────────
@@ -99,8 +172,7 @@ final class MemoryBudgetTests: XCTestCase {
     /// the floor and the fastest plan keeps what fits; at the floor, the lean plan. The plan's need is
     /// never above B once the floor is.
     func testThePlanIsTheFastestBHolds() {
-        let q = ModelCard.qwenImage21
-        let request = q.memoryRequest(width: 1024, height: 1024, references: [(1024, 1024)] * 3)
+        let request = self.request(1024, 1024, references: 3)
         let floor = MemoryNeed.of(request.lean)!.peak
         let fastest = MemoryNeed.of(request)!.peak
         XCTAssertLessThan(floor, fastest)
@@ -155,8 +227,7 @@ final class MemoryBudgetTests: XCTestCase {
     /// **Outside a render, the reference values**; inside, the plan's — the same from the first site
     /// to the last — and the render's state is gone once it ends.
     func testTheRenderStateIsScopedToTheRender() {
-        let q = ModelCard.qwenImage21
-        let request = q.memoryRequest(width: 1024, height: 1024)
+        let request = self.request(1024, 1024)
         XCTAssertNil(MemoryPlan.current)
         XCTAssertEqual(MemoryPlan.decoderBand(standard: 1 << 18, minimum: MemoryPlan.qwenMinimumBand, unit: "pixels"), 1 << 18)
         var tight = MemoryPlan.choose(request, ceiling: 16 << 30)
@@ -176,18 +247,16 @@ final class MemoryBudgetTests: XCTestCase {
 
     /// **The need is the economical plan's floor, computed**, below the fastest plan's. A rotated format needs what its transpose needs (the same shapes).
     func testTheNeedIsTheEconomicalFloor() {
-        let q = ModelCard.qwenImage21
+        func comfort(_ w: Int, _ h: Int, references: Int = 0) -> Int { MemoryNeed.of(request(w, h, references: references))!.peak }
         for (w, h) in [(1024, 1024), (832, 1216), (1024, 1536)] {
-            XCTAssertLessThanOrEqual(q.memoryNeed(width: w, height: h), q.memoryComfort(width: w, height: h), "\(w)×\(h)")
+            XCTAssertLessThanOrEqual(floor(w, h), comfort(w, h), "\(w)×\(h)")
             // The lean plan drops the encoder's buffers: an edit, whose text phase holds its peak, needs less.
-            XCTAssertLessThan(q.memoryNeed(width: w, height: h, references: 3), q.memoryComfort(width: w, height: h, references: 3))
+            XCTAssertLessThan(floor(w, h, references: 3), comfort(w, h, references: 3))
         }
-        XCTAssertEqual(q.memoryNeed(width: 832, height: 1216), q.memoryNeed(width: 1216, height: 832))
+        XCTAssertEqual(floor(832, 1216), floor(1216, 832))
         // The hidden families' marked fallback: their measured peaks, the larger format's above a smaller one.
-        XCTAssertEqual(ModelCard.anima.memoryNeed(width: 1024, height: 1024), 5_300_000_000)
-        XCTAssertEqual(ModelCard.klein4b.memoryNeed(width: 1024, height: 1536), 7_800_000_000)
-        XCTAssertTrue(MemoryNeed.of(ModelCard.ernie.memoryRequest(width: 1024, height: 1024))!.isFallback)
+        XCTAssertEqual(ModelCard.anima.memoryNeed(ModelCard.anima.memoryRequest(width: 1024, height: 1024, base: 0)), 5_300_000_000)
+        XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1536, base: 0)), 7_800_000_000)
+        XCTAssertTrue(MemoryNeed.of(ModelCard.krea2.memoryRequest(width: 1024, height: 1024))!.isFallback)
     }
 }
-
-private func * <T>(array: [T], count: Int) -> [T] { Array((0..<count).map { _ in array }.joined()) }

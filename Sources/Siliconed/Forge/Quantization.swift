@@ -9,20 +9,17 @@ package typealias QuantizedKind = (kind: Artifact.DType, scaleType: Artifact.DTy
 ///
 /// The bytes and their scales are copied, never recomputed: the only transformations allowed are
 /// the ones that *move* bytes without changing any — a transposition into `[input, output]`, a
-/// selection or a permutation of rows (a fused qkv split, Anima's RoPE moved to interleaved), a
-/// selection of columns (FLUX.2's single-block `to_out`). Each row carries its scale with it; a
+/// selection or a permutation of rows (a fused qkv split, Anima's RoPE moved to interleaved). Each row carries its scale with it; a
 /// tensor-wide scale goes with every part. Anything arithmetic (a folded `1 +`) cannot stay 8-bit
 /// and is stored dequantized in fp32 by `ForgeDiT`, which says so.
 ///
 /// Layout: `[rows, columns]` = the published `[N, K]` (`N` outputs), row-major. Scales by block
 /// (GGUF Q8_0, `block` = 32): `[rows, columns / block]`, row-major — each row carries its own
-/// blocks, so a selection of rows moves them with it; a selection of columns keeps them only on a
-/// block boundary (`columnsKeepBlocks`).
+/// blocks, so a selection of rows moves them with it.
 ///
 /// **A packed GGUF type** (`.q4_0`…`.q5_1`, `.q4_k`…`.q6_k`): `values` are each row's
 /// blocks, bytes as published (`rowBytes` per row, `columns / b` blocks, b = 32 or 256), no
-/// separate scale. A selection of rows moves whole rows; a selection of columns moves whole
-/// blocks, on a block boundary only (the recipe refuses any other: `Recipes.columns`). The map
+/// separate scale. A selection of rows moves whole rows. The map
 /// keeps this layout as is — it is never transposed nor unpacked (`transposedValues` is not for it).
 package struct QuantizedTensor {
     /// `.int8` or `.float8_e4m3`; or a packed GGUF type, `.q4_0`…`.q6_k`.
@@ -38,8 +35,7 @@ package struct QuantizedTensor {
     /// One scale per `block` values along each row (GGUF Q8_0: 32); `nil`: none.
     package var block: Int? = nil
     /// ComfyUI's convrot: the weight is `(q · s) · R`, `R` one block per `rotation`
-    /// columns (inputs) — `Widen.dequantizeRotated`. A selection of rows keeps it; a selection of
-    /// columns only on a group boundary (`columnsKeepBlocks`). `nil`: no rotation.
+    /// columns (inputs) — `Widen.dequantizeRotated`. A selection of rows keeps it. `nil`: no rotation.
     package var rotation: Int? = nil
 
     var scaleSize: Int { scaleType.size }
@@ -135,41 +131,6 @@ package struct QuantizedTensor {
     }
 
     package func rows(begin: Int, number: Int) -> QuantizedTensor { selectingRows(Array(begin..<(begin + number))) }
-
-    /// Can columns `[begin, begin + number)` keep their scales? Always, unless scales go by block
-    /// and the share cuts one: a block's scale belongs to all its 32 inputs, half a block would need
-    /// a scale of its own that nobody published.
-    package static func columnsKeepBlocks(begin: Int, number: Int, block: Int?) -> Bool {
-        block.map { begin % $0 == 0 && number % $0 == 0 } ?? true
-    }
-
-    /// Columns `[begin, begin + number)` — a share of the **input**: each row keeps its own scale;
-    /// by block, the share takes its blocks' scales (on a block boundary only: `columnsKeepBlocks`).
-    package func columns(begin: Int, number: Int) -> QuantizedTensor {
-        if let packed = kind.packedBlock {
-            // Whole blocks of each row, bytes unchanged.
-            let (qk, bytes) = packed
-            precondition(QuantizedTensor.columnsKeepBlocks(begin: begin, number: number, block: qk))
-            var t = self
-            t.columns = number
-            let width = rowBytes, first = begin / qk * bytes, length = number / qk * bytes
-            t.values = (0..<rows).flatMap { r in values[(r * width + first)..<(r * width + first + length)] }
-            return t
-        }
-        precondition(QuantizedTensor.columnsKeepBlocks(begin: begin, number: number, block: block)
-                     && QuantizedTensor.columnsKeepBlocks(begin: begin, number: number, block: rotation))
-        var t = self
-        t.columns = number
-        t.values = (0..<rows).flatMap { r in values[(r * columns + begin)..<(r * columns + begin + number)] }
-        if let block {
-            let w = scaleSize, per = columns / block, first = begin / block, n = number / block
-            t.scale = (0..<rows).flatMap { (r: Int) -> ArraySlice<UInt8> in
-                let lower: Int = (r * per + first) * w, upper: Int = (r * per + first + n) * w
-                return scale[lower..<upper]
-            }
-        }
-        return t
-    }
 
     /// The map's scales by block: `[columns / block, rows]` (`[K/b, N]`) from `[rows, columns / block]`.
     package func transposedBlockScales() -> [UInt8] {
@@ -581,7 +542,7 @@ enum QuantizedLayouts {
                 throw refuse("\(name): SDNQ with `\(extra.dropFirst())` — not supported (only symmetric int8)")
             }
             // SDNQ's `<l>.scale` (int8 or fp8: `w = q · s` either way). Only beside a `<l>.weight`:
-            // `prenorm.scale`, `query_norm.scale` (Krea 2, FLUX.2) are norms of their own.
+            // `prenorm.scale`, `query_norm.scale` (Krea 2) are norms of their own.
             let candidates = [".weight_scale", ".scale_weight"] + (name.hasSuffix(".weight") ? [".scale"] : [])
             let found = candidates.compactMap { raw[base + $0] }
             guard found.count <= 1 else { throw refuse("\(name): two scales") }

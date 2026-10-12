@@ -176,7 +176,7 @@ package enum Ops {
 extension Ops {
     /// `LayerNorm` **without affine**: `(x − mean) / √(variance + eps)`, biased variance.
     /// Z-Image's `FinalLayer` uses it (the only LayerNorm of that model, everything else being
-    /// RMSNorm); so do other families (Qwen-Image-2.1's DiT and vision tower, Anima, Klein, ERNIE).
+    /// RMSNorm); so do other families (Qwen-Image-2.1's DiT and vision tower, Anima).
     ///
     /// `scale`: then `out[s, d] *= scale[d]` (`scaleRows`), on each row while it is in cache — the
     /// same multiplication, one pass instead of two.

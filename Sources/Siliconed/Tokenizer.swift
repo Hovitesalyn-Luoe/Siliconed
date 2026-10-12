@@ -3,10 +3,8 @@ import Foundation
 /// The byte-level BPE of the Qwen2/Qwen3 family, read from a published `tokenizer.json` — and the
 /// few variants the other families publish in the same format.
 ///
-/// The Z-Image Turbo and FLUX.2 [klein] encoders are a Qwen3-4B; Anima's is a Qwen3-0.6B, Krea 2's
-/// a Qwen3-VL-4B, Qwen-Image-2.1's a Qwen3-VL-8B: the same tokenizer. ERNIE-Image's Ministral-3
-/// publishes Mistral's Tekken, which differs in normalization, prefix tokens and `ignore_merges`,
-/// each read from the file and checked; nothing beyond the supported families.
+/// The Z-Image Turbo encoder is a Qwen3-4B; Anima's is a Qwen3-0.6B, Krea 2's a Qwen3-VL-4B,
+/// Qwen-Image-2.1's a Qwen3-VL-8B: the same tokenizer, nothing beyond the supported families.
 ///
 /// This is **not** a general `tokenizer.json` interpreter: every field it does not reproduce
 /// is checked and **refused**, not ignored — the same discipline the artifact applies to tensor
@@ -76,11 +74,7 @@ package final class Tokenizer {
 
     package let vocabularySize: Int
     package let addedTokenCount: Int
-    /// The tokens that post-processing places in front of the sequence (Mistral's `<s>`), empty for Qwen.
-    /// `encode` does not add them: that is `add_special_tokens=True`, the caller's choice.
-    package let headTokens: [Int]
     private let normalizeNFC: Bool
-    private let ignoreMerges: Bool
 
     // MARK: - Reading
 
@@ -129,7 +123,7 @@ package final class Tokenizer {
         // What we reproduce, field by field. **The regular expression comes from the file**: a
         // hard-coded copy would drift the day a neighboring model published another, and without
         // saying anything.
-        // NFC (Qwen) or no normalization (Mistral's Tekken, ERNIE-Image): `null`.
+        // NFC, or no normalization: `null`.
         let normalizer = root["normalizer"]
         if normalizer is NSNull || normalizer == nil {
             normalizeNFC = false
@@ -156,30 +150,18 @@ package final class Tokenizer {
         // `add_prefix_space` when decoding: Anima's Qwen3-0.6B publishes it as `true`, and it is inert.
         try Self.require((root["decoder"] as? [String: Any])?["type"] as? String,
                          equals: "ByteLevel", field: "decoder.type")
-        // Post-processing: `ByteLevel` (Z-Image), a template that adds NOTHING (Anima,
-        // `transformers` 5: `single = [A]`, no special token), or a template that places
-        // special tokens **in front of** the sequence (Mistral: `single = [<s>, A]`) — those are
-        // read and returned by `headTokens`, which the caller adds (`add_special_tokens=True`).
-        // Any other template (tokens after, a pair) would add what this port does not place.
+        // Post-processing: `ByteLevel` (Z-Image), or a template that adds NOTHING (Anima,
+        // `transformers` 5: `single = [A]`, no special token). Any other template would add
+        // what this port does not place.
         let post = root["post_processor"] as? [String: Any]
-        var head: [Int] = []
         if post?["type"] as? String == "TemplateProcessing" {
             let single = post?["single"] as? [[String: Any]] ?? []
-            let specials = post?["special_tokens"] as? [String: Any] ?? ["?": 0]
-            guard let last = single.last, last["Sequence"] != nil else {
-                throw Failure.unsupported("post_processor", found: "a template that adds tokens after the sequence")
-            }
-            for element in single.dropLast() {
-                guard let special = element["SpecialToken"] as? [String: Any], let id = special["id"] as? String,
-                      let ids = (specials[id] as? [String: Any])?["ids"] as? [Int] else {
-                    throw Failure.unsupported("post_processor", found: "a template that adds tokens")
-                }
-                head += ids
+            guard single.count == 1, single[0]["Sequence"] != nil else {
+                throw Failure.unsupported("post_processor", found: "a template that adds tokens")
             }
         } else {
             try Self.requireByteLevel(post, field: "post_processor")
         }
-        headTokens = head
 
         guard let model = root["model"] as? [String: Any] else { throw Failure.malformed("no model") }
         try Self.require(model["type"] as? String, equals: "BPE", field: "model.type")
@@ -194,9 +176,8 @@ package final class Tokenizer {
         for field in ["fuse_unk", "byte_fallback"] {
             try Self.require(String(describing: model[field] ?? 0), equals: "0", field: "model.\(field)")
         }
-        // `ignore_merges` (Mistral): a piece already entirely in the vocabulary is taken as
-        // is, without merging — `bpe` does that.
-        ignoreMerges = String(describing: model["ignore_merges"] ?? 0) == "1"
+        // `ignore_merges` (a piece already in the vocabulary taken without merging) is not ported.
+        try Self.require(String(describing: model["ignore_merges"] ?? 0), equals: "0", field: "model.ignore_merges")
 
 
         var byFirst: [Unicode.Scalar: [(scalars: [Unicode.Scalar], id: Int)]] = [:]
@@ -231,6 +212,31 @@ package final class Tokenizer {
 
     /// What the two tables map, from the file's counts — released with the tokenizer.
     package let tableBytes: Int
+
+    /// **`tableBytes` of the tokenizer `file` would build, without building it**: `model.vocab`'s and
+    /// `model.merges`' entries counted and their spans measured in the mapped file, as `init` sizes its
+    /// two `ByteTable`s (`ByteTable.mappedBytes`) — what the memory need charges while a tokenizer lives
+    /// (`QwenImage21Maps`). A scan of the file, no table, no `JSONSerialization`.
+    package static func tableBytes(file path: String) throws -> Int {
+        guard FileManager.default.fileExists(atPath: path) else { throw Failure.fileNotFound(path) }
+        let data = try Data(contentsOf: URL(fileURLWithPath: path), options: .alwaysMapped)
+        return try data.withUnsafeBytes { raw throws -> Int in
+            let json = TokenizerJSON(bytes: raw)
+            do {
+                guard let model = try json.members(of: 0, ["model"])["model"],
+                      raw[model.lowerBound] == 0x7B else { throw Failure.malformed("no model") }
+                let tables = try json.members(of: model.lowerBound, ["vocab", "merges"])
+                guard let vocab = tables["vocab"], let merges = tables["merges"] else { throw Failure.malformed("no model.vocab") }
+                var vocabulary = 0, ranks = 0
+                try json.elements(vocab) { _ in vocabulary += 1 }
+                try json.elements(merges) { _ in ranks += 1 }
+                return ByteTable.mappedBytes(entries: vocabulary, keyBytes: vocab.count)
+                    + ByteTable.mappedBytes(entries: ranks, keyBytes: merges.count)
+            } catch let error as TokenizerJSON.Malformed {
+                throw Failure.malformed("not JSON at byte \(error.at)")
+            }
+        }
+    }
 
     /// The vocabulary's id of `symbol`, and the rank of the merge `left right` — the tables as read.
     package func id(of symbol: String) -> Int? { vocabulary.value(symbol) }
@@ -381,7 +387,6 @@ package final class Tokenizer {
     /// stays so as long as its occurrences are not exhausted, and overlapping
     /// occurrences are consumed in the same order.
     private func bpe(_ input: [String]) -> [Int] {
-        if ignoreMerges, input.count > 1, let integer = vocabulary.value(input.joined()) { return [integer] }
         var parts = input
         if parts.count > 1 {
             while true {

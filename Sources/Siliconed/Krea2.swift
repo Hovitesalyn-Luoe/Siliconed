@@ -804,7 +804,7 @@ enum Krea2Exact {
         }
         let inputs = tensor.shape[0], outputs = tensor.shape[1], count = xs.count
         var bias = [Float](repeating: 0, count: outputs)
-        // Without a published bias (FLUX.2 has none), the bias is zero.
+        // Without a published bias, the bias is zero.
         if artifact.tensors[module + ".bias"] != nil {
             try bias.withUnsafeMutableBufferPointer { _ = try artifact.materialize(module + ".bias", into: $0) }
         }

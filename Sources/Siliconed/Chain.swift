@@ -37,12 +37,6 @@ public struct TextFormat: Hashable, Sendable, CustomStringConvertible {
     /// Qwen3-VL-4B, twelve layers taken, template stripped: `[tokens, 12 × 2560]`. The fusion and
     /// `txt_in` belong to the DiT (the LoRA touches them), hence to the denoiser.
     public static let krea2 = TextFormat("qwen3-vl-4b · 12 taps")
-    /// Qwen3-4B, chat template without thinking, three layers taken (9, 18, 27), **512 rows
-    /// padding included**: `[512, 3 × 2560]`. `context_embedder` belongs to the DiT.
-    public static let klein = TextFormat("qwen3-4b · chat · taps 9, 18, 27 · 512 rows")
-    /// Ministral-3 3B, no template, `<s>` in front, second-to-last layer, real tokens only:
-    /// `[tokens, 3072]`. `text_proj` belongs to the DiT.
-    public static let ernie = TextFormat("ministral-3 · no template · penultimate layer")
     /// Qwen3-VL-8B on the prompt **and the reference images** (raw template, `<imageN>` slots), the
     /// last layer before the final norm, system turn dropped: `[T, 4096]` and the `image_pad_mask` of
     /// its `T` rows (`Conditioning.imageSlots`). `txt_in` and the images' latents belong to the DiT.
@@ -61,10 +55,6 @@ public struct LatentSpace: Hashable, Sendable, CustomStringConvertible {
 
     public static let flux = LatentSpace(name: "VAE Flux", channels: 16, factor: 8)
     public static let qwenImage = LatentSpace(name: "VAE Qwen-Image", channels: 16, factor: 8)
-    /// **The FLUX.2 DiT's space**: the VAE's 32 channels, **packed 2×2** (128 channels, one cell
-    /// per 16 pixels) and normalized by the VAE's `BatchNorm` — what `Flux2KleinPipeline` draws
-    /// and denoises. The decoder denormalizes and unpacks (`Flux2DecodingModule`).
-    public static let flux2 = LatentSpace(name: "VAE FLUX.2", channels: 128, factor: 16)
     /// Qwen-Image-2.1's VAE (`AutoencoderKLQwenImage21`): 64 channels, 16 pixels per cell, **no
     /// packing** — planar `[64, H/16, W/16]`, normalized per channel `(z − mean_c) / std_c`; the DiT's
     /// tokens are its transpose `[h·w, 64]` (`QwenImage21VAE.pack` / `unpack`). The VAE itself reads and
@@ -352,15 +342,12 @@ public protocol DenoisingModule: Sendable {
     /// The full schedule of `step` steps: `step + 1` σ values, ending in 0. It does not depend on
     /// the strength — img2img slices it, it does not recompute it.
     func sigmas(steps: Int) -> [Float]
-    /// The same, for a latent grid — FLUX.2 shifts its schedule according to the image size. By
-    /// default, that of `sigmas(step:)`.
-    func sigmas(steps: Int, height: Int, width: Int) -> [Float]
     /// `height`, `width`: the latent grid, not the pixels. `withLoRA`: the request carries a
     /// stack — Z-Image turns its spectral schedule off by default there (`ZImageDenoisingModule.plan`).
     func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan
     func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                    context: Context) throws
-    /// **How many reference images it can read** (editing, FLUX.2's "Kontext"): 0 for a denoiser
+    /// **How many reference images it can read** (editing): 0 for a denoiser
     /// without. A reference is not a starting point (img2img): it enters the sequence, next to the
     /// generated image, and the denoiser re-reads it at each layer.
     var maxReferences: Int { get }
@@ -369,10 +356,11 @@ public protocol DenoisingModule: Sendable {
                    references: [Latent], lora: LoRA?, context: Context) throws
     /// **The reference images as this denoiser reads them**, prepared once for the whole render: the
     /// text stage (if it reads images) and the image encoder receive this same copy. By default,
-    /// FLUX.2's sizing (`ImageRGB.forReference`).
+    /// as given (a denoiser without references never receives any).
     func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB]
     /// **The format of an edit whose request names none**, from its first reference's size. By
-    /// default FLUX.2's: the reference's own size under 1024², raised to the floor.
+    /// default the reference's own size under 1024² (its ratio kept), raised to the floor and kept
+    /// under the area cap.
     func editFormat(referenceWidth: Int, referenceHeight: Int) -> (width: Int, height: Int)
     /// **What the denoiser refuses before any computation**: a step count it has no schedule for, a
     /// starting image (img2img) when its pipeline has none. By default, nothing.
@@ -401,7 +389,6 @@ public protocol DecodingModule: Sendable {
 }
 
 public extension DenoisingModule {
-    func sigmas(steps: Int, height: Int, width: Int) -> [Float] { sigmas(steps: steps) }
     /// The plan of a request without a LoRA.
     func plan(height: Int, width: Int, steps: Int, start: Int) -> DenoisingPlan {
         plan(height: height, width: width, steps: steps, start: start, withLoRA: false)
@@ -412,10 +399,13 @@ public extension DenoisingModule {
         guard references.isEmpty else { throw Request.Failure.references(references.count, max: maxReferences) }
         try denoise(&latent, text: text, steps: steps, start: start, lora: lora, context: context)
     }
-    func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB] { images.map { $0.forReference() } }
+    func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB] { images }
     func editFormat(referenceWidth: Int, referenceHeight: Int) -> (width: Int, height: Int) {
-        let size = ImageRGB.referenceSize(width: referenceWidth, height: referenceHeight)
-        var (w, h) = (max(Format.minimumSide, size.width), max(Format.minimumSide, size.height))
+        // The area brought under 1024² at the reference's ratio, each side floored to the multiple.
+        let m = Format.multiple
+        let scale = min(1, (Double(1024 * 1024) / Double(referenceWidth * referenceHeight)).squareRoot())
+        var (w, h) = (max(Format.minimumSide, Int(Double(referenceWidth) * scale) / m * m),
+                      max(Format.minimumSide, Int(Double(referenceHeight) * scale) / m * m))
         // Raising the short side to the floor can push a long strip past the area cap (10:1 gave
         // 3232×512): the long side gives way, as in Qwen-Image-2.1's rule.
         if w * h > Format.maxSurface {
@@ -432,7 +422,7 @@ public extension DenoisingModule {
     func sketchEvaluations(steps: Int, height: Int, width: Int) -> Int {
         let all = plan(height: height, width: width, steps: steps, start: 0).evaluations
         guard sketches else { return all }
-        return min(all, Sketch.evaluations(sigmas: sigmas(steps: steps, height: height, width: width)))
+        return min(all, Sketch.evaluations(sigmas: sigmas(steps: steps)))
     }
 }
 
@@ -589,11 +579,11 @@ public struct Request: Sendable, Equatable {
     /// **The editing reference images** ("change her jacket to red"): the denoiser re-reads them
     /// at each layer, and the generated image starts from noise — nothing to do with `image`,
     /// which is its starting point. Each keeps **its own** aspect ratio, at the size the denoiser
-    /// gives it (`DenoisingModule.preparedReferences`): FLUX.2 [klein] under 1024² at multiples of 16,
-    /// Qwen-Image-2.1 at ~1024² at multiples of 32 (Pillow's Lanczos) — whatever the request's format.
+    /// gives it (`DenoisingModule.preparedReferences`): Qwen-Image-2.1 at ~1024² at multiples of 32
+    /// (Pillow's Lanczos) — whatever the request's format.
     /// Qwen-Image-2.1's encoder also SEES them: the prompt names them `<image1>`, `<image2>`… in this
     /// order, and the first is the image being edited. Empty: no editing. Only the denoisers that
-    /// announce it read them (`maxReferences`: 4 for FLUX.2 [klein], 3 for Qwen-Image-2.1).
+    /// announce it read them (`maxReferences`: 3 for Qwen-Image-2.1).
     public var references: [ImageRGB] = []
     /// **A preview at each step** (`Event.preview`, `Engine.Preview`). False by default: nothing
     /// is then computed or copied.
@@ -634,7 +624,7 @@ public struct Request: Sendable, Equatable {
         package var description: String {
             switch self {
             case let .references(n, max) where max == 0:
-                return "\(n) reference image(s): this model does no reference editing (FLUX.2 [klein] and Qwen-Image-2.1 do)"
+                return "\(n) reference image(s): this model does no reference editing (Qwen-Image-2.1 does)"
             case let .references(n, max):
                 return "\(n) reference images: this model reads at most \(max)"
             case .emptyPrompt: return "empty prompt: there is nothing to render"
@@ -746,10 +736,16 @@ public enum Format {
 /// sampler without it (`FootprintInterval`), reset at every mark — so a render knows which phase peaked, and by how much, against its computed need.
 /// **A measuring check** (`memory-trace-phases`): its `observer` reads what survives the
 /// phase; it runs before the reset, so it sees the same interval.
+///
+/// **`nonisolated(unsafe)`, and the one invariant that makes it safe**: at most one render (or one
+/// measuring check) runs in the process at a time — renders are serialized on the engine's queue
+/// (`Engine.file`) and, across processes, by `RenderLock.machine`; a check runs alone by the machine
+/// token. Every access below happens on that one render's thread (`begin`, `mark`, `end` and the
+/// `observer` it calls). A second render running concurrently in one process would interleave two
+/// ledgers and two kernel intervals: the serialization is what this relies on, not a lock.
 package enum PhaseBoundary {
     nonisolated(unsafe) package static var observer: ((String) -> Void)?
-    /// The marks of the render in progress, `nil` outside one. Renders are serialized on the engine's
-    /// queue (`Engine.file`): one ledger is enough.
+    /// The marks of the render in progress, `nil` outside one — one ledger, by the invariant above.
     nonisolated(unsafe) private static var marks: [(name: String, peak: Int)]?
 
     /// A render starts: an empty ledger, a new kernel interval.
@@ -786,6 +782,10 @@ package enum PhaseBoundary {
 ///   since the last `reset`. A lower bound — a spike shorter than 10 ms can fall between two samples —
 ///   but a phase's, not the footprint at its boundary. The thread lives from the first `reset` to
 ///   `stop` (a render's `PhaseBoundary.begin` and `end`): never resident at rest.
+///
+/// Its `nonisolated(unsafe)` statics (`kernelFailed`, `sampler`, the test injection) are safe under
+/// `PhaseBoundary`'s invariant — one render at a time in the process, its calls on its own thread;
+/// the sampler's thread touches only its own locked state.
 package enum FootprintInterval {
     private typealias Reset = @convention(c) (pid_t) -> Int32
     private static let resetFunction: Reset? = {
@@ -899,10 +899,9 @@ extension Engine {
     /// The text and the input image each live in their own scope and return their memory before
     /// the DiT; only what they produce survives (the `Conditioning`, a few MB; the latent z₀).
     /// Then, **for each seed, exactly what an isolated render would do**: noise, start,
-    /// denoising (the module builds its DiT and returns it), decoding. Keeping the DiT from one
-    /// image to the next would gain nothing: its construction costs a few milliseconds, the
-    /// weights being re-read at every evaluation. What was costly and does not depend on
-    /// the seed — Krea 2's fusion and modulation — is kept in `Context.reserve`. Image n of a
+    /// denoising (the module builds its DiT and returns it, or keeps it for the next seed when the
+    /// need counts it: `Context.keptDenoiser`, never beside a half-size start), decoding. What was
+    /// costly and does not depend on the seed — Krea 2's fusion and modulation — is kept in `Context.reserve`. Image n of a
     /// batch stays **bit-identical** to an isolated render of its seed (verified). Between two
     /// renders — two processes, the CLI and the app —, the text, the encoded images and Qwen's last
     /// edit's K/V are read back from the library's cache (`RenderCache`), the same floats.
@@ -921,28 +920,21 @@ extension Engine {
         // plan is chosen in it (`MemoryPlan.choose`) — nothing read from the machine's state.
         let ceiling = MemoryBudget.machineCeiling()
         // **The need, from the request's own inputs** (`MemoryNeed`): each reference at its size, the
-        // prompt's tokens bounded by its bytes; the LoRA ranks join once the stack is open (below).
+        // prompt's tokens bounded by its bytes, the batch, what this process holds now (`base`: B covers
+        // the whole process, the app's interface included); the LoRA ranks join once the stack is open
+        // (below).
         var memoryRequest = model.card.memoryRequest(
             width: request.width, height: request.height,
             references: (request.image.map { [$0] } ?? request.references).map { ($0.width, $0.height) },
             promptTokens: MemoryNeed.Request.promptTokens(request.prompt, family: model.card.family,
                                                            references: request.references.count))
-        let lock = try Preflight.run(model, width: request.width, height: request.height,
-                                     references: request.references.count, ceiling: ceiling, memory: memoryRequest)
-        defer { withExtendedLifetime(lock) {} }
+        memoryRequest.batch = seeds.count
+        memoryRequest.library = model.library ?? .processWide
+        // **The request's own refusals first, before any computation and before the memory is judged**:
+        // an empty prompt, a step count, img2img's strength, the references, a spectral floor — a request
+        // the model cannot render is refused for what it is, not for its memory.
         guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Request.Failure.emptyPrompt
-        }
-        // The stack opens BEFORE any computation: an unreadable map throws here, not after a
-        // minute — and so does a LoRA forged for another model. The DiTs apply a LoRA only to the
-        // modules it names: Anima's on Krea 2 would touch none, and the render would come out
-        // without it, without a word.
-        let stack = request.loras.isEmpty
-            ? nil : try LoRA(paths: request.loras.map { ($0.path, Float($0.strength)) })
-        try stack?.checkTarget(model: chain.denoising.model)
-        if let stack {
-            memoryRequest.loraRanks = [stack.maxRank]
-            try model.card.checkMemory(memoryRequest, ceiling: ceiling)
         }
         let height = request.height / space.factor, width = request.width / space.factor
         let steps = request.steps ?? chain.denoising.defaultSteps
@@ -966,14 +958,14 @@ extension Engine {
         // An edit has none either (`QwenImage21DenoisingModule.plan`): the plan cannot see the
         // references, the chain can.
         var plan = chain.denoising.plan(height: height, width: width, steps: steps, start: start,
-                                          withLoRA: stack != nil || request.detail != .normal)
+                                          withLoRA: !request.loras.isEmpty || request.detail != .normal)
         if !request.references.isEmpty { plan = plan.unreduced }
         guard plan.evaluations > 0 else {
             // The floor: the last start that keeps an evaluation, `d`, is reached as soon as
             // `N − N·s < d + 1`, i.e. `s > (N − d − 1)/N`.
             let last = (0..<steps).last {
                 chain.denoising.plan(height: height, width: width, steps: steps, start: $0,
-                                       withLoRA: stack != nil).evaluations > 0
+                                       withLoRA: !request.loras.isEmpty).evaluations > 0
             } ?? 0
             throw Strength.Failure.noEvaluation(strength: request.strength, steps: steps,
                                                floor: Double(steps - last - 1) / Double(steps))
@@ -983,6 +975,21 @@ extension Engine {
         // The floor in this latent's cells (`Spectral.floor(factor:)`); the error counts 8-px cells.
         if plan.reduced > 0, min(plan.reducedHeight, plan.reducedWidth) < Spectral.floor(factor: space.factor) {
             throw Sampler.Failure.belowFloor(side: min(plan.reducedHeight, plan.reducedWidth) * space.factor / 8)
+        }
+        let lock = try Preflight.run(model, width: request.width, height: request.height,
+                                     references: request.references.count, ceiling: ceiling, memory: memoryRequest)
+        defer { withExtendedLifetime(lock) {} }
+        // The stack opens BEFORE any computation: an unreadable map throws here, not after a
+        // minute — and so does a LoRA forged for another model. The DiTs apply a LoRA only to the
+        // modules it names: Anima's on Krea 2 would touch none, and the render would come out
+        // without it, without a word.
+        let stack = request.loras.isEmpty
+            ? nil : try LoRA(paths: request.loras.map { ($0.path, Float($0.strength)) })
+        try stack?.checkTarget(model: chain.denoising.model)
+        if let stack, model.library != nil {
+            // Each LoRA's rank, not the cumulative one alone: two or more stage a `down` (`LoRA.downBytes`).
+            memoryRequest.loraRanks = stack.layerRanks
+            try model.card.checkMemory(memoryRequest, ceiling: ceiling)
         }
         // The machine's profile is read HERE, at render time — never at request construction.
         let reproducible = request.reproducible ?? EngineSettings.effective.frozenCut
@@ -1004,7 +1011,12 @@ extension Engine {
         // The plan in B, and its need: what this render may take at most, the figure its own peak is
         // checked against at its end (`MemoryCheck`).
         let memoryPlan = MemoryPlan.choose(memoryRequest, ceiling: ceiling)
+        // Never a render of a library's model without its need: the preflight refused an unknown one,
+        // and a map replaced since would make it unknown here. A hand-composed chain (no library) is
+        // outside the memory contract, like the installation, the license and the lock: its modules
+        // are its caller's — the lean plan, no check.
         let need = memoryPlan.need
+        if need == nil, model.library != nil { throw EngineError.memoryNeedUnknown(model: model.card.id) }
         PhaseBoundary.begin()
         defer { _ = PhaseBoundary.end() }
         return try MemoryPlan.during(memoryPlan) { try Warnings.during(warn) {
@@ -1031,7 +1043,7 @@ extension Engine {
             let begin = Date()
             // Read back from the cache when the same module has already encoded the same prompt and
             // the same images (`RenderCache`): the floats it wrote, so the same bits.
-            // The images enter the key only if the encoder sees them (FLUX.2 [klein]'s is blind).
+            // The images enter the key only if the encoder sees them.
             let textKey = (chain.text as? any CacheIdentified).flatMap { module in
                 cache.map { _ in RenderCache.textKey(module, prompt: request.prompt,
                                                      images: chain.text is any ImageTextModule ? prepared : [],
@@ -1159,6 +1171,9 @@ extension Engine {
             let check = MemoryCheck(need: need, marks: PhaseBoundary.end())
             for defect in check.defects {
                 MemoryCheck.log.error("\(defect, privacy: .public) — \(model.card.id, privacy: .public) \(request.width)×\(request.height), \(request.references.count) reference(s)")
+            }
+            for slack in check.slack {
+                MemoryCheck.log.info("\(slack, privacy: .public) — \(model.card.id, privacy: .public) \(request.width)×\(request.height)")
             }
             return renderResults.map { var r = $0; r.memory = check; return r }
         } }

@@ -233,7 +233,7 @@ private struct Footer: View {
                     Label {
                         Text(Figures.memory(need)).monospacedDigit()
                     } icon: { Image(systemName: "memorychip") }
-                    .help(String(localized: "The memory \(card.name) needs at this size (measured peak)"))
+                    .help(String(localized: "The memory \(card.name) needs at this size (computed)"))
                 }
                 if app.variantCount > 1 {
                     // A prompt with alternatives is a series: how many renders, before the click.
