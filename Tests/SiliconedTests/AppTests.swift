@@ -337,7 +337,8 @@ final class AppTests: XCTestCase {
                              startStep: 3, startSigma: 0.8, timings: .init(), footprints: .init(), tokens: 1)
         XCTAssertEqual(r.metadata, ["prompt": "p", "seed": "7", "model": "anima", "steps": "8", "format": "1x1",
                                        "reproducible": "true", "Software": "Siliconed", "strength": "0.60",
-                                       "image": "source not included", "lora": "niji.lora.silicon:0.80"])
+                                       "image": "source not included", "lora": "niji.lora.silicon:0.80",
+                                       "parameters": r.parameters()])
     }
 
     /// What a dropped PNG gives back (`Engine.Render.Recipe`): the round trip through the bytes,

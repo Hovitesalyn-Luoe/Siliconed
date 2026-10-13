@@ -241,6 +241,16 @@ public final class LoRA {
     }
 
     /// What the stack does, in one line — to display next to the render.
+    /// **Each map's name and the sha256 of the file it was forged from**, in the stack's order — what
+    /// the PNG's `parameters` credit the LoRA with on Civitai. A map forged before the forge kept the
+    /// hash has none: `nil`, and the LoRA is then named without being credited.
+    package var origins: [Engine.Render.LoRAOrigin] {
+        layers.map { layer in
+            let sha = (layer.artifact.header["source"] as? [String: Any])?["sha256"] as? String
+            return Engine.Render.LoRAOrigin(name: layer.name, sha256: sha.flatMap { Infotext.isSHA256($0) ? $0 : nil })
+        }
+    }
+
     package var summary: String {
         guard !layers.isEmpty else { return "no LoRA" }
         let detail = layers.map { "\($0.name) ×\(String(format: "%.2f", $0.strength))" }

@@ -2,6 +2,24 @@
 
 # Siliconed — notes de version
 
+## 0.8.1
+
+### Corrigé
+
+- **Les dernières rangées du rack reprennent le clic.** Juste au-dessus du pied de la colonne, la
+  rangée des LoRA, **+ LoRA** et **Importer…** étaient dessinés mais ne répondaient pas tant qu’on ne
+  faisait pas défiler la colonne. Le pied est désormais sous le rack, plus par-dessus.
+
+### Des métadonnées PNG que Civitai lit
+
+- **Déposez une image sur Civitai, ses réglages s’affichent.** À côté de ses propres clés, chaque PNG
+  porte désormais le texte que Civitai lit : le prompt avec une balise `<lora:nom:poids>` par LoRA,
+  puis les pas, le solveur, la graine, la taille et le modèle. Les rendus de Z-Image Turbo et de
+  Qwen-Image-2.1 créditent leur page Civitai sans rien saisir.
+- **Les LoRA sont créditées aussi**, par le sha256 du fichier tel qu’il a été publié, gardé à
+  l’import. Une LoRA importée avec une version antérieure est nommée sans être créditée : la
+  réimporter suffit.
+
 ## 0.8
 
 ### Rechercher les mises à jour

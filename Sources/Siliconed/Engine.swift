@@ -93,6 +93,15 @@ public final class Engine: Sendable {
         /// **The variations its noise was turned by** (`Request.variations`), those of null
         /// strength left out; empty for an ordinary render.
         public var variations: [Variation] = []
+        /// **The model's displayed name** (`ModelCard.name`): `Z-Image Turbo`, or an imported fine-tune's
+        /// own. `nil`: the family identifier `model` stands for it.
+        package var modelName: String? = nil
+        /// Rendered with an imported DiT rather than the publisher's — then no Civitai page is claimed
+        /// for the model (`Infotext.civitaiModelVersion`).
+        package var isImportedModel = false
+        /// Per LoRA of `loras`, in order: its name and the sha256 of its published file
+        /// (`LoRA.origins`); empty when the engine did not open the stack (a test's `Render`).
+        package var loraOrigins: [LoRAOrigin] = []
         /// **The render's memory: its computed need against its own measured peak**, phase by phase
         /// (`MemoryCheck`); a phase above its need is a defect of the engine (`MemoryCheck.isDefect`).
         /// `nil` when no need was computed (a model whose maps are not installed).
@@ -103,7 +112,9 @@ public final class Engine: Sendable {
         ///
         /// Enough to redo a **txt2img** on the same machine and the same version (`reproducible`
         /// says whether the bits will match). **Not an img2img**: the source image is not included
-        /// (the `image` key says so), and a LoRA appears only by its file name.
+        /// (the `image` key says so), and a LoRA appears only by its file name. `parameters` says the
+        /// same render again for Civitai (`Infotext`), with the app's version: identical renders of
+        /// one version stay identical files.
         public var metadata: [String: String] {
             var m = ["prompt": prompt, "seed": "\(seed)", "model": model, "steps": "\(steps)",
                      "format": "\(image.width)x\(image.height)", "reproducible": "\(reproducible)",
@@ -121,7 +132,32 @@ public final class Engine: Sendable {
                 m["lora"] = loras.map { "\((($0.path as NSString).lastPathComponent)):\(String(format: "%.2f", $0.strength))" }
                     .joined(separator: ",")
             }
+            // Beside the keys above, which the app reads back (`Recipe`): Civitai reads this one only.
+            m["parameters"] = parameters()
             return m
+        }
+
+        /// What a LoRA is known by outside the app: its name (the map's `nom`) and the sha256 of the
+        /// `.safetensors` it was imported from, `nil` for a map forged before that was kept.
+        package struct LoRAOrigin: Sendable, Equatable {
+            package let name: String
+            package let sha256: String?
+            package init(name: String, sha256: String?) { self.name = name; self.sha256 = sha256 }
+        }
+
+        /// **The `parameters` chunk** — the same render in A1111's text, the format Civitai reads
+        /// (`Infotext`). `version`: the app's, `Infotext.appVersion` by default.
+        package func parameters(version: String? = Infotext.appVersion) -> String {
+            let lora = loras.enumerated().map { i, entry in
+                let origin = i < loraOrigins.count ? loraOrigins[i] : nil
+                return Infotext.LoRA(name: origin?.name ?? (entry.path as NSString).lastPathComponent,
+                                     strength: entry.strength, sha256: origin?.sha256)
+            }
+            return Infotext.text(prompt: prompt, steps: steps, sampler: solver, seed: seed,
+                                 width: image.width, height: image.height, model: modelName ?? model,
+                                 strength: strength, loras: lora,
+                                 civitaiModelVersion: isImportedModel ? nil : Infotext.civitaiModelVersion(model: model),
+                                 version: version)
         }
 
         /// The sRGB PNG, metadata included.

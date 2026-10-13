@@ -20,11 +20,17 @@ struct Sidebar: View {
     @Bindable var app: AppState
 
     var body: some View {
-        ScrollView(.vertical) {
-            RackView(app: app)
+        // The footer under the scroll view, not a `safeAreaInset` of it: as an inset, the clip view
+        // shrank by the footer's height AND the scroll view kept it as a bottom content inset, so the
+        // band of rack just above the footer was drawn but took no click (the LoRA row, « Import… »)
+        // until scrolled up — hit testing measured on macOS 27, 13/10/2026.
+        VStack(spacing: 0) {
+            ScrollView(.vertical) {
+                RackView(app: app)
+            }
+            .scrollIndicators(.automatic)
+            Footer(app: app)
         }
-        .scrollIndicators(.automatic)
-        .safeAreaInset(edge: .bottom, spacing: 0) { Footer(app: app) }
         // A `.safetensors` or a `.gguf` dropped on the column is imported (model or LoRA).
         .dropDestination(for: URL.self) { urls, _ in
             let s = urls.filter(AppState.importable)
@@ -170,10 +176,10 @@ private struct Footer: View {
             .help(Text(verbatim: "⌘↩"))
 
             // **No `fixedSize(vertical:)` on a text of this footer** (nor in `ProblemView`): a refusal of
-            // two lines held at its ideal height made the footer — a `safeAreaInset` of the rack —
-            // taller than the column: it left the window and the rack scrolled to its end, nothing left
-            // to click (a `{` left open, a grid's LoRA axis without strengths). Measured: the column
-            // folds the same way with the footer in a `VStack`. Wrapping on its own, the text fits.
+            // two lines held at its ideal height made the footer taller than the column: it left the
+            // window and the rack scrolled to its end, nothing left to click (a `{` left open, a grid's
+            // LoRA axis without strengths) — measured with the footer as a `safeAreaInset`, the same
+            // in a `VStack`. Wrapping on its own, the text fits.
             if let reason = blocker {
                 Text(reason).font(.caption).foregroundStyle(.secondary)
                 // A memory refusal is never a dead end: a size this Mac renders.

@@ -535,6 +535,16 @@ stays the origin's, §3.18). They suffice to redo a **txt2img** (same bits if
 PNG, and the `image` key says so. A key must be ASCII and at most 79 bytes, otherwise it is
 ignored.
 
+Beside them, a `parameters` key says the same render in A1111's text, **the format Civitai reads**
+(its own reader takes a `prompt` key for a ComfyUI graph): the prompt, then a `<lora:name:0.80>`
+tag per LoRA of positive strength (the weight Civitai shows), then one line `Steps`, `Sampler`
+(`Euler`, `Euler a`, `DPM++ 2M`, `UniPC`), `Seed`, `Size`, `Model` (the card's name), `Denoising
+strength` in img2img, `Lora hashes` (the sha256 of each LoRA's published `.safetensors`, kept at
+import — a LoRA imported before has none and is named without being credited), `Civitai resources`
+(the model version of Civitai's official page of Z-Image Turbo or Qwen-Image-2.1 Turbo; none for an
+imported fine-tune) and `Version: Siliconed <version>`. No date: identical renders of one version
+stay identical files. The app does not read it back.
+
 `Engine.Render.Recipe(metadata: PNG.text(data))` reads them back as values (`model`, `prompt`,
 `seed`, `steps`, `width`/`height`, `loras`, `strength`, `sourceImageMissing`, `detail` (`normal`
 when the key is absent), `solver` (`euler` when absent), `variations` (empty when absent) — not `sketch`: a sketch's

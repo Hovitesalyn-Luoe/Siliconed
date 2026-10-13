@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import Siliconed
 
@@ -130,6 +131,9 @@ final class ForgeTests: XCTestCase {
         XCTAssertTrue(report.notes.contains { $0.contains("gate_up") }, "\(report.notes)")
 
         let m = try Artifact(path: map)
+        // The published file's sha256, what Civitai credits the LoRA by (`Infotext`).
+        XCTAssertEqual((m.header["source"] as? [String: Any])?["sha256"] as? String,
+                       SHA256.hash(data: file).map { String(format: "%02x", $0) }.joined())
         func values(_ name: String) throws -> [Float] {
             let t = try XCTUnwrap(m.tensors[name], name)
             XCTAssertEqual(t.dtype, .bfloat16)

@@ -2,6 +2,23 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.8.1
+
+### Fixed
+
+- **The rack's last rows take the click again.** Just above the column's footer, the LoRA row,
+  **+ LoRA** and **Import…** were drawn but did not respond until the column was scrolled. The
+  footer now sits under the rack instead of over it.
+
+### PNG metadata Civitai reads
+
+- **Upload an image to Civitai and its settings show up.** Beside its own keys, each PNG now carries
+  the text Civitai reads: the prompt with a `<lora:name:weight>` tag per LoRA, then the steps, the
+  solver, the seed, the size and the model. Z-Image Turbo and Qwen-Image-2.1 renders credit their
+  Civitai page with no manual entry.
+- **LoRAs are credited too**, by the sha256 of the file as it was published, kept when you import
+  it. A LoRA imported with an earlier version is named but not credited: import it again to credit it.
+
 ## 0.8
 
 ### Check for Updates

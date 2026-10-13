@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// **The forge of a LoRA**: a `.safetensors` as published (Civitai, Hugging Face) → a mappable
@@ -39,6 +40,13 @@ import Foundation
 /// Full deltas (non-zero `diff`, `diff_b`), DoRA (`dora_scale`), LoCon/LoHa/LoKr, and Anima's text
 /// adapter: the engine only applies a LoRA to the DiT's `Linear`. A module that does not exist in
 /// the family, or whose shape differs, causes a failure: the LoRA is not for this model.
+///
+/// ## What it keeps of the file
+///
+/// The **sha256 of the `.safetensors` as published** (`source.sha256`): the map's bytes are not
+/// the file's, so once the file is thrown away this is the only thing that still names it to Civitai,
+/// which credits an image's LoRA by a hash it stores for every file (`Infotext`). Hashed in a stream,
+/// one fixed block: nothing proportional to the file is allocated.
 package enum ForgeLoRA {
     package struct Report {
         package let tally: MapWriter.Tally
@@ -51,6 +59,26 @@ package enum ForgeLoRA {
             ["target: \(family.name) — \(modules) modules, rank \(ranks.count == 1 ? "\(ranks[0])" : "\(ranks)")"] + notes
                 + [String(format: "%@ : %.1f MB", (tally.path as NSString).lastPathComponent, Double(tally.bytes) / 1e6)]
         }
+    }
+
+    /// **The sha256 of a whole file, in a stream**: one `block`-byte buffer, read with `pread`
+    /// outside the page cache (`F_NOCACHE`) — a LoRA of 1 GB costs the same 8 MB as one of 10 MB.
+    package static func sha256(file path: String, block: Int = 8 << 20) throws -> String {
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { throw EngineError.fileUnreadable(path: path) }
+        defer { close(fd) }
+        _ = fcntl(fd, F_NOCACHE, 1)
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: block, alignment: 16384)
+        defer { buffer.deallocate() }
+        var h = SHA256(), at: off_t = 0
+        while true {
+            let n = pread(fd, buffer, block, at)
+            guard n >= 0 else { throw EngineError.fileUnreadable(path: path) }
+            if n == 0 { break }
+            h.update(bufferPointer: UnsafeRawBufferPointer(start: buffer, count: n))
+            at += off_t(n)
+        }
+        return h.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     static let prefixes = ["base_model.model.", "model.diffusion_model.", "diffusion_model.", "transformer.", "unet."]
@@ -423,6 +451,7 @@ package enum ForgeLoRA {
             ?? ((file as NSString).lastPathComponent as NSString).deletingPathExtension
         let sortedRanks = ranks.sorted()
         let shortEntries = metadata.filter { $0.value.count < 200 }.sorted { $0.key < $1.key }
+        let fileSHA256 = try sha256(file: file)
         let tally = try MapWriter.write(to: path, tensors: tensors, header: { _ in [
             .init("format", 1), .init("kind", "lora"), .init("page", .integer(MapWriter.page)),
             .init("map_dtype", "bfloat16"), .init("linear_weights_transposed", true),
@@ -440,6 +469,7 @@ package enum ForgeLoRA {
             .init("echelle", .real(1)),
             .init("modules", .list(modules.map { .string($0) })),
             .init("source", .object([.init("fichier", .string((file as NSString).lastPathComponent)),
+                                    .init("sha256", .string(fileSHA256)),
                                     .init("tenseurs", .integer(source.names.count)),
                                     .init("metadata", .object(shortEntries.map { .init($0.key, .string($0.value)) }))])),
             .init("order", .list(tensors.map { .string($0.name) })),

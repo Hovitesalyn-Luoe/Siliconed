@@ -282,9 +282,13 @@ public enum NamedSubjects {
     /// engine read the rewrite, but what « Reuse » and a PNG dropped on the canvas give back
     /// (`Engine.Render.Recipe.prompt`) is the prompt with its `@names`; the model's prompt is kept in
     /// addition, under its own key. `modelPrompt` `nil` (nobody cited): `metadata` unchanged.
+    /// Civitai's `parameters` (`Infotext`) shows the typed prompt too: it opens with the engine's.
     public static func metadata(_ metadata: [String: String], typed: String, modelPrompt: String?) -> [String: String] {
         guard let modelPrompt else { return metadata }
         var m = metadata
+        if let parameters = m["parameters"], let engine = m["prompt"], parameters.hasPrefix(engine) {
+            m["parameters"] = typed + parameters.dropFirst(engine.count)
+        }
         m["prompt"] = typed
         m[modelPromptKey] = modelPrompt
         return m

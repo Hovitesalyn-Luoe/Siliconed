@@ -551,6 +551,17 @@ refaire un **txt2img** (mêmes bits si `reproducible`, même machine, même vers
 img2img** : l'image source n'est pas dans le PNG, et la clé `image` le dit. Une clé doit être en
 ASCII et faire au plus 79 octets, sinon elle est ignorée.
 
+À côté d'elles, une clé `parameters` redit le même rendu dans le texte d'A1111, **le format que lit
+Civitai** (son lecteur prend une clé `prompt` pour un graphe ComfyUI) : le prompt, puis une balise
+`<lora:nom:0.80>` par LoRA de force positive (le poids que Civitai affiche), puis une ligne `Steps`,
+`Sampler` (`Euler`, `Euler a`, `DPM++ 2M`, `UniPC`), `Seed`, `Size`, `Model` (le nom de la carte),
+`Denoising strength` en img2img, `Lora hashes` (le sha256 du `.safetensors` publié de chaque LoRA,
+gardé à l'import — une LoRA importée avant n'en a pas et est nommée sans être créditée), `Civitai
+resources` (la version de modèle de la page officielle de Civitai pour Z-Image Turbo ou
+Qwen-Image-2.1 Turbo ; aucune pour un fine-tune importé) et `Version: Siliconed <version>`. Pas de
+date : des rendus identiques d'une même version restent des fichiers identiques. L'app ne la relit
+pas.
+
 `Engine.Render.Recipe(metadata: PNG.text(data))` les relit en valeurs (`model`, `prompt`, `seed`,
 `steps`, `width`/`height`, `loras`, `strength`, `sourceImageMissing`, `detail` (`normal` si la
 clé est absente), `solver` (`euler` si absente), `variations` (vide si absente) — pas `sketch` : la recette

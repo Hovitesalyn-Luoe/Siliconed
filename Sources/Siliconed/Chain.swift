@@ -1182,7 +1182,9 @@ extension Engine {
                                   startSigma: plan.startSigma,
                                   timings: context.timings, footprints: context.footprints, tokens: text.tokens,
                                   detail: request.detail, solver: request.solver,
-                                  variations: request.variations.filter { $0.effectiveStrength > 0 })
+                                  variations: request.variations.filter { $0.effectiveStrength > 0 },
+                                  modelName: model.card.name, isImportedModel: model.card.isImported,
+                                  loraOrigins: stack?.origins ?? [])
                 context.emit(.image(index: n, renderResult))
                 renderResults.append(renderResult)
             }
