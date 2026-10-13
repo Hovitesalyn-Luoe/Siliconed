@@ -19,7 +19,7 @@ installé.
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20et%20suivants-black)
 
-![Une photo faite avec Z-Image Turbo et son édition en bande dessinée par Qwen-Image-2.1, comparées sous le rideau](docs/images/curtain.gif)
+![Une photo d’été faite avec Z-Image Turbo — une Irlandaise rousse qui sourit à vélo devant une bibliothèque de Dublin — et son édition en bande dessinée, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
 
 *Une photo de Z-Image Turbo, éditée par Qwen-Image-2.1 avec une phrase (« Convert this photo to a western
 comic book style with cel shading »), comparées sous le rideau, filmé à vitesse réelle dans l’app.*
@@ -82,7 +82,7 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
 - **Les LoRA**, et **l'image vers image** avec Z-Image.
 
-![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1024² à droite, l’historique en dessous](docs/images/window.jpg)
+![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1024² à droite — une femme qui rit dans une bibliothèque ensoleillée —, l’historique en dessous](docs/images/window.jpg)
 
 ### Éditer
 
@@ -94,7 +94,7 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Un historique comme dans Photos** : flèches, ⌫ et ⌘Z, sélection multiple, comparaison côte à
   côte, export, glisser-déposer, Partager.
 
-![Une édition par Qwen-Image-2.1 : l’image 1 dans la boîte Images, l’instruction « make it a watercolor painting », le résultat dans le canevas](docs/images/edit.jpg)
+![Une édition par Qwen-Image-2.1 : l’image 1 dans la boîte Images, l’instruction « make it a bright, joyful watercolor painting », le résultat dans le canevas](docs/images/edit.jpg)
 
 ### Explorer
 
@@ -105,7 +105,7 @@ prompt, ou chaque image d'une édition. Chaque case est une esquisse, arrêtée 
 taille, le panneau dit ce que la grille coûtera sur ce Mac avant de la lancer. « Finir cette image »
 rend la case choisie jusqu'au bout avec la même graine : l'image que son esquisse annonçait.
 
-![Une grille de quatre graines sur deux lumières, dans le canevas, les axes en étiquettes](docs/images/grid.jpg)
+![Une grille de quatre graines sur deux lumières, soleil doré du matin et lampe chaleureuse du soir, dans le canevas, les axes en étiquettes](docs/images/grid.jpg)
 
 ### La gestion des modèles
 

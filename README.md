@@ -16,7 +16,7 @@ Python, no server, no cloud, nothing leaves your Mac. It works offline once a mo
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20and%20later-black)
 
-![A photo made with Z-Image Turbo and its comic-book edit by Qwen-Image-2.1, compared under the curtain](docs/images/curtain.gif)
+![A summer photo made with Z-Image Turbo — a red-haired Irish woman smiling on a bicycle past a Dublin library — and its cel-shaded comic-book edit by Qwen-Image-2.1, under a sliding curtain](docs/images/curtain.gif)
 
 *A photo from Z-Image Turbo, edited by Qwen-Image-2.1 with one sentence (“Convert this photo to a western
 comic book style with cel shading”), compared under the curtain, filmed at real speed in the app.*
@@ -77,7 +77,7 @@ history. It follows the system language (English, French, German, Spanish or Ita
 - **Variations**: cousins of an image, subtle or strong, with the same settings.
 - **LoRAs**, and **image-to-image** with Z-Image.
 
-![The window: the rack on the left (prompt, text encoder, denoiser, decoder, each with its settings, time and memory), a Z-Image Turbo image at 1024² on the right, the history below](docs/images/window.jpg)
+![The window: the rack on the left (prompt, text encoder, denoiser, decoder, each with its settings, time and memory), a Z-Image Turbo image at 1024² on the right — a woman laughing in a sunlit library —, the history below](docs/images/window.jpg)
 
 ### Edit
 
@@ -89,7 +89,7 @@ history. It follows the system language (English, French, German, Spanish or Ita
 - **A history like Photos**: arrows, ⌫ and ⌘Z, multiple selection, side-by-side comparison, export,
   drag and drop, Share.
 
-![An edit by Qwen-Image-2.1: image 1 in the Images box, the instruction “make it a watercolor painting”, the result in the canvas](docs/images/edit.jpg)
+![An edit by Qwen-Image-2.1: image 1 in the Images box, the instruction “make it a bright, joyful watercolor painting”, the result in the canvas](docs/images/edit.jpg)
 
 ### Explore
 
@@ -100,7 +100,7 @@ finished image); once a model has rendered at that size, the panel shows what th
 this Mac before you start. « Finish This Image » renders the
 chosen cell to the end with the same seed: the image its sketch announced.
 
-![A grid of four seeds by two lights, in the canvas, with the axes as labels](docs/images/grid.jpg)
+![A grid of four seeds by two lights, golden morning sunlight and cozy lamplight at night, in the canvas, with the axes as labels](docs/images/grid.jpg)
 
 ### Model management
 
