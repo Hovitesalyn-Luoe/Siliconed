@@ -318,6 +318,7 @@ final class RemoteControl {
             .merging(r.modelPrompt.map { ["model_prompt": $0, "subject_images": r.subjectImages] } ?? [:]) { a, _ in a }
             .merging(r.isVariation ? ["variation": Self.json(r.variations)] : [:]) { a, _ in a }
             .merging(r.detail == .normal ? [:] : ["detail": r.detail.rawValue]) { a, _ in a }
+            .merging(r.solver == .euler ? [:] : ["solver": r.solver.rawValue]) { a, _ in a }
     }
 
     /// The variation seeds in order, each with its strength — the seed stays the origin's.
@@ -341,6 +342,7 @@ final class RemoteControl {
             "loras": r.loras.map { ["lora": Self.shortName($0.path), "strength": Response.number($0.strength)] }]
         if r.isVariation { o["variation"] = Self.json(r.variations) }
         if r.detail != .normal { o["detail"] = r.detail.rawValue }
+        if r.solver != .euler { o["solver"] = r.solver.rawValue }
         if let g = e.grid {
             // A grid's sheet: no job made it; its seconds and evaluations are its cells' sum.
             o["job"] = nil
@@ -580,6 +582,8 @@ final class RemoteControl {
         var steps: Int?
         /// `--detail more|most`: the rack's Detail choice (`Request.detail`).
         var detail = Detail.normal
+        /// `--solver NAME`: the rack's Solver (`Request.solver`), Developer Mode and Z-Image only.
+        var solver = Solver.euler
         var loras: [(name: String, strength: Double)] = []
         /// The `--ref`, in their order: the first is image 1, the one edited.
         var references: [String] = []
@@ -619,6 +623,12 @@ final class RemoteControl {
                     throw Refusal("usage", String(localized: "--detail expects normal, more or most, not \"\(v)\""))
                 }
                 d.detail = level
+            case "--solver":
+                let v = try value(a)
+                guard let rule = Solver(rawValue: v.lowercased()) else {
+                    throw Refusal("usage", String(localized: "--solver expects euler, euler-ancestral, dpmpp-2m or unipc, not \"\(v)\""))
+                }
+                d.solver = rule
             case "--batch":
                 let v = try value(a)
                 guard let n = Int(v), (1...8).contains(n) else { throw Refusal("usage", String(localized: "--batch expects an integer from 1 to 8, not \"\(v)\"")) }
@@ -707,6 +717,17 @@ final class RemoteControl {
             let visible = b.cards().filter { app.isVisible($0.family) }.map(\.id).joined(separator: ", ")
             throw Refusal("model", String(localized: "model \"\(d.model)\" is shown only in Developer Mode"),
                         help: String(localized: "models: \(visible) — or turn on Developer Mode in the app's menu"))
+        }
+        // A solver other than Euler: the rack's, so Developer Mode, and the models in front only.
+        if d.solver != .euler {
+            guard app.developerMode else {
+                throw Refusal("solver", String(localized: "--solver \(d.solver.rawValue) is offered only in Developer Mode"),
+                              help: String(localized: "turn on Developer Mode in the app's menu"))
+            }
+            guard card.map({ AppState.solverFamilies.contains($0.family) }) == true else {
+                throw Refusal("solver", String(localized: "\(card?.name ?? model.name) doesn't offer the \(d.solver.rawValue) solver"),
+                              help: String(localized: "Euler only, or --model z-image"))
+            }
         }
         guard let prompt = d.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Refusal("usage", String(localized: "empty prompt"))
@@ -830,7 +851,8 @@ final class RemoteControl {
         let jobs = variants.map { v in
             var settings = RenderSettings(identifier: model.identifier, modelName: card?.name ?? model.name,
                                           prompt: v.prompt, format: RecommendedFormat(width, height), steps: steps,
-                                          loras: stack, references: references.count, detail: d.detail)
+                                          loras: stack, references: references.count, detail: d.detail,
+                                          solver: d.solver)
             let used = app.namedJob(v.prompt, settings: &settings, references: references, model: model)
             return Job(ordinal: app.nextJobNumber(), settings: settings,
                        seeds: (0..<d.batch).map { firstNumber &+ UInt64($0) },
@@ -1013,7 +1035,8 @@ final class RemoteControl {
                           help: "silicontrol wait, then retry")
         }
         let settings = RenderSettings(identifier: model.identifier, modelName: card?.name ?? model.name, prompt: prompt,
-                                      format: format, steps: steps, loras: stack, references: references.count, detail: d.detail)
+                                      format: format, steps: steps, loras: stack, references: references.count, detail: d.detail,
+                                      solver: d.solver)
         if d.sketch { app.stopExploring() }
         let (run, jobs) = app.enqueueGrid(g, settings: settings, references: references, previews: d.previews ?? app.previews,
                                           sketch: d.sketch)

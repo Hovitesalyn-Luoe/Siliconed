@@ -137,7 +137,7 @@ extension AppState {
         guard let g = try? grid(seed: base).get() else { return }
         let settings = RenderSettings(identifier: identifier, modelName: card?.name ?? identifier, prompt: explorePrompt,
                                       format: exploreFormat, steps: steps, loras: exploresModels ? [] : activeLoRAs,
-                                      references: references.count, detail: detail)
+                                      references: references.count, detail: detail, solver: effectiveSolver)
         followsRender = false
         enqueueGrid(g, settings: settings, references: references, previews: true, sketch: true, stopAfter: exploreStop)
         showsExploration = true

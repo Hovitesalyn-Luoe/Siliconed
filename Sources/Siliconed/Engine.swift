@@ -88,6 +88,8 @@ public final class Engine: Sendable {
         public let tokens: Int
         /// **More detail** (`Request.detail`); `normal` writes nothing in the metadata.
         public var detail: Detail = .normal
+        /// **The update rule** (`Request.solver`); `euler` writes nothing in the metadata.
+        public var solver: Solver = .euler
         /// **The variations its noise was turned by** (`Request.variations`), those of null
         /// strength left out; empty for an ordinary render.
         public var variations: [Variation] = []
@@ -112,6 +114,7 @@ public final class Engine: Sendable {
             }
             if let sketch { m["sketch"] = "\(sketch)" }
             if detail != .normal { m["detail"] = detail.rawValue }
+            if solver != .euler { m["solver"] = solver.rawValue }
             // `seed` stays the origin's: the variations turn its noise, in order (`Variation.text`).
             if !variations.isEmpty { m["variation"] = Variation.text(variations) }
             if !loras.isEmpty {
@@ -153,6 +156,8 @@ public final class Engine: Sendable {
             public var reproducible: Bool?
             /// `Request.detail`; `normal` when the key is absent (every render before it).
             public var detail: Detail = .normal
+            /// `Request.solver`; `euler` when the key is absent (every render before it).
+            public var solver: Solver = .euler
             /// The variations its noise was turned by, in order (`Request.variations`); empty for an
             /// ordinary render.
             public var variations: [Variation] = []
@@ -181,6 +186,7 @@ public final class Engine: Sendable {
                 sourceImageMissing = strength != nil || m["image"] != nil
                 reproducible = read("reproducible") { Bool($0) }
                 detail = read("detail") { Detail(rawValue: $0) } ?? .normal
+                solver = read("solver") { Solver(rawValue: $0) } ?? .euler
                 variations = read("variation") { Variation.parse($0) } ?? []
                 if let raw = m["lora"] {
                     // `name:0.80,…`, split at the LAST colon: the strength is always written.

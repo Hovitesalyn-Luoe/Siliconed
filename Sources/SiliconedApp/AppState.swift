@@ -13,7 +13,9 @@
 // **Two models in front**: Z-Image Turbo and Qwen-Image-2.1 Turbo. The two
 // other families (Anima, Krea 2) exist and render, but the list, the
 // Models sheet, the diagnostic and `silicontrol models` show them only in Developer Mode. The filter
-// is here, in the app: the library is the same.
+// is here, in the app: the library is the same. Developer Mode also offers the solvers
+// on Z-Image and Qwen-Image-2.1 (`offeredSolvers`): Euler, the distillation's own, is every other
+// render's.
 //
 // **The main thread does no computing**: the engine runs on its queue, and what the app does with
 // the pixels — decoding the reference image, encoding the PNG, reducing the thumbnail — goes to a
@@ -143,6 +145,8 @@ struct RenderSettings {
     var editing: Bool { references - subjectImages > 0 }
     /// **More detail** (`Request.detail`): the rack's Normal · More · Most.
     var detail: Detail = .normal
+    /// **The solver** (`Request.solver`): Euler unless picked in Developer Mode.
+    var solver: Solver = .euler
     var isVariation: Bool { !variations.isEmpty }
 }
 
@@ -197,8 +201,9 @@ struct Entry: Identifiable {
         let base = settings.isVariation
             ? String(localized: "\(settings.modelName) · \(String(width))×\(String(height)) · seed \(String(seed)) · variation · \(Figures.duration(seconds))")
             : String(localized: "\(settings.modelName) · \(String(width))×\(String(height)) · seed \(String(seed)) · \(Figures.duration(seconds))")
-        // Only when it changes the image: Normal is every render's, it says nothing.
-        return settings.detail == .normal ? base : base + " · " + settings.detail.label
+        // Only when it changes the image: Normal and Euler are every render's, they say nothing.
+        return base + (settings.detail == .normal ? "" : " · " + settings.detail.label)
+            + (settings.solver == .euler ? "" : " · " + settings.solver.label)
     }
 }
 
@@ -212,6 +217,20 @@ extension Detail {
         }
     }
     var label: String { String(localized: "Detail: \(choice)") }
+}
+
+extension Solver {
+    /// The rack's menu item: the names samplers go by everywhere, not translated.
+    var choice: String {
+        switch self {
+        case .euler: "Euler"
+        case .eulerAncestral: "Euler a"
+        case .dpmpp2m: "DPM++ 2M"
+        case .unipc: "UniPC"
+        }
+    }
+    /// The history caption's « Solver: UniPC ».
+    var label: String { String(localized: "Solver: \(choice)") }
 }
 
 /// An image decoded by a detached task, handed back to the main thread. `@unchecked Sendable`: a
@@ -424,15 +443,16 @@ final class AppState {
     /// Developer Mode.
     static let frontFamilies: Set<Family> = [.zImage, .qwenImage21]
     private static let developerModeKey = "developerMode"
-    /// **Developer Mode**: the two other families.
+    /// **Developer Mode**: the two other families, and the solvers (`offeredSolvers`).
     /// One of the app's two preferences (the other is `Curtain.preferred`) — written without a render
     /// gesture, because the user switched it.
     var developerMode = UserDefaults.standard.bool(forKey: AppState.developerModeKey) {
         didSet {
             guard developerMode != oldValue else { return }
             UserDefaults.standard.set(developerMode, forKey: Self.developerModeKey)
-            // A model that leaves the list leaves the form too.
+            // A model that leaves the list leaves the form too, and so does a solver.
             if !isVisible(identifier) { identifier = defaultIdentifier }
+            if !developerMode { solver = .euler }
         }
     }
     func isVisible(_ family: Family) -> Bool { developerMode || Self.frontFamilies.contains(family) }
@@ -477,6 +497,18 @@ final class AppState {
     var steps = 8
     /// **More detail** (`Detail`): Normal is the render as the model makes it.
     var detail = Detail.normal
+    /// **The solver** (`Solver`), offered in Developer Mode on the two models in front
+    /// (`offeredSolvers`). What a render takes is `effectiveSolver`: a choice the form's model does
+    /// not offer is Euler.
+    var solver = Solver.euler
+    /// The families whose samplers walk every solver (`DenoisingModule.solvers`: Z-Image's and
+    /// Qwen-Image-2.1's) — the hidden ones walk Euler only.
+    static let solverFamilies: Set<Family> = [.zImage, .qwenImage21]
+    /// The solvers the rack offers: all four in Developer Mode on those families, Euler alone otherwise.
+    var offeredSolvers: [Solver] {
+        developerMode && card.map({ Self.solverFamilies.contains($0.family) }) == true ? Solver.allCases : [.euler]
+    }
+    var effectiveSolver: Solver { offeredSolvers.contains(solver) ? solver : .euler }
     /// Fixed seed (the field) or drawn at random at each render, like Draw Things. A variation
     /// belongs to its seed: changing the seed, or letting it be drawn, drops it.
     var fixedSeed = false { didSet { if !fixedSeed { variations = [] } } }
@@ -1155,7 +1187,8 @@ final class AppState {
         enqueue(prompts.map { expanded in
             var settings = RenderSettings(identifier: identifier, modelName: card?.name ?? identifier, prompt: expanded,
                                           format: format, steps: steps, loras: loras.filter { !$0.path.isEmpty },
-                                          references: references.count, variations: variations, detail: detail)
+                                          references: references.count, variations: variations, detail: detail,
+                                          solver: effectiveSolver)
             let used = namedJob(expanded, settings: &settings, references: references)
             let plan = expectedPlan(steps: steps, format: format, withLoRA: loras.contains { !$0.path.isEmpty } || detail != .normal,
                                     references: used.count)
@@ -1185,6 +1218,8 @@ final class AppState {
             let used = cell.image.map { references.indices.contains($0) ? [references[$0]] : [] } ?? references
             s.references = used.count
             let model = try? Model.named(s.identifier, in: library)
+            // A models axis: a cell whose sampler walks Euler only renders Euler (its caption says none).
+            if let model, !model.chain.denoising.solvers.contains(s.solver) { s.solver = .euler }
             var plan = model.map { m in
                 let f = m.chain.denoising.space.factor
                 let plan = m.chain.denoising.plan(height: s.format.height / f, width: s.format.width / f, steps: s.steps,
@@ -1418,6 +1453,7 @@ final class AppState {
             request.references = references
             request.sketch = job.sketch
             request.detail = settings.detail
+            request.solver = settings.solver
             request.variations = settings.variations
 
             var progress = Engine.Progress()
@@ -1652,6 +1688,7 @@ final class AppState {
         steps = r.steps
         loras = r.loras
         detail = r.detail
+        solver = r.solver
     }
 
     /// **A Siliconed PNG dropped on the canvas**: the form takes what its metadata says
@@ -1710,7 +1747,10 @@ final class AppState {
         restoreSettings(RenderSettings(identifier: model?.id ?? identifier, modelName: model?.name ?? "",
                                        prompt: recipe.prompt ?? prompt, format: restoredFormat,
                                        steps: target == nil ? steps : (recipe.steps ?? target!.defaultSteps),
-                                       loras: stack, detail: recipe.detail))
+                                       loras: stack, detail: recipe.detail, solver: recipe.solver))
+        if recipe.solver != .euler, !offeredSolvers.contains(recipe.solver) {
+            notes.append(String(localized: "Made with the \(recipe.solver.choice) solver, offered in Developer Mode: Euler will be used."))
+        }
         if let s = recipe.seed { seed = s; fixedSeed = true }
         // A variation is its seed's: without the seed, there is nothing to vary.
         variations = recipe.seed == nil ? [] : recipe.variations

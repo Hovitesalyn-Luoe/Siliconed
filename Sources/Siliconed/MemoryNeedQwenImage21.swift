@@ -316,7 +316,9 @@ package struct QwenImage21Need {
         }
         // The sampler's copies of the reference latents (`Pages`), the velocity, the modulation table.
         terms.append(Term("sampler", references.reduce(0) { $0 + Arena.capacity(for: vae.zDim * $1.patches * 4) }
-            + vae.zDim * s * 4 + QwenImage21Pipeline.defaultSteps * dit.modulation * 4))
+            + vae.zDim * s * 4 + QwenImage21Pipeline.defaultSteps * dit.modulation * 4
+            // The solver's history (`Solver.history`): latents of the target's size.
+            + request.solver.historyBytes(count: vae.zDim * s)))
         // The two moments past the arenas: the modulation tabulated (`modulation.1` widened, and under a
         // LoRA its `down`/`up` in `Pages`), then every attention and the GEMM. The larger is charged.
         let attentions = ditAttentions(sequence: sequence, scratch: scratch)

@@ -169,6 +169,74 @@
         }
       }
     },
+    "%@ doesn't offer the %@ solver" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ bietet den Solver %2$@ nicht an"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ doesn't offer the %2$@ solver"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ no ofrece el solver %2$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ne propose pas le solveur %2$@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ non offre il solver %2$@"
+          }
+        }
+      }
+    },
+    "%@ doesn't offer the %@ solver." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ bietet den Solver %2$@ nicht an."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ doesn't offer the %2$@ solver."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ no ofrece el solver %2$@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ne propose pas le solveur %2$@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ non offre il solver %2$@."
+          }
+        }
+      }
+    },
     "%@ doesn't start from an image." : {
       "localizations" : {
         "de" : {
@@ -2285,6 +2353,62 @@
         }
       }
     },
+    "--solver %@ is offered only in Developer Mode" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver %@ gibt es nur im Entwicklermodus"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver %@ solo se ofrece en el Modo de desarrollador"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver %@ n’est proposé qu’en Mode développeur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver %@ è disponibile solo nella Modalità sviluppatore"
+          }
+        }
+      }
+    },
+    "--solver expects euler, euler-ancestral, dpmpp-2m or unipc, not \"%@\"" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver erwartet euler, euler-ancestral, dpmpp-2m oder unipc, nicht „%@“"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver espera euler, euler-ancestral, dpmpp-2m o unipc, no «%@»"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver attend euler, euler-ancestral, dpmpp-2m ou unipc, pas « %@ »"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--solver richiede euler, euler-ancestral, dpmpp-2m o unipc, non «%@»"
+          }
+        }
+      }
+    },
     "--steps expects an integer from 1 to %lld, not \"%@\"" : {
       "localizations" : {
         "de" : {
@@ -4005,6 +4129,34 @@
         }
       }
     },
+    "Check for Updates…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nach Updates suchen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buscar actualizaciones…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher les mises à jour…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerca aggiornamenti…"
+          }
+        }
+      }
+    },
     "Check that the folder exists and that you can write to it." : {
       "localizations" : {
         "de" : {
@@ -4169,6 +4321,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scegli %@ passi."
+          }
+        }
+      }
+    },
+    "Choose Euler." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie Euler."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige Euler."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez Euler."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli Euler."
           }
         }
       }
@@ -6515,6 +6695,34 @@
         }
       }
     },
+    "Euler only, or --model z-image" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Euler, oder --model z-image"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo Euler, o --model z-image"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Euler seulement, ou --model z-image"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo Euler, oppure --model z-image"
+          }
+        }
+      }
+    },
     "Evaluations" : {
       "localizations" : {
         "de" : {
@@ -7366,6 +7574,34 @@
         }
       }
     },
+    "GitHub could not be reached. New versions are also listed on the project's page." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub war nicht erreichbar. Neue Versionen stehen auch auf der Projektseite."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo contactar con GitHub. Las nuevas versiones también están en la página del proyecto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub n’a pas pu être joint. Les nouvelles versions sont aussi sur la page du projet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile raggiungere GitHub. Le nuove versioni sono anche sulla pagina del progetto."
+          }
+        }
+      }
+    },
     "Give each axis its values: a group of the prompt, seeds, steps, a LoRA of the stack, models or the edit's images." : {
       "localizations" : {
         "de" : {
@@ -7536,6 +7772,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "I gruppi di alternative non si possono annidare (carattere %@)."
+          }
+        }
+      }
+    },
+    "How each step moves to the next, with the same steps: Euler is the one this model was distilled for" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie jeder Schritt zum nächsten führt, bei gleichen Schritten: Euler ist der, für den dieses Modell destilliert wurde"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo cada paso lleva al siguiente, con los mismos pasos: Euler es el que se usó al destilar este modelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comment chaque pas mène au suivant, avec les mêmes pas : Euler est celui pour lequel ce modèle a été distillé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come ogni passo porta al successivo, con gli stessi passi: Euler è quello per cui questo modello è stato distillato"
           }
         }
       }
@@ -8576,6 +8840,34 @@
         }
       }
     },
+    "Later" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Später"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Más tarde"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus tard"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Più tardi"
+          }
+        }
+      }
+    },
     "Learned on this Mac, model by model at this size" : {
       "localizations" : {
         "de" : {
@@ -8992,6 +9284,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "LoRA su ogni cella"
+          }
+        }
+      }
+    },
+    "Made with the %@ solver, offered in Developer Mode: Euler will be used." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit dem Solver %@ erstellt, den es im Entwicklermodus gibt: Euler wird verwendet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hecha con el solver %@, que se ofrece en el Modo de desarrollador: se usará Euler."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faite avec le solveur %@, proposé en Mode développeur : Euler sera utilisé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Creata con il solver %@, disponibile nella Modalità sviluppatore: verrà usato Euler."
           }
         }
       }
@@ -10467,6 +10787,34 @@
         }
       }
     },
+    "OK" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
     "Object" : {
       "comment" : "Kind of named subject",
       "localizations" : {
@@ -10548,6 +10896,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apri la segnalazione"
+          }
+        }
+      }
+    },
+    "Open the Page" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seite öffnen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir la página"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir la page"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri la pagina"
           }
         }
       }
@@ -13114,6 +13490,34 @@
         }
       }
     },
+    "Siliconed %@ is available." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed %@ ist verfügbar."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed %@ está disponible."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed %@ est disponible."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed %@ è disponibile."
+          }
+        }
+      }
+    },
     "Siliconed Window" : {
       "localizations" : {
         "de" : {
@@ -13138,6 +13542,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Finestra di Siliconed"
+          }
+        }
+      }
+    },
+    "Siliconed is up to date." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed ist auf dem neuesten Stand."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed está actualizado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed est à jour."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed è aggiornato."
           }
         }
       }
@@ -13390,6 +13822,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Più piccola sul disco; immagini leggermente diverse, più o meno altrettanto veloce."
+          }
+        }
+      }
+    },
+    "Solver" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solveur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver"
+          }
+        }
+      }
+    },
+    "Solver: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solveur : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver: %@"
           }
         }
       }
@@ -14551,6 +15039,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le celle ancora in attesa escono dalla coda; quella in corso si interrompe"
+          }
+        }
+      }
+    },
+    "The check did not succeed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Prüfung ist fehlgeschlagen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La comprobación ha fallado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La vérification a échoué."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il controllo non è riuscito."
           }
         }
       }
@@ -17645,6 +18161,34 @@
         }
       }
     },
+    "Version %@ is the latest published." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %@ ist die neueste veröffentlichte."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La versión %@ es la última publicada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La version %@ est la dernière publiée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La versione %@ è l’ultima pubblicata."
+          }
+        }
+      }
+    },
     "Wait for it to finish, then render again." : {
       "localizations" : {
         "de" : {
@@ -18033,6 +18577,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scrivi {mora|bionda|rossa} per fare di un gruppo un asse."
+          }
+        }
+      }
+    },
+    "You have version %@. The new version is downloaded from its page, with its notes." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sie haben Version %@. Die neue Version wird von ihrer Seite geladen, mit ihren Hinweisen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tienes la versión %@. La nueva se descarga desde su página, con sus notas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous avez la version %@. La nouvelle se télécharge depuis sa page, avec ses notes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hai la versione %@. La nuova si scarica dalla sua pagina, con le sue note."
           }
         }
       }
@@ -21191,6 +21763,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "addestrata a %@"
+          }
+        }
+      }
+    },
+    "turn on Developer Mode in the app's menu" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aktivieren Sie den Entwicklermodus im Menü der App"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "activa el Modo de desarrollador en el menú de la app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "allumez le Mode développeur dans le menu de l’app"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "attiva la Modalità sviluppatore nel menu dell’app"
           }
         }
       }

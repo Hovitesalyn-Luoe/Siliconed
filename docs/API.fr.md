@@ -245,6 +245,9 @@ let edited = try await Engine().render(request, model: qwen)
   pas dans `init`.
 - **`detail`** : `Detail` (`.normal`, `.more`, `.most`), `.normal` par défaut — une texture plus
   fine au même coût ; `.normal` est le rendu sans elle, au bit près (§3.17). Se règle en propriété.
+- **`solver`** : `Solver` (`.euler`, `.eulerAncestral`, `.dpmpp2m`, `.unipc`), `.euler` par
+  défaut — la règle qui fait passer d'un pas au suivant, les pas et leurs σ inchangés ; `.euler` est
+  le rendu d'avant, au bit près (§3.19). Z-Image et Qwen-Image-2.1. Se règle en propriété.
 - **`variations`** : `[Variation]`, vide par défaut — le bruit de départ de la graine tourné vers
   celui d'autres graines, dans l'ordre : des cousines de l'image que donne la graine (§3.18). Vide :
   le bruit de la graine, au bit près. Dans un lot, chaque graine est tournée par les mêmes
@@ -370,7 +373,7 @@ Un `Render` est une image avec sa trace. **Le moteur n'écrit aucun fichier.**
 
 - ce qui l'a produite : `model`, `prompt`, `seed`, `steps`, `loras`, `loraSummary` (la pile en
   une ligne), `strength?` (`nil` en txt2img), `startStep`, `startSigma`, `reproducible` (résolu),
-  `detail`, `variations` (sans celles de force nulle) ;
+  `detail`, `solver`, `variations` (sans celles de force nulle) ;
 - l'image : `image: ImageRGB` — `pixels` (`[3, height, width]`, planaire, fp32 autour de
   `[-1, 1]`, non écrêtés : le décodeur sort jusqu'à ±1,14 ; `rgba8()` écrête), `height`, `width` ;
 - le coût : `evaluations` (pour une esquisse, celles après lesquelles elle s'est arrêtée), `sketch`
@@ -541,7 +544,8 @@ Les clés écrites sont `prompt`, `seed`, `model`, `steps`, `format` (`LxH`), `r
 `Software`, plus `strength` et `image` (`source not included`) en img2img, et `lora`
 (`fichier.lora.silicon:0.80,…`, **nom de fichier seul**) quand il y en a, et `sketch` (les
 évaluations après lesquelles elle s'est arrêtée) pour une esquisse (§3.16), `detail` (`more` ou
-`most` ; **absente pour `normal`**, comme sur tout rendu d'avant, §3.17) et `variation`
+`most` ; **absente pour `normal`**, comme sur tout rendu d'avant, §3.17), `solver` (**absente pour
+`euler`**, §3.19) et `variation`
 (`graine:force,…`, dans l'ordre appliqué ; `seed` reste celle de l'origine, §3.18). Elles suffisent à
 refaire un **txt2img** (mêmes bits si `reproducible`, même machine, même version) ; **pas un
 img2img** : l'image source n'est pas dans le PNG, et la clé `image` le dit. Une clé doit être en
@@ -549,7 +553,7 @@ ASCII et faire au plus 79 octets, sinon elle est ignorée.
 
 `Engine.Render.Recipe(metadata: PNG.text(data))` les relit en valeurs (`model`, `prompt`, `seed`,
 `steps`, `width`/`height`, `loras`, `strength`, `sourceImageMissing`, `detail` (`normal` si la
-clé est absente), `variations` (vide si absente) — pas `sketch` : la recette
+clé est absente), `solver` (`euler` si absente), `variations` (vide si absente) — pas `sketch` : la recette
 d'une esquisse refait l'image finie), `nil` si `Software` n'est
 pas `Siliconed` ; une clé présente mais illisible vaut `nil` et figure dans `unreadable`. Pure :
 elle ne dit pas si le modèle ou une LoRA est installé, et `model` est la famille (`z-image`), pas la
@@ -1048,6 +1052,40 @@ request.variations.append(Variation(seed: 7, strength: 0.5))        // une varia
 - Le PNG porte `variation` (§3.8), et `Recipe.variations` la relit : un rendu refait depuis
   son PNG donne les mêmes bits.
 
+### 3.19 Solveurs : `Solver`
+
+`Request.solver` change la façon dont l'échantillonneur passe d'un pas au suivant ; les pas, leurs σ
+et ce qu'on dit au débruiteur ne changent pas. `.euler` est la mise à jour pour laquelle les modèles
+Turbo ont été distillés, et le rendu d'avant, au bit près. Les trois autres sont les schedulers de
+diffusers, lus ligne à ligne et vérifiés contre eux (`SolverTests`) : `.eulerAncestral`
+(`stochastic_sampling` : chaque pas atterrit sur l'estimation x̂₀ et y remet du bruit neuf, tiré de
+la graine), `.dpmpp2m` (DPM-Solver++ 2M) et `.unipc` (UniPC, bh2, ordre 2, avec son correcteur).
+Mêmes évaluations, même coût ; les règles multipas gardent une à quatre latentes de plus
+(`MemoryNeed` les compte).
+
+```swift
+var request = Request("woman posing in a library", resolution: 1024, seed: 42)
+request.solver = .unipc                                   // .euler · .eulerAncestral · .dpmpp2m · .unipc
+let walked = try await Engine().render(request, model: try Model.zImage(in: library))
+print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
+```
+
+- **Ce que ça change** (Z-Image, 1024², graines 42, 7 et 0, et 512², à l'œil) : DPM++ 2M suit
+  l'image d'Euler, un peu plus nette ; UniPC garde la composition et varie les détails (un gilet
+  pour un pull) ; la règle ancestrale recompose et simplifie (vêtements plus sobres, fond plus
+  doux). Aucune n'a cassé une image, et le calendrier spectral du 1024² tient sous les quatre.
+  D'autres nombres de pas et l'img2img n'ont pas été jugés.
+- **Sur Qwen-Image-2.1** (1024², graines 42 et 7, et une édition, à l'œil) : DPM++ 2M suit encore
+  l'image d'Euler ; UniPC recompose parfois tout (graine 7 : une autre femme) — ce modèle décide sa
+  composition dans ses premiers pas, et le correcteur les déplace ; la règle ancestrale recompose, et
+  peut aplatir un fond en aplats. En édition, les quatre gardent l'image 1 et suivent l'instruction.
+- **Ce que ça coûte** : rien de mesurable. À 1024², les quatre solveurs rendent dans le même temps,
+  à la dérive de la machine près ; chacun rend deux fois les mêmes pixels, l'ancestral
+  compris (son bruit vient de la graine).
+- **Z-Image et Qwen-Image-2.1** : un autre modèle refuse un solveur autre qu'Euler avant tout
+  calcul (`EngineError.solverUnsupported`). L'app les offre en mode développeur.
+- Le PNG porte `solver` sauf pour `.euler` (§3.8).
+
 ## 4. Limites et contrats
 
 | règle | valeur | dans le code |
@@ -1168,6 +1206,7 @@ deux premiers et le verrou ne s'y appliquent pas.
 | `gridRefused(reason:)`, `tooManyGridCells(count:max:)` | `grid_refused`, `too_many_grid_cells` | `RenderGrid(_:x:y:limit:)`, `RenderGrid.axis(_:loras:)` (§3.15) | griser « Générer » ; les cases avant le clic |
 | `strengthOutOfRange(strength:)`, `strengthTooLow(strength:steps:floor:)` | `strength_out_of_range`, `strength_too_low` | rendu | borner le curseur à `]floor ; 1]` |
 | `imageToImageUnsupported(model:)` | `image_to_image_unsupported` | rendu | Qwen-Image-2.1 : passer l'image en référence 1 |
+| `solverUnsupported(solver:model:)` | `solver_unsupported` | rendu, avant tout calcul | un `Solver` autre qu'Euler sur un autre modèle que Z-Image et Qwen-Image-2.1 : ne l'offrir que sur eux |
 | `imageUnreadable(file:)`, `imageEncodingFailed`, `imageWriteFailed(file:)` | `image_unreadable`, `image_encoding_failed`, `image_write_failed` | `ImageRGB(contentsOf:)`, `png()`, `PNG.write` | refuser l'image ; enregistrer ailleurs |
 | `unsupportedLoRA(file:reason:)`, `loraForOtherModel(lora:target:model:)` | `unsupported_lora`, `lora_for_other_model` | rendu (~0,3 s) | ne proposer que `loras(for:)` ; sinon réimporter |
 | `incompatibleChain(output:input:)` | `incompatible_chain` | `Chain(…)` | bug de programmation : n'arrive pas avec `model.chain` |

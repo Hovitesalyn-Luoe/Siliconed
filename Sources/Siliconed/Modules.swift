@@ -63,6 +63,8 @@ public struct ZImageDenoisingModule: DenoisingModule {
     public var entry: TextFormat { .zImage }
     public var space: LatentSpace { .flux }
     public var defaultSteps: Int { 8 }
+    /// Every `Solver`: its sampler walks them all (`SolverWalk`).
+    public var solvers: [Solver] { Solver.allCases }
 
     public init(map: String, spectral: Int? = nil,
                 divisors: [Int] = [], capsDrop: [Int] = []) {
@@ -137,12 +139,14 @@ public struct ZImageDenoisingModule: DenoisingModule {
         sampler.divisors = start > 0 ? [] : divisors
         sampler.detail = context.detail
         sampler.detailScale = context.detailScale
+        sampler.solver = context.solver
+        sampler.solverSeed = context.solverSeed
         context.beginDenoising(evaluations: planned.evaluations)
         // `negated` is `dx/dσ` (the DiT's output negated, see `Sampler`): x̂₀ = x − σ·negated.
         let σ = sampler.schedule.sigmas
-        sampler.afterEvaluation = { step, seconds, h, w, x, derived in
+        sampler.afterEvaluation = { step, seconds, h, w, x, derived, sigmaX in
             try context.stepDone(sigma: σ[step], seconds: seconds, evaluatedHeight: h, evaluatedWidth: w,
-                                 space: .flux, x: x, v: derived, nextSigma: σ[step + 1],
+                                 space: .flux, x: x, v: derived, nextSigma: sigmaX,
                                  fullHeight: height, fullWidth: width)
         }
         try latent.values.withUnsafeMutableBufferPointer { l in
@@ -530,6 +534,8 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     public var acceptsStartImage: Bool { false }
     /// Its noise leaves in the last two evaluations: an early x̂₀ is blurred and grainy (`Sketch`).
     public var sketches: Bool { false }
+    /// Every `Solver`: its sampler walks them all (`SolverWalk`), Euler in its own loop.
+    public var solvers: [Solver] { Solver.allCases }
 
     /// Pillow's Lanczos to `calculate_dimensions(R², w/h)`, each at its own ratio.
     public func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB] {
@@ -559,6 +565,8 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
         sampler.freezeCut = context.reproducible
         sampler.cancellation = context.cancellation
         sampler.storage = storage
+        sampler.solver = context.solver
+        sampler.solverSeed = context.solverSeed
         let (height, width) = (latent.height, latent.width)
         // Detail, like a LoRA, turns it off (`plan`); an edit has none.
         let reduced = references.isEmpty
@@ -590,8 +598,8 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
                         slots: text.imageSlots, references: references, sigmas: σ,
                         told: context.told(σ, start: start, bell: .late), reduced: reduced) { step in
             try context.stepDone(sigma: step.sigma, seconds: step.seconds, evaluatedHeight: step.evaluatedHeight,
-                                 evaluatedWidth: step.evaluatedWidth, space: space, x: step.latent, v: step.velocity,
-                                 nextSigma: σ[step.index + 1], fullHeight: height, fullWidth: width)
+                                 evaluatedWidth: step.evaluatedWidth, space: space, x: step.estimate, v: step.velocity,
+                                 nextSigma: step.estimateSigma, fullHeight: height, fullWidth: width)
         }
         context.keptDenoiser = QwenImage21DenoisingModule.keepsDenoiser(reduced: reduced) ? sampler.reused : nil
         context.footprints.denoising = Arena.processFootprint()

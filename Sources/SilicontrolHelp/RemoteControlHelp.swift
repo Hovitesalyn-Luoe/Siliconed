@@ -288,6 +288,10 @@ public enum RemoteControlHelp {
           --detail more|most  the rack's Detail: finer texture and small details, same time;
                               most can over-sharpen. Default: normal (the image as the model
                               makes it). Jobs and images say "detail" when it is not normal.
+          --solver NAME       the rack's Solver, in Developer Mode only: euler (default, the one
+                              the model was distilled for), euler-ancestral, dpmpp-2m or unipc.
+                              Same steps, same time, another image. Jobs and images say "solver"
+                              when it is not euler.
           --batch N           N images (1 to 8) with seeds s, s+1, …; the prompt is encoded once
                               for the whole batch (faster than N requests).
           --ref IMAGE|i7      editing by instruction: an image file or an image of the history.
@@ -891,6 +895,10 @@ public enum RemoteControlHelp {
           --detail more|most  le Détail du rack : texture fine et petits détails, même durée ;
                               most peut trop accentuer. Défaut : normal (l'image telle que le
                               modèle la fait). Travaux et images disent "detail" s'il n'est pas normal.
+          --solver NOM        le Solveur du rack, en mode développeur seulement : euler (défaut,
+                              celui pour lequel le modèle a été distillé), euler-ancestral,
+                              dpmpp-2m ou unipc. Mêmes pas, même durée, une autre image. Travaux
+                              et images disent "solver" s'il n'est pas euler.
           --batch N           N images (1 à 8) aux graines s, s+1, … ; le prompt est encodé une
                               fois pour tout le lot (plus rapide que N demandes).
           --ref IMAGE|i7      édition par instruction : un fichier image ou une image de l'historique.

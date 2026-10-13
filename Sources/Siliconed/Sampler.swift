@@ -93,11 +93,23 @@ package final class Sampler {
     /// `Detail.scale` of the render's size.
     package var detailScale: Double = 1
 
+    /// **The update rule** (`Solver`): Euler, the distillation's own, unless the user picked another.
+    /// The schedule, the steps and what the DiT is told do not change.
+    package var solver: Solver = .euler
+    /// The ancestral rule's noise: one stream from this seed, step after step — the render's seed,
+    /// so the same seed gives the same image.
+    package var solverSeed: UInt64 = 0
+
     /// **After each evaluation** (zero steps are not evaluations): `(absolute step, seconds, evaluated
-    /// grid h, w, latent after the update, derivative dx/dσ = negated)`. This is how the product's
-    /// module numbers its steps, computes the preview and checks cancellation; it may
-    /// throw, and the loop stops. `onStep`, for its part, remains the instrument of the checks.
-    package var afterEvaluation: ((Int, Double, Int, Int, UnsafePointer<Float>, UnsafePointer<Float>) throws -> Void)?
+    /// grid h, w, x, derivative dx/dσ = negated, σₓ)`, the estimate x̂₀ being `x − σₓ·negated`. This
+    /// is how the product's module numbers its steps, computes the preview and checks cancellation; it
+    /// may throw, and the loop stops. `onStep`, for its part, remains the instrument of the checks.
+    ///
+    /// Under Euler, `x` is the latent after the update and `σₓ` the next σ — as it always was, so a
+    /// sketch keeps its bits. Under another solver the latent after the update is not on the line
+    /// `x̂₀ + σ'·m` (the ancestral rule has fresh noise in it, the multistep rules a correction), so
+    /// `x` is the walk's own x̂₀ (`SolverWalk.estimate`) and `σₓ` is 0.
+    package var afterEvaluation: ((Int, Double, Int, Int, UnsafePointer<Float>, UnsafePointer<Float>, Float) throws -> Void)?
 
     /// **Can the descent run these divisors on this grid?** Each a power of two, and the largest
     /// dividing both sides — then every level halves exactly. All ones: nothing to divide.
@@ -167,13 +179,16 @@ package final class Sampler {
 
         // What the DiT is told: `1 − σ'` (`FlowMatchSchedule.modelTime`) with σ' the detail's σ.
         let told = detail.modelSigmas(schedule.sigmas, start: start, scale: detailScale)
+        // The update, step by step, on the true σ (`Solver`). Its history lives in `Pages`.
+        var stream = Noise(seed: solverSeed ^ 0x5EED_A9CE_57A1_0000)
+        let walk = SolverWalk(solver: solver, schedule: schedule.sigmas, start: start, count: count,
+                              noise: solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
         var evaluations = 0
         for step in start..<(schedule.sigmas.count - 1) {
             // Between two steps, not in the middle of one: see `Cancellation`.
             try dit.cancellation.check()
             let sigma = schedule.sigmas[step], next = schedule.sigmas[step + 1]
-            var delta = next - sigma
-            if delta == 0 {
+            if next == sigma {
                 // The step moves nothing: we do not pay for the evaluation. Measured: 12.5 %.
                 if recordTrajectory {
                     velocities.append(velocities.last ?? [Float](repeating: 0, count: count))
@@ -190,7 +205,7 @@ package final class Sampler {
                 dit.forgetReducedAttentions()
             }
             let (evaluatedHeight, evaluatedWidth) = (height / d, width / d)
-            // `noise_pred = −v`, then Euler: `x ← x + Δσ · noise_pred`, hence `x − Δσ · v`.
+            // `noise_pred = −v`, then the solver — Euler: `x ← x + Δσ · noise_pred`, hence `x − Δσ · v`.
             // The negation precedes the upsampling, as in the reference — 𝓘 is linear, so
             // the order has no effect on the bits, but reading it in the same order removes the
             // question.
@@ -236,16 +251,14 @@ package final class Sampler {
                     speed = largest
                 }
                 negated = speed
-                negated.withUnsafeMutableBufferPointer { buffer in
-                    vDSP_vsma(buffer.baseAddress!, 1, &delta, latent, 1, latent, 1, vDSP_Length(count))
-                }
+                negated.withUnsafeBufferPointer { walk.step(latent: latent, derivative: $0.baseAddress!) }
             } else {
                 negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: 1 - told[step]) }
                 negated.withUnsafeMutableBufferPointer { buffer in
                     var minusOne: Float = -1
                     vDSP_vsmul(buffer.baseAddress!, 1, &minusOne, buffer.baseAddress!, 1, vDSP_Length(count))
-                    vDSP_vsma(buffer.baseAddress!, 1, &delta, latent, 1, latent, 1, vDSP_Length(count))
                 }
+                negated.withUnsafeBufferPointer { walk.step(latent: latent, derivative: $0.baseAddress!) }
             }
             evaluations += 1
             // **Where does the trajectory go wrong?** An entirely `NaN` image does not say at which step
@@ -269,7 +282,12 @@ package final class Sampler {
             let seconds = Date().timeIntervalSince(started)
             if let afterEvaluation {
                 try negated.withUnsafeBufferPointer {
-                    try afterEvaluation(step, seconds, evaluatedHeight, evaluatedWidth, UnsafePointer(latent), $0.baseAddress!)
+                    if let estimate = walk.estimate {
+                        try afterEvaluation(step, seconds, evaluatedHeight, evaluatedWidth, estimate, $0.baseAddress!, 0)
+                    } else {
+                        try afterEvaluation(step, seconds, evaluatedHeight, evaluatedWidth, UnsafePointer(latent),
+                                            $0.baseAddress!, next)
+                    }
                 }
             }
             onStep?(step, sigma, seconds, evaluatedHeight, evaluatedWidth)

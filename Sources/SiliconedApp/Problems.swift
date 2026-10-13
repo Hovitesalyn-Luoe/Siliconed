@@ -140,6 +140,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "A strength of \(Figures.strength(s)) leaves no step out of \(steps).")
         case .imageToImageUnsupported(let m):                        // image_to_image_unsupported
             return String(localized: "\(name(m)) doesn't start from an image.")
+        case let .solverUnsupported(s, m):                           // solver_unsupported
+            return String(localized: "\(name(m)) doesn't offer the \(s) solver.")
         case .imageUnreadable(let f):                                // image_unreadable
             return String(localized: "This image can't be read: \(file(f)).")
         case .imageEncodingFailed:                                   // image_encoding_failed
@@ -239,6 +241,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Increase the strength, or the number of steps.")
         case .imageToImageUnsupported:
             return String(localized: "Give the image as image 1 of an edit, and say what changes.")
+        case .solverUnsupported:
+            return String(localized: "Choose Euler.")
         case .imageUnreadable:
             return String(localized: "Choose a PNG, JPEG or HEIC image.")
         case .imageWriteFailed:

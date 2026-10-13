@@ -190,7 +190,8 @@ extension MemoryNeed {
                 ? LoRA.downBytes(k: loraModules.map(\.k).max() ?? 0, rank: request.loraRanks.max() ?? 0) : 0),
             Term("map staging", staging),
             // The DiT's velocity `[C, h, w]` and, under the spectral schedule, one descent level.
-            Term("sampler", latent + (halfSteps > 0 ? latent / 4 : 0)),
+            Term("sampler", latent + (halfSteps > 0 ? latent / 4 : 0)
+                 + request.solver.historyBytes(count: latent / f)),
         ] + attentions
           // The image's rows are exact; the caption's, and the unified sequence's, follow the tokens' bound.
           + gemm("DiT", products: [(image, inDim, d)],

@@ -30,8 +30,8 @@ comic book style with cel shading »), comparées sous le rideau, filmé à vi
   comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur
   CPU). Écart à 1024² : 1,2·10⁻⁵ pour Z-Image. Ce qui ne se vérifie pas contre la référence n'est
   pas livré.
-- **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en ~82 s sur un M1 Pro, là où
-  Draw Things met 144 à 163 s avec des poids 8 bits sur la même machine.
+- **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 82 à 85 s sur un M1 Pro
+  ([mesuré à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac).
 - **31 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
@@ -154,13 +154,35 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. 1
 
 | | Z-Image Turbo | Qwen-Image-2.1 Turbo |
 |---|---|---|
-| 1024², Standard | ~82 s (8 pas ; 1024×1536 ~153 s) | ~120 s (8 pas) ; une édition à 1 image ~210 s, à 2 images ~285 s |
-| 1024², Légère (4 à 6 bits) | ~85 s | ~120 s ; une édition à 1 image ~210 s |
+| 1024², Standard | 82–85 s (8 pas ; 1024×1536 ~153 s) | 118 s (8 pas) ; 1024×1536 190 s ; une édition à 1 image 212 s, à 2 images 285 s |
+| 1024², Légère (4 à 6 bits) | 83–89 s | 123–130 s ; une édition à 1 image 210 s |
+| pic mémoire, Standard / Légère | 2,7 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go |
 | écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) |
 
-À titre de comparaison, Draw Things sur la même machine, Z-Image `q8p` : 144 s au premier rendu,
-163 s au quatrième. Les ~82 s de Siliconed sont en fp32 ; la comparaison porte sur le temps écoulé,
-pas sur une arithmétique identique. Comment les chiffres sont mesurés : [La vérification](#la-vérification).
+Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG,
+mesuré le 13/10/2026. Le pic mémoire est le `phys_footprint` de l'app, relevé toutes les 100 ms ;
+0 page swappée sur les 27 rendus. Comment l'écart est mesuré : [La vérification](#la-vérification).
+
+### À côté de Draw Things
+
+[Draw Things](https://drawthings.ai) est la référence sur Mac ; ici, son moteur communautaire,
+[draw-things-community](https://github.com/drawthingsai/draw-things-community) à `bc3970c`, avec
+les réglages par défaut du modèle (UniPC trailing, CFG 1). La même machine, la même séance de 70 minutes, un seul moteur chargé à la
+fois ; Z-Image Turbo, 1024², 8 pas, graine 42, trois rendus de chaque côté sur trois variantes du
+même prompt, puis un de plus après l'autre côté.
+
+| | poids | temps | pic mémoire | lu sur le disque par rendu |
+|---|---|---|---|---|
+| Siliconed, Standard | les bf16 de l'éditeur, calculés en fp32 | 82–85 s | 2,7 Go | 52 Go |
+| Siliconed, Légère | GGUF Q4_K_M | 83–89 s | 2,0 Go | 3,5–9 Go |
+| Draw Things, Exact | f16 | 167–179 s | 5,3 Go | 99 Go |
+| Draw Things, par défaut | 8 bits (`q8p`) | 142–164 s | 3,5–4,3 Go | 11 Go |
+| Draw Things, 6 bits | 6 bits (`q6p`) | 136–138 s | 3,5 Go | 6–14 Go |
+
+La comparaison porte sur le temps écoulé, pas sur une arithmétique identique : les solveurs et les
+poids diffèrent, les images aussi. Le pic mémoire ne compte pas les poids projetés depuis le disque,
+d'un côté comme de l'autre. Siliconed fait chauffer davantage la machine, ce qui découle du calcul
+en fp32.
 
 **Dans le budget, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
 `vm_stat`) sont mesurés au pire cas du produit, sur un Mac de 16 Go où rien d'autre ne tourne : Qwen-Image-2.1 à 1024×1536 avec 3 références,
@@ -172,8 +194,8 @@ Chaque côté doit être d'au moins 512 et multiple de 16, pour une surface d'au
 
 ## Face aux autres outils
 
-- **[Draw Things](https://drawthings.ai)**, l'app native de référence sur Mac : mesurée sur la même
-  machine ci-dessus. Siliconed est plus rapide sur Z-Image tout en calculant en fp32, et il est
+- **[Draw Things](https://drawthings.ai)**, l'app native de référence sur Mac : son moteur est
+  [mesuré plus haut](#à-côté-de-draw-things) sur la même machine. Siliconed calcule en fp32 et il est
   vérifié étage par étage contre l'implémentation de référence.
 - **[ComfyUI](https://github.com/comfyanonymous/ComfyUI) ou [diffusers](https://github.com/huggingface/diffusers)
   en Python** : les mêmes modèles, sans environnement Python ni graphe de nœuds à câbler. Siliconed
@@ -196,7 +218,7 @@ Les rapports remplissent ce tableau, une ligne par puce :
 
 | Puce | Cœurs CPU | Cœurs GPU | Mémoire | Z-Image Turbo 1024² | Qwen-Image-2.1 Turbo 1024² | Source |
 |---|---|---|---|---|---|---|
-| M1 Pro | 8 | 14 | 16 Go | ~82 s | ~120 s | machine de référence |
+| M1 Pro | 8 | 14 | 16 Go | 82–85 s | 118 s | machine de référence |
 | *votre ligne ici* | | | | | | [rapport](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
 
 ## Pour les agents IA et les scripts : silicontrol

@@ -2,6 +2,32 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.8
+
+### Check for Updates
+
+- **In the app menu, on demand only.** Siliconed asks GitHub for its latest release and compares it
+  with the version running; if a newer one exists, it opens its page. Nothing is checked in the
+  background, nothing is installed for you.
+
+### Solvers (Developer Mode)
+
+- **Euler ancestral, DPM++ 2M and UniPC**, besides Euler, on Z-Image Turbo and Qwen-Image-2.1: the
+  same steps, the same σ, another walk between them. Each one is checked against diffusers'
+  scheduler of the same name. Euler, the default, gives the same images as before, bit for bit.
+- **Another image, the same time.** UniPC may recompose a Qwen-Image-2.1 picture; the ancestral
+  solver may flatten a background. Edits keep image 1 under all four. Previews and sketches show
+  each solver's own estimate. In the rack, the history caption, the PNG and `silicontrol add|grid
+  --solver`.
+
+### The numbers
+
+- **Remeasured through the app**, every render queued by `silicontrol`: Z-Image Turbo 1024² in 82 to
+  85 s, Qwen-Image-2.1 in 118 s, an edit with one image in 212 s, with two in 285 s; 0 swap-out.
+  The README sets them next to the Draw Things engine on the same Mac.
+
+Timings and memory are measured on a MacBook Pro M1 Pro with 16 GB.
+
 ## 0.7.1
 
 0.7 was never released: 0.7.1 carries it, with the memory computation made exact in the cases it

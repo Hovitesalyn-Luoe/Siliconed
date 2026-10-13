@@ -776,6 +776,16 @@ private struct DiTBox: View {
             .pickerStyle(.segmented).labelsHidden().fixedSize()
         }
         .help("Adds fine texture and small details; Most can over-sharpen")
+        // Developer Mode, Z-Image: how a step moves to the next. Euler is the distillation's own.
+        if app.offeredSolvers.count > 1 {
+            Field(title: "Solver") {
+                Picker("Solver", selection: $app.solver) {
+                    ForEach(app.offeredSolvers, id: \.self) { Text(verbatim: $0.choice).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            .help("How each step moves to the next, with the same steps: Euler is the one this model was distilled for")
+        }
         Toggle("Preview every step", isOn: $app.previews)
             .font(.callout)
     }

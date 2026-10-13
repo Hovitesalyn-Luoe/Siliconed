@@ -227,9 +227,12 @@ package enum QwenImage21Pipeline {
 package struct QwenImage21Sampler {
     /// What a step hands back: its absolute index, σᵢ, the seconds, the latent after the update and
     /// the velocity, both planar `[64, h, w]` at full size (the velocity up-sampled after a half-size
-    /// evaluation), and the grid the DiT evaluated.
+    /// evaluation), the grid the DiT evaluated, and where the estimate x̂₀ is read: `x − σₓ·v` with `x`
+    /// the latent and `σₓ` the next σ under Euler, `x` the walk's own x̂₀ and `σₓ = 0` under another
+    /// solver (`Sampler.afterEvaluation`, the same rule).
     package typealias Step = (index: Int, sigma: Float, seconds: Double, latent: UnsafePointer<Float>,
-                              velocity: UnsafePointer<Float>, evaluatedHeight: Int, evaluatedWidth: Int)
+                              velocity: UnsafePointer<Float>, evaluatedHeight: Int, evaluatedWidth: Int,
+                              estimate: UnsafePointer<Float>, estimateSigma: Float)
 
     package let artifact: Artifact
     /// The user's LoRA stack, `nil` without: the Turbo is the map itself.
@@ -255,6 +258,11 @@ package struct QwenImage21Sampler {
     package var reusable: QwenImage21DiT?
     /// The DiT the run used, for the next image.
     package private(set) var reused: QwenImage21DiT?
+
+    /// **The update rule** (`Solver`): Euler, the distillation's own, unless another is asked; the
+    /// ancestral rule's noise from `solverSeed`. The schedule and what the DiT is told do not change.
+    package var solver: Solver = .euler
+    package var solverSeed: UInt64 = 0
 
     package init(artifact: Artifact, lora: LoRA?) {
         self.artifact = artifact; self.lora = lora
@@ -294,6 +302,13 @@ package struct QwenImage21Sampler {
         let pointers = copies.map { $0.floats() }
         defer { withExtendedLifetime(copies) {} }
         timings = [:]
+        // Another solver walks the whole schedule across the phases (`SolverWalk`, its history in
+        // `Pages`); Euler keeps the loop below, its two roundings to the bit.
+        var stream = Noise(seed: solverSeed ^ 0x5EED_A9CE_57A1_0000)
+        let count = latent.count
+        let walk = solver == .euler ? nil
+            : SolverWalk(solver: solver, schedule: sigmas, start: 0, count: count,
+                         noise: solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
         let phases: [(range: Range<Int>, divisor: Int)] = [(0..<half, 2), (half..<steps, 1)].filter { !$0.range.isEmpty }
         for (range, divisor) in phases {
             try cancellation.check()
@@ -343,16 +358,23 @@ package struct QwenImage21Sampler {
                 } else {
                     v = try latent.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
                 }
-                // `scheduler.step`: `dt = σ_next − σ` in float32, then `x + dt·v` — two roundings.
-                let dt = sigmas[i + 1] - sigmas[i]
-                latent.withUnsafeMutableBufferPointer { x in
-                    for j in 0..<x.count { x[j] += dt * v[j] }
+                if let walk {
+                    latent.withUnsafeMutableBufferPointer { x in
+                        v.withUnsafeBufferPointer { walk.step(latent: x.baseAddress!, derivative: $0.baseAddress!) }
+                    }
+                } else {
+                    // `scheduler.step`: `dt = σ_next − σ` in float32, then `x + dt·v` — two roundings.
+                    let dt = sigmas[i + 1] - sigmas[i]
+                    latent.withUnsafeMutableBufferPointer { x in
+                        for j in 0..<x.count { x[j] += dt * v[j] }
+                    }
                 }
                 let seconds = Date().timeIntervalSince(started)
                 timings["steps", default: 0] += seconds
                 try latent.withUnsafeBufferPointer { x in
                     try v.withUnsafeBufferPointer {
-                        try onStep((i, sigmas[i], seconds, x.baseAddress!, $0.baseAddress!, evaluatedHeight, evaluatedWidth))
+                        try onStep((i, sigmas[i], seconds, x.baseAddress!, $0.baseAddress!, evaluatedHeight, evaluatedWidth,
+                                    walk?.estimate ?? x.baseAddress!, walk == nil ? sigmas[i + 1] : 0))
                     }
                 }
             }

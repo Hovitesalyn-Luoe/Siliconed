@@ -55,6 +55,8 @@ package struct MemoryNeed: Sendable, Equatable {
         /// The decoders' smallest bands (`MemoryPlan.fluxMinimumBand`, `qwenMinimumBand`), as the lean
         /// plan takes them; otherwise the standard ones.
         package var minimumBands = false
+        /// The update rule (`Solver.history`): the latents its walk keeps between two steps.
+        package var solver: Solver = .euler
         /// The images of the batch (`Engine.renderBatch`): every latent waits for the decodings, every
         /// image decoded waits for the batch's end.
         package var batch = 1

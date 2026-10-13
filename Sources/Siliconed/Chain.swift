@@ -248,6 +248,10 @@ public final class Context {
     package var detail: Detail = .normal
     /// `Detail.scale` of the render's size: the standard bell's amount shrinks as the image grows.
     package var detailScale: Double = 1
+    /// **The update rule** (`Request.solver`), and the seed of the image being denoised (the ancestral
+    /// rule's noise).
+    package var solver: Solver = .euler
+    package var solverSeed: UInt64 = 0
 
     /// The σs the DiT is told, for a full schedule of which steps `start…` run.
     package func told(_ sigmas: [Float], start: Int, bell: Detail.Bell = .standard) -> [Float] {
@@ -371,6 +375,9 @@ public protocol DenoisingModule: Sendable {
     /// Whether its estimate x̂₀ is readable early (`Sketch`). By default yes; a denoiser that clears
     /// its noise only at the end says no, and its sketches are finished images.
     var sketches: Bool { get }
+    /// The update rules its sampler walks (`Solver`). By default Euler alone: the chain refuses
+    /// another before any computation rather than render Euler under another name.
+    var solvers: [Solver] { get }
 }
 
 /// The image encoding stage (img2img): an image in the render's format goes in, a latent of its
@@ -417,6 +424,7 @@ public extension DenoisingModule {
     func check(steps: Int, startImage: Bool) throws {}
     var acceptsStartImage: Bool { true }
     var sketches: Bool { true }
+    var solvers: [Solver] { [.euler] }
     /// The evaluations a sketch takes on the latent grid `height × width`: where σ reaches the
     /// threshold, or all of them for a denoiser that does not sketch.
     func sketchEvaluations(steps: Int, height: Int, width: Int) -> Int {
@@ -600,6 +608,10 @@ public struct Request: Sendable, Equatable {
     /// remains than really does, and leaves finer texture. Same evaluations, same cost; `normal` is
     /// the render without it, to the bit. Every denoiser honours it (they all step a σ schedule).
     public var detail: Detail = .normal
+    /// **The update rule of each step** (`Solver`): Euler, the one the Turbo models were distilled
+    /// for, unless another is asked — the same steps, the same σ, another walk between them. Only the
+    /// models whose `DenoisingModule.solvers` name it accept it; the app offers them in Developer Mode.
+    public var solver: Solver = .euler
     /// **Variations** (`Variation`): the seed's starting noise turned towards other seeds', in order —
     /// cousins of the image `seed` gives, its composition kept in proportion to `strength`
     /// (`Variation.Amount`). Empty: the seed's noise, to the bit. Only the noise changes:
@@ -621,6 +633,8 @@ public struct Request: Sendable, Equatable {
         case steps(Int)
         /// More references than the denoiser reads (0: it reads none).
         case references(Int, max: Int)
+        /// A solver the model's sampler does not walk.
+        case solver(Solver, model: String)
         package var description: String {
             switch self {
             case let .references(n, max) where max == 0:
@@ -629,6 +643,7 @@ public struct Request: Sendable, Equatable {
                 return "\(n) reference images: this model reads at most \(max)"
             case .emptyPrompt: return "empty prompt: there is nothing to render"
             case .steps(let n): return "\(n) steps: a render takes between 1 and \(Request.maximumSteps)"
+            case let .solver(solver, model): return "\(model) does not offer the \(solver.rawValue) solver"
             }
         }
     }
@@ -928,6 +943,7 @@ extension Engine {
             references: (request.image.map { [$0] } ?? request.references).map { ($0.width, $0.height) },
             promptTokens: MemoryNeed.Request.promptTokens(request.prompt, family: model.card.family,
                                                            references: request.references.count))
+        memoryRequest.solver = request.solver
         memoryRequest.batch = seeds.count
         memoryRequest.library = model.library ?? .processWide
         // **The request's own refusals first, before any computation and before the memory is judged**:
@@ -954,6 +970,9 @@ extension Engine {
             }
         }
         try chain.denoising.check(steps: steps, startImage: request.image != nil)
+        guard chain.denoising.solvers.contains(request.solver) else {
+            throw Request.Failure.solver(request.solver, model: chain.denoising.model)
+        }
         // Detail, like a LoRA, turns Z-Image's spectral schedule off (`ZImageDenoisingModule.plan`).
         // An edit has none either (`QwenImage21DenoisingModule.plan`): the plan cannot see the
         // references, the chain can.
@@ -1001,6 +1020,7 @@ extension Engine {
         context.stopAfter = sketch
         context.detail = request.detail
         context.detailScale = Detail.scale(width: request.width, height: request.height)
+        context.solver = request.solver
         // The library's warnings become events for the duration of the render (and go to
         // `Warnings.outsideRender` without `onProgress`: a "✗ VITESSE non finie" is not lost),
         // and memory is returned to the system on exit — **including on a cancellation**: the
@@ -1112,6 +1132,7 @@ extension Engine {
             for (n, seed) in seeds.enumerated() {
                 try context.check()
                 context.image = n
+                context.solverSeed = seed
                 if n > 0 {
                     // The text and the input image were paid for by the first.
                     context.timings = Timings()
@@ -1160,7 +1181,7 @@ extension Engine {
                                   strength: request.image != nil ? request.strength : nil, startStep: plan.startStep,
                                   startSigma: plan.startSigma,
                                   timings: context.timings, footprints: context.footprints, tokens: text.tokens,
-                                  detail: request.detail,
+                                  detail: request.detail, solver: request.solver,
                                   variations: request.variations.filter { $0.effectiveStrength > 0 })
                 context.emit(.image(index: n, renderResult))
                 renderResults.append(renderResult)

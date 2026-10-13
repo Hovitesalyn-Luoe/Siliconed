@@ -47,6 +47,7 @@ private struct AppCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Siliconed") { window.about() }
+            Button("Check for Updates…") { window.checkForUpdates() }
             Button("Install the silicontrol command…") { SilicontrolCommand.install() }
             // The socket did not open (another Siliconed listening, a library path too long): said
             // here, greyed, where the remote control is — `silicontrol` cannot tell it from outside.
@@ -237,7 +238,8 @@ final class MainWindow: NSObject, NSWindowDelegate {
         // (`Welcome`, MainView.swift) — no sheet thrown at the user before they have seen the window.
     }
 
-    /// The project's page: each new version and its notes (there is no updater in the app).
+    /// The project's page: each new version and its notes. The app does not update itself: "Check for
+    /// Updates" only says whether a newer version is published, and opens its page.
     static let website = URL(string: "https://gwenn-ha-dev.github.io/Siliconed/")!
 
     /// "About": what the app is, the library it reads, and where a new version is found.
@@ -256,6 +258,60 @@ final class MainWindow: NSObject, NSWindowDelegate {
             .credits: credits,
         ])
         NSApp.activate()
+    }
+
+    /// **"Check for Updates"**: only when asked — nothing leaves the Mac otherwise ("works offline").
+    /// Reads the latest release published on GitHub (tags `vX.Y.Z`, `tools/release-public.sh`) through
+    /// an ephemeral session (incognito: no cookie, no cache), and compares it to the running version.
+    func checkForUpdates() {
+        Task {
+            let alert = NSAlert()
+            let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+            var page = Self.website
+            do {
+                var request = URLRequest(url: URL(string: "https://api.github.com/repos/gwenn-ha-dev/Siliconed/releases/latest")!)
+                request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+                request.timeoutInterval = 15
+                let (data, response) = try await URLSession(configuration: .ephemeral).data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200,
+                      let release = try? JSONDecoder().decode(Release.self, from: data) else {
+                    throw URLError(.badServerResponse)
+                }
+                let latest = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
+                if let url = URL(string: release.html_url) { page = url }
+                if Self.number(current).lexicographicallyPrecedes(Self.number(latest)) {
+                    alert.messageText = String(localized: "Siliconed \(latest) is available.")
+                    alert.informativeText = String(localized: "You have version \(current). The new version is downloaded from its page, with its notes.")
+                    alert.addButton(withTitle: String(localized: "Open the Page"))
+                    alert.addButton(withTitle: String(localized: "Later"))
+                } else {
+                    alert.messageText = String(localized: "Siliconed is up to date.")
+                    alert.informativeText = String(localized: "Version \(current) is the latest published.")
+                    alert.addButton(withTitle: String(localized: "OK"))
+                }
+            } catch {
+                alert.messageText = String(localized: "The check did not succeed.")
+                alert.informativeText = String(localized: "GitHub could not be reached. New versions are also listed on the project's page.")
+                alert.addButton(withTitle: String(localized: "Open the Page"))
+                alert.addButton(withTitle: String(localized: "Cancel"))
+            }
+            NSApp.activate()
+            if alert.runModal() == .alertFirstButtonReturn, alert.buttons.count == 2 {
+                NSWorkspace.shared.open(page)
+            }
+        }
+    }
+
+    private struct Release: Decodable {
+        let tag_name: String
+        let html_url: String
+    }
+
+    /// "0.7.1" → [0, 7, 1]: compared component by component, so 0.10 comes after 0.9; padded to three,
+    /// so 0.8 and 0.8.0 are the same version.
+    private static func number(_ version: String) -> [Int] {
+        let parts = version.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+        return parts + Array(repeating: 0, count: max(0, 3 - parts.count))
     }
 
     /// **The statistics palette**: floating, above the app, retaining nothing (neither
