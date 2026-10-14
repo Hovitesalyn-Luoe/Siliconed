@@ -1,23 +1,34 @@
 import Accelerate
 import Foundation
 
-/// The flow-matching sampler of Z-Image Turbo.
+/// The flow-matching schedule of Z-Image Turbo: **`N` steps are `N` evaluations**.
 ///
-/// Three traps, all verified against the reference at step 1:
+/// diffusers 0.41 (`get_default_z_image_sigmas`, PR #13730) and the official recipe — Tongyi's
+/// model card asks the older pipeline for 9 steps, « this actually results in 8 DiT forwards »:
 ///
-///   - **`sigma_min` is forced to zero by the pipeline** (`pipeline_z_image.py:477`), not by the
-///     scheduler. Hence a final sigma of zero, a final step that moves nothing, and **`N` steps =
-///     `N−1` evaluations**. The bare scheduler leaves 0.008929 and would cost one more evaluation.
+///     σᵢ = shift(linspace(1, 1/N, N))ᵢ,  shift(s) = 3s / (1 + 2s),  then a terminal 0
+///     N = 8:  1, 0.954545, 0.9, 0.833333, 0.75, 0.642857, 0.5, 0.3, 0
+///
+/// What a port by analogy would miss:
+///
+///   - **The 0.36 pipeline was not this.** It forced `scheduler.sigma_min = 0` and walked
+///     `linspace(1, 0, N)`: its last two σ were `0, 0`, a final step that moves nothing, and `N` steps
+///     were `N − 1` evaluations. The engine carried that until 0.8.2 — 7 evaluations where the
+///     model was distilled for 8. Every step now moves the latent; no step is skipped.
+///   - **The ramp is torch's `linspace` in float32**, not NumPy's in double: `step = (end − 1)/(N − 1)`
+///     in float, `1 + step·i` on the first half and `end − step·(N − 1 − i)` on the second, **each a
+///     single rounding** (the CPU kernel fuses them), `end = Float(1/N)` with `1/N` a Python double.
+///     Then the shift in float32 (`set_timesteps` casts the list to `np.float32` first).
 ///   - **Time is inverted**: the DiT receives `(1000 − t)/1000 = 1 − σ`.
 ///   - **The output is negated**: `noise_pred = −v`.
 package struct FlowMatchSchedule {
-    package let sigmas: [Float]          // `steps + 1` values, ending in zero
+    package let sigmas: [Float]          // `steps + 1` values, strictly decreasing, ending in zero
 
     package init(steps: Int, shift: Float = 3.0) {
-        // `linspace(1, 0, steps)` — `steps` points, endpoints included — then the static shift.
-        // `use_dynamic_shifting` is false in the published config, so `mu` is computed for nothing.
+        let end = Float(1.0 / Double(steps))
+        let step = steps > 1 ? (end - 1) / Float(steps - 1) : 0
         var values: [Float] = (0..<steps).map { i in
-            let raw = steps == 1 ? 1 : 1 - Float(i) / Float(steps - 1)
+            let raw = i < steps / 2 ? fmaf(step, Float(i), 1) : fmaf(-step, Float(steps - 1 - i), end)
             return shift * raw / (1 + (shift - 1) * raw)
         }
         values.append(0)
@@ -26,11 +37,6 @@ package struct FlowMatchSchedule {
 
     /// What the DiT receives: the inverted time.
     package func modelTime(at step: Int) -> Float { 1 - sigmas[step] }
-
-    /// The steps that actually move the latent. At 8 steps, there are 7.
-    package var effectiveSteps: Int {
-        (0..<(sigmas.count - 1)).filter { sigmas[$0 + 1] != sigmas[$0] }.count
-    }
 }
 
 package final class Sampler {
@@ -51,9 +57,9 @@ package final class Sampler {
     ///
     ///     x_{k+1} = x_k + Δσ · 𝓘 v_θ(𝓟 x_k, σ_k)
     ///
-    /// In rectified flow, the SNR at frequency `f` reaches 1 at `f* = (1−σ)/σ`. On this schedule `f*`
-    /// is [0; 0.056; 0.134; 0.25; 0.445; 0.834; 2.0]: **the first four evaluations
-    /// carry less than 15 % of the last one's band**, and yet we compute at 1024² to
+    /// In rectified flow, the SNR at frequency `f` reaches 1 at `f* = (1−σ)/σ`. On the eight-step
+    /// schedule `f*` is [0; 0.048; 0.111; 0.2; 0.333; 0.556; 1.0; 2.333]: **the first four evaluations
+    /// carry less than 9 % of the last one's band**, and yet we compute at 1024² to
     /// produce what 512² would carry just as well.
     ///
     /// **The state never goes down** — only the evaluation does. A scheme that downsampled the state
@@ -61,7 +67,7 @@ package final class Sampler {
     /// full-resolution latent, and the resampling leaves no trace in what is
     /// kept.
     ///
-    /// Measured on the spectral oracle (09-21): `k=0` reproduces the reference **to the
+    /// Measured on the spectral oracle (09-21, on the old seven-evaluation schedule): `k=0` reproduces the reference **to the
     /// bit** — without this reference nothing that follows could be attributed to the trick rather than to the
     /// harness; `k=3` removes **32.1 % of the tokens** and the image stays sharp; `k=4` covers it
     /// with speckles. **The verdict is in the image**: the three splits render 10.83 / 10.91 /
@@ -77,7 +83,7 @@ package final class Sampler {
     ///
     /// The product's calibrated rule says: half-size as long as `f* ≤ 0.10`. A grid divided by
     /// `d` carries `d` times less band, so the same argument gives **`f* ≤ 0.10/d`** — and on the
-    /// eight-step schedule, `f* = [0; 0.056; 0.134; …]` would give `[4, 2, 1, 1, 1, 1, 1]`. A quarter
+    /// eight-step schedule, `f* = [0; 0.048; 0.111; …]` would give `[4, 4, 1, 1, 1, 1, 1, 1]`. A quarter
     /// of a 1024² is 256², below the 512² floor (`Spectral.minimumSide`): `run` refuses it.
     ///
     /// ⚠️ **The quarter has no oracle**, and that must be said: the spectral oracle only measured
@@ -100,7 +106,7 @@ package final class Sampler {
     /// so the same seed gives the same image.
     package var solverSeed: UInt64 = 0
 
-    /// **After each evaluation** (zero steps are not evaluations): `(absolute step, seconds, evaluated
+    /// **After each evaluation** (every step is one): `(absolute step, seconds, evaluated
     /// grid h, w, x, derivative dx/dσ = negated, σₓ)`, the estimate x̂₀ being `x − σₓ·negated`. This
     /// is how the product's module numbers its steps, computes the preview and checks cancellation; it
     /// may throw, and the loop stops. `onStep`, for its part, remains the instrument of the checks.
@@ -160,7 +166,7 @@ package final class Sampler {
         let channels = height > 0 && width > 0 ? count / (height * width) : 0
         // **One buffer per descent level**, reserved once for all the low
         // evaluations. At 1024² they weigh 4 MB for the half and 1 MB for the quarter — we do not
-        // count them, but reallocating them at every step would be seven times the work of the first.
+        // count them, but reallocating them at every step would be eight times the work of the first.
         // **Stable allocations, not Swift arrays.** An `UnsafePointer(array)` taken
         // outside its `withUnsafeBufferPointer` is only valid for the duration of the call — and the descent
         // needs to hold a pointer from one level to the next. Two simultaneous exclusive accesses to
@@ -178,7 +184,7 @@ package final class Sampler {
         defer { withExtendedLifetime(levelPages) {} }
 
         // What the DiT is told: `1 − σ'` (`FlowMatchSchedule.modelTime`) with σ' the detail's σ.
-        let told = detail.modelSigmas(schedule.sigmas, start: start, scale: detailScale)
+        let told = detail.modelSigmas(schedule.sigmas, start: start, bell: .zImage, scale: detailScale)
         // The update, step by step, on the true σ (`Solver`). Its history lives in `Pages`.
         var stream = Noise(seed: solverSeed ^ 0x5EED_A9CE_57A1_0000)
         let walk = SolverWalk(solver: solver, schedule: schedule.sigmas, start: start, count: count,
@@ -188,15 +194,6 @@ package final class Sampler {
             // Between two steps, not in the middle of one: see `Cancellation`.
             try dit.cancellation.check()
             let sigma = schedule.sigmas[step], next = schedule.sigmas[step + 1]
-            if next == sigma {
-                // The step moves nothing: we do not pay for the evaluation. Measured: 12.5 %.
-                if recordTrajectory {
-                    velocities.append(velocities.last ?? [Float](repeating: 0, count: count))
-                    latents.append(Array(UnsafeBufferPointer(start: latent, count: count)))
-                }
-                onStep?(step, sigma, 0, height, width)
-                continue
-            }
             let started = Date()
             let d = divisor(step)
             let spectral = d > 1
@@ -262,7 +259,7 @@ package final class Sampler {
             }
             evaluations += 1
             // **Where does the trajectory go wrong?** An entirely `NaN` image does not say at which step
-            // it became so, and there are seven. The check costs 262,144 comparisons per
+            // it became so, and there are eight. The check costs 262,144 comparisons per
             // step — nothing next to an evaluation — and it turns "the render is broken"
             // into "the velocity of step 3 contains 412 non-finite values". It announces itself (a warning,
             // hence an event during a render) and does not stop: the rest of the trajectory says whether it propagates or

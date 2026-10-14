@@ -50,7 +50,7 @@ final class DiagnosticTests: XCTestCase {
     func testEstimatedRenderIsEncoderFirstStepsAndDecoder() {
         // 6 evaluations: the first (with its construction), then 5 like the second.
         XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 3, first: 6, steady: 4, decoding: 1, evaluations: 6), 30)
-        // Z-Image's 8 steps are 7 evaluations (the null last step is skipped).
+        // 7 evaluations.
         XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 2, first: 5, steady: 3, decoding: 1, evaluations: 7), 26)
         XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 2, first: 5, steady: 3, decoding: 1, evaluations: 1), 8)
         XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 2, first: 5, steady: 3, decoding: 1, evaluations: 0), 8)

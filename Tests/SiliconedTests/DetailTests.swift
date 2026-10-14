@@ -43,13 +43,15 @@ final class DetailTests: XCTestCase {
         }
     }
 
-    /// The σ the model receives, on Z-Image's schedule (diffusers' `…, 0, 0`): float32 to the bit.
+    /// The σ the model receives, on Z-Image's schedule (diffusers 0.41: `linspace(1, 1/N, N)`, shift 3,
+    /// then 0 — since 0.8.2): float32 to the bit. Recomputed on that schedule by the node's
+    /// `make_detail_daemon_schedule` and wrapper semantics (float32 schedule, factor `1 − 0.1·m`).
     func testTheModelSigmasAreTheWrappers() {
         let cases: [(steps: Int, amount: Double, want: [Float])] = [
-            (8, 0.5, [1, 0.947368383, 0.871323466, 0.769999921, 0.657692254, 0.531818151, 0.333333313, 0]),
-            (8, 1.0, [1, 0.947368383, 0.860294104, 0.73999995, 0.623076856, 0.518181741, 0.333333313, 0]),
-            (9, 1.0, [1, 0.954545438, 0.899999976, 0.791666627, 0.674999952, 0.610714257, 0.5, 0.300000012, 0]),
-            (6, 1.0, [1, 0.923076987, 0.73636359, 0.633333266, 0.428571403, 0]),
+            (8, 0.5, [1, 0.9545454382896423, 0.8887500166893005, 0.8020833134651184, 0.7124999761581421, 0.6267856955528259, 0.5, 0.30000001192092896, 0]),
+            (8, 1.0, [1, 0.9545454382896423, 0.8774999976158142, 0.7708333134651184, 0.6749999523162842, 0.6107142567634583, 0.5, 0.30000001192092896, 0]),
+            (9, 1.0, [1, 0.9600000381469727, 0.9130435585975647, 0.8142856359481812, 0.7105263471603394, 0.6705882549285889, 0.5999999642372131, 0.46153849363327026, 0.27272728085517883, 0]),
+            (6, 1.0, [1, 0.9375, 0.7714285254478455, 0.7124999761581421, 0.5999999642372131, 0.375, 0]),
         ]
         for c in cases {
             let σ = FlowMatchSchedule(steps: c.steps).sigmas
@@ -62,7 +64,7 @@ final class DetailTests: XCTestCase {
         let σ = FlowMatchSchedule(steps: 8).sigmas
         let tail = Detail.adjusted(σ, start: 3, .init(amount: 1))
         XCTAssertEqual(Array(tail[..<3]), Array(σ[..<3]))
-        for (g, w) in zip(tail[3...], [0.799999952, 0.692307651, 0.49090904, 0.333333313, 0] as [Float]) {
+        for (g, w) in zip(tail[3...], [0.8333333134651184, 0.75, 0.5785713791847229, 0.5, 0.30000001192092896, 0] as [Float]) {
             XCTAssertEqual(g, w, accuracy: 2e-7)
         }
     }
@@ -81,7 +83,7 @@ final class DetailTests: XCTestCase {
                 for (a, b) in zip(m, σ) { XCTAssertLessThanOrEqual(a, b) }
             }
         }
-        for bell in [Detail.Bell.standard, .late] {
+        for bell in [Detail.Bell.standard, .zImage, .late] {
             XCTAssertNil(Detail.normal.schedule(bell))
             XCTAssertGreaterThan(Detail.most.schedule(bell)!.amount, Detail.more.schedule(bell)!.amount)
         }
@@ -89,6 +91,26 @@ final class DetailTests: XCTestCase {
         // half and the 7th (`[0, 0, 0, 0, 0, 0.5, 1, 0]`), not judged by eye yet.
         XCTAssertEqual(Detail.multipliers(steps: 6, Detail.more.schedule(.late)!), [0, 0, 0, 0, 1, 0])
         XCTAssertNotEqual(Detail.more.modelSigmas(FlowMatchSchedule(steps: 8).sigmas), FlowMatchSchedule(steps: 8).sigmas)
+    }
+
+    /// **Z-Image's bell**: on its 8 evaluations, σ 0.75 at half and σ 0.643 in full, nothing
+    /// else — neither the σ ≥ 0.833 where the pose is decided nor σ 0.5, where it only sows specks.
+    func testZImagesBellSitsOnTwoEvaluations() {
+        for level in [Detail.more, .most] {
+            let s = level.schedule(.zImage)!
+            let m = Detail.multipliers(steps: 8, s)
+            for (g, w) in zip(m, [0, 0, 0, 0, 0.5, 1, 0, 0].map { $0 * s.amount }) { XCTAssertEqual(g, w, accuracy: 1e-15) }
+        }
+        let σ = FlowMatchSchedule(steps: 8).sigmas
+        for (level, want) in [(Detail.more, [0.75 * 0.9, 0.6428571428571429 * 0.8]),
+                              (.most, [0.75 * 0.875, 0.6428571428571429 * 0.75])] {
+            let told = level.modelSigmas(σ, bell: .zImage)
+            XCTAssertEqual(Array(told[..<4]).map(\.bitPattern), Array(σ[..<4]).map(\.bitPattern))
+            XCTAssertEqual(Array(told[6...]).map(\.bitPattern), Array(σ[6...]).map(\.bitPattern))
+            for (g, w) in zip(told[4...5], want) { XCTAssertEqual(Double(g), w, accuracy: 1e-6) }
+        }
+        // 1024²: half the amount, never another bell.
+        XCTAssertEqual(Detail.more.modelSigmas(σ, bell: .zImage, scale: 0.5)[5], σ[5] * 0.9, accuracy: 1e-6)
     }
 
     /// **The standard bell shrinks as the image grows**: ×1 at 512², ×½ at 1024², ×0.41

@@ -383,10 +383,10 @@ package enum QwenImage21VAE {
             Stage(["t"], name, tokens, weights: WeightList.projection(c, c), forget: n == 2 ? ["t"] : []) { k, t in
                 try k.projection(t[0], prefix + ".to_qkv", rows: (n * c)..<((n + 1) * c)) }
         }
-        // MPSGraph's SDPA copies its queries into the workspace: `S·C` floats.
+        // MPSGraph's SDPA copies its queries into the workspace: `S·C` floats, asked in whole 2 MiB.
         var sdpa = Stage(["q", "k", "v"], "a", tokens, forget: ["q", "k", "v"]) { k, t in
             k.scaledDotProduct(t[0], t[1], t[2], channels: c, requestBlock: requestBlock) }
-        sdpa.workspace = max(sdpa.workspace, s * c)
+        sdpa.workspace = max(sdpa.workspace, VAELayout.sdpaAsk(tokens: s, channels: c))
         sdpa.outside = VAELayout.sdpaOutside(tokens: s, channels: c)
         return [Stage(["x"], "n", [1, c, size.h, size.w], weights: WeightList.rms(c)) { k, t in
                     try k.rmsNorm(t[0], prefix + ".norm", channels: c) },
@@ -645,7 +645,10 @@ package final class QwenImage21VAEDecoder {
                           min: k.graph.constant(-1, dataType: .float32), max: k.graph.constant(1, dataType: .float32), name: nil) })
         memory.host(4 * config.outChannels * H * W)
         var rgba = [Float](repeating: 0, count: memory.isLive ? config.outChannels * H * W : 0)
-        let graphs = V.Graphs()
+        // The passes' graphs are kept for the next band — when there is one. Kept, ~20 graphs hold their
+        // compiled state together until the tail ends (at 512², one band: 30 MB at the decoder's peak,
+        // on the first render of a process, where each dies after its pass otherwise).
+        let graphs = (h + core - 1) / core > 1 ? V.Graphs() : nil
         var c0 = 0
         while c0 < h {
             let c1 = min(h, c0 + core)

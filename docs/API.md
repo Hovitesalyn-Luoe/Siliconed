@@ -169,7 +169,7 @@ be checked on the model's page).
 
 | identifier | name | license | denoiser | VAE |
 |---|---|---|---|---|
-| `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 steps, spectral schedule at 1024² | Flux |
+| `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 steps | Flux |
 | `qwen-image-2.1` | Qwen-Image-2.1 Turbo (§3.12) | **non-commercial** (Qwen Research) | Qwen-Image-2.1 DiT (32 single-stream layers, block-causal attention) distilled by Qwen, 8 steps on its published schedule; editing with 1 to 3 images (§3.12) | Qwen-Image-2.1 (16×, 64 channels) |
 
 ### 2.3 `Request`: everything that distinguishes a render
@@ -402,8 +402,10 @@ let renderResult = try await Engine().render(request, model: try Model.zImage(in
 - An **in-memory** image (drag and drop, pasteboard): `try ImageRGB(cgImage: cg)` (sRGB, alpha over
   white; no EXIF orientation, a `CGImage` has none), bounded the same way: a longer side is drawn
   straight to `maxSide`, never held at full size.
-- Bounds of the strength slider: between 0.2 and 0.8 in practice. For Z-Image, the strength must
-  exceed 1/N, i.e. 1/8 at 8 steps (`EngineError.strengthTooLow` gives the `floor`).
+- Bounds of the strength slider: between 0.2 and 0.8 in practice. Since 0.8.2 every strength in
+  ]0, 1] leaves at least one evaluation, Z-Image included (until 0.8.1 its last step was null and
+  the strength had to exceed 1/N); `EngineError.strengthTooLow` (with its `floor`) stays for a
+  denoiser whose plan would leave none.
   `Strength.startStep(steps:strength:)` gives the starting step, to display it before the render.
 - Z-Image does not change *style* in img2img, even at 0.85.
 - Qwen-Image-2.1 does no img2img (`EngineError.imageToImageUnsupported`): pass the image as
@@ -572,7 +574,7 @@ not read the machine's profile (§2.1).
 ceiling: **1024², 896×1152, 832×1216, 768×1344**, their transposes, and **512²** for fast
 iteration. `RecommendedFormat` has `width`, `height`, `orientation` (`.square`, `.portrait`,
 `.landscape`) and a displayable `description` (`832×1216 (portrait)`). 1024×1536 is accepted but
-not recommended (on Z-Image it takes ~153 s against ~82 s for a 1024²). For a free-form field,
+not recommended (on Z-Image it takes 190 s against 113–119 s for a 1024²). For a free-form field,
 `Format.parse("832x1216")` then `Format.check(width:height:)`.
 When a format is beyond this Mac's budget (`insufficientMemory`), `RecommendedFormat.largestFitting(card.formats,
 budget:current:need:)` gives the largest one whose need fits in `budget` — B,
@@ -947,23 +949,23 @@ whole render (`Render.sketch` is then `nil`).
 ```swift
 let model = try Model.zImage(in: library)
 var request = Request("woman posing in a library", resolution: 512, seed: 42)
-request.sketch = model.sketchEvaluations(steps: nil, width: 512, height: 512)   // 3 (of 7)
-let rough = try await Engine().render(request, model: model)                    // rough.sketch == 3
+request.sketch = model.sketchEvaluations(steps: nil, width: 512, height: 512)   // 4 (of 8)
+let rough = try await Engine().render(request, model: model)                    // rough.sketch == 4
 request.sketch = nil
 let finished = try await Engine().render(request, model: model)                 // the image it announced
 ```
 
 - **Where to stop** (`Sketch`): after the first evaluation that brings σ to `Sketch.threshold`
   (0.8) or below — a σ, not a step count: Qwen-Image-2.1's schedule keeps σ high longer.
-  `Sketch.evaluations(sigmas:)` reads it from a schedule (null steps are not evaluations),
+  `Sketch.evaluations(sigmas:)` reads it from a schedule (one evaluation per step),
   `Model.sketchEvaluations(steps:width:height:)` from a model at a format (`steps` nil: its default),
   and `DenoisingPlan.sketched(_:)` cuts a plan to it, to estimate a sketch's duration before it runs.
 - **What it is worth** (512², estimate against the final image reduced ×4, as on a sheet):
-  Z-Image stops after 3 of 7 evaluations — ~16.7 s instead of ~32.5 s, ~21 dB, pose, clothes and
-  light already the final image's; Qwen-Image-2.1, which does not sketch (`DenoisingModule.sketches`: its cells are finished
+  Z-Image stops after 4 of 8 evaluations (σ 0.75) — ~18 s instead of ~34 s, 23–24 dB,
+  pose, clothes and light already the final image's; Qwen-Image-2.1, which does not sketch (`DenoisingModule.sketches`: its cells are finished
   images), would stop after 6 of 8, its schedule staying above 0.8 until then. A
-  sketch shows where the image goes; the finished render is the judge (under a LoRA, Z-Image's pose
-  still moved between 3 and 4).
+  sketch shows where the image goes; the finished render is the judge (under a LoRA, on the
+  7-evaluation schedule Z-Image ran until 0.8.1, its pose still moved between σ 0.80 and 0.69).
 - **Events**: `start` carries the whole render's plan; the `step` events count to the sketch
   (`total` = `n`), then decoding and `image` as usual. The PNG carries a `sketch` key (§3.8).
 
@@ -983,13 +985,17 @@ print(detailed.detail, detailed.metadata["detail"] ?? "")   // more more
 ```
 
 - **What it is worth** (512², default steps, by eye and by the mean |Laplacian| of the
-  luminance): `.more` ≈ +10 % of fine detail and the same picture, `.most` ≈ +20 %, the strongest
-  that stayed clean. Z-Image takes the node's bell; on Qwen-Image-2.1, whose schedule decides
-  the composition early, that bell changed the picture, so it gets a late bell, over its last steps
-  only (the 6th at half, the 7th of 8). That bell has not yet been judged again on the Turbo's
+  luminance): `.more` ≈ +10 % of fine detail and the same picture, `.most` the strongest that
+  stays clean. Each family has its own bell, because the node's lands where the composition is
+  decided. Z-Image's covers two of its 8 evaluations (σ 0.75 at half, 0.643): `.more` +8–11 %,
+  same pose; `.most` +10–15 %, clean (seeds 42, 7, 0). Qwen-Image-2.1's is late, over its last
+  steps only (the 6th at half, the 7th of 8); it has not yet been judged again on the Turbo's
   8-step schedule.
-- **The bell is laid over step indices**, not over σ: another step count than the default, or
-  1024², has not been judged. In img2img it covers the steps that run.
+- **The amount follows the image's side** (× 512/√(w·h)): the same amount paints four times the
+  tokens at 1024². There, Z-Image's `.more` gives +6–8 % and `.most` +8–10 %, the same picture,
+  clean.
+- **The bell is laid over step indices**, not over σ: another step count than the default has not
+  been judged. In img2img it covers the steps that run.
 - The PNG carries `detail` unless `.normal` (§3.8); the app shows it as « Detail: Normal · More ·
   Most » in the DiT box.
 
@@ -1046,7 +1052,7 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 - **What it changes** (Z-Image, 1024², seeds 42, 7 and 0, and 512², by eye): DPM++ 2M follows
   Euler's picture, slightly crisper; UniPC keeps the composition and varies the details (a cardigan
   for a sweater); the ancestral rule recomposes and simplifies (plainer clothes, softer background).
-  None broke an image, and the spectral schedule of the 1024² holds under all four. Other step
+  None broke an image. Other step
   counts and img2img have not been judged.
 - **On Qwen-Image-2.1** (1024², seeds 42 and 7, and an edit, by eye): DPM++ 2M follows Euler's
   picture again; UniPC sometimes recomposes entirely (seed 7: another woman) — this model decides its
@@ -1070,7 +1076,7 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 | memory | **16 GB** machine (MacBookPro18,3). Measured peaks (`phys_footprint`): 1.7 GB for Z-Image and 2.6 GB for Qwen-Image-2.1 at 512², 2.9 GB for Z-Image and 3.7 GB for Qwen-Image-2.1 at 1024² (3.8 GB in a batch of three), **3.8 GB** for Z-Image at 1024×1536, **4.8 GB** for Qwen-Image-2.1 at 1024×1536 with three references; 0 swap-out at each worst case. Before a render, the preflight checks the need against the memory actually available (§5) | the per-stage scope (`Chain.swift`), `MemoryBudget` |
 | precision | **fp32** compute everywhere; the weights may be stored in bf16, fp16, 8 bits or GGUF 4 to 6 bits (§3.11), then widened. No compute in fp16/bf16 | `Widen` (the weights widened to fp32) |
 | determinism | with `reproducible` (true by default, frozen GPU/AMX split): **same seed, same request, same machine and same version → same bits**, and non-regression is judged by md5. Image n of a batch = the isolated render of its seed. `Noise` is **not** `torch.randn`: a seed does not give back diffusers' image nor Draw Things'. From one version to the next, pixels may change, and from one machine to another, nothing has been measured | `Request.reproducible` (`nil`: `EngineSettings.effective.frozenCut`) |
-| spectral schedule (Z-Image, Qwen-Image-2.1) | only when **both sides are ≥ 1024**: 1024², 1024×1536 and its transpose (`k = 2`: the first two evaluations at half size). The usual portraits and landscapes pay all their evaluations at full size. It is off in img2img, under a LoRA or Detail, and in a Qwen-Image-2.1 edit; forced below the floor, it is refused before any computation | `ZImageDenoisingModule.plan`, `QwenImage21DenoisingModule.plan` |
+| spectral schedule (Qwen-Image-2.1) | only when **both sides are ≥ 1024**: 1024², 1024×1536 and its transpose (`k = 2`: the first two evaluations at half size). The usual portraits and landscapes pay all their evaluations at full size. It is off in img2img, under a LoRA or Detail, and in a Qwen-Image-2.1 edit; forced below the floor, it is refused before any computation | `QwenImage21DenoisingModule.plan` |
 
 **Indicative times**: MacBookPro18,3 (M1 Pro, 16 GB), machine profile loaded, default steps (8 for
 Z-Image and Qwen-Image-2.1), seed 42, “a 30 year old woman posing in a library”, render cache
@@ -1079,7 +1085,7 @@ the UI must rely on `Progress.estimatedRemaining`, not on this table.
 
 | model | 512² | 1024² | 1216×832 | 1024×1536 |
 |---|---|---|---|---|
-| Z-Image Turbo (8 steps) | **~29 s** | **~82 s** (spectral k = 2) | 110 s | ~153 s |
+| Z-Image Turbo (8 steps) | **~34 s** | **113–119 s** | 110 s | 190 s |
 | Qwen-Image-2.1 Turbo (8 steps) | **~44 s** | **~120 s** (spectral k = 2) | — | ~203 s (spectral k = 2) |
 
 Qwen-Image-2.1 editing: at 1248×832, ~210 s with one reference, ~285 s with two;

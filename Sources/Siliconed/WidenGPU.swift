@@ -227,8 +227,8 @@ package final class WidenGPU {
     /// throughput says nothing about what is paid elsewhere.
     ///
     /// **The cost of wiring is counted, not assumed** (the counter and the clock below, displayed by
-    /// the widening check): 0.067 ms per weight, 238 weights per evaluation, seven evaluations —
-    /// ~112 ms on a 1024² render, against twelve gigabytes of footprint.
+    /// the widening check): 0.067 ms per weight, 238 weights per evaluation, eight evaluations —
+    /// ~128 ms on a 1024² render, against twelve gigabytes of footprint.
     package private(set) var wrapped = 0
     package private(set) var wrapSeconds = 0.0
     package private(set) var widened = 0            // values widened on the GPU

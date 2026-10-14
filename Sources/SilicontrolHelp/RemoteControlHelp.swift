@@ -346,7 +346,7 @@ public enum RemoteControlHelp {
         enough room for every alternative), busy (an installation is running: no render until it
         is done), write.
 
-        Indicative times (MacBook Pro M1 Pro 16 GB, Z-Image): ~45 s at 512², ~115 s at 1024².
+        Indicative times (MacBook Pro M1 Pro 16 GB, Z-Image, 8 steps): ~34 s at 512², 113–119 s at 1024².
         """,
 
         "grid": """
@@ -357,8 +357,8 @@ public enum RemoteControlHelp {
         one image with every cell side by side, the axes' values as labels and the prompt as its
         title, added to the history (i…). Nothing is written to disk without --out or save.
         Options and arguments are those of « add » (help add), except --batch: a cell is one image.
-        --sketch: an EXPLORATION — each cell stops as soon as its image is readable (σ ≤ 0.8: 3
-          evaluations of 7 for z-image, about half the time) and shows the model's estimate of the
+        --sketch: an EXPLORATION — each cell stops as soon as its image is readable (σ ≤ 0.8: 4
+          evaluations of 8 for z-image, about half the time) and shows the model's estimate of the
           final image (qwen-image-2.1 does not sketch: its cells are finished images); the cells go to the app's Exploration window and
           their "type": "image" lines (with "sketch": n), not to the history, and no sheet is drawn.
           A new exploration replaces the last one's cells still waiting. Keep 512 on the short side.
@@ -419,7 +419,7 @@ public enum RemoteControlHelp {
 
         LINES, as they come — one per image:
           {"type": "image", "image": "i7", "job": "t3", "model": "z-image", "prompt": "…",
-           "width": 832, "height": 1216, "seed": 42, "steps": 8, "evaluations": 7,
+           "width": 832, "height": 1216, "seed": 42, "steps": 8, "evaluations": 8,
            "seconds": 45.86, "loras": [], "edit": false, "references": 0, "path": "/abs/D/….png"}
           "path" only exists with --out; "write_error" if it could not be written.
           Without --out, the image is ONLY in the app's memory (history, lost when it quits):
@@ -448,7 +448,7 @@ public enum RemoteControlHelp {
         Answer:
           {"ok": true,
            "running": {"job": "t3", "stage": "denoising", "batch_image": 1, "step": 4,
-                       "steps_total": 7, "fraction": 0.52, "remaining_s": 21.3, "model": "z-image",
+                       "steps_total": 8, "fraction": 0.52, "remaining_s": 21.3, "model": "z-image",
                        "prompt": "…", "seeds": [42], …} | null,
            "queue": [{"job": "t4", "estimate_s": 45.2, …}, …],
            "waiting_for_license": [{"job": "t5", "state": "waiting_for_license",
@@ -458,7 +458,7 @@ public enum RemoteControlHelp {
            "history_images": 12, "library": "/Users/…/Siliconed"}
 
         stage              : text, image (encoding a reference), denoising, decoding.
-        steps_total        : the model's evaluations (often steps − 1), not the requested steps.
+        steps_total        : the model's evaluations (fewer than the requested steps in img2img), not the requested steps.
         remaining_s        : null until the app has a measurement for this render.
         remaining_complete : false if a waiting job has no estimate (queue_remaining_s is a minimum).
         installing         : an installation or an import in progress, and its last journal line;
@@ -481,7 +481,7 @@ public enum RemoteControlHelp {
         LINES:
           {"type": "start", "job": "t3", …settings…}
           {"type": "stage", "job": "t3", "stage": "denoising", "batch_image": 1}
-          {"type": "step", "job": "t3", "batch_image": 1, "step": 4, "steps_total": 7, "seconds": 5.8}
+          {"type": "step", "job": "t3", "batch_image": 1, "step": 4, "steps_total": 8, "seconds": 5.8}
           {"type": "image", "image": "i7", …}           (as in « wait », without "path")
           {"type": "end", "job": "t3", "outcome": "done" | "stopped" | "removed" | "error"}
           {"type": "sheet", "image": "i9", "grid": "g2", …}   (a grid's last cell ended; "image": null without a sheet)
@@ -954,7 +954,7 @@ public enum RemoteControlHelp {
         de place pour toutes les alternatives), busy (une installation tourne : pas de rendu avant
         qu'elle soit finie), write.
 
-        Temps indicatifs (MacBook Pro M1 Pro 16 Go, Z-Image) : ~45 s à 512², ~115 s à 1024².
+        Temps indicatifs (MacBook Pro M1 Pro 16 Go, Z-Image, 8 pas) : ~34 s à 512², 113–119 s à 1024².
         """,
 
         "grid": """
@@ -966,8 +966,8 @@ public enum RemoteControlHelp {
         en étiquettes et le prompt en titre, ajoutée à l'historique (i…). Rien n'est écrit sur
         disque sans --out ou save.
         Options et arguments sont ceux de « add » (help add), sauf --batch : une case est une image.
-        --sketch : une EXPLORATION — chaque case s'arrête dès que son image se lit (σ ≤ 0,8 : 3
-          évaluations sur 7 pour z-image, environ la moitié du temps) et montre l'estimation par le
+        --sketch : une EXPLORATION — chaque case s'arrête dès que son image se lit (σ ≤ 0,8 : 4
+          évaluations sur 8 pour z-image, environ la moitié du temps) et montre l'estimation par le
           modèle de l'image finale (qwen-image-2.1 n'esquisse pas : ses cases sont des images finies) ; les cases vont dans la fenêtre
           Exploration de l'app et dans leurs lignes "type": "image" (avec "sketch": n), pas dans
           l'historique, et aucune planche n'est dessinée. Une nouvelle exploration remplace les cases
@@ -1030,7 +1030,7 @@ public enum RemoteControlHelp {
 
         LIGNES, au fil de l'eau — une par image :
           {"type": "image", "image": "i7", "job": "t3", "model": "z-image", "prompt": "…",
-           "width": 832, "height": 1216, "seed": 42, "steps": 8, "evaluations": 7,
+           "width": 832, "height": 1216, "seed": 42, "steps": 8, "evaluations": 8,
            "seconds": 45.86, "loras": [], "edit": false, "references": 0, "path": "/abs/D/….png"}
           "path" n'existe qu'avec --out ; "write_error" s'il n'a pas pu être écrit.
           Sans --out, l'image n'est QUE dans la mémoire de l'app (historique, perdu quand elle
@@ -1059,7 +1059,7 @@ public enum RemoteControlHelp {
         Réponse :
           {"ok": true,
            "running": {"job": "t3", "stage": "denoising", "batch_image": 1, "step": 4,
-                       "steps_total": 7, "fraction": 0.52, "remaining_s": 21.3, "model": "z-image",
+                       "steps_total": 8, "fraction": 0.52, "remaining_s": 21.3, "model": "z-image",
                        "prompt": "…", "seeds": [42], …} | null,
            "queue": [{"job": "t4", "estimate_s": 45.2, …}, …],
            "waiting_for_license": [{"job": "t5", "state": "waiting_for_license",
@@ -1069,7 +1069,7 @@ public enum RemoteControlHelp {
            "history_images": 12, "library": "/Users/…/Siliconed"}
 
         stage              : text, image (encodage d'une référence), denoising, decoding.
-        steps_total        : les évaluations du modèle (souvent pas − 1), pas les pas demandés.
+        steps_total        : les évaluations du modèle (moins que les pas demandés en img2img), pas les pas demandés.
         remaining_s        : null tant que l'app n'a pas de mesure pour ce rendu.
         remaining_complete : false si un travail en attente n'a pas d'estimation (queue_remaining_s est un minimum).
         installing         : une installation ou un import en cours, et la dernière ligne de son
@@ -1093,7 +1093,7 @@ public enum RemoteControlHelp {
         LIGNES :
           {"type": "start", "job": "t3", …réglages…}
           {"type": "stage", "job": "t3", "stage": "denoising", "batch_image": 1}
-          {"type": "step", "job": "t3", "batch_image": 1, "step": 4, "steps_total": 7, "seconds": 5.8}
+          {"type": "step", "job": "t3", "batch_image": 1, "step": 4, "steps_total": 8, "seconds": 5.8}
           {"type": "image", "image": "i7", …}           (comme dans « wait », sans "path")
           {"type": "end", "job": "t3", "outcome": "done" | "stopped" | "removed" | "error"}
           {"type": "sheet", "image": "i9", "grid": "g2", …}   (la dernière case d'une grille a fini ; "image": null sans planche)

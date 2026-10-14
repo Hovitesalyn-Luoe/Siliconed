@@ -810,10 +810,11 @@ extension VAE {
                 try whole([t], [1, s, c], weights: WeightList.projection(c, c)) { b, p in try b.projection(p[0], prefix + "." + name) }
             }
             memory.free(t)
-            // MPSGraph's SDPA copies its queries into the workspace: `S·C` floats; and four
+            // MPSGraph's SDPA copies its queries into the workspace: `S·C` floats, asked in whole
+            // 2 MiB (`VAELayout.sdpaAsk`); and four
             // more copies of its own, beside our heaps (`VAELayout.sdpaOutside`).
             memory.outside(VAELayout.sdpaOutside(tokens: s, channels: c))
-            let a = try whole(qkv, [1, s, c], weights: [], workspace: max(VAELayout.minimumAsk / 4, s * c)) { b, p in
+            let a = try whole(qkv, [1, s, c], weights: [], workspace: max(VAELayout.minimumAsk / 4, VAELayout.sdpaAsk(tokens: s, channels: c))) { b, p in
                 b.scaledDotProduct(p[0], p[1], p[2], channels: c, requestBlock: EngineSettings.effective.vaeRequestBlock)
             }
             memory.free(qkv)

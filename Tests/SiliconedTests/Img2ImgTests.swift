@@ -28,32 +28,34 @@ final class Img2ImgTests: XCTestCase {
         XCTAssertEqual(Int(Float(50) - min(Float(50) * Float(0.56), 50)), 22, "the trap that Double avoids")
     }
 
-    /// At strength 0.6: Anima and Krea 2 do 5 evaluations, Z-Image 4 (its last step is zero), and
-    /// σ_s differs from one model to the next (0.800 · 0.833 · 0.840).
+    /// At strength 0.6: the three do 5 evaluations (Z-Image too since 0.8.2: no final zero step), and
+    /// σ_s differs from one model to the next (Z-Image and Anima share shift 3 on the same ramp:
+    /// 0.833 · 0.833 · 0.840).
     func testEachModelsPlanAtStrength60() {
         let start = Strength.startStep(steps: 8, strength: 0.6)
         let z = ZImageDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: start)
         let a = AnimaDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: start)
         let k = Krea2DenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: start)
-        XCTAssertEqual([z.evaluations, a.evaluations, k.evaluations], [4, 5, 5])
-        XCTAssertEqual(z.startSigma, 0.8, accuracy: 1e-6)
+        XCTAssertEqual([z.evaluations, a.evaluations, k.evaluations], [5, 5, 5])
+        XCTAssertEqual(z.startSigma, 0.8333333, accuracy: 1e-6)
         XCTAssertEqual(a.startSigma, 0.8333, accuracy: 1e-4)
         XCTAssertEqual(k.startSigma, 0.8403, accuracy: 1e-4)
         XCTAssertEqual([z.startStep, a.startStep, k.startStep], [3, 3, 3])
     }
 
-    /// txt2img is start 0: nothing has changed (7 evaluations for Z-Image, 8 elsewhere, σ = 1).
+    /// txt2img is start 0: nothing has changed (8 evaluations, σ = 1).
     func testStartZeroIsTxt2img() {
         let z = ZImageDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: 0)
-        XCTAssertEqual(z.evaluations, 7); XCTAssertEqual(z.startSigma, 1)
+        XCTAssertEqual(z.evaluations, 8); XCTAssertEqual(z.startSigma, 1)
         XCTAssertEqual(AnimaDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: 0).evaluations, 8)
     }
 
-    /// **The spectral switches off in img2img**: at 1024² (latent 128), `k = 2` at start 0, `k = 0`
-    /// from start 1 — even when forced.
+    /// **The spectral switches off in img2img**: at 1024² (latent 128), the product's `k` (0 since
+    /// 0.8.2) at start 0, `k = 0` from start 1 — even when forced.
     func testTheSpectralTurnsOffAsSoonAsTheStartIsNonZero() {
         let product = ZImageDenoisingModule(map: "")
-        XCTAssertEqual(product.plan(height: 128, width: 128, steps: 8, start: 0).reduced, 2)
+        XCTAssertEqual(product.plan(height: 128, width: 128, steps: 8, start: 0).reduced, ZImageDenoisingModule.spectralSteps)
+        XCTAssertEqual(ZImageDenoisingModule(map: "", spectral: 2).plan(height: 128, width: 128, steps: 8, start: 0).reduced, 2)
         XCTAssertEqual(product.plan(height: 128, width: 128, steps: 8, start: 1).reduced, 0)
         XCTAssertEqual(ZImageDenoisingModule(map: "", spectral: 3).plan(height: 128, width: 128, steps: 8, start: 2).reduced, 0)
     }
@@ -64,20 +66,20 @@ final class Img2ImgTests: XCTestCase {
         XCTAssertEqual(ZImageDenoisingModule(map: "", spectral: 2).plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: true).reduced, 2)
     }
 
-    /// **A strength that leaves no evaluation is refused, before any computation** — the modules
-    /// have empty paths: if the engine touched a file, the error would be different. Z-Image at
-    /// 0.1 (start 7: only the zero step remains); Anima, for its part, always keeps a step.
+    /// **Every strength above 0 keeps an evaluation**: Z-Image's last step moves since 0.8.2 (it
+    /// was 0 → 0, and a strength ≤ 1/N was refused), like Anima's. Out-of-range strengths and a
+    /// chain without an encoder are refused before any computation — the modules have empty paths:
+    /// if the engine touched a file, the error would be different.
     func testAStrengthWithoutEvaluationIsRefused() throws {
         let image = ImageRGB(pixels: [Float](repeating: 0, count: 3 * 512 * 512), height: 512, width: 512)
         let zImage = try Chain(text: ZImageTextModule(map: "", tokenizer: ""), denoising: ZImageDenoisingModule(map: ""),
                                 decoding: FluxDecodingModule(path: ""), encoding: FluxEncodingModule(path: ""))
-        XCTAssertThrowsError(try Engine().render(Request("une femme dans une bibliothèque", resolution: 512, image: image, strength: 0.1),
-                                                 model: Model(card: .zImage, chain: zImage))) {
-            guard case let EngineError.strengthTooLow(_, steps, floor) = $0 else { return XCTFail("\($0)") }
-            XCTAssertEqual(steps, 8); XCTAssertEqual(floor, 0.125)
+        for strength in [0.01, 0.1] {
+            let start = Strength.startStep(steps: 8, strength: strength)
+            XCTAssertEqual(start, 7)
+            XCTAssertEqual(ZImageDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: start).evaluations, 1)
+            XCTAssertEqual(AnimaDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: start).evaluations, 1)
         }
-        XCTAssertEqual(AnimaDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8,
-                                                       start: Strength.startStep(steps: 8, strength: 0.01)).evaluations, 1)
         // Out of bounds, and a chain without an encoder: refused too.
         XCTAssertThrowsError(try Engine().render(Request("une femme dans une bibliothèque", resolution: 512, image: image, strength: 1.5),
                                                  model: Model(card: .zImage, chain: zImage))) {

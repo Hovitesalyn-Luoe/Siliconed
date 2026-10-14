@@ -210,4 +210,34 @@ package final class Arena {
         }
         return result == KERN_SUCCESS ? Int(info.phys_footprint) : 0
     }
+
+    /// **What `free` left billed, handed back to the kernel now** — the bytes it reclaimed (0 where
+    /// the system has no such buffer).
+    ///
+    /// On macOS 27 `malloc` does not return a freed page: it queues it in the task's **deferred
+    /// reclamation buffer** (`footprint`'s "Reclaimable", inside `phys_footprint`), which the kernel
+    /// drains only under pressure — at rest, never (21 MB still billed 16 s after a render).
+    /// What fills it is not ours — our buffers are `Arena`s and `Pages`, unmapped at once — but the
+    /// frameworks': MPSGraph's compilation churn (mlir, ~100 graphs a decoder), Metal's objects. A
+    /// phase then started beside the last one's freed pages, which no formula charges, and the
+    /// first render of a process found its decoding phase 15–40 MB above its need.
+    ///
+    /// `mach_vm_deferred_reclamation_buffer_flush` is the kernel's own drain (the routine of
+    /// `mach_vm.defs`, `libmalloc` itself calls it when the ring is full): the entries `malloc` has
+    /// already marked reclaimable are unmapped, as under pressure — nothing live is touched, a block
+    /// `malloc` takes back before the kernel is not in the ring. Not in a public header (`libsyscall`
+    /// keeps it to itself): looked up by name, like `proc_reset_footprint_interval`; absent, nothing.
+    @discardableResult
+    package static func returnFreedPages() -> Int {
+        guard let flush = deferredReclamationFlush else { return 0 }
+        var bytes: UInt64 = 0, deadline: UInt64 = 0
+        return flush(mach_task_self_, UInt32.max, &bytes, &deadline) == KERN_SUCCESS ? Int(bytes) : 0
+    }
+
+    private typealias Flush = @convention(c) (mach_port_t, UInt32, UnsafeMutablePointer<UInt64>,
+                                              UnsafeMutablePointer<UInt64>) -> kern_return_t
+    private static let deferredReclamationFlush: Flush? = {
+        guard let symbol = dlsym(dlopen(nil, RTLD_NOW), "mach_vm_deferred_reclamation_buffer_flush") else { return nil }
+        return unsafeBitCast(symbol, to: Flush.self)
+    }()
 }

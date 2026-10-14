@@ -2,6 +2,23 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.8.2
+
+### Fixed: Z-Image Turbo follows its recipe
+
+- **8 steps are now 8 full-size evaluations, as the model card says.** Until 0.8.1, Siliconed ran
+  7 (it followed an older diffusers schedule whose last step moved nothing), and at 1024² it
+  computed the first two at half size. Both are gone; checked again against diffusers, stage by
+  stage. The images come out cleaner, with finer detail.
+- **Z-Image Turbo 1024² now takes 113–119 s** (118–120 s in Light), 512² ~34 s. The times
+  published until 0.8.1 (82–85 s at 1024²) were for the shorter schedule; Siliconed's figures in the
+  README are remeasured; its comparison with Draw Things now sets 8 evaluations against 8, Draw
+  Things' figures being those measured on 13/10/2026.
+- A Z-Image image made with 0.8.1 or earlier no longer comes out again to the bit; the same version
+  on the same Mac still gives the same bits. Qwen-Image-2.1 is unchanged.
+
+Timings are measured on a MacBook Pro M1 Pro with 16 GB.
+
 ## 0.8.1
 
 ### Fixed
@@ -41,7 +58,7 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 - **Remeasured through the app**, every render queued by `silicontrol`: Z-Image Turbo 1024² in 82 to
   85 s, Qwen-Image-2.1 in 118 s, an edit with one image in 212 s, with two in 285 s; 0 swap-out.
-  The README sets them next to the Draw Things engine on the same Mac.
+  The README sets them next to the Draw Things engine on the same Mac. *Note (0.8.2): Z-Image ran 7 of the 8 evaluations of its recipe until 0.8.1; these Z-Image times are for 7 (see 0.8.2).*
 
 Timings and memory are measured on a MacBook Pro M1 Pro with 16 GB.
 
@@ -65,7 +82,7 @@ missed.
   with the Mac it would need: “needs a Mac with 24 GB”.
 - **Batches of Qwen-Image-2.1** no longer keep two copies of the model at once.
 - Same images, bit for bit. Measured on the M1 Pro: Z-Image Turbo 1024² in 81 s, Qwen-Image-2.1
-  1024² in 116 s; the largest edit (1024×1536, three images) peaks at 3.2 GB.
+  1024² in 116 s; the largest edit (1024×1536, three images) peaks at 3.2 GB. *Note (0.8.2): Z-Image ran 7 of the 8 evaluations of its recipe until 0.8.1; these Z-Image times are for 7 (see 0.8.2).*
 - The diagnostic report (schema 4) gives the budget, the need of each stage and the peak measured
   against it.
 
@@ -232,7 +249,7 @@ Timings are measured on a MacBook Pro M1 Pro with 16 GB.
 ### Speed and memory
 
 - **Z-Image is faster at 1024²**: about 82 s instead of about 107 s, and 153 s instead of 168 s at
-  1024×1536, still without any swap.
+  1024×1536, still without any swap. *Note (0.8.2): Z-Image ran 7 of the 8 evaluations of its recipe until 0.8.1; these Z-Image times are for 7 (see 0.8.2).*
 - **A memory check on the machine's real state**: before each render, the app reads the memory it can
   really have at that moment (not just the Mac's total) and refuses, with the figures, a render that
   would not fit — instead of letting it swap. If memory gets short during a render, the engine

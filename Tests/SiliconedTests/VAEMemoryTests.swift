@@ -49,6 +49,16 @@ final class VAEMemoryTests: XCTestCase {
         XCTAssertEqual(VAE.plan(latentHeight: 128, latentWidth: 128).outside, VAELayout.sdpaOutside(tokens: 16384, channels: 512))
     }
 
+    /// MPS asks its workspace in whole 2 MiB: the SDPA's `S·C` queries at Qwen-Image-2.1's decoder at
+    /// 512² (4.72 MB) ask 6 MiB, and the plan's workspace holds it (it held 4.5 MiB, the ask went beside).
+    func testTheSDPAAskIsWholeMebibytePairs() {
+        XCTAssertEqual(4 * VAELayout.sdpaAsk(tokens: 1024, channels: 1152), 6 << 20)
+        XCTAssertEqual(4 * VAELayout.sdpaAsk(tokens: 4096, channels: 512), 8 << 20)
+        XCTAssertEqual(4 * VAELayout.sdpaAsk(tokens: 4096, channels: 1152), 18 << 20)
+        XCTAssertGreaterThanOrEqual(QwenImage21VAEDecoder.plan(config: QwenImage21VAE.Config(), latentHeight: 32,
+                                                                latentWidth: 32).workspace, 6 << 20)
+    }
+
     /// Every plan ends with nothing live, and grows with the image.
     func testThePlansGrowWithTheImage() {
         let qwen = QwenImage21VAE.Config()

@@ -166,8 +166,7 @@ extension MemoryNeed {
         let staging = buffers == 0 ? 0 : buffers * maps.ditStaging(released..<dit.layers)
         // The spectral schedule's half grid — which a LoRA (and Détail) and img2img turn off
         // (`ZImageDenoisingModule.plan`) — adds the sampler's descent level, not an attention.
-        let halfSteps = rank > 0 || img2img ? 0
-            : Spectral.steps(height: latentHeight, width: latentWidth, schedule: FlowMatchSchedule(steps: request.card.defaultSteps))
+        let halfSteps = rank > 0 || img2img ? 0 : ZImageDenoisingModule.spectralSteps
         // The attentions alive at the peak: one per block at its full length (image refiners at the
         // image's tokens, layers at the unified sequence, context refiners at the padded caption) —
         // cut by heads from `minimumSequence` on, MPSGraph below.

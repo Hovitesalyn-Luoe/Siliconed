@@ -33,20 +33,22 @@ final class RequestTests: XCTestCase {
     /// B1: with a single step, the schedule of the three models is finite (Anima rendered σ₀ = NaN).
     /// **A request is comparable**: a SwiftUI app relaunches a preview on `onChange(of: request)`.
     /// Two requests equal at construction, then the seed, then the image, tell them apart.
-    /// **Where a sketch stops**: σ, not a count — Z-Image's 8 steps stop after 3 evaluations
-    /// (σ .800), Qwen-Image-2.1's 6 after 4 (σ .632); a null step is no evaluation; a plan sketched
+    /// **Where a sketch stops**: σ, not a count — Z-Image's 8 steps stop after 4 evaluations
+    /// (σ .750; 3 of 7 at σ .800 before 0.8.2), Qwen-Image-2.1's 6 after 4 (σ .632); a plan sketched
     /// keeps its first evaluations.
     func testASketchStopsWhereSigmaReachesTheThreshold() {
-        XCTAssertEqual(Sketch.evaluations(sigmas: FlowMatchSchedule(steps: 8).sigmas), 3)
-        XCTAssertEqual(zImage.sketchEvaluations(steps: nil, width: 512, height: 512), 3)
+        XCTAssertEqual(Sketch.evaluations(sigmas: FlowMatchSchedule(steps: 8).sigmas), 4)
+        XCTAssertEqual(zImage.sketchEvaluations(steps: nil, width: 512, height: 512), 4)
         XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0.963, 0.923, 0.837, 0.632, 0.3, 0]), 4)
-        XCTAssertEqual(Sketch.evaluations(sigmas: [1, 1, 0.9, 0.5, 0]), 2)
+        XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0.95, 0.9, 0.5, 0]), 3)
         XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0]), 1)
-        let plan = zImage.chain.denoising.plan(height: 128, width: 128, steps: 8, start: 0)
-        XCTAssertEqual([plan.evaluations, plan.reduced], [7, 2])
+        XCTAssertEqual(zImage.chain.denoising.plan(height: 128, width: 128, steps: 8, start: 0).reduced, 0)
+        // A set `k` (the product's is 0 since 0.8.2): sketching keeps the first evaluations, half-size ones included.
+        let plan = ZImageDenoisingModule(map: "", spectral: 2).plan(height: 128, width: 128, steps: 8, start: 0)
+        XCTAssertEqual([plan.evaluations, plan.reduced], [8, 2])
         XCTAssertEqual([plan.sketched(3).evaluations, plan.sketched(3).reduced], [3, 2])
         XCTAssertEqual([plan.sketched(1).evaluations, plan.sketched(1).reduced], [1, 1])
-        XCTAssertEqual(plan.sketched(99).evaluations, 7)
+        XCTAssertEqual(plan.sketched(99).evaluations, 8)
     }
 
     /// **Qwen-Image-2.1 does not sketch** (its noise leaves in the last evaluations: an early x̂₀ is blurred and grainy): its

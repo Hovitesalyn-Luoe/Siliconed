@@ -1,4 +1,6 @@
 import Foundation
+import Metal
+import MetalPerformanceShadersGraph
 
 /// **What is still outside our hand** — the bytes of a render no constructor of ours sizes.
 ///
@@ -41,4 +43,27 @@ package enum OperatorFootprint {
     /// to start finds already held — the app's or the command line's own. Read from this process alone,
     /// never from the kernel's state of the others.
     package static func processBase() -> Int { Arena.processFootprint() }
+
+    /// **The frameworks a render runs on, brought up before its base is read** — once per process: the
+    /// Metal device and a queue, and MPSGraph's own start (one graph of one addition, run). What they
+    /// hold — ~2 MB for the device, ~7 MB for MPSGraph's first graph (mlir's context, its uniquers,
+    /// measured alone) — is the process's from then on, every render after the first finds it in its
+    /// base; the first found it nowhere, brought up in its text phase after the base was read, and
+    /// carried it uncharged into every phase after. Brought up first, the base reads it.
+    /// The same work a render did anyway, moved before it: no time added.
+    package static func bringUp() { _ = frameworks }
+
+    private static let frameworks: (MTLDevice, MTLCommandQueue)? = {
+        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
+        autoreleasepool {
+            let graph = MPSGraph()
+            let x = graph.placeholder(shape: [4], dataType: .float32, name: nil)
+            let y = graph.addition(x, x, name: nil)
+            if let buffer = device.makeBuffer(length: 16, options: .storageModeShared) {
+                _ = graph.run(with: queue, feeds: [x: MPSGraphTensorData(buffer, shape: [4], dataType: .float32)],
+                              targetTensors: [y], targetOperations: nil)
+            }
+        }
+        return (device, queue)
+    }()
 }

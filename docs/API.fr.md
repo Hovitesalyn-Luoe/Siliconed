@@ -175,7 +175,7 @@ formats et le texte de licence de l'éditeur (à vérifier sur la page du modèl
 
 | identifiant | nom | licence | débruiteur | VAE |
 |---|---|---|---|---|
-| `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 pas, schedule spectral à 1024² | Flux |
+| `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 pas | Flux |
 | `qwen-image-2.1` | Qwen-Image-2.1 Turbo (§3.12) | **non commerciale** (Qwen Research) | DiT Qwen-Image-2.1 (32 couches à un flux, attention bloc-causale) distillé par Qwen, 8 pas sur son calendrier publié ; édition avec 1 à 3 images (§3.12) | Qwen-Image-2.1 (16×, 64 canaux) |
 
 ### 2.3 `Request` : tout ce qui distingue un rendu
@@ -415,8 +415,10 @@ let renderResult = try await Engine().render(request, model: try Model.zImage(in
 - Une image **en mémoire** (glisser-déposer, presse-papiers) : `try ImageRGB(cgImage: cg)` (sRGB,
   alpha sur blanc ; pas d'orientation EXIF, un `CGImage` n'en a pas), bornée de même : un côté plus
   long est dessiné directement à `maxSide`, jamais gardé pleine taille.
-- Bornes du curseur de force : entre 0,2 et 0,8 en pratique. Pour Z-Image, la force doit dépasser
-  1/N, soit 1/8 à 8 pas (`EngineError.strengthTooLow` donne le `floor`).
+- Bornes du curseur de force : entre 0,2 et 0,8 en pratique. Depuis la 0.8.2, toute force dans
+  ]0, 1] laisse au moins une évaluation, Z-Image compris (jusqu'à la 0.8.1 son dernier pas était nul
+  et la force devait dépasser 1/N) ; `EngineError.strengthTooLow` (avec son `floor`) reste pour un
+  débruiteur dont le plan n'en laisserait aucune.
   `Strength.startStep(steps:strength:)` donne le pas de départ, pour l'afficher avant le rendu.
 - Z-Image ne change pas de *style* en img2img, même à 0,85.
 - Qwen-Image-2.1 ne fait pas d'img2img (`EngineError.imageToImageUnsupported`) : passer l'image
@@ -589,7 +591,7 @@ de poids lus), et cela ne lit pas le profil de la machine (§2.1).
 sous le plafond : **1024², 896×1152, 832×1216, 768×1344**, leurs transposées, et **512²** pour
 itérer vite. `RecommendedFormat` a `width`, `height`, `orientation` (`.square`, `.portrait`,
 `.landscape`) et un `description` affichable (`832×1216 (portrait)`). 1024×1536 est accepté mais
-pas conseillé (sur Z-Image il prend ~153 s contre ~82 s pour un 1024²). Pour un champ libre,
+pas conseillé (sur Z-Image il prend 190 s contre 113–119 s pour un 1024²). Pour un champ libre,
 `Format.parse("832x1216")` puis `Format.check(width:height:)`.
 Quand un format est au-delà du budget de ce Mac (`insufficientMemory`), `RecommendedFormat.largestFitting(card.formats,
 budget:current:need:)` donne le plus grand dont le besoin tient dans `budget` — B,
@@ -979,24 +981,25 @@ rendu complet (`Render.sketch` vaut alors `nil`).
 ```swift
 let model = try Model.zImage(in: library)
 var request = Request("woman posing in a library", resolution: 512, seed: 42)
-request.sketch = model.sketchEvaluations(steps: nil, width: 512, height: 512)   // 3 (sur 7)
-let rough = try await Engine().render(request, model: model)                    // rough.sketch == 3
+request.sketch = model.sketchEvaluations(steps: nil, width: 512, height: 512)   // 4 (sur 8)
+let rough = try await Engine().render(request, model: model)                    // rough.sketch == 4
 request.sketch = nil
 let finished = try await Engine().render(request, model: model)                 // l'image annoncée
 ```
 
 - **Où s'arrêter** (`Sketch`) : après la première évaluation qui amène σ à `Sketch.threshold` (0,8)
   ou dessous — un σ, pas un nombre de pas : le calendrier de Qwen-Image-2.1 garde σ haut plus
-  longtemps. `Sketch.evaluations(sigmas:)` le lit sur un calendrier (un pas nul n'est pas une
-  évaluation), `Model.sketchEvaluations(steps:width:height:)` sur un modèle à un format (`steps`
+  longtemps. `Sketch.evaluations(sigmas:)` le lit sur un calendrier (une évaluation par
+  pas), `Model.sketchEvaluations(steps:width:height:)` sur un modèle à un format (`steps`
   nil : son défaut), et `DenoisingPlan.sketched(_:)` coupe un plan à ce compte, pour estimer la
   durée d'une esquisse avant qu'elle tourne.
 - **Ce qu'elle vaut** (512², estimation contre l'image finale réduite ×4, comme sur une
-  planche) : Z-Image s'arrête après 3 évaluations sur 7 — ~16,7 s au lieu de ~32,5 s, ~21 dB, pose,
-  vêtements et lumière déjà ceux de l'image finale ; Qwen-Image-2.1, qui n'esquisse pas
+  planche) : Z-Image s'arrête après 4 évaluations sur 8 (σ 0,75) — ~18 s au lieu de ~34 s,
+  23–24 dB, pose, vêtements et lumière déjà ceux de l'image finale ; Qwen-Image-2.1, qui n'esquisse pas
   (`DenoisingModule.sketches` : ses cases sont des images finies), s'arrêterait après 6 sur 8, son
-  calendrier restant au-dessus de 0,8 jusque-là. Une esquisse montre où va l'image ; le rendu fini juge (sous une LoRA, la pose
-  de Z-Image bougeait encore entre 3 et 4).
+  calendrier restant au-dessus de 0,8 jusque-là. Une esquisse montre où va l'image ; le rendu fini juge (sous une LoRA, sur le
+  calendrier à 7 évaluations de Z-Image jusqu'à la 0.8.1, sa pose bougeait encore entre σ 0,80 et
+  0,69).
 - **Les événements** : `start` porte le plan du rendu complet ; les événements `step` comptent
   jusqu'à l'esquisse (`total` = `n`), puis décodage et `image` comme d'habitude. Le PNG porte une clé
   `sketch` (§3.8).
@@ -1018,13 +1021,17 @@ print(detailed.detail, detailed.metadata["detail"] ?? "")   // more more
 ```
 
 - **Ce qu'il vaut** (512², nombre de pas par défaut, à l'œil et par le |laplacien| moyen de
-  la luminance) : `.more` ≈ +10 % de détail fin et la même image, `.most` ≈ +20 %, le plus fort
-  resté propre. Z-Image prend la cloche du node ; sur Qwen-Image-2.1, dont le calendrier
-  décide la composition tôt, cette cloche changeait l'image : il a une cloche tardive, sur ses
-  derniers pas seulement (le 6ᵉ à moitié, le 7ᵉ sur 8). Cette cloche n'a pas encore été rejugée sur
+  la luminance) : `.more` ≈ +10 % de détail fin et la même image, `.most` le plus fort qui reste
+  propre. Chaque famille a sa cloche, parce que celle du node tombe là où se décide la composition.
+  Celle de Z-Image couvre deux de ses 8 évaluations (σ 0,75 à moitié, 0,643) : `.more` +8 à 11 %,
+  même pose ; `.most` +10 à 15 %, propre (graines 42, 7, 0). Celle de Qwen-Image-2.1 est tardive,
+  sur ses derniers pas seulement (le 6ᵉ à moitié, le 7ᵉ sur 8) ; elle n'a pas encore été rejugée sur
   le calendrier à 8 pas du Turbo.
+- **La force suit le côté de l'image** (× 512/√(l·h)) : la même force peint quatre fois plus de
+  jetons en 1024². Là, `.more` donne sur Z-Image +6 à 8 % et `.most` +8 à 10 %, la même image,
+  propre.
 - **La cloche est posée sur les indices de pas**, pas sur σ : un autre nombre de pas que celui par
-  défaut, ou le 1024², n'a pas été jugé. En img2img, elle couvre les pas qui tournent.
+  défaut n'a pas été jugé. En img2img, elle couvre les pas qui tournent.
 - Le PNG porte `detail` sauf pour `.normal` (§3.8) ; l'app l'offre en « Détail : Normal · Plus ·
   Maximum » dans la boîte du DiT.
 
@@ -1084,7 +1091,7 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 - **Ce que ça change** (Z-Image, 1024², graines 42, 7 et 0, et 512², à l'œil) : DPM++ 2M suit
   l'image d'Euler, un peu plus nette ; UniPC garde la composition et varie les détails (un gilet
   pour un pull) ; la règle ancestrale recompose et simplifie (vêtements plus sobres, fond plus
-  doux). Aucune n'a cassé une image, et le calendrier spectral du 1024² tient sous les quatre.
+  doux). Aucune n'a cassé une image.
   D'autres nombres de pas et l'img2img n'ont pas été jugés.
 - **Sur Qwen-Image-2.1** (1024², graines 42 et 7, et une édition, à l'œil) : DPM++ 2M suit encore
   l'image d'Euler ; UniPC recompose parfois tout (graine 7 : une autre femme) — ce modèle décide sa
@@ -1107,7 +1114,7 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 | mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,6 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,7 Go pour Qwen-Image-2.1 à 1024² (3,8 Go dans un lot de trois), **3,8 Go** pour Z-Image en 1024×1536, **4,8 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin contre la mémoire réellement disponible (§5) | la portée par étage (`Chain.swift`), `MemoryBudget` |
 | précision | calcul **fp32** partout ; les poids peuvent être stockés en bf16, fp16, 8 bits ou GGUF 4 à 6 bits (§3.11), puis élargis. Aucun calcul en fp16/bf16 | `Widen` (les poids élargis en fp32) |
 | déterminisme | avec `reproducible` (vrai par défaut, coupe GPU/AMX figée) : **même graine, même requête, même machine et même version → mêmes bits**, et la non-régression se juge au md5. L'image n d'un lot = le rendu isolé de sa graine. `Noise` n'est **pas** `torch.randn` : une graine ne redonne pas l'image de diffusers ni celle de Draw Things. D'une version à l'autre, les pixels peuvent changer, et d'une machine à l'autre, rien n'a été mesuré | `Request.reproducible` (`nil` : `EngineSettings.effective.frozenCut`) |
-| schedule spectral (Z-Image, Qwen-Image-2.1) | seulement quand **les deux côtés font ≥ 1024** : 1024², 1024×1536 et sa transposée (`k = 2` : les deux premières évaluations à demi-taille). Les portraits et paysages usuels paient toutes leurs évaluations en pleine taille. Il est éteint en img2img, sous une LoRA ou Détail, et dans une édition Qwen-Image-2.1 ; forcé sous le plancher, il est refusé avant tout calcul | `ZImageDenoisingModule.plan`, `QwenImage21DenoisingModule.plan` |
+| schedule spectral (Qwen-Image-2.1) | seulement quand **les deux côtés font ≥ 1024** : 1024², 1024×1536 et sa transposée (`k = 2` : les deux premières évaluations à demi-taille). Les portraits et paysages usuels paient toutes leurs évaluations en pleine taille. Il est éteint en img2img, sous une LoRA ou Détail, et dans une édition Qwen-Image-2.1 ; forcé sous le plancher, il est refusé avant tout calcul | `QwenImage21DenoisingModule.plan` |
 
 **Temps indicatifs** : MacBookPro18,3 (M1 Pro, 16 Go), profil de la machine chargé, pas par défaut
 (8 pour Z-Image et Qwen-Image-2.1), graine 42, « a 30 year old woman posing in a library »,
@@ -1116,7 +1123,7 @@ relit les cartes) : l'UI doit se fier à `Progress.estimatedRemaining`, pas à 
 
 | modèle | 512² | 1024² | 1216×832 | 1024×1536 |
 |---|---|---|---|---|
-| Z-Image Turbo (8 pas) | **~29 s** | **~82 s** (spectral k = 2) | 110 s | ~153 s |
+| Z-Image Turbo (8 pas) | **~34 s** | **113–119 s** | 110 s | 190 s |
 | Qwen-Image-2.1 Turbo (8 pas) | **~44 s** | **~120 s** (spectral k = 2) | — | ~203 s (spectral k = 2) |
 
 Édition avec Qwen-Image-2.1 : en 1248×832, ~210 s avec une référence, ~285 s avec

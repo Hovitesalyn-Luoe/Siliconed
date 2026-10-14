@@ -124,6 +124,14 @@ package struct VAELayout: Sendable, Equatable {
     /// for now, the bits first.
     package static func sdpaOutside(tokens s: Int, channels c: Int) -> Int { 4 * 4 * s * c }
 
+    /// **What MPSGraph's SDPA asks of the workspace**, in floats: the copy of its queries, `S·C` floats,
+    /// asked like every MPS request in whole `minimumAsk`s — 4.72 MB of queries at Qwen-Image-2.1's
+    /// decoder at 512² (`S` 1,024, `C` 1,152) ask 6 MiB. Declared at `S·C` unrounded, the heap held 4.5
+    /// MiB and MPS was granted its 6 MiB beside it, outside the plan.
+    package static func sdpaAsk(tokens s: Int, channels c: Int) -> Int {
+        (4 * s * c + minimumAsk - 1) / minimumAsk * minimumAsk / 4
+    }
+
     /// Nothing live: every slot freed (the run's end).
     package var empty: Bool { slots.allSatisfy { $0.death != Int.max } }
 
@@ -397,6 +405,9 @@ package final class VAEMemory {
             commands.waitUntilCompleted()
         }
         VAEMemory.outside = max(VAEMemory.outside, VAEMemory.graphicsFootprint() - baseline - heaps)
+        // What the graph's compilation freed goes back before the next pass (`Arena.returnFreedPages`):
+        // ~100 graphs a decoder, each one's mlir churn otherwise billed until the phase ends.
+        Arena.returnFreedPages()
     }
 
     /// One of our kernels over registers (`VAEKernels`), waited for. Planning: nothing.

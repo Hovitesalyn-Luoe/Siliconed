@@ -47,7 +47,7 @@ public struct ZImageTextModule: TextModule {
     }
 }
 
-/// Z-Image's S3 DiT under its sampler (negation, spectral schedule, null steps skipped).
+/// Z-Image's S3 DiT under its sampler (negation, spectral schedule).
 public struct ZImageDenoisingModule: DenoisingModule {
     public var map: String
     /// The number of half-size evaluations. `nil`: `SILICONED_SPECTRAL` if set (read at render
@@ -89,18 +89,26 @@ public struct ZImageDenoisingModule: DenoisingModule {
 
     public func sigmas(steps: Int) -> [Float] { FlowMatchSchedule(steps: steps).sigmas }
 
+    /// **The product's half-size evaluations: none** (since 0.8.2). `Spectral.steps` gives `k = 2` at
+    /// 1024², judged clean on the seven-evaluation schedule of before 0.8.2; on the recipe's eight
+    /// (first full step at σ = 0.9, six full steps after) the half-size steps' leftover
+    /// high-frequency noise is no longer resorbed — sand on the skin and grain on the walls, with or
+    /// without freckles in the prompt, and `k = 1` keeps it too. `k = 0` is clean, +19 % at 1024².
+    /// 512² never halved (`Spectral.minimumSide`). A set or forced `k` still measures.
+    package static let spectralSteps = 0
+
     /// **In img2img (`start > 0`), the spectral schedule is off: `k = 0`**, even when forced.
     ///
     /// `Spectral.steps` counts the **leading** σs of the full schedule, calibrated on pure-noise
     /// starts; truncated, it would reduce steps that no longer run. Related to the σs
-    /// actually evaluated, it would give `k = 1` only at start 1 (σ = 0.947) and `k = 0` from
-    /// start 2 on (σ = 0.882, `f* = 0.134 > 0.10`) — nothing to gain at useful strengths
+    /// actually evaluated, it would give `k = 1` only at start 1 (σ = 0.955) and `k = 0` from
+    /// start 2 on (σ = 0.9, `f* = 0.111 > 0.10`) — nothing to gain at useful strengths
     /// (≤ 0.75), and a never-measured regime: the state already carries the image's high
     /// frequencies. At `k = 0`, the trajectory reproduces the oracle. Forced divisors turn
     /// off for the same reason.
     ///
-    /// Evaluations are counted from the start to the end, **null step skipped**: the last step
-    /// (σ = 0 → 0) is always in the kept tail, hence `⌈N·s⌉ − 1` evaluations.
+    /// Evaluations are counted from the start to the end: every step moves (`FlowMatchSchedule`),
+    /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s`.
     ///
     /// **Under a LoRA, the product's rule returns `k = 0`**; a set or forced `k` keeps the last
     /// word, so one can still measure. The half-size steps leave the full latent's high-frequency
@@ -110,11 +118,10 @@ public struct ZImageDenoisingModule: DenoisingModule {
     /// those full steps that less noise remains than does, and the excess stays — sand on walls and
     /// skin at 1024² (measured: amount 1 at k = 2, confetti; at k = 0, +19 %, clean).
     public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
-        let schedule = FlowMatchSchedule(steps: steps)
-        let σ = schedule.sigmas
-        let rule = withLoRA ? 0 : Spectral.steps(height: height, width: width, schedule: schedule)
+        let σ = FlowMatchSchedule(steps: steps).sigmas
+        let rule = withLoRA ? 0 : Self.spectralSteps
         return DenoisingPlan(startStep: start, startSigma: σ[start],
-                                evaluations: (start..<steps).filter { σ[$0 + 1] != σ[$0] }.count,
+                                evaluations: steps - start,
                                 reduced: start > 0 ? 0 : spectral ?? Spectral.forced ?? rule,
                                 reducedHeight: height / 2, reducedWidth: width / 2)
     }
@@ -298,8 +305,8 @@ public struct QwenImageDecodingModule: DecodingModule {
 }
 
 /// **Euler in flow matching, without negation**: `x += (σᵢ₊₁ − σᵢ) · v`, one evaluation per step.
-/// The step of Anima and Krea 2; Z-Image has its own (`Sampler`), which negates the velocity and
-/// skips null steps. `start`: the first step executed of the full schedule (img2img). `v` is
+/// The step of Anima and Krea 2; Z-Image has its own (`Sampler`), which negates the velocity.
+/// `start`: the first step executed of the full schedule (img2img). `v` is
 /// `dx/dσ` as is, hence x̂₀ = x − σ·v for the preview. Cancellation is checked before each step,
 /// and between layers in the DiT.
 func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0, context: Context,

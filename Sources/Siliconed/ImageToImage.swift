@@ -201,14 +201,13 @@ extension ImageRGB {
 /// What to know about it, and what the CLI displays (σ_s and the number of evaluations at start):
 ///   1. the strength is **quantized in steps of 1/N**: two strengths with the same `⌈N·s⌉` yield the same image;
 ///   2. **s > 1 − 1/N amounts to txt2img** (σ_s = 1) — Anima's 0.9 default in diffusers is one;
-///   3. at the same strength, σ_s **differs from one model to another** (Z-Image starts lower: its
-///      schedule ends with a null σ) — a strength "in σ" would be another definition, which the
-///      oracle would no longer verify;
+///   3. at the same strength, σ_s **differs from one model to another** (each its own shift, Qwen its
+///      published nodes) — a strength "in σ" would be another definition, which the oracle would
+///      no longer verify;
 ///   4. a strength that leaves **no evaluation** is refused rather than silently returning the
-///      VAE round trip. Anima and Krea 2 always keep at least one step (`t_start ≤ N − 1` as soon
-///      as s > 0); **Z-Image, however, skips its last step** (σ = 0 → 0): at `s ≤ 1/N`, its only
-///      remaining step is null. diffusers would accept it (it evaluates the DiT to multiply by
-///      zero); we refuse it, the strength must exceed `1/N`.
+///      VAE round trip. Every schedule here moves at every step (Z-Image's too since 0.8.2: no
+///      final 0 → 0), so `t_start ≤ N − 1` as soon as s > 0 and the refusal only guards a
+///      denoiser whose plan would say otherwise.
 public enum Strength {
     /// That of `ZImageImg2ImgPipeline` and `QwenImageImg2ImgPipeline` — not Anima's 0.9, which at
     /// eight steps ignores the image.

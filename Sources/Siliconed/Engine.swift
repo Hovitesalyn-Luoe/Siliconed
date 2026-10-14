@@ -275,8 +275,8 @@ public final class Engine: Sendable {
         /// The img2img image is encoded and mixed with the noise.
         case encoding(seconds: Double)
         /// **One denoiser evaluation**, numbered the same way for every model: `index` from
-        /// 1 to `total`, `total` = the evaluations actually paid for (`Plan.evaluations`) — Z-Image's
-        /// null steps are not steps. `sigma`: the σ evaluated. The grid is the one this step
+        /// 1 to `total`, `total` = the evaluations actually paid for (`Plan.evaluations`).
+        /// `sigma`: the σ evaluated. The grid is the one this step
         /// evaluated — smaller than the render under the spectral schedule.
         case step(image: Int, index: Int, total: Int, sigma: Float, seconds: Double,
                  latentGridHeight: Int, latentGridWidth: Int)
@@ -419,15 +419,24 @@ package enum Spectral {
     /// but what the noise already covered.
     ///
     /// ```
-    ///   σ      1      0.947   0.882   0.800   0.692   0.545   0.333
-    ///   f*     0      0.056   0.134   0.250   0.444   0.833   2.000
+    ///   σ      1      0.955   0.900   0.833   0.750   0.643   0.500   0.300
+    ///   f*     0      0.048   0.111   0.200   0.333   0.556   1.000   2.333
     ///                    ↑ calibrated threshold between the two ↑
     /// ```
     ///
-    /// Theory says where the SNR equals 1; it does not say how much energy above `f*` a model
-    /// **distilled to seven steps** can still resorb. Measurement does: `k=2` (so `f* ≤ 0.056`)
-    /// is clean on four draws, `k=3` (`f* ≤ 0.134`) carries debris on two of three. The
-    /// threshold is therefore taken **between the two**, at 0.10.
+    /// Theory says where the SNR equals 1; it does not say how much energy above `f*` a few-step
+    /// model can still resorb. Measurement does — on the seven-evaluation schedule the engine
+    /// walked until 0.8.2 (σ 1, 0.947, 0.882, …): `k=2` (so `f* ≤ 0.056`) was clean on four draws,
+    /// `k=3` (`f* ≤ 0.134`) carried debris on two of three. The threshold was therefore taken
+    /// **between the two**, at 0.10; on the eight evaluations it still gives `k=2`, now at
+    /// `f* ≤ 0.048`, below what was judged clean.
+    ///
+    /// **Refuted by the image (0.8.2): "below what was judged clean" is not clean.** On the eight
+    /// evaluations, `k=2` puts sand on the skin and grain on the walls at 1024² (two prompts, with
+    /// and without freckles asked), `k=1` too; only `k=0` is clean. The threshold is a band
+    /// argument, and what breaks is not the band: it is how much leftover noise the full steps
+    /// resorb, which the schedule changed. Z-Image's product no longer calls this rule
+    /// (`ZImageDenoisingModule.spectralSteps = 0`); it stays for measurements and `divisors`.
     ///
     /// What the rule brings over a hard-coded number: it **follows the schedule**. Moving to 12
     /// steps, or changing the `shift`, moves the σs — and so `k` — without redoing the campaign.
@@ -458,7 +467,7 @@ package enum Spectral {
     ///
     /// A consequence to know: **no usual portrait or landscape format has a spectral schedule.**
     /// 832×1216 has the area of 1024², but its half-size would be 416×608 — one side under the
-    /// floor, hence `k = 0`, and Z-Image pays its seven full evaluations there. The spectral
+    /// floor, hence `k = 0`, and Z-Image pays its eight full evaluations there. The spectral
     /// schedule applies only from 1024 px **on each side**: under the area ceiling
     /// (`Format.maxSurface`, 1024×1536), that leaves only 1024², 1024×1536 and its
     /// transpose — the latter through the rectangular path (half-grid `h ≠ w`), `k = 2`, rendered
@@ -491,8 +500,9 @@ package enum Spectral {
     ///
     /// A grid divided by `d` carries `d` times less band: if half-size is safe as long as
     /// `f* ≤ 0.10`, quarter-size is safe as long as `f* ≤ 0.05`. On the eight-step schedule, `f*`
-    /// is `[0 ; 0.056 ; 0.134 ; …]`, so the rule returns **`[4, 2, 1, 1, 1, 1, 1]`**: the first
-    /// step at a quarter, the second at a half, the rest at full size.
+    /// is `[0 ; 0.048 ; 0.111 ; …]`, so the rule returns **`[4, 4, 1, 1, 1, 1, 1, 1]`**: the first
+    /// two steps at a quarter, the rest at full size (on the seven-evaluation schedule of before
+    /// 0.8.2, `f*` 0.056 at the second step gave `[4, 2, 1, …]`).
     ///
     /// ## ⚠️ The `2·` is not a comfort factor — corrected on 2026-09-22
     ///

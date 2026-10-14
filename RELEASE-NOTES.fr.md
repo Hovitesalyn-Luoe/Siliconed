@@ -2,6 +2,24 @@
 
 # Siliconed — notes de version
 
+## 0.8.2
+
+### Corrigé : Z-Image Turbo suit sa recette
+
+- **8 pas font maintenant 8 évaluations en pleine taille, comme le dit la fiche du modèle.** Jusqu’à
+  la 0.8.1, Siliconed en faisait 7 (il suivait un ancien calendrier de diffusers dont le dernier pas
+  ne bougeait rien), et à 1024² il calculait les deux premières à demi-taille. Les deux sont
+  corrigés ; revérifié contre diffusers, étage par étage. Les images sortent plus propres, avec des
+  détails plus fins.
+- **Z-Image Turbo 1024² prend maintenant 113–119 s** (118–120 s en Légère), 512² ~34 s. Les
+  temps publiés jusqu’à la 0.8.1 (82–85 s à 1024²) valaient pour le calendrier raccourci ; les chiffres
+  de Siliconed dans le README sont remesurés ; sa comparaison avec Draw Things oppose désormais
+  8 évaluations à 8, ceux de Draw Things étant ceux mesurés le 13/10/2026.
+- Une image Z-Image faite avec la 0.8.1 ou avant ne ressort plus au bit ; à version égale et sur le
+  même Mac, les mêmes bits restent garantis. Qwen-Image-2.1 ne change pas.
+
+Les temps sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
+
 ## 0.8.1
 
 ### Corrigé
@@ -42,7 +60,7 @@
 
 - **Remesurés par l’app**, chaque rendu mis en file par `silicontrol` : Z-Image Turbo 1024² en 82 à
   85 s, Qwen-Image-2.1 en 118 s, une édition à une image en 212 s, à deux en 285 s ; 0 page
-  swappée. Le README les pose à côté du moteur de Draw Things sur le même Mac.
+  swappée. Le README les pose à côté du moteur de Draw Things sur le même Mac. *Note (0.8.2) : Z-Image faisait 7 des 8 évaluations de sa recette jusqu’à la 0.8.1 ; ces temps de Z-Image valent pour 7 (voir la 0.8.2).*
 
 Temps et mémoire mesurés sur un MacBook Pro M1 Pro de 16 Go.
 
@@ -68,7 +86,7 @@ les cas qu’il manquait.
 - **Les lots de Qwen-Image-2.1** ne gardent plus deux copies du modèle à la fois.
 - Mêmes images, au bit près. Mesuré sur le M1 Pro : Z-Image Turbo en 1024² en 81 s,
   Qwen-Image-2.1 en 1024² en 116 s ; la plus grande édition (1024×1536, trois images) culmine à
-  3,2 Go.
+  3,2 Go. *Note (0.8.2) : Z-Image faisait 7 des 8 évaluations de sa recette jusqu’à la 0.8.1 ; ces temps de Z-Image valent pour 7 (voir la 0.8.2).*
 - Le rapport de diagnostic (schéma 4) donne le budget, le besoin de chaque étage et le pic mesuré en
   face.
 
@@ -240,7 +258,7 @@ Temps mesurés sur un MacBook Pro M1 Pro, 16 Go.
 ### Vitesse et mémoire
 
 - **Z-Image est plus rapide à 1024²** : environ 82 s au lieu d'environ 107 s, et 153 s au lieu de
-  168 s à 1024×1536, toujours sans aucun swap.
+  168 s à 1024×1536, toujours sans aucun swap. *Note (0.8.2) : Z-Image faisait 7 des 8 évaluations de sa recette jusqu’à la 0.8.1 ; ces temps de Z-Image valent pour 7 (voir la 0.8.2).*
 - **Un contrôle de mémoire sur l'état réel de la machine** : avant chaque rendu, l'app lit la mémoire
   qu'elle peut vraiment avoir à ce moment-là (pas seulement le total du Mac) et refuse, chiffres à
   l'appui, un rendu qui ne tiendrait pas — au lieu de le laisser swapper. Si la mémoire vient à

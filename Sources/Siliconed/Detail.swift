@@ -15,12 +15,12 @@ import Foundation
 ///
 /// What the node does that a port by reading its README would miss:
 ///
-///   - the bell is laid over **the steps the sampler receives** (`len(sigmas) − 1`), so over
-///     Z-Image's null last step too (diffusers' schedule ends `…, 0, 0`), and in img2img over the
+///   - the bell is laid over **the steps the sampler receives** (`len(sigmas) − 1`) — on Z-Image
+///     since 0.8.2 every one is an evaluation —, and in img2img over the
 ///     tail that runs, not the full schedule (ComfyUI hands the sampler the truncated σs);
 ///   - the indices are `int(round(x·(steps − 1)))` with **Python's `round`, half to even**: at 6
 ///     steps `mid·5 = 2.5` rounds to 2, and the bell peaks at the third step, not the fourth —
-///     on a turbo's 8 steps it touches 4 evaluations (the late bell, 2), no more;
+///     on a turbo's 8 steps the node's bell touches 4 evaluations (Z-Image's and the late bell, 2);
 ///   - `start_values.any()` guards the scaling: a rising edge of a single point stays at **0**, not
 ///     at `start_offset`;
 ///   - the multiplier is ×0.1 and ×CFG (`1 − 0.1·m·cfg`, floored at 10⁻⁶). The turbos here run
@@ -57,10 +57,18 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     }
 
     /// **Where a denoiser's bell sits.** The node lays it over step *indices*, so where it falls in
-    /// σ depends on the schedule — and one shape does not fit both visible families:
+    /// σ depends on the schedule — and one shape fits no two families:
     ///
-    ///   - `standard`, the node's defaults (start 0.2, end 0.8, bias 0.5): on Z-Image's 8 steps it
-    ///     peaks at σ 0.69 and touches 0.88 → 0.55. Clean up to amount 2; at 3, confetti.
+    ///   - `standard`, the node's defaults (start 0.2, end 0.8, bias 0.5), for the two hidden
+    ///     families, unjudged. It was Z-Image's while Z-Image ran 7 evaluations (σ 1, 0.947, 0.882,
+    ///     0.8, 0.692, 0.545, 0.333): peak at σ 0.69, clean up to amount 2. On the 8 of the
+    ///     official recipe (0.8.2) the same indices fall on σ 0.9 ×¼, 0.833 ×¾, 0.75 ×1, 0.643 ×½,
+    ///     and More already moved the pose; at 1.5, the framing.
+    ///   - `zImage` (start 0.4, end 0.9), Z-Image's since 0.8.2: σ 0.75 ×½ and **0.643 ×1, nothing
+    ///     else**. Between two walls: a lie at σ ≥ 0.75 moves the pose and the framing, a lie at
+    ///     σ 0.5 sows specks for little sharpness (start 0.5, end 1, all on 0.643 and 0.5: +10 % at
+    ///     amount 3, +10 % at 4, the flat areas +50 %). The node's later bell (start 0.4, end 1,
+    ///     σ 0.5 ×½ too) sharpens more per amount but specks at 2.5 already.
     ///   - `late` (start 0.6, end 1.0), for Qwen-Image-2.1. ⚠️ Calibrated before the official Turbo,
     ///     on the 6 steps of the third-party turbo LoRA the family carried until 10/10/2026 (512²: σ = 1,
     ///     0.96, 0.92, 0.84, 0.63, 0.36): the standard bell landed on σ 0.92 and 0.84, where the
@@ -69,18 +77,26 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     finer texture; up to 1.3 clean, at 1.6 white crackle lines. On the Turbo's 8 fixed steps
     ///     (1, 0.978, 0.954, 0.927, 0.895, 0.845, 0.705, 0.415) the same bell weighs ½ on the 6th
     ///     (σ 0.845) and 1 on the 7th (σ 0.705): not judged by eye yet.
-    package enum Bell: Sendable { case standard, late }
+    package enum Bell: Sendable { case standard, zImage, late }
 
-    /// **The calibrated settings**, by eye at 512², seed 42, the library prompt, on the two
-    /// visible families at their default steps (Z-Image 8; Qwen-Image-2.1 6, the third-party turbo's,
-    /// not yet re-judged on the Turbo's 8), checked on a second seed. `more` ≈ +10 % of high-frequency energy (mean |Laplacian| of the luminance) and the same
-    /// picture; `most` ≈ +20 %, the strongest that stayed clean, a step short of where artifacts
-    /// begin. The two hidden families take the standard bell, unjudged.
+    /// **The calibrated settings**, by eye at 512², the library prompt, on the two visible families
+    /// at their default steps. `more` ≈ +10 % of high-frequency energy (mean |Laplacian| of the
+    /// luminance) and the same picture; `most` the strongest that stays clean, a step short of where
+    /// artifacts begin. The two hidden families take the standard bell, unjudged.
+    ///
+    ///   - Z-Image (8 evaluations, seeds 42, 7, 0): More 2 → +9 / +8 / +11 %, same pose;
+    ///     Most 2.5 → +11 / +10 / +15 %, clean (seed 42's hand goes to the hip, as Most's did on
+    ///     7 evaluations); 3 streaks seed 0's hair blue. Less headroom than on 7 evaluations, where
+    ///     Most gave +20 %: the σ that sharpened then sat between two of today's.
+    ///   - Qwen-Image-2.1 (seeds 42, 7): judged on the third-party turbo's 6 steps, not yet
+    ///     on the Turbo's 8.
     package func schedule(_ bell: Bell = .standard) -> Schedule? {
         switch (self, bell) {
         case (.normal, _): return nil
         case (.more, .standard): return Schedule(amount: 1)
         case (.most, .standard): return Schedule(amount: 2)
+        case (.more, .zImage): return Schedule(amount: 2, start: 0.4, end: 0.9)
+        case (.most, .zImage): return Schedule(amount: 2.5, start: 0.4, end: 0.9)
         case (.more, .late): return Schedule(amount: 1, start: 0.6, end: 1)
         case (.most, .late): return Schedule(amount: 1.3, start: 0.6, end: 1)
         }
@@ -89,9 +105,11 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     /// **The amount follows the image's side**: calibrated at 512², it is multiplied by
     /// `512 / √(width·height)` — the same lie paints four times the tokens at 1024².
     ///
-    ///   - Z-Image (standard bell): at 1024², More's amount 1 gave Most's +20 % and Most's 2 confetti
-    ///     on skin and walls; scaled, More 0.5 and Most 1 (+8–12 %, +19–24 %, clean; 1.5 already
-    ///     flecks the hair); at 1024×1536 Most is 0.82 (+16 %, clean).
+    ///   - Z-Image: on 7 evaluations and the node's bell, at 1024² More's amount 1 gave Most's
+    ///     +20 % and Most's 2 confetti on skin and walls; scaled, More 0.5 and Most 1 clean. Its own
+    ///     bell on the 8 (seeds 42, 7, 0, against Normal without the spectral schedule, as
+    ///     Detail runs): More 1 → +7 / +8 / +6 %, Most 1.25 → +9 / +10 / +8 %, same picture,
+    ///     clean; 1.5 already flecks seed 42's hair. The rule holds.
     ///   - Qwen-Image-2.1 (late bell, judged on the third-party turbo's 6 steps): at 1024², More's 1
     ///     already strews white flecks, Most's 1.3 everywhere; 0.65 is the last clean amount — exactly
     ///     Most scaled. More is 0.5.

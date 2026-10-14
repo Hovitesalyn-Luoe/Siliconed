@@ -19,10 +19,10 @@ installé.
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20et%20suivants-black)
 
-![Une photo d’été faite avec Z-Image Turbo — une Irlandaise rousse qui sourit à vélo devant une bibliothèque de Dublin — et son édition en bande dessinée, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
+![Une photo d’été faite avec Z-Image Turbo — une Irlandaise rousse qui sourit à vélo sur une petite route de l’ouest de l’Irlande — et son édition en bande dessinée, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
 
 *Une photo de Z-Image Turbo, éditée par Qwen-Image-2.1 avec une phrase (« Convert this photo to a western
-comic book style with cel shading »), comparées sous le rideau, filmé à vitesse réelle dans l’app.*
+comic book style with cel shading »), comparées sous le rideau.*
 
 ## Pourquoi Siliconed
 
@@ -30,8 +30,10 @@ comic book style with cel shading »), comparées sous le rideau, filmé à vi
   comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur
   CPU). Écart à 1024² : 1,2·10⁻⁵ pour Z-Image. Ce qui ne se vérifie pas contre la référence n'est
   pas livré.
-- **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 82 à 85 s sur un M1 Pro
-  ([mesuré à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac).
+- **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 113–119 s sur un M1 Pro,
+  avec les 8 évaluations que demande sa recette ([mesuré à côté de Draw
+  Things](#à-côté-de-draw-things), la référence sur Mac). Jusqu'à la 0.8.1 il n'en faisait que 7, et
+  les temps publiés alors (82–85 s) valaient pour 7 ; corrigé dans la 0.8.2.
 - **31 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
@@ -44,8 +46,10 @@ comic book style with cel shading »), comparées sous le rideau, filmé à vi
   avant le premier octet téléchargé.
 - **Explorer avant de choisir.** Une grille d'esquisses rapides à travers graines, pas, forces de
   LoRA, modèles ou variantes du prompt ; la case choisie devient l'image finie.
-- **Reproductible au bit près.** Même prompt, même graine, mêmes réglages : la même image, octet
-  pour octet. L'édition ci-dessus, refaite dans une autre session, est sortie identique.
+- **Reproductible au bit près.** Même prompt, même graine, mêmes réglages, même version : la même
+  image, octet pour octet. L'édition ci-dessus, refaite dans une autre session, est sortie
+  identique. Une version peut changer les pixels : la 0.8.2 l'a fait pour Z-Image (sa huitième
+  évaluation), ses images de la 0.8.1 et d'avant ne ressortent donc plus au bit.
 
 ## Les modèles
 
@@ -82,7 +86,7 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
 - **Les LoRA**, et **l'image vers image** avec Z-Image.
 
-![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1024² à droite — une femme qui rit dans une bibliothèque ensoleillée —, l’historique en dessous](docs/images/window.jpg)
+![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1024² à droite — une Irlandaise rousse à vélo sur une petite route de campagne —, l’historique en dessous](docs/images/window.jpg)
 
 ### Éditer
 
@@ -154,27 +158,35 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. 1
 
 | | Z-Image Turbo | Qwen-Image-2.1 Turbo |
 |---|---|---|
-| 1024², Standard | 82–85 s (8 pas ; 1024×1536 ~153 s) | 118 s (8 pas) ; 1024×1536 190 s ; une édition à 1 image 212 s, à 2 images 285 s |
-| 1024², Légère (4 à 6 bits) | 83–89 s | 123–130 s ; une édition à 1 image 210 s |
-| pic mémoire, Standard / Légère | 2,7 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go |
+| 1024², Standard | 113–119 s (8 pas ; 1024×1536 190 s) | 118 s (8 pas) ; 1024×1536 190 s ; une édition à 1 image 212 s, à 2 images 285 s |
+| 1024², Légère (4 à 6 bits) | 118–120 s | 123–130 s ; une édition à 1 image 210 s |
+| pic mémoire, Standard / Légère | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go |
 | écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) |
 
-Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG,
-mesuré le 13/10/2026. Le pic mémoire est le `phys_footprint` de l'app, relevé toutes les 100 ms ;
-0 page swappée sur les 27 rendus. Comment l'écart est mesuré : [La vérification](#la-vérification).
+Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG :
+Qwen-Image-2.1 mesuré le 13/10/2026, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est le
+`phys_footprint` de l'app, relevé toutes les 100 ms ; 0 page swappée sur la série.
+Comment l'écart est mesuré : [La vérification](#la-vérification).
+
+Jusqu'à la 0.8.1, Z-Image Turbo faisait 7 des 8 évaluations du DiT que demande sa recette (« 8 pas »
+suivait un ancien calendrier de diffusers dont le dernier pas ne bougeait rien), les deux premières à
+demi-taille à 1024². Corrigé dans la 0.8.2 : 8 évaluations en pleine taille. Les temps de Z-Image
+publiés avant (82–85 s à 1024²) valaient pour le calendrier raccourci.
 
 ### À côté de Draw Things
 
 [Draw Things](https://drawthings.ai) est la référence sur Mac ; ici, son moteur communautaire,
 [draw-things-community](https://github.com/drawthingsai/draw-things-community) à `bc3970c`, avec
-les réglages par défaut du modèle (UniPC trailing, CFG 1). La même machine, la même séance de 70 minutes, un seul moteur chargé à la
-fois ; Z-Image Turbo, 1024², 8 pas, graine 42, trois rendus de chaque côté sur trois variantes du
-même prompt, puis un de plus après l'autre côté.
+les réglages par défaut du modèle (UniPC trailing, CFG 1). La même machine, tout juste redémarrée, un
+seul moteur chargé à la fois ; Z-Image Turbo, 1024², 8 pas (8 évaluations de chaque côté), graine 42,
+trois rendus de chaque côté sur trois variantes du même prompt. Draw Things a été mesuré le 13/10/2026
+(une séance de 70 minutes) et rien n'a changé de son côté depuis ; Siliconed le 14/10/2026, après
+le correctif.
 
 | | poids | temps | pic mémoire | lu sur le disque par rendu |
 |---|---|---|---|---|
-| Siliconed, Standard | les bf16 de l'éditeur, calculés en fp32 | 82–85 s | 2,7 Go | 52 Go |
-| Siliconed, Légère | GGUF Q4_K_M | 83–89 s | 2,0 Go | 3,5–9 Go |
+| Siliconed, Standard | les bf16 de l'éditeur, calculés en fp32 | 113–119 s | 2,6 Go | 51–58 Go |
+| Siliconed, Légère | GGUF Q4_K_M | 118–120 s | 2,0 Go | 3,5–8,7 Go |
 | Draw Things, Exact | f16 | 167–179 s | 5,3 Go | 99 Go |
 | Draw Things, par défaut | 8 bits (`q8p`) | 142–164 s | 3,5–4,3 Go | 11 Go |
 | Draw Things, 6 bits | 6 bits (`q6p`) | 136–138 s | 3,5 Go | 6–14 Go |
@@ -182,7 +194,8 @@ même prompt, puis un de plus après l'autre côté.
 La comparaison porte sur le temps écoulé, pas sur une arithmétique identique : les solveurs et les
 poids diffèrent, les images aussi. Le pic mémoire ne compte pas les poids projetés depuis le disque,
 d'un côté comme de l'autre. Siliconed fait chauffer davantage la machine, ce qui découle du calcul
-en fp32.
+en fp32. Jusqu'à la 0.8.1, ce tableau opposait les 7 évaluations de Siliconed aux 8 de Draw Things ;
+il compare maintenant 8 à 8.
 
 **Dans le budget, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
 `vm_stat`) sont mesurés au pire cas du produit, sur un Mac de 16 Go où rien d'autre ne tourne : Qwen-Image-2.1 à 1024×1536 avec 3 références,
@@ -218,7 +231,7 @@ Les rapports remplissent ce tableau, une ligne par puce :
 
 | Puce | Cœurs CPU | Cœurs GPU | Mémoire | Z-Image Turbo 1024² | Qwen-Image-2.1 Turbo 1024² | Source |
 |---|---|---|---|---|---|---|
-| M1 Pro | 8 | 14 | 16 Go | 82–85 s | 118 s | machine de référence |
+| M1 Pro | 8 | 14 | 16 Go | 113–119 s | 118 s | machine de référence |
 | *votre ligne ici* | | | | | | [rapport](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
 
 ## Pour les agents IA et les scripts : silicontrol

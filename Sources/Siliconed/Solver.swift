@@ -16,9 +16,10 @@ import Foundation
 ///
 /// What a port by analogy would miss:
 ///
-///   - **The solver walks only the steps that move.** Z-Image's schedule ends `…, 0, 0`; the last
-///     step is never evaluated (`Sampler`), and a multistep rule there would take `log 0 − log 0`.
-///     The orders, the warm-up and the « last step » are counted on the moving steps.
+///   - **The walk is the schedule's tail as is**: every step of every schedule here moves (Z-Image's
+///     too since 0.8.2 — before, it ended `…, 0, 0` and the walk had to drop that step, where a
+///     multistep rule would take `log 0 − log 0`). The orders, the warm-up and the « last step »
+///     are counted from the first step run.
 ///   - **σ = 1 makes `λ = −∞`.** DPM++ lives with it: `h₀ = +∞`, `r₀ = +∞`, `D₁ = 0`, so its first
 ///     second-order step is a first-order one — IEEE arithmetic, not a special case. UniPC does not
 ///     (its corrector solves a system with a `−∞` in it): diffusers moves σ = 1 to `1 − 10⁻⁶` in
@@ -55,10 +56,10 @@ public enum Solver: String, CaseIterable, Sendable, Codable {
 /// One render's walk under a `Solver`: the σ it walks and the latents it keeps between two steps.
 package final class SolverWalk {
     package let solver: Solver
-    /// The moving σ from the first step run, ending in 0 — `effective(_:start:)`.
+    /// The σ from the first step run, ending in 0.
     package let sigmas: [Float]
     let count: Int
-    /// `ε` for the ancestral rule: `(moving step, buffer of count)`.
+    /// `ε` for the ancestral rule: `(step of the walk, buffer of count)`.
     let noise: ((Int, UnsafeMutablePointer<Float>) -> Void)?
 
     // UniPC's σ, σ = 1 moved off (see `Solver`). The other rules read `sigmas`.
@@ -92,7 +93,7 @@ package final class SolverWalk {
         self.solver = solver
         self.count = count
         self.noise = noise
-        sigmas = Self.effective(schedule, start: start)
+        sigmas = Array(schedule[start...])
         var nudged = sigmas
         if solver == .unipc, let first = nudged.first, abs(first - 1) < 1e-6 { nudged[0] = first - 1e-6 }
         solverSigmas = nudged
@@ -104,17 +105,10 @@ package final class SolverWalk {
         }
     }
 
-    /// The σ a walk visits: `schedule[start]`, then every next value that differs from the one before.
-    package static func effective(_ schedule: [Float], start: Int) -> [Float] {
-        var out = [schedule[start]]
-        for k in start..<(schedule.count - 1) where schedule[k + 1] != schedule[k] { out.append(schedule[k + 1]) }
-        return out
-    }
-
     /// `λ = log α − log σ`, `α = 1 − σ`, in float like the reference's 0-d tensors.
     private static func lambda(_ sigma: Float) -> Float { logf(1 - sigma) - logf(sigma) }
 
-    /// One moving step: `latent` (the sample the DiT just saw) becomes the next sample, from the
+    /// One step: `latent` (the sample the DiT just saw) becomes the next sample, from the
     /// derivative `m = dx/dσ` the DiT returned on it.
     package func step(latent x: UnsafeMutablePointer<Float>, derivative m: UnsafePointer<Float>) {
         let k = done

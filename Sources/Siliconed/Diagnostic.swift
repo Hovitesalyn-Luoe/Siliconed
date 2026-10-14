@@ -28,11 +28,11 @@ import Metal
 /// itself a figure of the machine (an 8 GB Mac re-reading its map at each step shows it here).
 ///
 /// **Why the full render is derived, not measured.** At 512², a Qwen render is 8 evaluations and a
-/// Z-Image one 7: running them would triple the diagnostic for figures the derivation gives within the
+/// Z-Image one 8: running them would triple the diagnostic for figures the derivation gives within the
 /// noise of a run (M1 Pro: a step varies by a few %, the machine drifts 4–13 % over a few renders).
 /// The JSON says it: `estimatedRenderSeconds`, never "render seconds".
-/// The step count is the model's default (`defaultSteps`); `E` comes from the denoiser's own plan,
-/// so Z-Image's null last step (8 steps = 7 evaluations) is not counted.
+/// The step count is the model's default (`defaultSteps`); `E` comes from the denoiser's own plan
+/// (8 steps = 8 evaluations for both since 0.8.2).
 ///
 /// **What is judged.** The second `model_out`, channel by channel (`channelError`, the same measure
 /// as every check of the repository), against a **reduced golden embedded as a resource** — the DiT's
@@ -57,15 +57,16 @@ import Metal
 ///   - its metadata say where it comes from (`model`, `source_sha256`, `generated` 2026-10-10).
 ///
 /// **The golden of Z-Image Turbo** (`Resources/diagnostic/z-image.safetensors`, 1.05 MB):
-///   - from the oracle's `goldens-trajectory-512.safetensors` (sha256 `c3157e2da4be5b0a…`, written
-///     on 04/10/2026: diffusers fp32 on CPU, the `goldens-text`
-///     `cap_feats` of « a 30 year old woman posing in a library », seed 42, 8 steps);
+///   - from the oracle's `goldens-trajectory-512.safetensors` (sha256 `ba41e12292f2e2cc…`, written
+///     on 13/10/2026: diffusers 0.41.0 fp32 on CPU, the pipeline's own schedule — 8 steps, 8
+///     evaluations, since 0.8.2 —, the `goldens-text` `cap_feats` of « a 30 year old woman posing in a
+///     library », seed 42; its step 0 is the 04/10 oracle's to the bit, step 1 moved with σ₁);
 ///   - keys `latent_init` → `x_t.0`, `latent_1` → `x_t.1`, and **`−v_0` → `model_out.0`, `−v_1` →
 ///     `model_out.1`**: the oracle stores the pipeline's `noise_pred = −transformer(…)`, `DiT.forward`
 ///     returns the transformer's raw output;
-///   - `sigma` = [0, 0.05263153]: the **reversed time** the oracle's transformer received,
-///     `(1000 − t)/1000` in fp32 with `t = scheduler.timesteps` — not fp32 `1 − σ` (0.05263156), which
-///     is what the product's `FlowMatchSchedule.modelTime` passes; 2.6·10⁻⁸ apart, read the oracle's;
+///   - `sigma` = [0, 0.04545459]: the **reversed time** the oracle's transformer received,
+///     `(1000 − t)/1000` in fp32 with `t = scheduler.timesteps` — not fp32 `1 − σ` (0.04545456), which
+///     is what the product's `FlowMatchSchedule.modelTime` passes; 3·10⁻⁸ apart, read the oracle's;
 ///   - regenerated the same way.
 ///
 /// **The threshold** (`threshold(for:)`): see there — measured on this machine at real inputs, and

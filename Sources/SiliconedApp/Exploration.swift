@@ -6,7 +6,7 @@
 //        │ « Explore » (⌘↩ in the panel)
 //        ▼
 //     the queue    one job per cell (`AppState.enqueueGrid(sketch: true)`), each stopped as a sketch
-//                  where its image is already readable (`Sketch`: σ ≤ 0.8 — 3 evaluations of 7 for
+//                  where its image is already readable (`Sketch`: σ ≤ 0.8 — 4 evaluations of 8 for
 //                  Z-Image; Qwen-Image-2.1 does not sketch, its cells are finished images), its picture
 //                  the model's estimate x̂₀ — or
 //                  later, the panel says (`exploreStop`): under a LoRA the style can settle late,
@@ -27,8 +27,9 @@
 // What an analogy with a contact sheet would miss:
 //
 // - **Small means 512, never less** (`Format.minimumSide`: the models are out of their domain under
-//   it). The speed comes from stopping early, not from the size: a Z-Image cell costs ~17 s instead of
-//   ~33 s at 512², text included (measured; 6 cells in 98 s through the app). Portrait and landscape are
+//   it). The speed comes from stopping early, not from the size: a Z-Image cell (4 of 8 evaluations)
+//   costs ~18 s instead of ~34 s at 512², text included, ~16 s once the prompt is encoded (measured
+//   through the app). Portrait and landscape are
 //   512 on their short side.
 // - **A sketch is not an image of the history**: the grid keeps them until the next exploration;
 //   « Add Sheet to History » makes the sheet an image like the others (incognito: in memory).
@@ -281,8 +282,7 @@ struct ExplorationPanel: View {
 
     /// **Where a cell stops, in one line**: « Sketch at n steps of N » — the rack's N, and the n
     /// steps a cell runs before its picture is taken — or « Finished images, N steps » when n reaches
-    /// the end. n counts steps as well as evaluations: the only null step (Z-Image's, σ = 0 → 0) is
-    /// the schedule's last, never among a sketch's.
+    /// the end. n counts steps as well as evaluations: every step is one.
     ///
     /// The line's stepper moves n when the rack's model sketches; when it does not (Qwen-Image-2.1,
     /// `DenoisingModule.sketches`), its cells are finished images and the stepper moves N — a

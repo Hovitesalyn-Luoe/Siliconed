@@ -230,7 +230,7 @@ final class MemoryNeedTests: XCTestCase {
         for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
             let n = try need(w, h)
             let latent = 16 * (h / 8) * (w / 8) * 4
-            let halved = Spectral.steps(height: h / 8, width: w / 8, schedule: FlowMatchSchedule(steps: ModelCard.zImage.defaultSteps)) > 0
+            let halved = ZImageDenoisingModule.spectralSteps > 0
             let image = (h / 16) * (w / 16), cap = 64, s = image + cap
             func split(_ rows: Int) -> Int {
                 HeadSplitAttention.hostBytes(heads: 30, sequence: rows, headDim: 128, threads: 6) + rows * gpuHeads * 128 * 4

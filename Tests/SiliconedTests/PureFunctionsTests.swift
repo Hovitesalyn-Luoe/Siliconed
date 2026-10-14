@@ -22,37 +22,48 @@ final class PureFunctionsTests: XCTestCase {
 
     // ── the schedule ───────────────────────────────────────────────────────────────────────
 
-    func testScheduleEightStepsGivesSevenEvaluations() {
-        let s = FlowMatchSchedule(steps: 8)
-        // `steps + 1` values, ending with zero — and the last step moves nothing, hence
-        // `N steps = N−1 evaluations` (measured).
-        XCTAssertEqual(s.sigmas.count, 9)
-        XCTAssertEqual(s.sigmas.last, 0)
-        XCTAssertEqual(s.effectiveSteps, 7)
+    /// **diffusers 0.41.0's Z-Image schedule, bit for bit**: `get_default_z_image_sigmas(N)` through
+    /// the published scheduler's `set_timesteps` (shift 3, static), then the terminal 0 — printed by
+    /// `retrieve_timesteps` in the venv, as float32 bit patterns. N = 8 is the official recipe's
+    /// eight DiT forwards (since 0.8.2); the others exercise torch's two-sided `linspace` (its halves,
+    /// odd and even N, a single step).
+    private let referenceSchedules: [Int: [UInt32]] = [
+        1: [0x3f800000, 0x00000000],
+        2: [0x3f800000, 0x3f400000, 0x00000000],
+        3: [0x3f800000, 0x3f5b6db6, 0x3f199999, 0x00000000],
+        8: [0x3f800000, 0x3f745d17, 0x3f666666, 0x3f555555, 0x3f400000, 0x3f249249, 0x3f000000, 0x3e99999a, 0x00000000],
+        9: [0x3f800000, 0x3f75c290, 0x3f69bd39, 0x3f5b6db6, 0x3f4a1af3, 0x3f34b4b5, 0x3f199999, 0x3eec4ec6, 0x3e8ba2e9, 0x00000000],
+        13: [0x3f800000, 0x3f7914c3, 0x3f715f17, 0x3f68ba2e, 0x3f5ef7be, 0x3f53dcb0, 0x3f471c72, 0x3f3851eb, 0x3f26f4de, 0x3f124925, 0x3ef286bc, 0x3eb4b4b6, 0x3e4cccce, 0x00000000],
+        20: [0x3f800000, 0x3f7b9611, 0x3f76db6d, 0x3f71c71d, 0x3f6c4ec6, 0x3f666666, 0x3f5fffff, 0x3f590b21, 0x3f51745d, 0x3f492494, 0x3f400000, 0x3f35e50d, 0x3f2aaaab, 0x3f1e1e1d, 0x3f100000, 0x3f000000, 0x3edb6db8, 0x3eb13b15, 0x3e800000, 0x3e0ba2e9, 0x00000000],
+        28: [0x3f800000, 0x3f7ce0c7, 0x3f799998, 0x3f762763, 0x3f7286bc, 0x3f6eb3e4, 0x3f6aaaab, 0x3f666666, 0x3f61e1e1, 0x3f5d1744, 0x3f580001, 0x3f5294a4, 0x3f4ccccc, 0x3f469ee5, 0x3f400000, 0x3f38e38e, 0x3f313b14, 0x3f28f5c2, 0x3f200000, 0x3f1642c9, 0x3f0ba2ea, 0x3f000000, 0x3ee66667, 0x3eca1af1, 0x3eaaaaac, 0x3e878788, 0x3e400000, 0x3dccccce, 0x00000000],
+        50: [0x3f800000, 0x3f7e4531, 0x3f7c7e3e, 0x3f7aaaaa, 0x3f78c9e9, 0x3f76db6d, 0x3f74de9b, 0x3f72d2d2, 0x3f70b767, 0x3f6e8ba4, 0x3f6c4ec6, 0x3f6a0001, 0x3f679e7a, 0x3f65294a, 0x3f629f7a, 0x3f5fffff, 0x3f5d49c2, 0x3f5a7b95, 0x3f579436, 0x3f549249, 0x3f51745d, 0x3f4e38e5, 0x3f4ade32, 0x3f476278, 0x3f43c3c4, 0x3f400000, 0x3f3c14e5, 0x3f37ffff, 0x3f33bea3, 0x3f2f4dea, 0x3f2aaaaa, 0x3f25d174, 0x3f20be82, 0x3f1b6db6, 0x3f15da89, 0x3f100000, 0x3f09d89e, 0x3f035e51, 0x3ef914c1, 0x3eeaaaa9, 0x3edb6db6, 0x3ecb4b4a, 0x3eba2e8c, 0x3ea80001, 0x3e94a529, 0x3e7ffffe, 0x3e53dcb1, 0x3e249249, 0x3de38e38, 0x3d6c4ec5, 0x00000000],
+    ]
+
+    func testScheduleIsDiffusersToTheBit() {
+        for (steps, bits) in referenceSchedules {
+            XCTAssertEqual(FlowMatchSchedule(steps: steps).sigmas.map(\.bitPattern), bits, "\(steps) steps")
+        }
     }
 
-    func testScheduleIsStrictlyDecreasingAndStartsAtOne() {
+    func testEightStepsAreEightEvaluations() {
         let s = FlowMatchSchedule(steps: 8)
-        XCTAssertEqual(s.sigmas[0], 1, accuracy: 1e-6,
-                       "σ₀ = shift·1/(1+(shift−1)·1) = 1 whatever the shift")
-        // **Strictly decreasing up to the second-to-last, and NOT up to the last.** The bare
-        // schedule already ends at zero (`raw = 0` at the last point), and the pipeline appends one
-        // — hence two zeros at the tail. It is not a wart: it is *the* mechanism of `N steps = N−1 evaluations`, a last step
-        // that moves nothing, so `N steps = N−1 evaluations`.
-        for i in 0..<(s.sigmas.count - 2) {
-            XCTAssertGreaterThan(s.sigmas[i], s.sigmas[i + 1],
-                                 "σ must decrease strictly; at index \(i) it does not")
+        // `steps + 1` values, ending with zero, strictly decreasing: every step moves the latent.
+        // The 0.36 schedule (`linspace(1, 0, N)` + 0) ended `0, 0` and gave N − 1 evaluations.
+        XCTAssertEqual(s.sigmas.count, 9)
+        XCTAssertEqual(s.sigmas.last, 0)
+        XCTAssertEqual(s.sigmas[0], 1)
+        for i in 0..<(s.sigmas.count - 1) {
+            XCTAssertGreaterThan(s.sigmas[i], s.sigmas[i + 1], "σ must decrease strictly; at index \(i) it does not")
         }
-        XCTAssertEqual(s.sigmas[s.sigmas.count - 2], 0,
-                       "the second-to-last σ is already zero — this is what makes the last step null")
+        XCTAssertEqual(ZImageDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: 0).evaluations, 8)
     }
 
     func testScheduleGivesBackTheReferenceValues() {
         // The σ of the reference's schedule, as in the spectral schedule documentation.
-        let expectedCounts: [Float] = [1, 0.947, 0.882, 0.8, 0.692, 0.545, 0.333, 0]
+        let expected: [Float] = [1, 0.955, 0.9, 0.833, 0.75, 0.643, 0.5, 0.3, 0]
         let s = FlowMatchSchedule(steps: 8)
-        for (i, expected) in expectedCounts.enumerated() {
-            XCTAssertEqual(s.sigmas[i], expected, accuracy: 1e-3,
+        for (i, value) in expected.enumerated() {
+            XCTAssertEqual(s.sigmas[i], value, accuracy: 1e-3,
                            "σ[\(i)]: the schedule has changed, or the shift is no longer 3")
         }
     }
@@ -79,10 +90,9 @@ final class PureFunctionsTests: XCTestCase {
     func testDivisorsFollowTheSameRuleAsTheStepCount() {
         let s = FlowMatchSchedule(steps: 8)
         let d = Spectral.divisors(height: 128, width: 128, schedule: s)
-        // One divisor per STEP, hence eight — `Sampler.divisor(_:)` indexes them over `0..<8`. The
-        // eighth is that of the step that moves nothing (σ = 0), and it is 1 like the others.
-        // The threshold alone would give [4, 2, 1, …], but a quarter of 1024² is 256², below the
-        // 512² floor: the first step drops to 2.
+        // One divisor per STEP, hence eight — `Sampler.divisor(_:)` indexes them over `0..<8`.
+        // The threshold alone would give [4, 4, 1, …], but a quarter of 1024² is 256², below the
+        // 512² floor: the first two steps drop to 2.
         XCTAssertEqual(d, [2, 2, 1, 1, 1, 1, 1, 1])
         // **The property that found the defect**: both functions derive from the same threshold,
         // so they must agree. The number of reduced-size steps according to `divisors` is the `k`

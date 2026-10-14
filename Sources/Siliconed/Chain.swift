@@ -164,6 +164,7 @@ public struct DenoisingPlan: Sendable {
 ///
 ///     Z-Image, 7 evaluations      σ after:  .947  .882  .800  .692 …      stop at 3 → 21 dB, pose,
 ///                                                                         clothes and light final
+///     Z-Image, 8 (since 0.8.2)    σ after:  .955  .900  .833  .750 …      stop at 4 (rule, not re-measured)
 ///     Qwen-Image-2.1, 6           σ after:  .963  .923  .837  .632 …      stop at 4 → 20 dB,
 ///                                                                         composition, soft
 ///
@@ -180,15 +181,11 @@ public struct DenoisingPlan: Sendable {
 public enum Sketch {
     public static let threshold: Float = 0.8
 
-    /// The evaluations a sketch of `sigmas` (a full schedule, ending in 0) takes; null steps
-    /// (σ unchanged) are not evaluations. Never fewer than 1, never more than the schedule's.
+    /// The evaluations a sketch of `sigmas` (a full schedule, ending in 0, one evaluation per step)
+    /// takes. Never fewer than 1, never more than the schedule's.
     public static func evaluations(sigmas: [Float]) -> Int {
-        var n = 0
-        for i in 0..<max(0, sigmas.count - 1) where sigmas[i + 1] != sigmas[i] {
-            n += 1
-            if sigmas[i + 1] <= threshold { return n }
-        }
-        return max(1, n)
+        for i in 0..<max(0, sigmas.count - 1) where sigmas[i + 1] <= threshold { return i + 1 }
+        return max(1, sigmas.count - 1)
     }
 }
 
@@ -598,7 +595,7 @@ public struct Request: Sendable, Equatable {
     public var previews: Bool
     /// **A sketch: stop after this many evaluations** and decode the denoiser's estimate of the
     /// final image, x̂₀ = x − σ·v, instead of the image. `nil`: the whole render. The estimate is free
-    /// (the evaluation computed `v` anyway) and speaks early: on Z-Image at 512², after 3 of 7
+    /// (the evaluation computed `v` anyway) and speaks early: on Z-Image at 512², after 3 of 7 (before 0.8.2; 4 of 8 now)
     /// evaluations the pose, the clothes and the light are those of the final image. The
     /// evaluations done are **the first ones of the whole render, bit for bit** — a sketch is a
     /// prefix, not another render: the same request without `sketch` finishes the image it showed.
@@ -763,14 +760,32 @@ package enum PhaseBoundary {
     /// The marks of the render in progress, `nil` outside one — one ledger, by the invariant above.
     nonisolated(unsafe) private static var marks: [(name: String, peak: Int)]?
 
+    /// The graphics ledger when the render began: what `returned` waits for Metal to come back to.
+    nonisolated(unsafe) private static var graphicsAtBegin = 0
+
     /// A render starts: an empty ledger, a new kernel interval.
     package static func begin() {
         marks = []
+        graphicsAtBegin = VAEMemory.graphicsFootprint()
         FootprintInterval.reset()
+    }
+
+    /// **Waits until Metal has taken back what a phase released** — the graphics ledger back to its
+    /// level at the render's start (within `VAEMemory.releaseTolerance`), for `VAEMemory.releaseWait`
+    /// at most. Metal returns a released buffer late (`VAEMemory.finish`, which does the same for a
+    /// VAE's heaps): Qwen-Image-2.1's DiT, released, still had 10 MB in the ledger when the decoder
+    /// started, beside it. Called where a phase hands back everything GPU-side and nothing
+    /// GPU-side crosses: after the text, after the denoiser's release.
+    package static func returned() {
+        let deadline = Date().addingTimeInterval(VAEMemory.releaseWait)
+        while VAEMemory.graphicsFootprint() > graphicsAtBegin + VAEMemory.releaseTolerance, Date() < deadline { usleep(1000) }
     }
 
     package static func mark(_ name: String) {
         let peak = FootprintInterval.peak()
+        // The phase's freed pages go back to the kernel before the next phase starts beside them
+        // (`Arena.returnFreedPages`): what survives a boundary is what is alive, not what `free` queued.
+        Arena.returnFreedPages()
         observer?(name)
         guard marks != nil else { return }
         marks?.append((name, peak))
@@ -937,7 +952,11 @@ extension Engine {
         // **The need, from the request's own inputs** (`MemoryNeed`): each reference at its size, the
         // prompt's tokens bounded by its bytes, the batch, what this process holds now (`base`: B covers
         // the whole process, the app's interface included); the LoRA ranks join once the stack is open
-        // (below).
+        // (below). The base is what the process holds once its frameworks are up
+        // (`OperatorFootprint.bringUp`), and alive: what `free` left queued goes back first
+        // (`Arena.returnFreedPages`).
+        OperatorFootprint.bringUp()
+        Arena.returnFreedPages()
         var memoryRequest = model.card.memoryRequest(
             width: request.width, height: request.height,
             references: (request.image.map { [$0] } ?? request.references).map { ($0.width, $0.height) },
@@ -1087,6 +1106,7 @@ extension Engine {
             context.emit(.text(tokens: text.tokens, tokenizer: context.timings.tokenizer,
                                     encoder: context.timings.encoder))
             context.footprints.text = Arena.processFootprint()
+            PhaseBoundary.returned()
             PhaseBoundary.mark("text")
 
             // ── The image (img2img), once: the encoder lives in its own scope, before the DiT. ──
@@ -1158,6 +1178,7 @@ extension Engine {
             }
 
             context.keptDenoiser = nil
+            PhaseBoundary.returned()
             PhaseBoundary.mark("denoiser released")
 
             var renderResults: [Render] = []
