@@ -126,8 +126,8 @@ chosen cell to the end with the same seed: the image its sketch announced.
   stays as published on disk, never re-quantized (Z-Image: 6.2 GB in 8 bits, about 5 GB in GGUF
   Q4_K_M, instead of 12.3 GB; each step a little slower, the computation stays fp32); below 4 bits,
   the file is refused (`docs/API.md` §3.11).
-- **Statistics and diagnostic.** The statistics palette (⌥⌘I) and « Report My Configuration » (a
-  measured diagnostic, exported as JSON) are toolbar buttons.
+- **Statistics and diagnostic.** The statistics palette (⌥⌘I) and « Report My Configuration » (what
+  the chip computes, measured, exported as JSON) are toolbar buttons.
 
 Models live in `~/Library/Application Support/Siliconed` (override with `SILICONED_ROOT`).
 
@@ -209,21 +209,23 @@ Each side must be at least 512 and a multiple of 16, with a surface of at most 1
 
 ## Community diagnostic
 
-One machine is not a benchmark. The app's **Report My Configuration** button runs a short
-diagnostic (about 15 s per installed model, at 512²: the encoder, two denoiser evaluations, the
-decoder), checks the denoiser output channel by channel against a small reference embedded in the
-app, and opens a prefilled GitHub issue with the JSON report: chip, CPU and GPU cores, memory,
-macOS, time per stage, estimated full render, peak memory, swap, bytes read from the disk, the memory
-plan taken, the thermal state and power source before and after, the settings that differ from the
-defaults, and a short matrix multiplication timed on the GPU and on the CPU. Nothing is sent unless
-you submit the issue.
+One machine is not a benchmark. The app's **Report My Configuration** button maps what your Mac's
+chip computes, in under 30 seconds and without any model: the matrix products of the models' blocks
+on the GPU, on the CPU's matrix unit and on both at once, fp16 and bf16 products, attention through
+the engine's three kernels, weight widening on the CPU and on the GPU — each result checked against
+the exact one computed in double precision. It then opens a prefilled GitHub issue with the JSON
+report: chip, CPU and GPU cores, memory, macOS, the CPU's feature flags, each throughput and whether
+it computed right, the thermal state and power source before and after. Nothing is sent unless you
+submit the issue.
 
-The reports fill this table, one line per chip:
+The reports fill this table, one line per chip (TFLOP/s, fp32 unless noted):
 
-| Chip | CPU cores | GPU cores | Memory | Z-Image Turbo 1024² | Qwen-Image-2.1 Turbo 1024² | Source |
-|---|---|---|---|---|---|---|
-| M1 Pro | 8 | 14 | 16 GB | 113–119 s | 118 s | reference machine |
-| *your line here* | | | | | | [report](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
+| Chip | CPU cores | GPU cores | Memory | GPU | CPU matrix unit | Both | Attention | GPU fp16 | Source |
+|---|---|---|---|---|---|---|---|---|---|
+| M1 Pro | 8 | 14 | 16 GB | 3.5 | 2.2 | 5.1 | 2.5 | 3.4 | reference machine |
+| *your line here* | | | | | | | | | [report](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
+
+Render times on the reference machine are under [Numbers](#numbers).
 
 ## For AI agents and scripts: silicontrol
 
@@ -279,8 +281,8 @@ computation of the same stage, and the engine may be no further from it than the
 25 %. Peak memory is read from `phys_footprint`, sampled during the render, swap from `vm_stat`, and
 each timing is framed by a witness measurement before and after, since the machine drifts by several
 percent from one render to the next. The oracle harness and the measurement journal are not part
-of this repository; what ships is the pure unit tests and the small reference the diagnostic checks
-against.
+of this repository; what ships is the pure unit tests, and the diagnostic, which checks a machine
+against exact results computed on its own CPU.
 
 ## Documentation
 

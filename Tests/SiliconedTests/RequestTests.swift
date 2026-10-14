@@ -43,8 +43,9 @@ final class RequestTests: XCTestCase {
         XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0.95, 0.9, 0.5, 0]), 3)
         XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0]), 1)
         XCTAssertEqual(zImage.chain.denoising.plan(height: 128, width: 128, steps: 8, start: 0).reduced, 0)
-        // A set `k` (the product's is 0 since 0.8.2): sketching keeps the first evaluations, half-size ones included.
-        let plan = ZImageDenoisingModule(map: "", spectral: 2).plan(height: 128, width: 128, steps: 8, start: 0)
+        // A plan with half-size steps (Qwen-Image-2.1's at 1024²): sketching keeps the first evaluations,
+        // half-size ones included.
+        let plan = DenoisingPlan(startStep: 0, startSigma: 1, evaluations: 8, reduced: 2, reducedHeight: 32, reducedWidth: 32)
         XCTAssertEqual([plan.evaluations, plan.reduced], [8, 2])
         XCTAssertEqual([plan.sketched(3).evaluations, plan.sketched(3).reduced], [3, 2])
         XCTAssertEqual([plan.sketched(1).evaluations, plan.sketched(1).reduced], [1, 1])
@@ -123,10 +124,9 @@ final class RequestTests: XCTestCase {
         }
     }
 
-    /// B2: building a request or the product's denoiser does not read the machine's profile.
+    /// B2: building a request does not read the machine's profile.
     func testNothingReadsTheProfileAtConstruction() {
         XCTAssertNil(Request("p").reproducible, "resolved at render time, not frozen at construction")
-        XCTAssertNil(ZImageDenoisingModule.product(map: "").spectral)
         XCTAssertEqual(Request("p", previews: true).previews, true)
     }
 
@@ -136,16 +136,6 @@ final class RequestTests: XCTestCase {
             XCTAssertEqual($0 as? EngineError, .formatRefused(width: 99_999_999_984, height: 99_999_999_984, reason: .tooLarge))
         }
         XCTAssertThrowsError(try Format.check(width: 512, height: 16_000))
-    }
-
-    /// B9: a spectral forced below the floor (512² → 256²) is refused before the text encoder.
-    func testAForcedSpectralBelowTheFloorIsRefusedBeforeAnyComputation() throws {
-        let forced = Model(card: .zImage, chain: try Chain(
-            text: ZImageTextModule(map: "", tokenizer: ""), denoising: ZImageDenoisingModule(map: "", spectral: 2),
-            decoding: FluxDecodingModule(path: "")))
-        XCTAssertThrowsError(try Engine().render(Request("a 30 year old woman posing in a library", resolution: 512), model: forced)) {
-            XCTAssertEqual($0 as? EngineError, .imageTooSmall(side: 256, minimum: 512))
-        }
     }
 
     /// B10: a request cancelled before starting pays nothing and emits nothing, not even `start`.

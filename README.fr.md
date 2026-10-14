@@ -133,7 +133,7 @@ rend la case choisie jusqu'au bout avec la même graine : l'image que son esqui
   5 Go en GGUF Q4_K_M, au lieu de 12,3 Go ; chaque pas un peu plus lent, le calcul reste en fp32) ;
   sous 4 bits, le fichier est refusé (`docs/API.fr.md` §3.11).
 - **Statistiques et diagnostic.** La palette des statistiques (⌥⌘I) et « Signaler ma configuration »
-  (un diagnostic mesuré, exporté en JSON) sont des boutons de la barre d'outils.
+  (ce que calcule la puce, mesuré, exporté en JSON) sont des boutons de la barre d'outils.
 
 Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable avec `SILICONED_ROOT`).
 
@@ -219,20 +219,23 @@ Chaque côté doit être d'au moins 512 et multiple de 16, pour une surface d'au
 ## Le diagnostic communautaire
 
 Une machine ne fait pas un banc. Le bouton **Signaler ma configuration** de l'app (*Report My
-Configuration* en anglais) lance un court diagnostic (environ 15 s par modèle installé, à 512² :
-l'encodeur, deux évaluations du débruitage, le décodeur), vérifie la sortie du débruitage canal par
-canal contre une petite référence embarquée dans l'app, et ouvre une issue GitHub préremplie avec le
-rapport JSON : puce, cœurs CPU et GPU, mémoire, macOS, temps par étage, rendu entier estimé, pic
-mémoire, swap, octets lus sur le disque, plan mémoire suivi, état thermique et alimentation avant et
-après, réglages qui diffèrent des défauts, et une courte multiplication de matrices chronométrée sur
-le GPU et sur le CPU. Rien n'est envoyé tant que vous ne soumettez pas l'issue.
+Configuration* en anglais) dresse la carte de ce que calcule la puce de votre Mac, en moins de 30
+secondes et sans aucun modèle : les produits matriciels des blocs des modèles sur le GPU, sur l'unité
+matricielle du CPU et sur les deux à la fois, des produits fp16 et bf16, l'attention par les trois
+noyaux du moteur, l'élargissement des poids sur le CPU et sur le GPU — chaque résultat vérifié contre
+le résultat exact calculé en double précision. Il ouvre ensuite une issue GitHub préremplie avec le
+rapport JSON : puce, cœurs CPU et GPU, mémoire, macOS, drapeaux du CPU, chaque débit et s'il a
+calculé juste, état thermique et alimentation avant et après. Rien n'est envoyé tant que vous ne
+soumettez pas l'issue.
 
-Les rapports remplissent ce tableau, une ligne par puce :
+Les rapports remplissent ce tableau, une ligne par puce (TFLOP/s, en fp32 sauf mention) :
 
-| Puce | Cœurs CPU | Cœurs GPU | Mémoire | Z-Image Turbo 1024² | Qwen-Image-2.1 Turbo 1024² | Source |
-|---|---|---|---|---|---|---|
-| M1 Pro | 8 | 14 | 16 Go | 113–119 s | 118 s | machine de référence |
-| *votre ligne ici* | | | | | | [rapport](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
+| Puce | Cœurs CPU | Cœurs GPU | Mémoire | GPU | Unité matricielle du CPU | Les deux | Attention | GPU fp16 | Source |
+|---|---|---|---|---|---|---|---|---|---|
+| M1 Pro | 8 | 14 | 16 Go | 3,5 | 2,2 | 5,1 | 2,5 | 3,4 | machine de référence |
+| *votre ligne ici* | | | | | | | | | [rapport](https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml) |
+
+Les temps de rendu de la machine de référence sont dans [Les chiffres](#les-chiffres).
 
 ## Pour les agents IA et les scripts : silicontrol
 
@@ -289,8 +292,8 @@ jugées contre un calcul fp64 du même étage, et le moteur ne doit pas s'en éc
 référence plus 25 %. Le pic mémoire se lit sur `phys_footprint`, échantillonné pendant le rendu, le
 swap sur `vm_stat`, et chaque chrono est encadré par une mesure témoin avant et après, car la machine
 dérive de plusieurs pour cent d'un rendu à l'autre. Le banc d'oracles et le journal des mesures ne
-font pas partie de ce dépôt ; ce qui est livré, ce sont les tests unitaires purs et la petite
-référence contre laquelle le diagnostic vérifie.
+font pas partie de ce dépôt ; ce qui est livré, ce sont les tests unitaires purs, et le diagnostic,
+qui vérifie une machine contre des résultats exacts calculés sur son propre CPU.
 
 ## Documentation
 

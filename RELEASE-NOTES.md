@@ -2,6 +2,30 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.9
+
+### Report My Configuration now measures the chip
+
+- **The diagnostic no longer renders a model.** In about 15 seconds, without any model, it maps what
+  your Mac's chip computes: the matrix products of the models' blocks on the GPU, on the CPU's matrix
+  unit and on both at once, fp16 and bf16 products, attention through the engine's three kernels,
+  weight widening on the CPU and on the GPU — each result checked against the exact one, computed in
+  double precision. The JSON report says what the chip computes, and whether it computes it right.
+- **Fixed: with the Compact install, the diagnostic always said « differs from the reference ».** It
+  compared the 8-bit weights' output with the full-precision reference: the weights differed, not the
+  chip.
+
+### The engine follows the map
+
+- **Once you have run it, Siliconed uses what it measured, from the next launch:** the GPU and the
+  CPU's matrix unit together on the large products, and at which share; the attention's heads split
+  between the GPU and the CPU; the in-house attention kernel — each only if it is faster on this Mac,
+  beyond the measurement's own noise, and only if it computed right. Until you run it, nothing
+  changes. The sheet says what this Mac uses, and whether it applies now or at the next launch.
+- After a macOS or Siliconed update, the map is set aside until you run it again.
+- With a map, the same seed may give slightly different bits than without; the same Mac with the same
+  map still gives the same bits.
+
 ## 0.8.2
 
 ### Fixed: Z-Image Turbo follows its recipe

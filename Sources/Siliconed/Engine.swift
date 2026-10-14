@@ -386,64 +386,20 @@ public final class Engine: Sendable {
 
 // ── the spectral schedule, which is a product rule ────────────────────────────────────
 
-/// **The spectral schedule is a PRODUCT choice, not a machine one.**
+/// **The spectral schedule is a PRODUCT choice, not a machine one** — today Qwen-Image-2.1's alone
+/// (`QwenImage21DenoisingModule.plan`, a fixed `k`; Z-Image evaluates every step at full size).
 ///
 /// It is therefore not tuned like the AMX or the VAE slices: a profile cannot write it
 /// (`EngineSettings` refuses), because it does not change the speed at constant image — **it changes
-/// the image**. What judges it is the spectral check, against the spectral oracle and by eye,
-/// not a stopwatch. That is why its rule is in the library's code, and not in the CLI it came
-/// from: it belongs to the engine as much as the schedule itself.
-///
-/// ## ⚠️ `k = 2`, not `k = 3` — corrected on 2026-09-22
-///
-/// A first study had chosen `k=3` ("sharp") over `k=4` ("confetti"), **on a single draw**: the oracle's,
-/// the reference's noise and golden captions. The first **free** render — our noise, seed 42 —
-/// shows at `k=3` speckles on the T-shirt and debris floating in the air, that is, exactly the
-/// failure mode that study attributed to `k=4`. Reproduced at seed 7, and **without** AMX co-execution,
-/// so it is neither the draw nor an interaction with the AMX.
-///
-/// ```
-///   k=0   140.5 s   clean           k=2   118.9 s   clean           k=3   100.2 s   debris
-/// ```
-///
-/// The mechanism is the one that study already named for `k=4`: an excess of high frequency that the
-/// remaining steps no longer have time to resorb. **The breaking point depends on the draw** — it
-/// was between 3 and 4 on the oracle's, it is between 2 and 3 on these. An image verdict taken on
-/// a single draw is not a verdict.
+/// the image**. What judges it is the eye, on free draws, not a stopwatch: a verdict taken on a
+/// single draw is not a verdict, and a rule judged clean on one schedule does not carry over to
+/// another (Z-Image's, clean on its former seven evaluations, left grain on the eight of its recipe).
+/// What lives here are the floors every half-size evaluation obeys, and the measurement's override.
 package enum Spectral {
 
-    /// **The threshold is calibrated, not derived** — and that is the only honesty possible here.
-    ///
-    /// In rectified flow, the SNR at frequency `f` reaches 1 at `f*(σ) = (1 − σ)/σ`; an evaluation
-    /// whose useful band fits under the threshold can be done at half-size without losing anything
-    /// but what the noise already covered.
-    ///
-    /// ```
-    ///   σ      1      0.955   0.900   0.833   0.750   0.643   0.500   0.300
-    ///   f*     0      0.048   0.111   0.200   0.333   0.556   1.000   2.333
-    ///                    ↑ calibrated threshold between the two ↑
-    /// ```
-    ///
-    /// Theory says where the SNR equals 1; it does not say how much energy above `f*` a few-step
-    /// model can still resorb. Measurement does — on the seven-evaluation schedule the engine
-    /// walked until 0.8.2 (σ 1, 0.947, 0.882, …): `k=2` (so `f* ≤ 0.056`) was clean on four draws,
-    /// `k=3` (`f* ≤ 0.134`) carried debris on two of three. The threshold was therefore taken
-    /// **between the two**, at 0.10; on the eight evaluations it still gives `k=2`, now at
-    /// `f* ≤ 0.048`, below what was judged clean.
-    ///
-    /// **Refuted by the image (0.8.2): "below what was judged clean" is not clean.** On the eight
-    /// evaluations, `k=2` puts sand on the skin and grain on the walls at 1024² (two prompts, with
-    /// and without freckles asked), `k=1` too; only `k=0` is clean. The threshold is a band
-    /// argument, and what breaks is not the band: it is how much leftover noise the full steps
-    /// resorb, which the schedule changed. Z-Image's product no longer calls this rule
-    /// (`ZImageDenoisingModule.spectralSteps = 0`); it stays for measurements and `divisors`.
-    ///
-    /// What the rule brings over a hard-coded number: it **follows the schedule**. Moving to 12
-    /// steps, or changing the `shift`, moves the σs — and so `k` — without redoing the campaign.
-    package static let threshold: Float = 0.10
-
     /// `SILICONED_SPECTRAL`, via `EngineSettings` — read at render time, never at construction; `nil`
-    /// when nothing forces it. A forced `k` keeps the last word over the rule (a measurement forces it).
+    /// when nothing forces it. It forces Qwen-Image-2.1's `k` over its rule, within the floor: a
+    /// measurement, never the product.
     package static var forced: Int? {
         EngineSettings.effective.provenance["spectral"] != nil ? EngineSettings.effective.spectral : nil
     }
@@ -457,7 +413,7 @@ package enum Spectral {
     /// Project owner's decision, 2026-09-22: below 512² the model is out of its domain, so nothing
     /// evaluated there — neither image nor timing — means anything. **Per side**, since
     /// rectangles (2026-09-23): an 832×1216 has the area of 1024², its half 416×608 does not have
-    /// that of a 512² on one side. `Sampler.run` refuses a divisor that would cross it, and
+    /// that of a 512² on one side. The spectral plan never halves under it (`divisible`), and
     /// `Format` refuses a render that would cross it.
     package static let minimumSide = 64
 
@@ -467,78 +423,13 @@ package enum Spectral {
     ///
     /// A consequence to know: **no usual portrait or landscape format has a spectral schedule.**
     /// 832×1216 has the area of 1024², but its half-size would be 416×608 — one side under the
-    /// floor, hence `k = 0`, and Z-Image pays its eight full evaluations there. The spectral
-    /// schedule applies only from 1024 px **on each side**: under the area ceiling
-    /// (`Format.maxSurface`, 1024×1536), that leaves only 1024², 1024×1536 and its
-    /// transpose — the latter through the rectangular path (half-grid `h ≠ w`), `k = 2`, rendered
-    /// clean by Z-Image.
+    /// floor, hence `k = 0`, and every evaluation at full size. The spectral schedule applies only
+    /// from 1024 px **on each side**: under the area ceiling (`Format.maxSurface`, 1024×1536), that
+    /// leaves only 1024², 1024×1536 and its transpose (half grid `h ≠ w`).
     ///
     /// `floor`: the per-side floor **in this latent's cells** (`floor(factor:)`).
     static func divisible(height: Int, width: Int, by d: Int, floor: Int = minimumSide) -> Bool {
         height / d >= floor && width / d >= floor
             && height % (2 * d) == 0 && width % (2 * d) == 0
-    }
-
-    /// The number of half-size evaluations, derived from the schedule. `height`, `width`: the
-    /// latent grid.
-    ///
-    /// **It applies only from 1024 px on each side.** `k` half-size evaluations are 512² under a
-    /// 1024² render — within the model's domain — but **256² under a 512² render**, and we removed
-    /// 256² from the bench precisely because the model is out of its domain there. See `divisible`
-    /// for rectangles.
-    package static func steps(height: Int, width: Int, schedule: FlowMatchSchedule) -> Int {
-        guard divisible(height: height, width: width, by: 2) else { return 0 }
-        var k = 0
-        for sigma in schedule.sigmas {
-            let band = sigma > 0 ? (1 - sigma) / sigma : .infinity
-            if band <= threshold { k += 1 } else { break }
-        }
-        return k
-    }
-
-    /// **The per-step divisors, derived from the same threshold** — `f*(σ) ≤ 2·0.10 / d`.
-    ///
-    /// A grid divided by `d` carries `d` times less band: if half-size is safe as long as
-    /// `f* ≤ 0.10`, quarter-size is safe as long as `f* ≤ 0.05`. On the eight-step schedule, `f*`
-    /// is `[0 ; 0.048 ; 0.111 ; …]`, so the rule returns **`[4, 4, 1, 1, 1, 1, 1, 1]`**: the first
-    /// two steps at a quarter, the rest at full size (on the seven-evaluation schedule of before
-    /// 0.8.2, `f*` 0.056 at the second step gave `[4, 2, 1, …]`).
-    ///
-    /// ## ⚠️ The `2·` is not a comfort factor — corrected on 2026-09-22
-    ///
-    /// The formula was written `f* ≤ seuil / d` in the original comment, **and that is not what
-    /// the sentence just above describes**. `threshold` is calibrated for the **half**-size, not for
-    /// the full one: that is exactly what `steps(...)` applies, which counts the steps whose
-    /// `f* ≤ threshold` and evaluates them at `d = 2`. The right anchor is therefore `d = 2 ↦ threshold`,
-    /// which gives `seuil · 2 / d` and returns `d = 4 ↦ seuil/2`, the previous paragraph's
-    /// sentence.
-    ///
-    /// Written `seuil / d`, the rule returns **`[4, 1, 1, …]`**: it refuses half-size at step 1,
-    /// where `f* = 0.056 > 0.050`, that is, it contradicts `steps(...)` on the only step where the
-    /// two functions rule together. Nobody had seen it because this path never ran:
-    /// `SILICONED_DIVISORS` was always set by hand. **It is the first defect found by the test
-    /// target**, and it was in a formula commented over ten lines — comment density is no
-    /// substitute for an execution.
-    ///
-    /// ⚠️ **And theory does not see the model's domain**: at a quarter, a 1024² render would
-    /// evaluate at **256²**, where the model is out of its domain. Since 2026-09-22, 512² is an
-    /// enforced floor (`minimumSide`): the rule therefore returns `[2, 2, 1, …]` at 1024², the
-    /// quarter being allowed only from 2048². **Called by no render, and kept internal**: the
-    /// tests hold it as the rule's safeguard — it must stay in agreement with `steps(...)` on the
-    /// half-size.
-    static func divisors(height: Int, width: Int, schedule: FlowMatchSchedule) -> [Int] {
-        guard divisible(height: height, width: width, by: 2) else {
-            return Array(repeating: 1, count: max(0, schedule.sigmas.count - 1))
-        }
-        return (0..<(schedule.sigmas.count - 1)).map { step in
-            let sigma = schedule.sigmas[step]
-            let band = sigma > 0 ? (1 - sigma) / sigma : .infinity
-            // The largest `d` of {4, 2, 1} whose threshold still holds. `threshold` is calibrated at
-            // half-size, hence the `2 /`: at `d = 2` the bound is `threshold`, at `d = 4` it is half.
-            // And never under `minimumSide`: at 1024², the quarter would be 256².
-            for d in [4, 2] where band <= threshold * 2 / Float(d)
-                && divisible(height: height, width: width, by: d) { return d }
-            return 1
-        }
     }
 }

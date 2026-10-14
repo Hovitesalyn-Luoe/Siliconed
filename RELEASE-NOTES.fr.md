@@ -2,6 +2,33 @@
 
 # Siliconed — notes de version
 
+## 0.9
+
+### « Signaler ma configuration » mesure maintenant la puce
+
+- **Le diagnostic ne rend plus de modèle.** En une quinzaine de secondes, sans aucun modèle, il
+  cartographie ce que calcule la puce de votre Mac : les produits de matrices des blocs des modèles sur
+  le GPU, sur l’unité matricielle du CPU et sur les deux à la fois, les produits en fp16 et en bf16,
+  l’attention par les trois noyaux du moteur, l’élargissement des poids sur le CPU et sur le GPU —
+  chaque résultat vérifié contre le résultat exact, calculé en double précision. Le rapport JSON dit
+  ce que la puce calcule, et si elle le calcule juste.
+- **Corrigé : avec l’installation Compact, le diagnostic disait toujours « diffère de la
+  référence ».** Il comparait la sortie des poids 8 bits à la référence en pleine précision : les poids
+  différaient, pas la puce.
+
+### Le moteur suit la cartographie
+
+- **Une fois qu’elle a tourné, Siliconed utilise ce qu’elle a mesuré, dès le lancement suivant :** le
+  GPU et l’unité matricielle du CPU ensemble sur les grands produits, et dans quelle proportion ; les
+  têtes de l’attention partagées entre le GPU et le CPU ; le noyau d’attention maison — chacun
+  seulement s’il est plus rapide sur ce Mac, au-delà du bruit de la mesure elle-même, et seulement
+  s’il a calculé juste. Tant que vous ne la lancez pas, rien ne change. La feuille dit ce que ce Mac
+  utilise, et si c’est maintenant ou au prochain lancement.
+- Après une mise à jour de macOS ou de Siliconed, la cartographie est mise de côté jusqu’à ce que vous
+  la relanciez.
+- Avec une cartographie, la même graine peut donner des bits légèrement différents de ceux sans ; le
+  même Mac avec la même cartographie redonne les mêmes bits.
+
 ## 0.8.2
 
 ### Corrigé : Z-Image Turbo suit sa recette

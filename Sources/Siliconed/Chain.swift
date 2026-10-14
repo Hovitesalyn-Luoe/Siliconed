@@ -136,7 +136,7 @@ public struct DenoisingPlan: Sendable {
     public let startSigma: Float
     /// The evaluations actually paid for, from the starting step to the end.
     public let evaluations: Int
-    /// Half-size evaluations (Z-Image's spectral schedule); 0 elsewhere.
+    /// Half-size evaluations (Qwen-Image-2.1's spectral schedule); 0 elsewhere.
     public let reduced: Int
     /// The latent grid of the reduced evaluations.
     public let reducedHeight: Int
@@ -162,7 +162,7 @@ public struct DenoisingPlan: Sendable {
 ///
 /// Measured (512², estimate x̂₀ against the final image reduced ×4, by eye on the sheets):
 ///
-///     Z-Image, 7 evaluations      σ after:  .947  .882  .800  .692 …      stop at 3 → 21 dB, pose,
+///     Z-Image, 7 (before 0.8.2)   σ after:  .947  .882  .800  .692 …      stop at 3 → 21 dB, pose,
 ///                                                                         clothes and light final
 ///     Z-Image, 8 (since 0.8.2)    σ after:  .955  .900  .833  .750 …      stop at 4 (rule, not re-measured)
 ///     Qwen-Image-2.1, 6           σ after:  .963  .923  .837  .632 …      stop at 4 → 20 dB,
@@ -344,7 +344,7 @@ public protocol DenoisingModule: Sendable {
     /// the strength — img2img slices it, it does not recompute it.
     func sigmas(steps: Int) -> [Float]
     /// `height`, `width`: the latent grid, not the pixels. `withLoRA`: the request carries a
-    /// stack — Z-Image turns its spectral schedule off by default there (`ZImageDenoisingModule.plan`).
+    /// stack — Qwen-Image-2.1 turns its spectral schedule off there (`QwenImage21DenoisingModule.plan`).
     func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan
     func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                    context: Context) throws
@@ -553,7 +553,7 @@ public struct LoRAEntry: Sendable, Hashable {
 }
 
 /// **A request, and everything that distinguishes it from another — whatever the model.** What is
-/// specific to a model (Z-Image's spectral schedule, for instance) lives on its module.
+/// specific to a model (Qwen-Image-2.1's spectral schedule, for instance) lives on its module.
 ///
 /// **Building a request reads nothing** — neither the machine's profile nor a file: what depends
 /// on them (`reproducible` left at `nil`) is resolved at render time. An app can therefore hold
@@ -678,7 +678,7 @@ public struct Request: Sendable, Equatable {
 ///    (`Spectral.minimumSide`), read **per side** and not per area: 832×1216 has the area of
 ///    1024², but a 416×608 would have that of 512² with one side outside the models' domain. The
 ///    floor applies to *every* evaluation — hence the spectral schedule's rule, which goes down
-///    only if both half-sizes stay at the floor (`Spectral.steps`).
+///    only if both half-sizes stay at the floor (`Spectral.divisible`).
 /// 2. **Each side a multiple of 16**: the VAE divides by 8, the DiTs' patch by 2.
 /// 3. **Area at most `maxSurface`** — measured, not deduced. See its note.
 public enum Format {
@@ -743,20 +743,16 @@ public enum Format {
 
 /// **The render's phase boundaries** — called where a phase has handed back what it owned.
 ///
-/// Two readers. **The product's own check** (`MemoryCheck`): between `begin` and `end`
+/// Its reader is **the product's own check** (`MemoryCheck`): between `begin` and `end`
 /// each mark records the phase's `phys_footprint` maximum — the kernel's interval maximum, or the 10 ms
 /// sampler without it (`FootprintInterval`), reset at every mark — so a render knows which phase peaked, and by how much, against its computed need.
-/// **A measuring check** (`memory-trace-phases`): its `observer` reads what survives the
-/// phase; it runs before the reset, so it sees the same interval.
 ///
 /// **`nonisolated(unsafe)`, and the one invariant that makes it safe**: at most one render (or one
-/// measuring check) runs in the process at a time — renders are serialized on the engine's queue
+/// diagnostic) runs in the process at a time — renders are serialized on the engine's queue
 /// (`Engine.file`) and, across processes, by `RenderLock.machine`; a check runs alone by the machine
-/// token. Every access below happens on that one render's thread (`begin`, `mark`, `end` and the
-/// `observer` it calls). A second render running concurrently in one process would interleave two
-/// ledgers and two kernel intervals: the serialization is what this relies on, not a lock.
+/// token. Every access below happens on that one render's thread (`begin`, `mark`, `end`). A second
+/// render running concurrently in one process would interleave two ledgers and two kernel intervals: the serialization is what this relies on, not a lock.
 package enum PhaseBoundary {
-    nonisolated(unsafe) package static var observer: ((String) -> Void)?
     /// The marks of the render in progress, `nil` outside one — one ledger, by the invariant above.
     nonisolated(unsafe) private static var marks: [(name: String, peak: Int)]?
 
@@ -786,7 +782,6 @@ package enum PhaseBoundary {
         // The phase's freed pages go back to the kernel before the next phase starts beside them
         // (`Arena.returnFreedPages`): what survives a boundary is what is alive, not what `free` queued.
         Arena.returnFreedPages()
-        observer?(name)
         guard marks != nil else { return }
         marks?.append((name, peak))
         FootprintInterval.reset()
@@ -966,7 +961,7 @@ extension Engine {
         memoryRequest.batch = seeds.count
         memoryRequest.library = model.library ?? .processWide
         // **The request's own refusals first, before any computation and before the memory is judged**:
-        // an empty prompt, a step count, img2img's strength, the references, a spectral floor — a request
+        // an empty prompt, a step count, img2img's strength, the references — a request
         // the model cannot render is refused for what it is, not for its memory.
         guard !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Request.Failure.emptyPrompt
@@ -992,9 +987,8 @@ extension Engine {
         guard chain.denoising.solvers.contains(request.solver) else {
             throw Request.Failure.solver(request.solver, model: chain.denoising.model)
         }
-        // Detail, like a LoRA, turns Z-Image's spectral schedule off (`ZImageDenoisingModule.plan`).
-        // An edit has none either (`QwenImage21DenoisingModule.plan`): the plan cannot see the
-        // references, the chain can.
+        // Detail, like a LoRA, turns Qwen-Image-2.1's spectral schedule off; an edit too
+        // (`QwenImage21DenoisingModule.plan`): the plan cannot see the references, the chain can.
         var plan = chain.denoising.plan(height: height, width: width, steps: steps, start: start,
                                           withLoRA: !request.loras.isEmpty || request.detail != .normal)
         if !request.references.isEmpty { plan = plan.unreduced }
@@ -1007,12 +1001,6 @@ extension Engine {
             } ?? 0
             throw Strength.Failure.noEvaluation(strength: request.strength, steps: steps,
                                                floor: Double(steps - last - 1) / Double(steps))
-        }
-        // A forced spectral schedule (`ZImageDenoisingModule(spectral:)`, `SILICONED_SPECTRAL`) that
-        // would go below the floor is refused here, not in `Sampler.run` after a minute of text.
-        // The floor in this latent's cells (`Spectral.floor(factor:)`); the error counts 8-px cells.
-        if plan.reduced > 0, min(plan.reducedHeight, plan.reducedWidth) < Spectral.floor(factor: space.factor) {
-            throw Sampler.Failure.belowFloor(side: min(plan.reducedHeight, plan.reducedWidth) * space.factor / 8)
         }
         let lock = try Preflight.run(model, width: request.width, height: request.height,
                                      references: request.references.count, ceiling: ceiling, memory: memoryRequest)

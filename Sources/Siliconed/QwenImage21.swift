@@ -803,7 +803,7 @@ package final class QwenImage21DiT {
             let key = "\(rows)×\(visible)\(causal ? "c" : "")"
             let local = queries + begin - first
             let (qb, ob) = (try slice(q + local * d), try slice(merged + local * d))
-            if target, !Attention.useHalfPrecision, rows >= HeadSplitAttention.minimumSequence {
+            if target, HeadSplitAttention.applies(sequence: rows) {
                 let split: HeadSplitAttention
                 if let existing = headSplits[key] { split = existing } else {
                     split = try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: rows,

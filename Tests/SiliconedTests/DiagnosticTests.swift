@@ -2,144 +2,143 @@ import Foundation
 import XCTest
 @testable import Siliconed
 
-/// **The diagnostic without a byte of weights**: the derived render time, the JSON a report becomes
-/// (stable, explicit `null`s, read back whole), the issue URL, and the embedded golden as the library
-/// finds it in its resource bundle.
+/// **The diagnostic without a GPU and without a byte of weights**: the JSON a report becomes (stable,
+/// schema 5, measures as triples, explicit `null`s, read back whole), the issue URL and its length at
+/// the full size of a report, the shapes it measures, and its CPU references against naive loops.
 final class DiagnosticTests: XCTestCase {
-    private func sample(golden: Bool) -> Diagnostic.Report {
+    /// A report of the full size — every product, attention, widening and half-precision item a run
+    /// writes — with figures of the M1 Pro's order, and one engine missing of each kind.
+    private func sample() -> Diagnostic.Report {
         let machine = Diagnostic.Machine(chip: "Apple M1 Pro", hardwareModel: "MacBookPro18,3", performanceCores: 6,
                                          efficiencyCores: 2, gpuCores: 14, memoryBytes: 17_179_869_184,
-                                         macOS: "26.0.1 (25A362)", version: "git 0123456789-dirty", build: "x+y",
-                                         gpu: "Apple M1 Pro", gpuFamily: "apple7", gpuWorkingSetBytes: 11_453_251_584)
-        var model = Diagnostic.ModelReport(
-            model: "qwen-image-2.1", name: "Qwen-Image-2.1 Turbo", family: "qwen-image-2.1", steps: 6, evaluations: 6,
-            seconds: .init(encoder: 3, firstEvaluation: 6, steadyEvaluation: 4, decoding: 1, total: 15),
-            estimatedRenderSeconds: 30, peakFootprintBytes: 4_000_000_000, swapouts: 0,
-            golden: golden ? .init(file: "diagnostic/qwen-image-2.1.safetensors", source: "s", sourceSHA256: "h",
-                                   generated: "2026-10-04") : nil,
-            deviation: golden ? .init(worst: 9.3e-6, channel: 2, median: 5.5e-6, threshold: 5e-4, pass: true,
-                                      firstEvaluationWorst: 3.7e-6) : nil,
-            error: nil)
-        model.diskReadBytes = 5_400_000_000
-        model.variant = "standard"
-        model.thermalAfter = "nominal"
-        if golden {
-            model.memory = .init(floorBytes: 3_000_000_000, lean: true,
-                                 decisions: ["map tail 60 of 60 layers, 2 buffer(s) of 362 MB"],
-                                 budgetBytes: MemoryBudget.ceiling(physical: 16 << 30), needBytes: 3_900_000_000,
-                                 needByPhase: ["text": 2_100_000_000, "denoising": 2_900_000_000, "decoding": 3_900_000_000],
-                                 check: MemoryCheck(needBytes: 3_900_000_000, measuredBytes: 4_000_000_000, phases: [
-                                    .init(name: "start", needBytes: nil, measuredBytes: 30_000_000),
-                                    .init(name: "text", needBytes: 2_100_000_000, measuredBytes: 1_900_000_000),
-                                    .init(name: "denoising", needBytes: 2_900_000_000, measuredBytes: 2_700_000_000),
-                                    .init(name: "decoding", needBytes: 3_900_000_000, measuredBytes: 4_000_000_000),
-                                 ], fallback: false, peakMethod: .sampled10ms),
-                                 peakMethod: .sampled10ms)
+                                         macOS: "27.0.1 (26A434)", version: "git 0123456789-dirty", build: "x+y",
+                                         gpu: "Apple M1 Pro", gpuFamily: "apple7", gpuWorkingSetBytes: 12_713_115_648)
+        func measure(_ rate: Double, _ error: Double, threshold: Double = 1e-5) -> Diagnostic.Measure {
+            .init(rate: rate * 1.000123456, error: error * 1.0123456, threshold: threshold)
         }
+        let products = Diagnostic.shapes.enumerated().map { i, s in
+            Diagnostic.Product(model: s.model, product: s.product, m: s.m, k: s.k, n: s.n, gpu: measure(3.461, 1.1e-6),
+                               amx: i == 7 ? nil : measure(2.223, 8.0e-7), gpuShare: i == 7 ? nil : 0.6091234,
+                               coexecution: i == 7 ? nil : measure(5.497, 1.1e-6), coexecutionGPURows: i == 7 ? nil : 2560)
+        }
+        let lowPrecision = ["fp16", "bf16"].flatMap { t in
+            [Diagnostic.LowPrecision(engine: "mpsgraph", type: t, output: t, m: 1024, k: 3840, n: 10240,
+                                     measure: measure(3.425, 2.1e-4, threshold: 2.654e-4), floor: 2.1234e-4, threshold: 2.654e-4),
+             Diagnostic.LowPrecision(engine: "bnns", type: t, output: "fp32", m: 1024, k: 3840, n: 10240,
+                                     measure: measure(2.487, 8.0e-7), floor: 2.57e-8, threshold: 1e-5),
+             Diagnostic.LowPrecision(engine: "matmul2d", type: t, output: "fp32", m: 1024, k: 3840, n: 10240,
+                                     measure: t == "fp16" ? measure(1.234, 9e-7) : nil, floor: 2.57e-8, threshold: 1e-5)]
+        }
+        let attention = Diagnostic.blocks.flatMap { b in
+            Diagnostic.heights.map { s in
+                Diagnostic.AttentionCapacity(model: b.model, heads: b.heads, headDim: b.headDim, sequence: s,
+                                             graph: measure(1.637, 4.4e-6), flash: s == 1024 ? nil : measure(1.686, 2.8e-6),
+                                             headSplit: measure(2.497, 4.2e-6))
+            }
+        }
+        let widening = [Diagnostic.Widening(kind: "bf16", values: 39_321_600, cpu: measure(21.26, 0), gpu: measure(19.48, 0)),
+                        Diagnostic.Widening(kind: "int8", values: 39_321_600, cpu: measure(23.07, 0), gpu: nil)]
         let conditions = Diagnostic.Conditions(thermal: "nominal", lowPowerMode: false, onBattery: nil, swapUsedBytes: 0)
-        return Diagnostic.Report(date: "2026-10-04T10:00:00Z", machine: machine, models: [model],
-                                 totalSeconds: 30, peakFootprintBytes: 4_000_000_000, swapouts: 0,
-                                 before: conditions, after: conditions,
-                                 witnessBefore: .init(gpuTFLOPS: 3.36, amxTFLOPS: 1.99, gpuWorstRowError: 0),
-                                 witnessAfter: nil, settings: ["amx": "true (default)"], profile: "none",
-                                 libraryOnInternalDisk: true)
-    }
-
-    // ── the estimate ────────────────────────────────────────────────────────────────────────
-
-    func testEstimatedRenderIsEncoderFirstStepsAndDecoder() {
-        // 6 evaluations: the first (with its construction), then 5 like the second.
-        XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 3, first: 6, steady: 4, decoding: 1, evaluations: 6), 30)
-        // 7 evaluations.
-        XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 2, first: 5, steady: 3, decoding: 1, evaluations: 7), 26)
-        XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 2, first: 5, steady: 3, decoding: 1, evaluations: 1), 8)
-        XCTAssertEqual(Diagnostic.estimatedRenderSeconds(encoder: 2, first: 5, steady: 3, decoding: 1, evaluations: 0), 8)
+        var features: [String: Int] = ["sme_max_svl_b": 0]
+        for name in Diagnostic.featureNames { features[name] = name.contains("FP16") || name.contains("DotProd") ? 1 : 0 }
+        return Diagnostic.Report(date: "2026-10-14T10:00:00Z", seconds: 14.04, machine: machine, cpuFeatures: features,
+                                 settings: ["flash": "true (env)"], before: conditions, after: conditions,
+                                 products: products, lowPrecision: lowPrecision, attention: attention, widening: widening,
+                                 witness: .init(gpuBefore: 3.461, gpuAfter: 3.4721, amxBefore: 2.223, amxAfter: 2.149))
     }
 
     // ── the JSON ────────────────────────────────────────────────────────────────────────────
 
     func testJSONIsStableAndReadsBack() throws {
-        let report = sample(golden: true)
+        let report = sample()
         let a = try report.json(), b = try report.json()
         XCTAssertEqual(a, b)
         XCTAssertEqual(try JSONDecoder().decode(Diagnostic.Report.self, from: a), report)
+        XCTAssertEqual(try JSONDecoder().decode(Diagnostic.Report.self, from: try report.json(pretty: false)), report)
         let text = String(decoding: a, as: UTF8.self)
-        // Sorted keys: `date` before `machine` before `models` before `prompt`.
-        let order = ["\"date\"", "\"machine\"", "\"models\"", "\"prompt\"", "\"schema\""].map { text.range(of: $0)!.lowerBound }
+        // Sorted keys: `attention` before `machine` before `products` before `schema` before `widening`.
+        let order = ["\"attention\"", "\"machine\"", "\"products\"", "\"schema\"", "\"widening\""].map { text.range(of: $0)!.lowerBound }
         XCTAssertEqual(order, order.sorted())
-        XCTAssertTrue(text.contains("\"estimatedRenderSeconds\" : 30"))
-        XCTAssertTrue(text.contains("\"schema\" : \(Diagnostic.schema)"))
+        XCTAssertTrue(text.contains("\"schema\" : 5"))
+        XCTAssertEqual(Diagnostic.schema, 5)
     }
 
-    /// **Schema 3, kept by 4**: B, the need per phase, the measured peak of each phase and the gap — a phase above
-    /// its need is a defect, said by name; a boundary the formula has no phase for writes `null`.
-    func testSchemaThreeCarriesTheNeedAgainstThePeak() throws {
-        XCTAssertEqual(Diagnostic.schema, 4)
-        let report = sample(golden: true)
-        let text = String(decoding: try report.json(), as: UTF8.self)
-        // Schema 4: the kernel's reading is gone.
-        for gone in ["reclaimableBytes", "availableBytes", "reserveBytes", "comfortableBytes", "compressorHeadroomBytes"] {
+    /// **Schema 5 is the capacity map**: nothing of the model-rendering diagnostic survives in it.
+    func testSchemaFiveHoldsNoModelRun() throws {
+        let text = String(decoding: try sample().json(), as: UTF8.self)
+        for gone in ["\"models\"", "golden", "deviation", "estimatedRenderSeconds", "peakFootprintBytes", "swapouts",
+                     "diskReadBytes", "needBytes", "\"prompt\"", "\"seed\"", "\"resolution\"", "witnessBefore"] {
             XCTAssertFalse(text.contains(gone), gone)
         }
-        for key in ["budgetBytes", "needBytes", "needByPhase", "measuredBytes", "gapBytes", "check", "peakMethod"] {
+        for key in ["products", "lowPrecision", "attention", "widening", "witness", "thresholds", "cpuFeatures",
+                    "gpuShare", "coexecution", "headSplit", "floor"] {
             XCTAssertTrue(text.contains("\"\(key)\""), key)
         }
-        // The method that read the peaks, in the check and beside it (said even when the check is `null`).
-        XCTAssertTrue(text.contains("\"peakMethod\" : \"sampled10ms\""))
-        XCTAssertEqual(report.models[0].memory?.peakMethod, .sampled10ms)
-        XCTAssertTrue(text.contains("\"needBytes\" : null"))   // the `start` boundary
-        let check = try XCTUnwrap(report.models[0].memory?.check)
-        XCTAssertEqual(check.gapBytes, 100_000_000)
-        XCTAssertEqual(check.exceeded.map(\.name), ["decoding"])
-        XCTAssertTrue(check.isDefect)
-        XCTAssertEqual(check.defects.count, 1)
-        XCTAssertTrue(check.defects[0].contains("decoding"))
-        // A check built from marks: each boundary mapped to the formula's phase, the render's peak the largest.
-        let need = MemoryNeed(phases: [.init(kind: .text, terms: [.init("a", 100)]),
-                                       .init(kind: .denoising, terms: [.init("b", 300)])], crossing: 10, base: 5)
-        let built = MemoryCheck(need: need, marks: [("start", 20), ("text", 90), ("denoising", 400), ("denoiser released", 30)])
-        XCTAssertEqual(built.peakMethod, FootprintInterval.method)
-        XCTAssertEqual(built.needBytes, 315)
-        XCTAssertEqual(built.phases.map(\.needBytes), [nil, 115, 315, 315])
-        XCTAssertEqual(built.measuredBytes, 400)
-        XCTAssertEqual(built.exceeded.map(\.name), ["denoising"])
     }
 
-    func testMissingGoldenIsAnExplicitNull() throws {
-        let report = sample(golden: false)
-        let text = String(decoding: try report.json(), as: UTF8.self)
-        XCTAssertTrue(text.contains("\"golden\" : null"), text)
-        XCTAssertTrue(text.contains("\"deviation\" : null"))
-        XCTAssertTrue(text.contains("\"error\" : null"))
-        // A model refused before its budget was read says so, it does not drop the field.
-        XCTAssertTrue(text.contains("\"memory\" : null"))
-        XCTAssertEqual(try JSONDecoder().decode(Diagnostic.Report.self, from: try report.json()), report)
-        let compact = String(decoding: try report.json(pretty: false), as: UTF8.self)
+    /// A measure is `[rate, error, pass]`, its figures rounded: the issue link's bytes are counted.
+    func testMeasureIsATripleOfRoundedFigures() throws {
+        let m = Diagnostic.Measure(rate: 3.461234567, error: 1.123456e-6, threshold: 1e-5)
+        XCTAssertEqual(m.rate, 3.461)
+        XCTAssertEqual(m.error, 1.12e-6)
+        XCTAssertTrue(m.pass)
+        let text = String(decoding: try JSONEncoder().encode(m), as: UTF8.self)
+        XCTAssertEqual(text, "[3.461,1.12e-06,true]")
+        XCTAssertEqual(try JSONDecoder().decode(Diagnostic.Measure.self, from: Data(text.utf8)), m)
+        // Judged before the rounding: 1.0004e-5 rounds to 1e-5 and still fails.
+        XCTAssertFalse(Diagnostic.Measure(rate: 1, error: 1.0004e-5, threshold: 1e-5).pass)
+        XCTAssertTrue(Diagnostic.Measure(rate: 1, error: 0, threshold: 0).pass)
+    }
+
+    /// A NaN output is an infinite error: it fails, and JSON — which has no infinity — still writes it.
+    func testNonFiniteErrorFailsAndEncodes() throws {
+        for bad in [Double.nan, .infinity] {
+            let m = Diagnostic.Measure(rate: .infinity, error: bad, threshold: 1)
+            XCTAssertFalse(m.pass)
+            XCTAssertEqual(m.error, .greatestFiniteMagnitude)
+            XCTAssertEqual(m.rate, .greatestFiniteMagnitude)
+            XCTAssertNoThrow(try JSONEncoder().encode(m))
+        }
+        XCTAssertEqual(Diagnostic.significant(0, 3), 0)
+        XCTAssertEqual(Diagnostic.significant(-2.71828, 2), -2.7)
+    }
+
+    /// An engine that did not run says `null`, it does not drop the field.
+    func testMissingEnginesAreExplicitNulls() throws {
+        let compact = String(decoding: try sample().json(pretty: false), as: UTF8.self)
         XCTAssertFalse(compact.contains("\n"))
-        XCTAssertTrue(compact.contains("\"golden\":null"))
+        for null in ["\"amx\":null", "\"gpuShare\":null", "\"coexecution\":null", "\"coexecutionGPURows\":null",
+                     "\"flash\":null", "\"gpu\":null", "\"measure\":null", "\"onBattery\":null"] {
+            XCTAssertTrue(compact.contains(null), null)
+        }
+        let report = sample()
+        XCTAssertTrue(report.passes)
+        var failing = report
+        failing.widening[0].gpu = .init(rate: 19, error: 1e-7, threshold: 0)
+        XCTAssertFalse(failing.passes)
     }
 
-    /// The machine's state reads without weights, and `amx` is among the settings a report always names.
-    func testConditionsAndSettingsRows() {
+    /// The machine's state and flags read without a GPU.
+    func testConditionsAndFeaturesRead() {
         let c = Diagnostic.conditions()
         XCTAssertTrue(["nominal", "fair", "serious", "critical"].contains(c.thermal))
         XCTAssertGreaterThanOrEqual(c.swapUsedBytes, 0)
-        let keys = EngineSettings.effective.rows.map(\.key)
-        XCTAssertTrue(keys.contains("amx"))
-        XCTAssertEqual(Set(keys).count, keys.count)
+        let flags = Diagnostic.cpuFeatures()
+        for (name, value) in flags where name.hasPrefix("FEAT_") { XCTAssertTrue([0, 1].contains(value), name) }
+        XCTAssertTrue(Set(flags.keys).isSubset(of: Set(Diagnostic.featureNames + ["sme_max_svl_b"])))
     }
 
     // ── the issue URL ───────────────────────────────────────────────────────────────────────
 
     func testIssueURLCarriesTheFieldsAndTheWholeJSON() throws {
-        let report = sample(golden: true)
+        let report = sample()
         let url = try report.issueURL()
         XCTAssertTrue(url.absoluteString.hasPrefix("https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml&"))
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!
         func field(_ name: String) -> String? { items.first { $0.name == name }?.value }
         XCTAssertEqual(field("chip"), "Apple M1 Pro (14-core GPU)")
         XCTAssertEqual(field("memory"), "16 GB")
-        XCTAssertEqual(field("macos"), "26.0.1 (25A362)")
+        XCTAssertEqual(field("macos"), "27.0.1 (26A434)")
         XCTAssertEqual(field("version"), "git 0123456789-dirty")
         XCTAssertEqual(field("labels"), "diagnostic")
         let json = try XCTUnwrap(field("report"))
@@ -149,10 +148,19 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertTrue(url.absoluteString.contains("x%2By"))
     }
 
+    /// **A whole report fits in a link**, with room for a longer chip name and a few settings: browsers
+    /// and GitHub cut beyond ~8 000 characters (schema 5 written as objects: 9 690; as triples, this one 7 066).
+    func testAFullReportFitsInTheIssueLink() throws {
+        var report = sample()
+        report.machine.chip = "Apple M5 Max"
+        report.settings = ["flash": "true (profile)", "amx": "true (profile)", "widen_gpu": "true (env)"]
+        let length = try report.issueURL().absoluteString.utf8.count
+        XCTAssertLessThan(length, 7_600, "\(length) bytes")
+    }
+
     /// Too long for a link: the same form, every field but the report, which the user pastes.
     func testIssueURLWithoutTheReport() throws {
-        let report = sample(golden: true)
-        let items = URLComponents(url: try report.issueURL(includingReport: false), resolvingAgainstBaseURL: false)!.queryItems!
+        let items = URLComponents(url: try sample().issueURL(includingReport: false), resolvingAgainstBaseURL: false)!.queryItems!
         XCTAssertNil(items.first { $0.name == "report" })
         XCTAssertEqual(items.first { $0.name == "chip" }?.value, "Apple M1 Pro (14-core GPU)")
         XCTAssertEqual(items.first { $0.name == "template" }?.value, "diagnostic.yml")
@@ -167,44 +175,102 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertEqual(Library.withoutHome("/opt/x"), "/opt/x")
     }
 
-    // ── the embedded golden ─────────────────────────────────────────────────────────────────
+    // ── what it measures ────────────────────────────────────────────────────────────────────
 
-    func testEmbeddedQwenGoldenReads() throws {
-        let golden = try XCTUnwrap(try Diagnostic.EmbeddedGolden.load("qwen-image-2.1"),
-                                   "Resources/diagnostic/qwen-image-2.1.safetensors not found in the resource bundle")
-        XCTAssertEqual([golden.channels, golden.height, golden.width], [64, 32, 32])
-        XCTAssertEqual(golden.inputs.map(\.count), [65_536, 65_536])
-        XCTAssertEqual(golden.outputs.map(\.count), [65_536, 65_536])
-        XCTAssertEqual(golden.metadata["source"], "goldens-qwen21-trajectory-512.safetensors")
-        // `x_t.0` is the oracle's seed-0 `torch.randn((1, 1, 64, 32, 32))` (checked in Python, to the bit).
-        // `Latent.noise` draws it — but under `swift test` (a debug build) 765 of its 65,536 values differ
-        // by 1–2 ulp: not claimed to the bit here (the release check `qwen21-trajectory` compares it).
-        let noise = Latent.noise(.qwenImage21, height: 32, width: 32, seed: 0).values
-        let ulps = zip(noise, golden.inputs[0]).map { abs(Int($0.bitPattern) - Int($1.bitPattern)) }.max() ?? .max
-        XCTAssertLessThanOrEqual(ulps, 2)
-        // The golden against itself is 0; a shifted channel is seen on its own.
-        XCTAssertEqual(Diagnostic.channelError(planar: golden.outputs[1], golden.outputs[1], channels: 64).worst, 0)
-        var moved = golden.outputs[1]
-        for i in (5 * 1024)..<(6 * 1024) { moved[i] *= 1.001 }
-        let e = Diagnostic.channelError(planar: moved, golden.outputs[1], channels: 64)
-        XCTAssertEqual(e.channel, 5)
+    /// The blocks' shapes, from the models' defaults, at heights `GEMM` submits whole: no padded tail.
+    func testShapesAreTheBlocksAtWholeHeights() {
+        let shapes = Diagnostic.shapes
+        XCTAssertEqual(shapes.count, 8)
+        XCTAssertEqual(shapes[0], .init(model: "z-image", product: "up", m: 1024, k: 3840, n: 10240))
+        XCTAssertTrue(shapes.contains(.init(model: "qwen-image-2.1", product: "down", m: 4096, k: 12288, n: 4096)))
+        for s in shapes {
+            XCTAssertEqual(GEMM.rowSplit(s.m).tail, 0, "\(s)")
+            XCTAssertFalse(GEMM.goesThroughTiers(s.m))
+            XCTAssertGreaterThanOrEqual(s.m, Conductor.minimumRows)
+        }
+        XCTAssertEqual(Diagnostic.blocks.map(\.heads), [30, 32])
+        XCTAssertEqual(Diagnostic.blocks.map(\.headDim), [128, 128])
+    }
+
+    /// The sampled rows are distinct, in range, and visit every quantum of the cut.
+    func testSampledRowsCoverTheCut() {
+        for m in Diagnostic.heights {
+            let rows = Diagnostic.sampleRows(m, count: Diagnostic.sampledRows)
+            XCTAssertEqual(Set(rows).count, rows.count)
+            XCTAssertTrue(rows.allSatisfy { (0..<m).contains($0) })
+            XCTAssertEqual(Set(rows.map { $0 / Conductor.quantum }).count, m / Conductor.quantum)
+        }
+    }
+
+    /// The fill is the same values whatever the length asked: a shorter operand is a prefix.
+    func testFillIsAPrefixAndBounded() {
+        let long = UnsafeMutablePointer<Float>.allocate(capacity: 200_000), short = UnsafeMutablePointer<Float>.allocate(capacity: 70_000)
+        defer { long.deallocate(); short.deallocate() }
+        Diagnostic.fill(long, count: 200_000, scale: 3, seed: 7)
+        Diagnostic.fill(short, count: 70_000, scale: 3, seed: 7)
+        XCTAssertTrue((0..<70_000).allSatisfy { long[$0] == short[$0] })
+        XCTAssertTrue((0..<200_000).allSatisfy { abs(long[$0]) <= 3 })
+        XCTAssertGreaterThan((0..<200_000).map { abs(long[$0]) }.max()!, 2.9)
+    }
+
+    /// `exactRows` (`cblas_dgemm` by slices of `B`) is the naive fp64 product, laid out `[n, rows]`.
+    func testExactRowsAreTheNaiveProduct() {
+        let (m, k, n) = (9, 700, 5)
+        var a = [Float](repeating: 0, count: m * k), b = [Float](repeating: 0, count: k * n)
+        Diagnostic.fill(&a, count: a.count, scale: 1, seed: 3)
+        Diagnostic.fill(&b, count: b.count, scale: 1, seed: 4)
+        let rows = [0, 4, 8]
+        let exact = Diagnostic.exactRows(rows, a: a, b: b, k: k, n: n)
+        for (i, row) in rows.enumerated() {
+            for j in 0..<n {
+                var s = 0.0
+                for x in 0..<k { s += Double(a[row * k + x]) * Double(b[x * n + j]) }
+                XCTAssertEqual(exact[j * rows.count + i], s, accuracy: 1e-12)
+            }
+        }
+    }
+
+    /// `exactAttention` is softmax(q·kᵀ/√Dh)·v, laid out `[Dh, rows·H]`; a row of equal keys averages `v`.
+    func testExactAttentionIsTheReferenceFormula() {
+        let (s, h, d) = (6, 2, 4)
+        var q = [Float](repeating: 0, count: s * h * d), k = q, v = q
+        Diagnostic.fill(&q, count: q.count, scale: 2, seed: 5)
+        Diagnostic.fill(&k, count: k.count, scale: 2, seed: 6)
+        Diagnostic.fill(&v, count: v.count, scale: 1, seed: 8)
+        let rows = [1, 5]
+        let exact = Diagnostic.exactAttention(q: q, k: k, v: v, sequence: s, heads: h, headDim: d, rows: rows)
+        for (i, row) in rows.enumerated() {
+            for head in 0..<h {
+                var scores = (0..<s).map { j in
+                    (0..<d).reduce(0.0) { $0 + Double(q[row * h * d + head * d + $1]) * Double(k[j * h * d + head * d + $1]) } / 2
+                }
+                let top = scores.max()!
+                scores = scores.map { Foundation.exp($0 - top) }
+                let total = scores.reduce(0, +)
+                for x in 0..<d {
+                    let o = (0..<s).reduce(0.0) { $0 + scores[$1] * Double(v[$1 * h * d + head * d + x]) } / total
+                    XCTAssertEqual(exact[x * rows.count * h + i * h + head], o, accuracy: 1e-12)
+                }
+            }
+        }
+    }
+
+    /// The fp64 `channelError` reads like the fp32 one, and sees a fault confined to one row.
+    func testChannelErrorAgainstDoubles() {
+        let expected: [Double] = (0..<600).map { Double($0 % 7) - 3.25 }
+        let got = expected.map { Float($0) }
+        let float = expected.map { Float($0) }
+        let e64 = expected.withUnsafeBufferPointer { channelError(got, $0, columns: 3) }
+        let e32 = float.withUnsafeBufferPointer { channelError(got, $0, columns: 3) }
+        XCTAssertEqual(e64.worst, 0)
+        XCTAssertEqual(e32.worst, 0)
+        var moved = got
+        for r in 0..<200 { moved[r * 3 + 1] *= 1.001 }
+        let e = expected.withUnsafeBufferPointer { channelError(moved, $0, columns: 3) }
+        XCTAssertEqual(e.channel, 1)
         XCTAssertEqual(e.worst, 1e-3, accuracy: 1e-6)
-        // A golden from before the Turbo (the base model under a third-party turbo LoRA, written
-        // 2026-10-04, σ₁ = 0.96255648) would stop here and say why. The embedded one is the Turbo's
-        // (written 2026-10-10 from the oracle's 8-step `trajectory 512`), so the σ below are checked.
-        try XCTSkipIf(golden.info.generated == "2026-10-04",
-                      "PENDING: Resources/diagnostic/qwen-image-2.1.safetensors predates Qwen-Image-2.1-Turbo — regenerate it")
-        // The Turbo's first two σ, the same at every size: `sample_sigmas[0:2]` made float32.
-        XCTAssertEqual(golden.sigmas[0], 1)
-        XCTAssertEqual(golden.sigmas[1].bitPattern, 0x3f7a7be5)
-    }
-
-    func testNoGoldenIsNil() throws {
-        XCTAssertNil(try Diagnostic.EmbeddedGolden.load("anima"))
-    }
-
-    func testChannelsLastTransposes() {
-        // [2, 1, 3] planar → [3, 2].
-        XCTAssertEqual(Diagnostic.channelsLast([1, 2, 3, 10, 20, 30], channels: 2), [1, 10, 2, 20, 3, 30])
+        var nan = got
+        nan[4] = .nan
+        XCTAssertEqual(expected.withUnsafeBufferPointer { channelError(nan, $0, columns: 3) }.worst, .infinity)
     }
 }

@@ -41,10 +41,6 @@ package final class DiT {
     package var recordBoundaries = false
     /// The current render's token, consulted between two layers (see `Cancellation`).
     package var cancellation: Cancellation?
-    /// **The ablation of a prompt attribute**: the caption positions to replace with the learned
-    /// padding token. A measurement instrument, never a render one — it changes the image, and it
-    /// announces itself on the error output. Empty by default. See `forward`.
-    package var capsDrop: [Int] = []
     /// This request's LoRA stack, or `nil`. Exposed so that the caller can announce it:
     /// a LoRA believed applied that is not returns a plausible and wrong image.
     package let lora: LoRA?
@@ -84,8 +80,7 @@ package final class DiT {
     private let imageBlock: Block          // sized for the image tokens alone
     private let capBlock: Block            // for the text tokens alone
     private let unifiedBlock: Block        // for the whole sequence
-    /// The **maxima**: what the arenas are sized for. An evaluation may ask for less
-    /// (the spectral schedule does), never more.
+    /// The grid the arenas are sized for, which every evaluation uses.
     private let latentHeight, latentWidth, imageTokens, capLength, capPadded, sequence: Int
 
     /// - Parameter freezeCut: the reproducible mode — the GPU/AMX cut is not servo-controlled, so
@@ -149,10 +144,6 @@ package final class DiT {
     /// `MemoryNeed`'s formula.
     package var arenaCapacity: Int { arena.capacity + blockArenas.reduce(0) { $0 + $1.capacity } }
     package var cacheLoRACapacity: Int { cacheLoRA?.capacity ?? 0 }
-    /// The four arenas by name, for the `memory-need` check (capacity against pages resident).
-    package var namedArenas: [(name: String, arena: Arena)] {
-        [("own", arena)] + zip(["image blocks", "caption blocks", "unified blocks"], blockArenas).map { ($0, $1) }
-    }
 
     private func record(_ name: String, _ p: UnsafePointer<Float>, _ n: Int) {
         guard recordBoundaries else { return }
@@ -161,40 +152,19 @@ package final class DiT {
 
     /// `latent` as `[C, H, W]`, `caps` as `[L, capDim]`, `sigma` as the scheduler gives it.
     /// Returns the model output as `[C, H, W]` — **before** the negation that the pipeline applies.
-    ///
-    /// - Parameter latentHeight, latentWidth: the latent grid **of this evaluation**, at most
-    ///   the sizing one. This is what makes the spectral schedule possible without a second instance:
-    ///   the arenas are sized once for the full resolution, and a smaller evaluation
-    ///   only occupies the beginning of each slice. The model, for its part, only sees a smaller image —
-    ///   the RoPE positions are rebuilt on the grid it is given, as the reference does.
-    ///
-    ///   **A second instance would have cost ~1 GB of arenas** for a path that never runs at the
-    ///   same time as the other. An arena belongs to a phase, and the two resolutions are the
-    ///   same phase.
-    /// **The spectral schedule's half-size attentions, dropped** when the full-size steps begin
-    /// (`Sampler`): the image refiners and the layers keep only the full lengths, so a phase
-    /// holds two head splits, not four. The context refiners' length does not change: kept.
-    package func forgetReducedAttentions() {
-        imageBlock.forgetAttentions(except: imageTokens)
-        unifiedBlock.forgetAttentions(except: sequence)
-    }
-
+    /// Every evaluation is at the grid the arenas were sized for: the RoPE positions are rebuilt
+    /// on it, as the reference does.
     package func forward(latent: UnsafePointer<Float>, caps: UnsafePointer<Float>,
-                        sigma: Float, latentHeight: Int? = nil, latentWidth: Int? = nil) throws -> [Float] {
+                        sigma: Float) throws -> [Float] {
         let d = config.dim, patch = config.patch, channels = config.channels
         let inDim = patch * patch * channels
-        let height = latentHeight ?? self.latentHeight, width = latentWidth ?? self.latentWidth
-        guard height <= self.latentHeight, width <= self.latentWidth,
-              height % patch == 0, width % patch == 0 else {
-            throw Artifact.Failure.misuse(
-                "latent \(width)×\(height): at most \(self.latentWidth)×\(self.latentHeight) "
-                    + "and a multiple of \(patch)")
+        let height = latentHeight, width = latentWidth
+        guard height % patch == 0, width % patch == 0 else {
+            throw Artifact.Failure.misuse("latent \(width)×\(height): a multiple of \(patch)")
         }
         // Tokens are stored row by row: `t / tilesWide` is the row, `t % tilesWide` the
         // column — for the patchify, the RoPE and the unpatchify.
         let tilesWide = width / patch
-        let imageTokens = (height / patch) * tilesWide
-        let sequence = imageTokens + capPadded
         let scratch = try slot("scratch")
 
         // The tail of the map is read beside the page cache and handed back as it is computed, so
@@ -237,8 +207,7 @@ package final class DiT {
                      height: height, width: width, patch: patch)
         let image = try slot("image")
         try linearGPU("all_x_embedder.\(patch)-1", a: tokens, into: image,
-                      m: imageTokens, k: inDim, n: d, scratch: scratch,
-                      wrapRows: self.imageTokens)
+                      m: imageTokens, k: inDim, n: d, scratch: scratch)
         record("x_embedder_out", image, imageTokens * d)
 
         // ── text: cap_embedder, learned padding token, refiners ──────────────────────────
@@ -257,33 +226,6 @@ package final class DiT {
         var padToken = [Float](repeating: 0, count: d)
         try padToken.withUnsafeMutableBufferPointer { _ = try artifact.materialize("cap_pad_token", into: $0) }
         for row in capLength..<capPadded { (cap + row * d).update(from: padToken, count: d) }
-
-        // **`SILICONED_CAPS_DROP=5,6,7,8` — the ablation of a prompt attribute.**
-        //
-        // A measuring instrument: which caption positions carry what (it was written for "why is
-        // the thirty-year-old woman a child?", which was settled otherwise).
-        //
-        // This flag replaces the designated captions with the **learned padding token**, and
-        // that is what makes the ablation clean: the model saw this token at this place during
-        // training, so we stay within its distribution. Putting zeros, or removing the
-        // rows, would feed it an input it has never seen — and the image would change for a reason
-        // that had nothing to do with the attribute.
-        //
-        // The indices are those of the templated prompt: `0 <|im_start|>`, `1 user`, `2 \n`, `3 a`,
-        // `4 ' '`, `5 3`, `6 0`, `7 ' year'`, `8 ' old'`, `9 ' woman'`, … `13 ' library'`.
-        // So `5,6,7,8` removes "30 year old" and nothing else.
-        //
-        // **Measurement, never a render.** A flag that changes the image must not be able to slip
-        // into a verdict: it announces itself on the error output at every evaluation.
-        //
-        // It is set through `capsDrop`, not read from the environment here (that would be 238 reads
-        // per evaluation, and a setting the caller could not see): `ZImageDenoisingModule.product`
-        // fills it from `SILICONED_CAPS_DROP`, once, at the edge.
-        if !capsDrop.isEmpty {
-            let dropped = capsDrop.filter { $0 < capLength }
-            for row in dropped { (cap + row * d).update(from: padToken, count: d) }
-            Warnings.emit("⚠ caps_drop: captions \(dropped) replaced by the padding token")
-        }
         record("context_refiner_in", cap, capPadded * d)
 
         // ── RoPE tables ─────────────────────────────────────────────────────────────────
@@ -305,8 +247,7 @@ package final class DiT {
             prefetcher.request(prefetcher.namesOfBlock(
                 prefix: i + 1 < config.refiners ? "noise_refiner.\(i + 1)." : "context_refiner.0."))
             try imageBlock.forward(x: image, freqs: freqs, adaln: adaln,
-                                   adalnDim: config.adalnDim, prefix: "noise_refiner.\(i).",
-                                   sequence: imageTokens)
+                                   adalnDim: config.adalnDim, prefix: "noise_refiner.\(i).")
         }
         record("noise_refiner_out", image, imageTokens * d)
         for i in 0..<config.refiners {
@@ -335,8 +276,7 @@ package final class DiT {
                 prefetcher.request(artifact.order.filter { $0.hasPrefix("all_final_layer.") })
             }
             try unifiedBlock.forward(x: unified, freqs: freqs, adaln: adaln,
-                                     adalnDim: config.adalnDim, prefix: "layers.\(layer).",
-                                     sequence: sequence)
+                                     adalnDim: config.adalnDim, prefix: "layers.\(layer).")
             if layer >= released { artifact.dropFromCache(prefetcher.namesOfBlock(prefix: "layers.\(layer).")) }
         }
         record("layers_29_out", unified, sequence * d)
@@ -354,7 +294,7 @@ package final class DiT {
         Ops.scaleRows(head, by: scale, rows: sequence, columns: d)
         let projected = try slot("projected")
         try linearGPU(key + "linear", a: head, into: projected,
-                      m: sequence, k: d, n: inDim, scratch: scratch, wrapRows: self.sequence)
+                      m: sequence, k: d, n: inDim, scratch: scratch)
         record("final_layer_out", projected, sequence * inDim)
 
         var out = [Float](repeating: 0, count: channels * height * width)
@@ -396,17 +336,12 @@ package final class DiT {
         }
     }
 
-    /// - Parameter wrapRows: the number of **reserved** rows, when the call uses fewer.
-    ///   The Metal wrappers are memoized by address; sizing them on the call would make the
-    ///   `MTLBuffer` be rebuilt at every change of resolution, i.e. the page wiring that is paid for once.
     private func linearGPU(_ key: String, a: UnsafeMutablePointer<Float>, into out: UnsafeMutablePointer<Float>,
-                           m: Int, k: Int, n: Int, scratch: UnsafeMutablePointer<Float>,
-                           wrapRows: Int? = nil) throws {
+                           m: Int, k: Int, n: Int, scratch: UnsafeMutablePointer<Float>) throws {
         try widen(key + ".weight", count: n * k, into: scratch)
-        let rows = wrapRows ?? m
-        let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: rows * k * 4, name: "a")
+        let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: m * k * 4, name: "a")
         let wb = try gemm.wrap(UnsafeMutableRawPointer(scratch), bytes: n * k * 4, name: "w")
-        let ob = try gemm.wrap(UnsafeMutableRawPointer(out), bytes: rows * n * 4, name: "o")
+        let ob = try gemm.wrap(UnsafeMutableRawPointer(out), bytes: m * n * 4, name: "o")
         _ = gemm.linear(a: ab, b: wb, c: ob, m: m, k: k, n: n,
                         weightIsTransposed: artifact.linearWeightsTransposed)
         if artifact.tensors[key + ".bias"] != nil {

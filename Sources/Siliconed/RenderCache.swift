@@ -112,9 +112,9 @@ package struct RenderCache: Sendable {
     /// in fp16, the flash kernel, the widening path), plus the render's `reproducible`.
     package static func numerics(reproducible: Bool) -> String {
         let s = EngineSettings.effective
-        return "amx \(s.amx) \(s.amxFraction) \(s.amxThreads) \(s.amxQuantum) \(s.amxMinimumRows) "
-            + "frozen \(reproducible) flash \(s.flash) fp16 \(s.sdpaFp16) "
-            + "widen \(s.widenGPU) \(s.widenFused) parallel \(s.parallel)"
+        return "amx \(s.amx) \(s.amxFraction) \(s.amxQuantum) \(s.amxMinimumRows) "
+            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) fp16 \(s.sdpaFp16) "
+            + "widen \(s.widenGPU) parallel \(s.parallel)"
     }
 
     /// The key of a text stage's output: the module, the prompt, the images it sees.

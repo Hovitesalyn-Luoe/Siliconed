@@ -33,9 +33,8 @@ import Foundation
 ///   - **the tail's buffers are the map's, not the model's**: their size is the largest streamed
 ///     layer's run in the file (362 MB for the bf16 map, about half for the 8-bit Compact), read from
 ///     the map's header — the card's type is there and nowhere else;
-///   - **only the full-size attentions are alive at the peak**: under the spectral schedule the image
-///     refiners and the layers first run at half length, and drop those attentions when the full steps
-///     begin (`DiT.forgetReducedAttentions`); the arenas are sized at the full grid throughout;
+///   - **one attention per block, at its one length**: every evaluation runs at the full grid (Z-Image
+///     has no half-size steps, unlike Qwen-Image-2.1), so each block keeps a single head split or graph;
 ///   - **a LoRA costs three things**: the `mid [S, r]` slice in each block's arena, the `CacheLoRA` (every
 ///     module `Block` can apply a stack to — the worst case), and, with more than one LoRA, the `down`
 ///     staging of one module while the cache fills (`LoRA.downBytes`);
@@ -132,7 +131,6 @@ extension MemoryNeed {
         let (latentHeight, latentWidth) = (request.height / 8, request.width / 8)
         let latent = dit.channels * latentHeight * latentWidth * f
         let rank = request.loraRanks.reduce(0, +)
-        let img2img = !request.references.isEmpty
         let (width, height) = (request.width, request.height)
 
         // ── what crosses: the caption features (`Conditioning`), the latent, img2img's image as handed
@@ -164,18 +162,15 @@ extension MemoryNeed {
         let released = request.tail.released(layers: dit.layers)
         let buffers = released < dit.layers ? request.tail.slots : 0
         let staging = buffers == 0 ? 0 : buffers * maps.ditStaging(released..<dit.layers)
-        // The spectral schedule's half grid — which a LoRA (and Détail) and img2img turn off
-        // (`ZImageDenoisingModule.plan`) — adds the sampler's descent level, not an attention.
-        let halfSteps = rank > 0 || img2img ? 0 : ZImageDenoisingModule.spectralSteps
         // The attentions alive at the peak: one per block at its full length (image refiners at the
         // image's tokens, layers at the unified sequence, context refiners at the padded caption) —
-        // cut by heads from `minimumSequence` on, MPSGraph below.
+        // cut by heads where `HeadSplitAttention.applies`, MPSGraph otherwise.
         let headDim = dit.dim / dit.heads
         let image = DiT.imageTokens(latentHeight: latentHeight, latentWidth: latentWidth, config: dit)
         let sequence = image + capPadded
         let attentions = [("image refiners", image), ("layers", sequence), ("context refiners", capPadded)].flatMap {
             attention($0.0, heads: dit.heads, rows: $0.1, keys: $0.1, headDim: headDim, causal: false,
-                      split: !Attention.useHalfPrecision && $0.1 >= HeadSplitAttention.minimumSequence,
+                      split: HeadSplitAttention.applies(sequence: $0.1),
                       threads: request.threads)
         }
         let (d, hidden) = (dit.dim, dit.hidden), inDim = dit.patch * dit.patch * dit.channels
@@ -188,9 +183,8 @@ extension MemoryNeed {
             Term("LoRA down staging", request.loraRanks.count > 1
                 ? LoRA.downBytes(k: loraModules.map(\.k).max() ?? 0, rank: request.loraRanks.max() ?? 0) : 0),
             Term("map staging", staging),
-            // The DiT's velocity `[C, h, w]` and, under the spectral schedule, one descent level.
-            Term("sampler", latent + (halfSteps > 0 ? latent / 4 : 0)
-                 + request.solver.historyBytes(count: latent / f)),
+            // The DiT's velocity `[C, h, w]`.
+            Term("sampler", latent + request.solver.historyBytes(count: latent / f)),
         ] + attentions
           // The image's rows are exact; the caption's, and the unified sequence's, follow the tokens' bound.
           + gemm("DiT", products: [(image, inDim, d)],

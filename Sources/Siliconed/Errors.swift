@@ -60,7 +60,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     /// More reference images than the model reads (`max` 0: it does no reference editing).
     case tooManyReferences(count: Int, max: Int)
     /// A side under `Format.minimumSide` — the models are out of their domain below. `side`: the
-    /// smaller side in pixels (of the image, or of an evaluation a forced spectral schedule would make).
+    /// image's smaller side in pixels.
     case imageTooSmall(side: Int, minimum: Int)
     /// A format the engine does not render (see `FormatRefusal`).
     case formatRefused(width: Int, height: Int, reason: FormatRefusal)
@@ -434,11 +434,6 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
                 self = .incompatibleChain(output: "\(output)", input: "\(entry)")
             case .textWithoutImages(let format): self = .incompatibleChain(output: "text", input: "\(format)")
             }
-        case let e as Sampler.Failure:
-            switch e {
-            case .belowFloor(let side): self = .imageTooSmall(side: side * 8, minimum: Format.minimumSide)
-            case .missingSide, .indivisible: self = .internalFailure(component: "sampler", detail: e.description)
-            }
         case let e as Qwen3VLPrompt.Failure:
             switch e {
             case .reservedText(let text): self = .promptReservedText(text: text)
@@ -469,7 +464,6 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case is T5Tokenizer.Failure, is OrderedJSON.ParseError: self = .corruptMap(file: nil)
         case let e as Arena.Failure: self = .internalFailure(component: "arena", detail: e.description)
         case let e as GEMM.Failure: self = .internalFailure(component: "gpu", detail: e.description)
-        case let e as Conductor.Failure: self = .internalFailure(component: "co-execution", detail: e.description)
         case let e as FlashMatrix.Failure: self = .internalFailure(component: "flash", detail: e.description)
         case let e as WidenGPU.Failure: self = .internalFailure(component: "widen", detail: e.description)
         case let e as Numerics.Failure: self = .internalFailure(component: "forge", detail: e.description)

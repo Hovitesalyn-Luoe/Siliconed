@@ -99,7 +99,7 @@ package struct VAELayout: Sendable, Equatable {
     /// **What MPS asks of the workspace for a one-kernel graph** (read on every pass of the Qwen-Image-2.1
     /// VAE): 2 MiB for a reduction or a convolution — and, for a stride-2 or 1×1 convolution, its
     /// weights reformatted, rounded up to 2 MiB (`reformattedWeights`); MPSGraph's SDPA, a copy of its
-    /// queries. Declarations, not a law: an ask beyond them shows as `VAEMemory.overflow`, a defect.
+    /// queries. Declarations, not a law: an ask beyond them is granted beside the heap (`Workspace`), a defect.
     package static let minimumAsk = 2 << 20
 
     /// A convolution's `floats` of weights, as MPS reformats them in the workspace.
@@ -253,10 +253,8 @@ package final class VAEMemory {
     private var workspace: Workspace?
     private var kernels: VAEKernels?
     private let plan: VAELayout?
-    /// The graphics ledger before the heaps were made, and both heaps' bytes: what `outside` is read
-    /// against (a heap counts whole in the ledger once the GPU has touched it).
+    /// The graphics ledger before the heaps were made: what `finish` waits for Metal to come back to.
     private var baseline = 0
-    private var heaps = 0
 
     var isLive: Bool { heap != nil }
 
@@ -297,7 +295,6 @@ package final class VAEMemory {
         heap.label = "VAE registers"; work.label = "VAE workspace"
         self.heap = heap
         workspace = Workspace(heap: work, device: device)
-        heaps = heap.size + work.size
     }
 
     // ── registers ──────────────────────────────────────────────────────────────────────────
@@ -383,8 +380,8 @@ package final class VAEMemory {
 
     /// **A graph whose workspace request is `largest` floats** (0: a one-kernel graph, which asks
     /// none) — declared before it is built, from the shapes alone. Planning: recorded, `nil` returned
-    /// (nothing is built). Running: `build` runs. A plan that under-declares shows at the first run as
-    /// an MPS request beyond the workspace heap (`overflow`), on any machine.
+    /// (nothing is built). Running: `build` runs. A plan that under-declares makes MPS ask beyond the
+    /// workspace heap, on any machine.
     func graph<T>(largest: Int, _ build: () throws -> T) rethrows -> T? {
         walk.graph(largest: largest)
         guard isLive else { return nil }
@@ -404,7 +401,6 @@ package final class VAEMemory {
             commands.commit()
             commands.waitUntilCompleted()
         }
-        VAEMemory.outside = max(VAEMemory.outside, VAEMemory.graphicsFootprint() - baseline - heaps)
         // What the graph's compilation freed goes back before the next pass (`Arena.returnFreedPages`):
         // ~100 graphs a decoder, each one's mlir churn otherwise billed until the phase ends.
         Arena.returnFreedPages()
@@ -416,16 +412,9 @@ package final class VAEMemory {
         autoreleasepool {
             kernels.dispatch(kernel, on: queue, registers.map { $0.buffer! }, constants: constants, grid: grid)
         }
-        VAEMemory.outside = max(VAEMemory.outside, VAEMemory.graphicsFootprint() - baseline - heaps)
     }
 
     // ── the end ────────────────────────────────────────────────────────────────────────────
-
-    /// What MPS asked for beyond the workspace heap, at most, in this process — 0 when the plan's
-    /// declarations hold on this system. Read by the checks.
-    nonisolated(unsafe) package static var overflow = 0
-    /// The largest heap MPS asked for, in this process — against the plan's workspace, for the checks.
-    nonisolated(unsafe) package static var largestAsk = 0
 
     /// **Releases both heaps, and returns once Metal has taken them back.** Every register must be
     /// dead: a placed buffer keeps its heap alive. Metal takes the heaps back on its own time — under
@@ -437,8 +426,6 @@ package final class VAEMemory {
     func finish() {
         guard heap != nil, workspace != nil else { return }
         precondition(walk.empty, "VAEMemory: registers still live at the end")
-        VAEMemory.overflow = max(VAEMemory.overflow, workspace!.overflow)
-        VAEMemory.largestAsk = max(VAEMemory.largestAsk, workspace!.largestAsk)
         heap = nil; workspace = nil; queue = nil
         let deadline = Date().addingTimeInterval(VAEMemory.releaseWait)
         while VAEMemory.graphicsFootprint() > baseline + VAEMemory.releaseTolerance, Date() < deadline { usleep(1000) }
@@ -448,11 +435,6 @@ package final class VAEMemory {
     /// up to ~2 s before the passes, under 0.1 s after; 4 MiB is the ledger's noise at rest.
     static let releaseWait: TimeInterval = 2
     static let releaseTolerance = 4 << 20
-
-    /// **What Metal holds beyond our two heaps, at most, in this process** — the graphics ledger after
-    /// each graph or kernel, less the ledger once the VAE's heaps were made. ~0 when every tensor of
-    /// every graph is a register; what MPSGraph allocates itself shows here.
-    nonisolated(unsafe) package static var outside = 0
 
     /// The process's graphics ledger: Metal's buffers and heaps, ours and MPS's.
     static func graphicsFootprint() -> Int {
@@ -468,23 +450,19 @@ package final class VAEMemory {
 
     /// **MPS's temporaries, in our heap.** MPS asks a heap per command buffer (`MPSCommandBuffer`'s
     /// `heapProvider`) and retires it after; we hand it the same heap every time. A request our heap
-    /// cannot hold — another system planning otherwise than the plan declares — is granted as asked, and
-    /// recorded (`VAEMemory.overflow`): never silent, never refused.
+    /// cannot hold — another system planning otherwise than the plan declares — is granted as asked, never
+    /// refused: the render's phase peak, checked against its need, is where it shows.
     private final class Workspace: NSObject, MPSHeapProvider {
         let heap: MTLHeap
         let device: MTLDevice
-        private(set) var overflow = 0
-        private(set) var largestAsk = 0
 
         init(heap: MTLHeap, device: MTLDevice) { self.heap = heap; self.device = device }
 
         func newHeap(with descriptor: MTLHeapDescriptor) -> MTLHeap? {
-            largestAsk = max(largestAsk, descriptor.size)
             if descriptor.storageMode == heap.storageMode, descriptor.type == heap.type,
                descriptor.size <= heap.maxAvailableSize(alignment: VAELayout.alignment) {
                 return heap
             }
-            overflow = max(overflow, descriptor.size)
             return device.makeHeap(descriptor: descriptor)
         }
 

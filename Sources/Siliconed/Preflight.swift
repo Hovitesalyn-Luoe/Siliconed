@@ -107,12 +107,6 @@ extension ModelCard {
     }
 
     package func memoryNeed(_ request: MemoryNeed.Request) -> Int? { MemoryNeed.of(request.lean)?.peak }
-
-    /// **The fastest plan's peak at `width × height`**: every buffer that buys time taken — what
-    /// `MemoryPlan.choose` takes whole when B holds it.
-    package func memoryComfort(width: Int, height: Int, references: Int = 0) -> Int? {
-        MemoryNeed.of(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))?.peak
-    }
 }
 
 // ── 2 · the accepted licenses ────────────────────────────────────────────────────────────

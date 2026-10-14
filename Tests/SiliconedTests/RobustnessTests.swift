@@ -190,17 +190,6 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(LoRAEntry.stack("a.silicon:0.5,::"), [LoRAEntry("a.silicon", strength: 0.5), LoRAEntry("::")])
     }
 
-    /// Under `SILICONED_DIVISORS`: a power of two dividing both sides, or no descent.
-    func testTheSpectralDivisorsMustDivideTheGrid() {
-        XCTAssertTrue(Sampler.divides([1, 1], height: 0, width: 0), "no descent, no grid needed")
-        XCTAssertTrue(Sampler.divides([2, 2, 1], height: 128, width: 152))
-        XCTAssertTrue(Sampler.divides([4, 2], height: 256, width: 256))
-        XCTAssertFalse(Sampler.divides([3], height: 192, width: 192), "not a power of two")
-        XCTAssertFalse(Sampler.divides([2], height: 129, width: 128), "an odd side")
-        XCTAssertFalse(Sampler.divides([4], height: 130, width: 128), "halved once, not twice")
-        XCTAssertFalse(Sampler.divides([0, 2], height: 128, width: 128))
-    }
-
     /// A golden is not installed: its message says the reference oracle writes it, never « install ».
     func testAMissingGoldenIsNotInstalled() {
         let qwen = MissingFile("/repo/goldens/goldens-qwen21-dit-512.safetensors", .published)

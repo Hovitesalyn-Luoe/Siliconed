@@ -298,19 +298,6 @@ struct VAEBuildingBlocks {
         return graph.addition(x, back, name: nil)
     }
 
-    /// **`nearest-exact` ×2, written as a duplication.** No `resize`: its flags (centering,
-    /// alignment, rounding direction) are a convention, and MPSGraph's shifted by one pixel at
-    /// each stage, i.e. 4 + 2 + 1 = 7 pixels on the final image. Each pixel becomes its 2×2
-    /// block: we unfold a dimension, broadcast it, fold it back, in width then in height.
-    func double(_ x: MPSGraphTensor, channels: Int, size: (h: Int, w: Int)) -> MPSGraphTensor {
-        let c = NSNumber(value: channels), h = NSNumber(value: size.h), w = NSNumber(value: size.w)
-        let doubledH = NSNumber(value: size.h * 2), doubledW = NSNumber(value: size.w * 2)
-        var big = graph.reshape(x, shape: [1, c, h, w, 1], name: nil)
-        big = graph.broadcast(big, shape: [1, c, h, w, 2], name: nil)
-        big = graph.reshape(big, shape: [1, c, h, 1, doubledW], name: nil)
-        big = graph.broadcast(big, shape: [1, c, h, 2, doubledW], name: nil)
-        return graph.reshape(big, shape: [1, c, doubledH, doubledW], name: nil)
-    }
 }
 
 // ── what each brick reads ──────────────────────────────────────────────────────────────────────

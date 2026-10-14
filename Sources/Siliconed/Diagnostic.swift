@@ -1,118 +1,86 @@
-import Accelerate
 import CryptoKit
 import Foundation
 import IOKit
 import IOKit.ps
-import os
 import Metal
 
-/// **The diagnostic** — what any user runs from the app, in ~15 s per model, and whose JSON fills the
-/// table of measurements by chip (M1 → M5, Pro/Max/Ultra, 16 → 192 GB) that only users can fill.
+/// **The diagnostic — a capacity map of the machine**: 14 s on the M1 Pro (a chip with half its GPU
+/// should stay under 30), voluntary, not one byte of weights, a JSON a user can share. It answers two things: what the fleet has (one report per
+/// user; `tools/aggregate_diagnostics.py` makes the table by chip), and, per machine, the figures
+/// that decide the engine's compute branches. **A figure is in it only if it decides a branch of the
+/// engine or answers a fleet question.**
 ///
-///     for each installed model passed (the CLI: all of them; the app: the visible ones), at 512²:
+///     operands: uniform noise, the same on every machine (xorshift by blocks of 2¹⁶)
+///        │                                                    the exact: fp64 on the CPU, sampled rows
+///        │                                                    (`cblas_dgemm`, an attention in Double)
+///        ├─ fp32 products, Z-Image's and Qwen-Image-2.1's blocks, [m, d]·[d, ffn] and [m, ffn]·[ffn, d],
+///        │  m = 1024, 4096
+///        │     GPU alone   GEMM.linear (MPS)                          ─┐
+///        │     AMX alone   Conductor.multiply (BNNSMatMul)              ├─ share = gpu / (gpu + amx)  ─▶ amx, amxFraction
+///        │     both        GEMM.linear through Conductor at that share ─┘  does the cut pay here?
+///        ├─ fp16 and bf16 products, Z-Image's [1024, 3840]·[3840, 10240]                       ─▶ fleet
+///        │     GPU MPSGraph (out fp16 / bf16) · BNNS (out fp32) · Metal 4 matmul2d (out fp32)
+///        ├─ fp32 attention, S = 1024 and 4096, the models' heads × 128
+///        │     MPSGraph (Attention) · FlashMatrix · HeadSplitAttention (cpuFraction)           ─▶ flash, the head split
+///        ├─ widening of a Z-Image w1, 39.3 M values: bf16 → fp32, int8 × bf16 scale per column
+///        │     CPU (Widen) · GPU (WidenGPU)                                                   ─▶ widenGPU
+///        └─ the first product again, GPU and AMX: the drift witness (invariant 6)
+///     read, not measured: the machine, the CPU's FEAT_* flags, thermal / power / swap before and after
 ///
-///     prompt ─ text encoder ─ conditioning ─────────────────────────────┐            (timed, cold: no RenderCache)
-///     x_t.0, σ₀ ─ DiT ─ model_out.0   1st evaluation: builds the DiT, the LoRA, the prefill — the warm-up
-///     x_t.1, σ₁ ─ DiT ─ model_out.1   2nd evaluation: the step in steady state ─▶ channelError vs golden
-///     x̂₀ = the one-step estimate ─ VAE decoder ─ image                              (timed, then dropped)
+/// **Each figure** is a median of three wall-clock runs after a warm-up (one run when the warm-up
+/// alone passed `longWarmUp`), and **each output** is judged against the exact: the worst row's
+/// relative error, each row normalized by its own norm (`channelError`, the rows laid out as its
+/// channels), `pass` at or under the item's threshold.
 ///
-///     estimated render = encoder + 1st + (E − 1) · 2nd + decoder,   E = the plan's evaluations at the default steps
+/// What sets it apart — what a diagnostic written by analogy with the checks would get wrong:
 ///
-///     and the machine: chip, P/E cores, GPU cores, memory, macOS, binary version;
-///     the peak `phys_footprint` sampled every 10 ms, the `vm_stat` swap-outs before/after.
+///   - **it judges the chip, never the weights.** Schema 4 rendered two DiT steps of each installed
+///     model against an fp32 golden: an 8-bit install could only fail it (6.6·10⁻² against 5·10⁻⁴ on
+///     an M4), and nothing in the code read what it measured. The operands here are synthetic, and
+///     every product is a block's shape, read from the models' `Config` defaults;
+///   - **the heights are multiples of 64.** Schema 4's witness ran at 511 rows, which `GEMM` submits
+///     as 448 + 63 through the padding tier (`rowSplit`): two submissions, one of them at 64 rows —
+///     its TFLOP/s was not a product's;
+///   - **the AMX is the engine's BNNS, not `cblas`**: `Conductor.multiply`, the call the cut makes on
+///     its worker thread. `cblas_sgemm` is another code (1.99 against 2.26 TFLOP/s, `AMXLegacy.h`);
+///   - **the cut runs at the share just measured, frozen** (`initialFraction`, `driven: false`): the
+///     point a servo converges to, without its first oscillations inside a three-run median;
+///   - **against fp64, never against another fp32**: `cblas` fp32 has its own error, of the size
+///     of the GPU's;
+///   - **a half-precision output is judged against its own rounding**: the exact rounded to fp16 or
+///     bf16 is the floor no implementation can pass under; `pass` within 1.25 × that floor
+///     (invariant 3: no further than the oracle + 25 %), never under the fp32 threshold;
+///   - **every output is poisoned before each engine** (NaN on the sampled rows): a submission that
+///     fails silently leaves the previous engine's right answer, which would pass;
+///   - **it holds the machine's render lock** (`RenderLock.machine`) and runs on the engine's queue:
+///     never beside a render, of this process or another.
 ///
-/// **Why two evaluations, not one.** The first pays what a render pays once: the DiT's arenas, the
-/// LoRA stack opened, Qwen-Image-2.1's conditions prefilled inside the first step
-/// (`QwenImage21DiT.prefillPending`), the map's head entering the page cache, the GPU pipelines
-/// compiled. The second is what every later step costs. One alone would mix the two; their ratio is
-/// itself a figure of the machine (an 8 GB Mac re-reading its map at each step shows it here).
+/// **Deliberately not measured**: the disk (no decision reads its speed); a model's step (its
+/// weights, its plan and the page cache decide it, and a render's own figures already say it); the
+/// memory (B is a function of the RAM alone, ¾ · RAM − 2 GiB); the SDPA in fp16 (`sdpa_fp16` is a
+/// render option the image decides, not a capacity). The peak `phys_footprint` is 0.90 GB on the
+/// M1 Pro (14/10/2026), the products' operands (~600 MB, released before the attention) its larger
+/// part — under B on the smallest Mac (8 GB, B = 4 GiB).
 ///
-/// **Why the full render is derived, not measured.** At 512², a Qwen render is 8 evaluations and a
-/// Z-Image one 8: running them would triple the diagnostic for figures the derivation gives within the
-/// noise of a run (M1 Pro: a step varies by a few %, the machine drifts 4–13 % over a few renders).
-/// The JSON says it: `estimatedRenderSeconds`, never "render seconds".
-/// The step count is the model's default (`defaultSteps`); `E` comes from the denoiser's own plan
-/// (8 steps = 8 evaluations for both since 0.8.2).
-///
-/// **What is judged.** The second `model_out`, channel by channel (`channelError`, the same measure
-/// as every check of the repository), against a **reduced golden embedded as a resource** — the DiT's
-/// input and output at two steps of the oracle's trajectory, ~1 MB, not the oracle's 104 MB. The
-/// conditioning is NOT embedded: it is recomputed by the user's encoder, so the deviation is that of
-/// the whole text → DiT path at real inputs, larger than `qwen21-forward`'s at the oracle's inputs.
-/// A model without a golden (the four families the diagnostic does not drive, every imported
-/// DiT) still runs — timings, machine, peak, swap — and says `"golden": null`, `"deviation": null`.
-///
-/// **The golden of Qwen-Image-2.1** (`Resources/diagnostic/qwen-image-2.1.safetensors`, 1.05 MB,
-/// sha256 `db216b9064312ab7…`):
-///   - from the oracle's `goldens-qwen21-trajectory-512.safetensors` (sha256 `25d35d9cb533b936…`,
-///     written on 10/10/2026: diffusers 0.41.0 fp32 on CPU, transformers 5.19.0,
-///     `Qwen/Qwen-Image-2.1-Turbo@d65dbc9a`, prompt « a 30 year old woman posing in a library »,
-///     512², seed 0, 8 steps on `sample_sigmas`);
-///   - keys `latent_init` → `x_t.0`, `velocity_0` → `model_out.0`, `latent_1` → `x_t.1`, `velocity_1` →
-///     `model_out.1` (the transformer's output on the target rows, packed `[1024, 64]`, stored planar
-///     `[64, 32, 32]`), `sigmas[0:2]` → `sigma` = [1, 0.978453] (`0x3f800000`, `0x3f7a7be5`: the
-///     Turbo's first two `sample_sigmas` made float32, the same at every size, which
-///     `QwenImage21DiT.forward` receives);
-///   - step 0 is bit for bit `goldens-qwen21-dit-512`'s `model_out` (the DiT check at 512²);
-///   - its metadata say where it comes from (`model`, `source_sha256`, `generated` 2026-10-10).
-///
-/// **The golden of Z-Image Turbo** (`Resources/diagnostic/z-image.safetensors`, 1.05 MB):
-///   - from the oracle's `goldens-trajectory-512.safetensors` (sha256 `ba41e12292f2e2cc…`, written
-///     on 13/10/2026: diffusers 0.41.0 fp32 on CPU, the pipeline's own schedule — 8 steps, 8
-///     evaluations, since 0.8.2 —, the `goldens-text` `cap_feats` of « a 30 year old woman posing in a
-///     library », seed 42; its step 0 is the 04/10 oracle's to the bit, step 1 moved with σ₁);
-///   - keys `latent_init` → `x_t.0`, `latent_1` → `x_t.1`, and **`−v_0` → `model_out.0`, `−v_1` →
-///     `model_out.1`**: the oracle stores the pipeline's `noise_pred = −transformer(…)`, `DiT.forward`
-///     returns the transformer's raw output;
-///   - `sigma` = [0, 0.04545459]: the **reversed time** the oracle's transformer received,
-///     `(1000 − t)/1000` in fp32 with `t = scheduler.timesteps` — not fp32 `1 − σ` (0.04545456), which
-///     is what the product's `FlowMatchSchedule.modelTime` passes; 3·10⁻⁸ apart, read the oracle's;
-///   - regenerated the same way.
-///
-/// **The threshold** (`threshold(for:)`): see there — measured on this machine at real inputs, and
-/// wide enough for another chip's GPU/AMX cut, narrow enough that a wrong kernel cannot hide.
-///
-/// **Every field is there to decide something in this repository** (schema 2, 08/10/2026) — a report
-/// from a machine we have never touched, read without Xcode on it, must say which line of code to change:
-///   - `memory` per model: B, the floor, and **the memory plan's decisions**. The diagnostic runs
-///     inside `MemoryPlan.during` like a render, so an 8 GB Mac takes the lean plan here exactly where
-///     its renders would — before schema 2 it ran outside any render, on the default plan a real render
-///     there would not have taken, and its estimate was another machine's. A refusal carries the same
-///     figures. **Schema 3 (12/10/2026)**: B (`budgetBytes`: ¾ · RAM − 2 GiB, the figure
-///     the refusal reads and the plan is chosen in), the chosen plan's need computed from the
-///     diagnostic's inputs, phase by phase (`needBytes`, `needByPhase`), and the measured peak of each
-///     phase against it (`check`:
-///     `MemoryCheck`), with the method that read it (`peakMethod`: the kernel's interval maximum,
-///     exact, or a 10 ms sampler where the private reset is missing). A phase above its need is a defect of the code
-///     found on a machine we have never touched — the line of the formula or of the allocation to fix.
-///     **Schema 4 (12/10/2026)**: the kernel's reading is gone — no `reclaimableBytes`,
-///     `availableBytes`, `reserveBytes`, `comfortableBytes`, nor the conditions' reclaimable memory and
-///     compressor room: nothing decides on them any more;
-///   - `diskReadBytes` per model: the map read from the disk or from the page cache — the 11–12 % measured
-///     on a loaded desktop was that, and nothing else in a report says it;
-///   - `witness`: an fp32 GEMM `[511 × 3840] × [3840 × 3840]` on the GPU alone and through `cblas_sgemm`
-///     (the AMX), **before the first model and after the last**. Their ratio is what decides whether
-///     `EngineSettings.amx` goes on for this chip and at which `amxFraction` (it is on for `referenceChip`
-///     only); the GPU's rows against `cblas` check a new GPU family's fp32 without one byte of weights;
-///     the before/after pair is the thermal witness that frames any timing, on a machine nobody watches;
-///   - `conditions` before/after: thermal state, Low Power Mode, battery, the swap in use — a fanless
-///     Mac or a loaded one says so instead of a slow chip;
-///   - `settings`: every setting that is not the reference's default, with its provenance, and `amx`
-///     always — a profile or an environment variable on the user's side must not pass for the chip;
-///   - `machine.gpu*`: the Metal device, its highest `apple` family and its working set — the kernels'
-///     choices (flash, fp32 accumulators) are properties of the family, not of the core count.
-///
-/// What the diagnostic does NOT do: read or write the render cache (a kept conditioning would hide
-/// the encoder), apply a user LoRA, run at the product's 1024² (the 512² step is what every machine
-/// can afford in ~30 s; 1024² is ~4× the tokens). The OS page cache
-/// is out of its hands: a model just used renders its encoder warmer than a cold boot would.
+/// **The engine reads it in the app, and only there**: when the user measures (« Report My
+/// Configuration », never in the background), the app keeps the report in its preferences and hands it
+/// to `EngineSettings.load(from:map:)` from the next launch on, as long as its `Fingerprint` —
+/// hardware, chip, macOS build, the app's build — matches; the rules (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`,
+/// `head_split`. The command line, the checks and the close-out never designate a map: today's defaults.
 public enum Diagnostic {
-    public static let resolution = 512
-    public static let prompt = "a 30 year old woman posing in a library"
-    public static let seed: UInt64 = 42
-    /// The JSON's version: the script that aggregates the reports reads it.
-    public static let schema = 4
+    /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
+    /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
+    /// day, optional: a report without it is the same measures.
+    public static let schema = 5
     public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
+
+    /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
+    /// attention no further than 10⁻⁵ from the exact. Measured on the M1 Pro (14/10/2026): the
+    /// products 0.80–2.1·10⁻⁶ (the worst at k = 12 288, GPU and the cut alike), the attention
+    /// 2.0–4.4·10⁻⁶ (flash the closest) — 2.3× under it at the worst, and a fault is orders above.
+    public static let fp32Threshold = 1e-5
+    /// A half-precision output passes within this factor of its rounding floor (invariant 3).
+    public static let floorMargin = 1.25
 
     // ── the report ──────────────────────────────────────────────────────────────────────────
 
@@ -154,181 +122,206 @@ public enum Diagnostic {
         public var memoryLabel: String { "\(Int((Double(memoryBytes) / 1_073_741_824).rounded())) GB" }
     }
 
-    /// Wall-clock seconds of each stage.
-    public struct Seconds: Codable, Sendable, Equatable {
-        /// Tokenizer + text encoder, cold.
-        public var encoder: Double
-        /// The first evaluation, with everything it builds (DiT, LoRA, prefill).
-        public var firstEvaluation: Double
-        /// The second: the step in steady state.
-        public var steadyEvaluation: Double
-        public var decoding: Double
-        /// The model's whole diagnostic, building the model included.
-        public var total: Double
-
-        public init(encoder: Double, firstEvaluation: Double, steadyEvaluation: Double, decoding: Double, total: Double) {
-            self.encoder = encoder; self.firstEvaluation = firstEvaluation; self.steadyEvaluation = steadyEvaluation
-            self.decoding = decoding; self.total = total
-        }
-    }
-
-    /// Where the golden comes from, as its file says.
-    public struct GoldenInfo: Codable, Sendable, Equatable {
-        public var file: String
-        public var source: String
-        public var sourceSHA256: String
-        public var generated: String
-        public init(file: String, source: String, sourceSHA256: String, generated: String) {
-            self.file = file; self.source = source; self.sourceSHA256 = sourceSHA256; self.generated = generated
-        }
-    }
-
-    /// The second `model_out` against the golden, channel by channel (`channelError`).
-    public struct Deviation: Codable, Sendable, Equatable {
-        public var worst: Double
-        public var channel: Int
-        public var median: Double
-        public var threshold: Double
-        public var pass: Bool
-        /// The first evaluation's worst channel — for information, not judged.
-        public var firstEvaluationWorst: Double
-        public init(worst: Double, channel: Int, median: Double, threshold: Double, pass: Bool, firstEvaluationWorst: Double) {
-            self.worst = worst; self.channel = channel; self.median = median; self.threshold = threshold
-            self.pass = pass; self.firstEvaluationWorst = firstEvaluationWorst
-        }
-    }
-
-    /// **The memory plan a render would have taken**, and what it decided (`MemoryPlan.Render`).
-    public struct MemoryReport: Codable, Sendable, Equatable {
-        /// `ModelCard.memoryNeed` at the diagnostic's format: the lean plan's peak, judged against B.
-        public var floorBytes: Int
-        /// The lean plan was taken: B holds neither the encoder's buffers nor the standard bands.
-        public var lean: Bool
-        /// Each site's decision, in order — the lines the developer's command line prints.
-        public var decisions: [String]
-        /// **B** (schema 3): what this Mac offers a render, fixed by its RAM (`MemoryBudget.ceiling`,
-        /// ¾ · RAM − 2 GiB, or `SILICONED_MEMORY_BUDGET_GB`) — the one figure the refusal reads.
-        public var budgetBytes: Int
-        /// The computed need of the plan chosen in B (`MemoryPlan.choose`) at the diagnostic's format and prompt.
-        public var needBytes: Int
-        /// The need of each of the formula's phases (`text`, `denoising`, `decoding`…), crossing and base included.
-        public var needByPhase: [String: Int]
-        /// The need comes from the hidden families' measured fallback (`MemoryNeed.unmodelled`), not a formula.
-        public var fallback: Bool
-        /// **The measured peak against the need**, phase by phase (`MemoryCheck`): `nil` when the model
-        /// did not run (refused, failed before its first phase).
-        public var check: MemoryCheck?
-        /// **How the peaks are read on this machine** (`FootprintInterval`): `kernelInterval` (exact) or
-        /// `sampled10ms` (the kernel's reset missing or failing) — said even when `check` is `null`.
-        public var peakMethod: PeakMethod
-        public init(floorBytes: Int, lean: Bool, decisions: [String], budgetBytes: Int = 0, needBytes: Int = 0,
-                    needByPhase: [String: Int] = [:], fallback: Bool = false, check: MemoryCheck? = nil,
-                    peakMethod: PeakMethod = .kernelInterval) {
-            self.floorBytes = floorBytes; self.lean = lean; self.decisions = decisions
-            self.budgetBytes = budgetBytes; self.needBytes = needBytes; self.needByPhase = needByPhase
-            self.fallback = fallback; self.check = check; self.peakMethod = peakMethod
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case floorBytes, lean, decisions,
-                 budgetBytes, needBytes, needByPhase, fallback, check, peakMethod
-        }
-
-        /// Explicit `null` for a check that did not run, like every optional of the report.
-        public func encode(to encoder: any Encoder) throws {
-            var c = encoder.container(keyedBy: CodingKeys.self)
-            try c.encode(floorBytes, forKey: .floorBytes); try c.encode(lean, forKey: .lean)
-            try c.encode(decisions, forKey: .decisions); try c.encode(budgetBytes, forKey: .budgetBytes)
-            try c.encode(needBytes, forKey: .needBytes); try c.encode(needByPhase, forKey: .needByPhase)
-            try c.encode(fallback, forKey: .fallback); try c.encode(check, forKey: .check)
-            try c.encode(peakMethod, forKey: .peakMethod)
-        }
-    }
-
-    /// **The state of the machine**, read before the first model and after the last.
+    /// **The state of the machine**, read before the first measurement and after the last.
     public struct Conditions: Codable, Sendable, Equatable {
         /// `ProcessInfo.thermalState`: nominal, fair, serious, critical. A fanless Mac throttles from fair.
         public var thermal: String
         public var lowPowerMode: Bool
         /// The machine runs on its battery; `nil` when the power source does not say.
         public var onBattery: Bool?
-        /// `vm.swapusage`'s used bytes: swap another process left, not ours (ours is `swapouts`).
+        /// `vm.swapusage`'s used bytes: another process's swap, and memory this one may lack.
         public var swapUsedBytes: Int
         public init(thermal: String, lowPowerMode: Bool, onBattery: Bool?, swapUsedBytes: Int) {
             self.thermal = thermal; self.lowPowerMode = lowPowerMode; self.onBattery = onBattery
             self.swapUsedBytes = swapUsedBytes
         }
-    }
 
-    /// **The chip's fp32 GEMM, GPU and AMX, without a model** (`witness()`).
-    public struct Witness: Codable, Sendable, Equatable {
-        /// MPS, the GPU alone (below the conductor's `amx_min`), median of five.
-        public var gpuTFLOPS: Double
-        /// `cblas_sgemm`, Accelerate's own threads — the AMX blocks; median of five.
-        public var amxTFLOPS: Double
-        /// The GPU's worst row against `cblas` (relative): ≤ 10⁻⁵ on the M1 Pro (the AMX check's threshold).
-        public var gpuWorstRowError: Double
-        public init(gpuTFLOPS: Double, amxTFLOPS: Double, gpuWorstRowError: Double) {
-            self.gpuTFLOPS = gpuTFLOPS; self.amxTFLOPS = amxTFLOPS; self.gpuWorstRowError = gpuWorstRowError
-        }
-    }
-
-    public struct ModelReport: Codable, Sendable, Equatable {
-        public var model: String
-        public var name: String
-        public var family: String
-        /// The model's default step count, and the DiT evaluations they make (`DenoisingPlan`).
-        public var steps: Int
-        public var evaluations: Int
-        public var seconds: Seconds?
-        /// `encoder + firstEvaluation + (evaluations − 1) · steadyEvaluation + decoding` — derived, not measured.
-        public var estimatedRenderSeconds: Double?
-        /// The peak `phys_footprint` of the process during this model's diagnostic.
-        public var peakFootprintBytes: Int
-        /// `vm_stat` swap-outs (pages) during this model's diagnostic: zero, or a defect.
-        public var swapouts: Int
-        /// `ri_diskio_bytesread` during this model: its maps read from the disk, not from the page cache.
-        public var diskReadBytes: Int = 0
-        /// Standard or Compact (8-bit) — `nil` for an imported DiT.
-        public var variant: String? = nil
-        /// The budget, the floor and the plan; `nil` when the model did not get as far as reading them.
-        public var memory: MemoryReport? = nil
-        /// `ProcessInfo.thermalState` once this model is done.
-        public var thermalAfter: String = ""
-        public var golden: GoldenInfo?
-        public var deviation: Deviation?
-        /// Why the model did not run to the end; `nil` when it did.
-        public var error: String?
-        /// The same failure as the engine's case, for an app to say it in its own words (`error` is
-        /// the technical text an issue quotes). Not in the JSON: `nil` in a report read back.
-        public var failure: EngineError? = nil
-
-        private enum CodingKeys: String, CodingKey {
-            case model, name, family, steps, evaluations, seconds, estimatedRenderSeconds, peakFootprintBytes,
-                 swapouts, diskReadBytes, variant, memory, thermalAfter, golden, deviation, error
-        }
-
-        public init(model: String, name: String, family: String, steps: Int, evaluations: Int, seconds: Seconds?,
-                    estimatedRenderSeconds: Double?, peakFootprintBytes: Int, swapouts: Int,
-                    golden: GoldenInfo?, deviation: Deviation?, error: String?, failure: EngineError? = nil) {
-            self.model = model; self.name = name; self.family = family; self.steps = steps
-            self.evaluations = evaluations; self.seconds = seconds; self.estimatedRenderSeconds = estimatedRenderSeconds
-            self.peakFootprintBytes = peakFootprintBytes; self.swapouts = swapouts; self.golden = golden
-            self.deviation = deviation; self.error = error; self.failure = failure
-        }
-
-        /// **Explicit `null`s**: the synthesized encoder omits a `nil`, and a reader (the aggregation
-        /// script, a human) must tell "no golden" from "an older schema without the field".
+        private enum CodingKeys: String, CodingKey { case thermal, lowPowerMode, onBattery, swapUsedBytes }
+        /// Explicit `null`s, as everywhere in the report: "unknown" is said, not dropped.
         public func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
-            try c.encode(model, forKey: .model); try c.encode(name, forKey: .name); try c.encode(family, forKey: .family)
-            try c.encode(steps, forKey: .steps); try c.encode(evaluations, forKey: .evaluations)
-            try c.encode(seconds, forKey: .seconds); try c.encode(estimatedRenderSeconds, forKey: .estimatedRenderSeconds)
-            try c.encode(peakFootprintBytes, forKey: .peakFootprintBytes); try c.encode(swapouts, forKey: .swapouts)
-            try c.encode(diskReadBytes, forKey: .diskReadBytes); try c.encode(variant, forKey: .variant)
-            try c.encode(memory, forKey: .memory); try c.encode(thermalAfter, forKey: .thermalAfter)
-            try c.encode(golden, forKey: .golden); try c.encode(deviation, forKey: .deviation)
-            try c.encode(error, forKey: .error)
+            try c.encode(thermal, forKey: .thermal); try c.encode(lowPowerMode, forKey: .lowPowerMode)
+            try c.encode(onBattery, forKey: .onBattery); try c.encode(swapUsedBytes, forKey: .swapUsedBytes)
+        }
+    }
+
+    /// **One engine on one item**: how fast, and how far from the exact. **Written `[rate, error,
+    /// pass]`** — forty of them as objects made the report too long for an issue link (9 690 bytes
+    /// against ~8 000); the thresholds they were judged by are the report's `thresholds`, and a
+    /// half-precision product's own `threshold`.
+    public struct Measure: Codable, Sendable, Equatable {
+        /// TFLOP/s for a product or an attention (`2·m·k·n`, `4·S²·H·Dh`), G values/s for a widening;
+        /// four significant digits.
+        public var rate: Double
+        /// The worst row's relative error against the exact (fp64), three significant digits. A
+        /// non-finite error — a NaN in the output — is written as the largest finite double.
+        public var error: Double
+        /// At or under the item's threshold, judged before the rounding.
+        public var pass: Bool
+
+        public init(rate: Double, error: Double, threshold: Double) {
+            self.rate = Diagnostic.significant(rate, 4)
+            self.error = Diagnostic.significant(error, 3)
+            self.pass = error.isFinite && error <= threshold
+        }
+
+        public init(from decoder: any Decoder) throws {
+            var c = try decoder.unkeyedContainer()
+            rate = try c.decode(Double.self); error = try c.decode(Double.self); pass = try c.decode(Bool.self)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.unkeyedContainer()
+            try c.encode(rate); try c.encode(error); try c.encode(pass)
+        }
+    }
+
+    /// **What the measures were judged by**: one threshold for every fp32 output, 0 for a widening
+    /// (exact by construction), and the margin over its floor a half-precision output gets.
+    public struct Thresholds: Codable, Sendable, Equatable {
+        public var fp32: Double
+        public var widening: Double
+        public var floorMargin: Double
+        public init(fp32: Double = Diagnostic.fp32Threshold, widening: Double = 0, floorMargin: Double = Diagnostic.floorMargin) {
+            self.fp32 = fp32; self.widening = widening; self.floorMargin = floorMargin
+        }
+    }
+
+    /// **An fp32 product of a DiT block** — `[m, k] · [k, n]`, the weight stored `[input, output]` as
+    /// the forge lays it out.
+    public struct Product: Codable, Sendable, Equatable {
+        /// The model whose block gives the shape: "z-image", "qwen-image-2.1".
+        public var model: String
+        /// "up" `[m, d]·[d, ffn]`, "down" `[m, ffn]·[ffn, d]`.
+        public var product: String
+        public var m, k, n: Int
+        /// MPS through `GEMM.linear`, the conductor off.
+        public var gpu: Measure
+        /// `BNNSMatMul` through `Conductor.multiply`, on the calling thread; `nil` when BNNS refuses.
+        public var amx: Measure?
+        /// `gpu.rate / (gpu.rate + amx.rate)`: the share of rows the GPU would take — `amxFraction`.
+        public var gpuShare: Double?
+        /// `GEMM.linear` through the conductor, its cut frozen at `gpuShare`.
+        public var coexecution: Measure?
+        /// The rows the cut gave the GPU (`Conductor.cut`, a multiple of `amx_quantum`); `m` when the
+        /// cut does not apply (`m < amx_min`).
+        public var coexecutionGPURows: Int?
+
+        public init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
+                    gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?) {
+            self.model = model; self.product = product; self.m = m; self.k = k; self.n = n; self.gpu = gpu
+            self.amx = amx; self.gpuShare = gpuShare.map { Diagnostic.significant($0, 3) }
+            self.coexecution = coexecution; self.coexecutionGPURows = coexecutionGPURows
+        }
+
+        private enum CodingKeys: String, CodingKey { case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(model, forKey: .model); try c.encode(product, forKey: .product)
+            try c.encode(m, forKey: .m); try c.encode(k, forKey: .k); try c.encode(n, forKey: .n)
+            try c.encode(gpu, forKey: .gpu); try c.encode(amx, forKey: .amx); try c.encode(gpuShare, forKey: .gpuShare)
+            try c.encode(coexecution, forKey: .coexecution); try c.encode(coexecutionGPURows, forKey: .coexecutionGPURows)
+        }
+    }
+
+    /// **An fp32 attention** at a model's heads — `q`, `k`, `v` `[S, H·Dh]` as the GEMMs write them.
+    public struct AttentionCapacity: Codable, Sendable, Equatable {
+        public var model: String
+        public var heads, headDim, sequence: Int
+        /// `MPSGraph.scaledDotProductAttention` (`Attention`), the engine's default.
+        public var graph: Measure?
+        /// The in-house matrix flash kernel (`FlashMatrix`, the `flash` setting); `nil` when it refuses the device.
+        public var flash: Measure?
+        /// The heads cut between the GPU and the CPU (`HeadSplitAttention`, its `cpuFraction`).
+        public var headSplit: Measure?
+
+        public init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
+                    headSplit: Measure?) {
+            self.model = model; self.heads = heads; self.headDim = headDim; self.sequence = sequence
+            self.graph = graph; self.flash = flash; self.headSplit = headSplit
+        }
+
+        private enum CodingKeys: String, CodingKey { case model, heads, headDim, sequence, graph, flash, headSplit }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(model, forKey: .model); try c.encode(heads, forKey: .heads)
+            try c.encode(headDim, forKey: .headDim); try c.encode(sequence, forKey: .sequence)
+            try c.encode(graph, forKey: .graph); try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
+        }
+    }
+
+    /// **A weight widened to fp32**, CPU against GPU — what `widen_gpu` chooses between.
+    public struct Widening: Codable, Sendable, Equatable {
+        /// "bf16" (a shift), "int8" (`Float(q) · s`, one bf16 scale per column).
+        public var kind: String
+        public var values: Int
+        public var cpu: Measure
+        /// `nil` when the kernel does not build on the device.
+        public var gpu: Measure?
+
+        public init(kind: String, values: Int, cpu: Measure, gpu: Measure?) {
+            self.kind = kind; self.values = values; self.cpu = cpu; self.gpu = gpu
+        }
+
+        private enum CodingKeys: String, CodingKey { case kind, values, cpu, gpu }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(kind, forKey: .kind); try c.encode(values, forKey: .values)
+            try c.encode(cpu, forKey: .cpu); try c.encode(gpu, forKey: .gpu)
+        }
+    }
+
+    /// **A product in fp16 or bf16** — the fleet question: does this machine compute half precision
+    /// fast, and where.
+    public struct LowPrecision: Codable, Sendable, Equatable {
+        /// "mpsgraph" (the GPU through `MPSGraph`), "bnns" (the CPU's matrix unit), "matmul2d" (Metal 4's
+        /// tensor operation — the M5's neural accelerators where there are some).
+        public var engine: String
+        /// The operands' type: "fp16", "bf16".
+        public var type: String
+        /// The result's type: the operands' for `MPSGraph`, "fp32" for the two others.
+        public var output: String
+        public var m, k, n: Int
+        /// `nil` when the engine refuses the type or the device has no such engine.
+        public var measure: Measure?
+        /// The exact rounded to `output`: the error no implementation passes under.
+        public var floor: Double
+        /// `max(thresholds.fp32, floorMargin · floor)`.
+        public var threshold: Double
+
+        public init(engine: String, type: String, output: String, m: Int, k: Int, n: Int, measure: Measure?, floor: Double,
+                    threshold: Double) {
+            self.engine = engine; self.type = type; self.output = output; self.m = m; self.k = k; self.n = n
+            self.measure = measure; self.floor = Diagnostic.significant(floor, 3)
+            self.threshold = Diagnostic.significant(threshold, 3)
+        }
+
+        private enum CodingKeys: String, CodingKey { case engine, type, output, m, k, n, measure, floor, threshold }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(engine, forKey: .engine); try c.encode(type, forKey: .type); try c.encode(output, forKey: .output)
+            try c.encode(m, forKey: .m); try c.encode(k, forKey: .k); try c.encode(n, forKey: .n)
+            try c.encode(measure, forKey: .measure); try c.encode(floor, forKey: .floor)
+            try c.encode(threshold, forKey: .threshold)
+        }
+    }
+
+    /// **The first product, timed again at the end** (TFLOP/s): the drift over the diagnostic, which
+    /// frames every figure of it (invariant 6). `before` is `products[0]`'s.
+    public struct Witness: Codable, Sendable, Equatable {
+        public var gpuBefore, gpuAfter: Double
+        public var amxBefore, amxAfter: Double?
+
+        public init(gpuBefore: Double, gpuAfter: Double, amxBefore: Double?, amxAfter: Double?) {
+            self.gpuBefore = gpuBefore; self.gpuAfter = Diagnostic.significant(gpuAfter, 4)
+            self.amxBefore = amxBefore; self.amxAfter = amxAfter.map { Diagnostic.significant($0, 4) }
+        }
+
+        private enum CodingKeys: String, CodingKey { case gpuBefore, gpuAfter, amxBefore, amxAfter }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(gpuBefore, forKey: .gpuBefore); try c.encode(gpuAfter, forKey: .gpuAfter)
+            try c.encode(amxBefore, forKey: .amxBefore); try c.encode(amxAfter, forKey: .amxAfter)
         }
     }
 
@@ -336,40 +329,56 @@ public enum Diagnostic {
         public var schema: Int
         /// ISO 8601, UTC.
         public var date: String
-        public var resolution: Int
-        public var prompt: String
-        public var seed: UInt64
+        /// The whole diagnostic, wall clock.
+        public var seconds: Double
         public var machine: Machine
-        public var models: [ModelReport]
-        /// The whole diagnostic, every model.
-        public var totalSeconds: Double
-        public var peakFootprintBytes: Int
-        public var swapouts: Int
-        /// The machine before the first model and after the last.
-        public var before: Conditions?
-        public var after: Conditions?
-        /// The chip's GEMM before the first model and after the last: their ratio is the thermal drift.
-        public var witnessBefore: Witness?
-        public var witnessAfter: Witness?
-        /// Every setting that is not the default, `"value (provenance)"`, and `amx` always.
+        /// The CPU's `hw.optional.arm.*` flags that bear on the products (`FEAT_BF16`, `FEAT_I8MM`,
+        /// `FEAT_SME`, `FEAT_SME2`…) and `sme_max_svl_b`, as `sysctl` returns them; a flag this macOS does
+        /// not know is absent.
+        public var cpuFeatures: [String: Int]
+        /// Every engine setting that is not its default, `"value (provenance)"`: a profile or an
+        /// environment variable must not pass for the chip.
         public var settings: [String: String]
-        /// The profile read, refused, or none (`EngineSettings.profileStatus`), the home folder elided.
-        public var profile: String
-        /// The library sits on the internal disk; `nil` when the volume does not say.
-        public var libraryOnInternalDisk: Bool?
+        public var before: Conditions
+        public var after: Conditions
+        public var products: [Product]
+        public var lowPrecision: [LowPrecision]
+        public var attention: [AttentionCapacity]
+        public var widening: [Widening]
+        public var witness: Witness
+        public var thresholds: Thresholds
+        /// **What these measures make this Mac use** (`Diagnostic.decide`), written so a shared report says
+        /// it; `nil` in a report that predates it. The engine never reads this field: it applies the
+        /// rules to the measures again (`EngineSettings.load(from:map:)`).
+        public var decisions: Decisions?
 
-        public init(schema: Int = Diagnostic.schema, date: String, resolution: Int = Diagnostic.resolution,
-                    prompt: String = Diagnostic.prompt, seed: UInt64 = Diagnostic.seed, machine: Machine,
-                    models: [ModelReport], totalSeconds: Double, peakFootprintBytes: Int, swapouts: Int,
-                    before: Conditions? = nil, after: Conditions? = nil, witnessBefore: Witness? = nil,
-                    witnessAfter: Witness? = nil, settings: [String: String] = [:], profile: String = "",
-                    libraryOnInternalDisk: Bool? = nil) {
-            self.schema = schema; self.date = date; self.resolution = resolution; self.prompt = prompt
-            self.seed = seed; self.machine = machine; self.models = models; self.totalSeconds = totalSeconds
-            self.peakFootprintBytes = peakFootprintBytes; self.swapouts = swapouts
-            self.before = before; self.after = after; self.witnessBefore = witnessBefore; self.witnessAfter = witnessAfter
-            self.settings = settings; self.profile = profile; self.libraryOnInternalDisk = libraryOnInternalDisk
+        public init(schema: Int = Diagnostic.schema, date: String, seconds: Double, machine: Machine,
+                    cpuFeatures: [String: Int], settings: [String: String] = [:], before: Conditions, after: Conditions,
+                    products: [Product], lowPrecision: [LowPrecision], attention: [AttentionCapacity],
+                    widening: [Widening], witness: Witness, thresholds: Thresholds = Thresholds()) {
+            self.schema = schema; self.date = date; self.seconds = Diagnostic.significant(seconds, 3)
+            self.thresholds = thresholds
+            self.machine = machine; self.cpuFeatures = cpuFeatures; self.settings = settings
+            self.before = before; self.after = after; self.products = products; self.lowPrecision = lowPrecision
+            self.attention = attention; self.widening = widening; self.witness = witness
+            self.decisions = Diagnostic.decide(products: products, attention: attention, witness: witness)
         }
+
+        /// What the report is valid for: the machine and the binary that measured it.
+        public var fingerprint: Fingerprint { Fingerprint(machine) }
+        /// **The report still describes this process's machine and build** — what an app checks before
+        /// handing it to `EngineSettings.load(from:map:)`; when it does not, the app offers to measure again.
+        public var isCurrent: Bool { schema == Diagnostic.schema && fingerprint == .current }
+
+        /// Every measure of the report, in its order.
+        public var measures: [Measure] {
+            products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution].compactMap { $0 } }
+                + lowPrecision.compactMap(\.measure)
+                + attention.flatMap { [$0.graph, $0.flash, $0.headSplit].compactMap { $0 } }
+                + widening.flatMap { [$0.cpu] + [$0.gpu].compactMap { $0 } }
+        }
+        /// Every engine that ran computed right.
+        public var passes: Bool { measures.allSatisfy(\.pass) }
 
         /// **Stable JSON**: sorted keys, so two reports diff line by line. `pretty: false` for the
         /// issue URL, where every byte counts.
@@ -411,412 +420,145 @@ public enum Diagnostic {
         return URL(string: "\(repository)/issues/new?\(query)")!
     }
 
-    /// `encoder + first + (E − 1) · steady + decoding`: one render's evaluations are the first (which
-    /// builds everything) and `E − 1` like the second.
-    package static func estimatedRenderSeconds(encoder: Double, first: Double, steady: Double, decoding: Double,
-                                               evaluations: Int) -> Double {
-        encoder + first + Double(max(0, evaluations - 1)) * steady + decoding
+    /// `x` to `digits` significant digits, so the JSON says `3.312`, not `3.3123456789012`; a
+    /// non-finite value becomes the largest finite double (JSON has no infinity).
+    package static func significant(_ x: Double, _ digits: Int) -> Double {
+        guard x.isFinite else { return x.isNaN || x > 0 ? .greatestFiniteMagnitude : -.greatestFiniteMagnitude }
+        guard x != 0 else { return 0 }
+        return Double(String(format: "%.\(digits - 1)e", x)) ?? x
     }
-
-    /// **The threshold on the second `model_out`'s worst channel**, at the user's own conditioning.
-    ///
-    /// Qwen-Image-2.1, measured on the M1 Pro on 04/10/2026 (the diagnostic, also run on the oracle's conditioning).
-    /// ⚠️ These figures predate Qwen-Image-2.1-Turbo: they were read on the base model under the
-    /// third-party turbo LoRA the family carried until 10/10/2026, at its σ₁ = 0.9626; the Turbo's
-    /// golden (σ₁ = 0.978453) has not been read against them yet. The threshold does not move.
-    ///
-    ///                                        step 0 (σ = 1)    step 1 (σ = 0.9626, judged)
-    ///     at the oracle's conditioning        3.65·10⁻⁶         8.22·10⁻⁶      ← step 0 is the turbo LoRA check's figure
-    ///     at the engine's own conditioning    3.70·10⁻⁶         9.28·10⁻⁶      ← what a user reads (+13 %)
-    ///
-    /// The encoder's states sit at 2.2·10⁻⁵ of the oracle's (worst channel): the DiT damps them. There
-    /// is no fp64 witness of this step under the turbo (`witness-qwen21-lora-f64-512` holds `temb` and
-    /// the modulation only); the oracle's own distance to the exact is 5.3·10⁻⁶ without LoRA.
-    /// The threshold is the repository's DiT threshold, **5·10⁻⁴** (`stageVerdict`, every
-    /// `qwen21-*` check), so a user's figure reads like a check's: 54× what this machine reads, room for
-    /// another chip's GPU/AMX cut and summation order; and still ~300× under what a real fault moves —
-    /// the turbo LoRA lost moves `model_out` by 0.43 (worst channel, `goldens-qwen21-dit-512` vs
-    /// `-dit-lora-512`), a rank-16 user LoRA by 0.15.
-    ///
-    /// Z-Image Turbo, measured on the M1 Pro on 04/10/2026 (the same way):
-    ///
-    ///                                        step 0 (t = 0)    step 1 (t = 0.0526, judged)
-    ///     at the oracle's conditioning        9.08·10⁻⁶         9.13·10⁻⁶      ← the trajectory check's 9.3·10⁻⁶
-    ///     at the engine's own conditioning    9.26·10⁻⁶         9.51·10⁻⁶      ← what a user reads (+4 %)
-    ///
-    /// The encoder's states sit at 1.9·10⁻⁵ of `cap_feats` (worst channel). Same rule, same **5·10⁻⁴**:
-    /// 53× what this machine reads, as for Qwen. A golden perturbed by 10⁻³ on one channel of
-    /// `model_out.1` fails it, so the margin does not swallow a fault confined to a channel.
-    package static func threshold(for family: Family) -> Double { 5e-4 }
 
     // ── the run ─────────────────────────────────────────────────────────────────────────────
 
-    /// **The stage a model's diagnostic is at**, as `run` reports it to `onProgress` — an app says it
-    /// in its own language; `description` is the English the command line prints.
+    /// **The stage the diagnostic is at**, as `run` reports it to `onProgress` — an app says it in its
+    /// own language; `description` is the English the command line prints.
     public enum Stage: String, Sendable, CaseIterable, CustomStringConvertible {
-        /// Tokenizer and text encoder, cold.
-        case textEncoder = "text encoder"
-        /// The two DiT evaluations, the second judged.
-        case denoiser = "two DiT evaluations"
-        /// The VAE decoder, on the one-step estimate.
-        case decoder = "VAE decoder"
+        case products = "fp32 matrix products"
+        case lowPrecision = "fp16 and bf16 products"
+        case attention = "attention"
+        case widening = "weight widening"
+        case witness = "drift witness"
         public var description: String { rawValue }
     }
 
-    /// **Runs the diagnostic** on the cards that are installed in `library` (the others are skipped
-    /// silently: `ModelCard.missing(in:)` says why). Never throws: a model that fails is reported with
-    /// its `error`, the others still run. Synchronous and heavy (~15 s and up to ~5 GB per model): call
-    /// it off the main thread, and never from the engine's queue.
+    /// **Runs the diagnostic**: 14 s and 0.9 GB at the peak on the M1 Pro, no weights. Synchronous and
+    /// heavy: call it off the main thread, and never from the engine's queue.
     ///
-    /// **It passes the same doors as a render**: it waits its turn on the engine's queue
-    /// (`Engine.file`: never beside a render of this process), and each model takes the preflights
-    /// (`Preflight.run`: license, memory at the diagnostic's format, the machine's render lock — a
-    /// render of another process refuses it). A model refused there reports the refusal as its `error`.
-    public static func run(_ cards: [ModelCard], in library: Library, cancellation: Cancellation? = nil,
-                           onProgress: (@Sendable (_ model: ModelCard, _ stage: Stage) -> Void)? = nil) -> Report {
+    /// **It passes the doors a render passes**: it waits its turn on the engine's queue (`Engine.file`:
+    /// never beside a render of this process) and holds the machine's render lock (a render of
+    /// another process refuses it: `renderAlreadyRunning`). `cancellation` is checked between two
+    /// measurements (`cancelled`).
+    public static func run(cancellation: Cancellation? = nil,
+                           onProgress: (@Sendable (_ stage: Stage) -> Void)? = nil) throws(EngineError) -> Report {
         dispatchPrecondition(condition: .notOnQueue(Engine.file))
-        return Engine.file.sync { runQueued(cards, in: library, cancellation: cancellation, onProgress: onProgress) }
+        let result = Engine.file.sync {
+            Result { () throws(EngineError) -> Report in try runQueued(cancellation: cancellation, onProgress: onProgress) }
+        }
+        return try result.get()
     }
 
-    private static func runQueued(_ cards: [ModelCard], in library: Library, cancellation: Cancellation?,
-                                  onProgress: (@Sendable (_ model: ModelCard, _ stage: Stage) -> Void)?) -> Report {
+    private static func runQueued(cancellation: Cancellation?,
+                                  onProgress: (@Sendable (_ stage: Stage) -> Void)?) throws(EngineError) -> Report {
         let started = Date()
-        let peak = FootprintPeak()
-        let swapBefore = swapouts()
+        let lock = try RenderLock.acquire(RenderLock.machine)
+        defer { withExtendedLifetime(lock) {} }
+        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
+            throw .internalFailure(component: "diagnostic", detail: "no Metal device")
+        }
+        let bench = Bench(device: device, queue: queue, cancellation: cancellation)
         let before = conditions()
-        let witnessBefore = witness()
-        var models: [ModelReport] = []
-        for card in cards {
-            if cancellation?.isCancelled == true { break }
-            guard card.missing(in: library) == nil else { continue }
-            models.append(diagnose(card, in: library, cancellation: cancellation, onProgress: onProgress))
-        }
-        let witnessAfter = models.isEmpty ? nil : witness()
-        let after = conditions()
-        let settings = EngineSettings.effective
-        var forced: [String: String] = [:]
-        for row in settings.rows where row.source != .byDefault || row.key == "amx" {
-            forced[row.key] = "\(row.value) (\(row.source.rawValue))"
-        }
-        let onInternal = try? library.root.resourceValues(forKeys: [.volumeIsInternalKey]).volumeIsInternal
-        return Report(date: ISO8601DateFormatter().string(from: started), machine: machine(), models: models,
-                      totalSeconds: Date().timeIntervalSince(started), peakFootprintBytes: peak.stop(),
-                      swapouts: max(0, swapouts() - swapBefore), before: before, after: after,
-                      witnessBefore: witnessBefore, witnessAfter: witnessAfter, settings: forced,
-                      profile: Library.withoutHome(settings.profileStatus), libraryOnInternalDisk: onInternal ?? nil)
-    }
-
-    /// One model: its report, with `error` set if anything threw.
-    package static func diagnose(_ card: ModelCard, in library: Library, cancellation: Cancellation?,
-                                 onProgress: (@Sendable (_ model: ModelCard, _ stage: Stage) -> Void)?) -> ModelReport {
-        let started = Date()
-        let peak = FootprintPeak()
-        let swapBefore = swapouts()
-        let diskBefore = diskBytesRead()
-        var report = ModelReport(model: card.id, name: card.name, family: card.family.rawValue,
-                                 steps: card.defaultSteps, evaluations: card.defaultSteps, seconds: nil,
-                                 estimatedRenderSeconds: nil, peakFootprintBytes: 0, swapouts: 0,
-                                 golden: nil, deviation: nil, error: nil)
-        report.variant = card.isImported ? nil : library.installedVariant(of: card.family)?.rawValue
-        let gpuFailures = Attention.failures
-        var planned = false
         do {
-            let model = try Model.named(card.id, in: library)
-            // **As a render plans it** (`Chain.execute`): B, judged by the preflight, the plan chosen in
-            // it. Written before the preflight: a refusal is the figure an 8 GB report exists for.
-            let ceiling = MemoryBudget.machineCeiling()
-            // The need from the diagnostic's own inputs (schema 3): its format, its prompt, no reference.
-            let request = card.memoryRequest(width: resolution, height: resolution,
-                                             promptTokens: MemoryNeed.Request.promptTokens(prompt, family: card.family))
-            let plan = MemoryPlan.choose(request, ceiling: ceiling)
-            let need = plan.need
-            var byPhase: [String: Int] = [:]
-            for kind in MemoryNeed.Phase.Kind.allCases { if let n = need?.need(of: kind) { byPhase[kind.rawValue] = n } }
-            report.memory = MemoryReport(floorBytes: plan.floor, lean: plan.lean, decisions: plan.decisions,
-                                         budgetBytes: ceiling, needBytes: need?.peak ?? 0,
-                                         needByPhase: byPhase, fallback: need?.isFallback ?? false,
-                                         peakMethod: FootprintInterval.method)
-            // Installed, license, memory at the diagnostic's format, no other render on the machine.
-            let lock = try Preflight.run(model, width: resolution, height: resolution, ceiling: ceiling, memory: request)
-            defer { withExtendedLifetime(lock) {} }
-            PhaseBoundary.begin()
-            defer { _ = PhaseBoundary.end() }
-            try MemoryPlan.during(plan) {
-                planned = true
-                try measure(model, card: card, into: &report, started: started, cancellation: cancellation,
-                            onProgress: onProgress)
-            }
-            if let need {
-                let check = MemoryCheck(need: need, marks: PhaseBoundary.end())
-                report.memory?.check = check
-                report.memory?.peakMethod = check.peakMethod   // a kernel failing mid-run switched it
-                for defect in check.defects {
-                    MemoryCheck.log.error("\(defect, privacy: .public) — diagnostic \(card.id, privacy: .public)")
-                }
-                // The JSON carries every phase's gap, negative included (`gapBytes`): the slack is read there too.
-                for slack in check.slack {
-                    MemoryCheck.log.info("\(slack, privacy: .public) — diagnostic \(card.id, privacy: .public)")
-                }
-            }
+            onProgress?(.products)
+            // The products' operands (~600 MB) are released before the attention's peak.
+            var operands: Operands? = Operands()
+            let products = try measureProducts(operands!, bench)
+            onProgress?(.lowPrecision)
+            let lowPrecision = try measureLowPrecision(operands!, bench)
+            operands = nil
+            onProgress?(.attention)
+            let attention = try measureAttention(bench)
+            onProgress?(.widening)
+            let widening = try measureWidening(bench)
+            onProgress?(.witness)
+            let witness = try measureWitness(first: products[0], bench)
+            let settings = EngineSettings.effective
+            var forced: [String: String] = [:]
+            for row in settings.rows where row.source != .byDefault { forced[row.key] = "\(row.value) (\(row.source.rawValue))" }
+            return Report(date: ISO8601DateFormatter().string(from: started), seconds: Date().timeIntervalSince(started),
+                          machine: machine(), cpuFeatures: cpuFeatures(), settings: forced, before: before,
+                          after: conditions(), products: products, lowPrecision: lowPrecision, attention: attention,
+                          widening: widening, witness: witness)
         } catch {
-            report.error = Library.withoutHome("\(error)")
-            report.failure = EngineError(error)
-        }
-        if planned, let decisions = MemoryPlan.lastRender?.decisions { report.memory?.decisions = decisions }
-        // A failed submission leaves its output as it was: the figures above did not come from a
-        // computation, and the report says so where a reader looks.
-        if let failed = Attention.summarize(since: gpuFailures), report.error == nil { report.error = failed }
-        report.peakFootprintBytes = peak.stop()
-        report.swapouts = max(0, swapouts() - swapBefore)
-        report.diskReadBytes = max(0, diskBytesRead() - diskBefore)
-        report.thermalAfter = thermalLabel(ProcessInfo.processInfo.thermalState)
-        return report
-    }
-
-    /// The three stages, timed, inside the render's memory plan.
-    private static func measure(_ model: Model, card: ModelCard, into report: inout ModelReport, started: Date,
-                                cancellation: Cancellation?,
-                                onProgress: (@Sendable (_ model: ModelCard, _ stage: Stage) -> Void)?) throws {
-        let denoising = model.chain.denoising
-        let (height, width) = (resolution / denoising.space.factor, resolution / denoising.space.factor)
-        report.evaluations = denoising.plan(height: height, width: width, steps: denoising.defaultSteps,
-                                            start: 0, withLoRA: false).evaluations
-        report.steps = denoising.defaultSteps
-        // A golden belongs to the published model: an imported DiT of the family has other weights.
-        let golden = card.isImported ? nil : try EmbeddedGolden.load(card.id)
-        if let golden, golden.channels != denoising.space.channels || golden.height != height || golden.width != width {
-            throw Artifact.Failure.misuse("diagnostic golden \(golden.file): [\(golden.channels), \(golden.height), "
-                                             + "\(golden.width)], the model's latent is [\(denoising.space.channels), \(height), \(width)]")
-        }
-        report.golden = golden?.info
-        let context = Context(reproducible: EngineSettings.effective.frozenCut, cancellation: cancellation,
-                              onProgress: nil)
-
-        // ── the text, cold ──
-        onProgress?(card, .textEncoder)
-        var begin = Date()
-        let text = try (model.chain.text as? any ImageTextModule)?.encoder(prompt, images: [], context: context)
-            ?? model.chain.text.encoder(prompt, context: context)
-        let encoderSeconds = Date().timeIntervalSince(begin)
-        PhaseBoundary.mark("text")
-
-        // ── two evaluations ──
-        onProgress?(card, .denoiser)
-        let inputs = try golden.map { ($0.inputs, $0.sigmas) } ?? noGoldenInputs(model, height: height, width: width)
-        begin = Date()
-        let out = try evaluate(model, text: text, inputs: inputs.0, sigmas: inputs.1, height: height, width: width,
-                               context: context)
-        let denoisingSeconds = Date().timeIntervalSince(begin)
-        PhaseBoundary.mark("denoising")
-        if let golden {
-            let threshold = threshold(for: card.family)
-            let second = channelError(planar: out.second, golden.outputs[1], channels: golden.channels)
-            let first = channelError(planar: out.first, golden.outputs[0], channels: golden.channels)
-            report.deviation = Deviation(worst: second.worst, channel: second.channel, median: second.median,
-                                         threshold: threshold, pass: second.worst <= threshold,
-                                         firstEvaluationWorst: first.worst)
-        }
-
-        // ── the decoder, on the one-step estimate of x₀ ──
-        onProgress?(card, .decoder)
-        let estimate = try oneStepEstimate(model, x: inputs.0[1], output: out.second, sigma: inputs.1[1])
-        begin = Date()
-        _ = try model.chain.decoding.decode(Latent(space: denoising.space, height: height, width: width, values: estimate),
-                                            context: context)
-        let decodingSeconds = Date().timeIntervalSince(begin)
-        PhaseBoundary.mark("decoding")
-
-        let first = denoisingSeconds - out.secondSeconds
-        report.seconds = Seconds(encoder: encoderSeconds, firstEvaluation: first, steadyEvaluation: out.secondSeconds,
-                                 decoding: decodingSeconds, total: Date().timeIntervalSince(started))
-        report.estimatedRenderSeconds = estimatedRenderSeconds(encoder: encoderSeconds, first: first,
-                                                               steady: out.secondSeconds, decoding: decodingSeconds,
-                                                               evaluations: report.evaluations)
-    }
-
-    /// Two evaluations of the model's DiT, as its product denoiser runs them. `secondSeconds`: the
-    /// second `forward` alone; the first's time is the caller's wall clock minus it (construction included).
-    package struct Evaluations { package var first: [Float]; package var second: [Float]; package var secondSeconds: Double }
-
-    package static func evaluate(_ model: Model, text: Conditioning, inputs: [[Float]], sigmas: [Float],
-                                 height: Int, width: Int, context: Context) throws -> Evaluations {
-        switch model.chain.denoising {
-        case let qwen as QwenImage21DenoisingModule:
-            return try evaluateQwen(qwen, text: text, inputs: inputs, sigmas: sigmas, height: height, width: width,
-                                    context: context)
-        case let zImage as ZImageDenoisingModule:
-            // `ZImageDenoisingModule.denoise`'s DiT, without the sampler: no LoRA, the module's caps drop.
-            let dit = try DiT(artifact: try Artifact(path: zImage.map), latentHeight: height, latentWidth: width,
-                              capLength: text.rows, freezeCut: context.reproducible, lora: nil)
-            dit.capsDrop = zImage.capsDrop
-            dit.cancellation = context.cancellation
-            return try text.values.withUnsafeBufferPointer { caps in
-                let first = try inputs[0].withUnsafeBufferPointer {
-                    try dit.forward(latent: $0.baseAddress!, caps: caps.baseAddress!, sigma: sigmas[0]) }
-                try context.check()
-                let begin = Date()
-                let second = try inputs[1].withUnsafeBufferPointer {
-                    try dit.forward(latent: $0.baseAddress!, caps: caps.baseAddress!, sigma: sigmas[1]) }
-                return Evaluations(first: first, second: second, secondSeconds: Date().timeIntervalSince(begin))
-            }
-        default:
-            throw Failure.noProbe(model.family.rawValue)
+            throw EngineError(error)
         }
     }
-
-    /// **`QwenImage21Sampler.run`, two steps of it, on the given latents**: the same DiT (no LoRA: the
-    /// Turbo is the map), the same cache policy, the prefill folded into the first step. The sampler itself is not used because it chains its own latent (`x + Δσ·v`): the
-    /// second evaluation must read the oracle's `x_t.1`, not ours. `--same-bits` checks the two agree.
-    package static func evaluateQwen(_ module: QwenImage21DenoisingModule, text: Conditioning, inputs: [[Float]],
-                                     sigmas: [Float], height: Int, width: Int, context: Context) throws -> Evaluations {
-        guard text.format == module.entry, text.imageSlots.count == text.rows else {
-            throw Chain.Failure.incompatibleText(output: text.format, entry: module.entry)
-        }
-        let sequence = try QwenImage21Sequence(slots: text.imageSlots + [Bool](repeating: true, count: height * width / 4),
-                                               images: [.init(height: height, width: width)])
-        let dit = try QwenImage21DiT(artifact: try Artifact(path: module.map), sequence: sequence, lora: nil,
-                                     storage: module.storage ?? QwenImage21CachePolicy.storage(prefix: sequence.prefix),
-                                     kept: nil, freezeCut: context.reproducible)
-        dit.cancellation = context.cancellation
-        try dit.tabulateModulation(sigmas: sigmas)
-        try text.values.withUnsafeBufferPointer {
-            try dit.prefill(hidden: $0.baseAddress!, references: [], intoFirstStep: true)
-        }
-        let first = try inputs[0].withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: sigmas[0]) }
-        try context.check()
-        let begin = Date()
-        let second = try inputs[1].withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: sigmas[1]) }
-        return Evaluations(first: first, second: second, secondSeconds: Date().timeIntervalSince(begin))
-    }
-
-    /// Without a golden: the seed's noise at the schedule's first two σ (in what the DiT receives).
-    /// Only the time counts, so both evaluations read the same latent.
-    private static func noGoldenInputs(_ model: Model, height: Int, width: Int) throws -> ([[Float]], [Float]) {
-        let denoising = model.chain.denoising
-        let noise = Latent.noise(denoising.space, height: height, width: width, seed: seed).values
-        let σ = denoising.sigmas(steps: denoising.defaultSteps)
-        switch denoising {
-        case is ZImageDenoisingModule:
-            let schedule = FlowMatchSchedule(steps: denoising.defaultSteps)
-            return ([noise, noise], [schedule.modelTime(at: 0), schedule.modelTime(at: 1)])
-        case is QwenImage21DenoisingModule:
-            return ([noise, noise], [σ[0], σ[1]])
-        default:
-            throw Failure.noProbe(model.family.rawValue)
-        }
-    }
-
-    /// x̂₀ from one evaluation — what the decoder gets, so it decodes an image and not noise (its time
-    /// does not depend on it). Qwen-Image-2.1: `x − σ·v`. Z-Image: the DiT reads `t = 1 − σ` and returns
-    /// `−v` (`Sampler`), hence `x + (1 − t)·out`.
-    private static func oneStepEstimate(_ model: Model, x: [Float], output: [Float], sigma: Float) throws -> [Float] {
-        switch model.chain.denoising {
-        case is QwenImage21DenoisingModule: return zip(x, output).map { $0 - sigma * $1 }
-        case is ZImageDenoisingModule: return zip(x, output).map { $0 + (1 - sigma) * $1 }
-        default: throw Failure.noProbe(model.family.rawValue)
-        }
-    }
-
-    package enum Failure: Error, CustomStringConvertible, Equatable {
-        case noProbe(String)
-        package var description: String {
-            switch self {
-            case .noProbe(let family):
-                return "the diagnostic does not drive the \(family) DiT yet (Z-Image and Qwen-Image-2.1 only)"
-            }
-        }
-    }
-
-    // ── the embedded golden ─────────────────────────────────────────────────────────────────
-
-    /// `Resources/diagnostic/<model>.safetensors` — see the header.
-    package struct EmbeddedGolden {
-        package let file: String
-        package let metadata: [String: String]
-        package let channels, height, width: Int
-        /// `x_t.0`, `x_t.1`, planar `[C, H, W]`.
-        package let inputs: [[Float]]
-        /// `model_out.0`, `model_out.1`, planar.
-        package let outputs: [[Float]]
-        /// What the DiT's `forward` receives for each.
-        package let sigmas: [Float]
-
-        package var info: GoldenInfo {
-            GoldenInfo(file: file, source: metadata["source"] ?? "?", sourceSHA256: metadata["source_sha256"] ?? "?",
-                       generated: metadata["generated"] ?? "?")
-        }
-
-        /// `nil` when the model has none; throws when it has one that does not read.
-        package static func load(_ model: String) throws -> EmbeddedGolden? {
-            guard let url = resource("diagnostic/\(model).safetensors") else { return nil }
-            return try read(url)
-        }
-
-        package static func read(_ url: URL) throws -> EmbeddedGolden {
-            let file = try Safetensors(path: url.path)
-            func tensor(_ name: String) throws -> (values: [Float], shape: [Int]) {
-                guard let e = file.entries[name], e.dtype == "F32", let values = file.materialize(name) else {
-                    throw Safetensors.Failure.missingTensor(file: url.lastPathComponent, name: name)
-                }
-                return (values, e.shape)
-            }
-            let x0 = try tensor("x_t.0"), x1 = try tensor("x_t.1")
-            let y0 = try tensor("model_out.0"), y1 = try tensor("model_out.1"), sigma = try tensor("sigma")
-            guard x0.shape.count == 3, [x1.shape, y0.shape, y1.shape].allSatisfy({ $0 == x0.shape }), sigma.values.count == 2 else {
-                throw Safetensors.Failure.badHeader("\(url.lastPathComponent): shapes \(x0.shape) \(x1.shape) \(y0.shape) "
-                                                    + "\(y1.shape) \(sigma.shape)")
-            }
-            return EmbeddedGolden(file: "diagnostic/" + url.lastPathComponent, metadata: file.metadata,
-                                  channels: x0.shape[0], height: x0.shape[1], width: x0.shape[2],
-                                  inputs: [x0.values, x1.values], outputs: [y0.values, y1.values], sigmas: sigma.values)
-        }
-    }
-
-    /// **A file of the library's resource bundle, found without `Bundle.module`**: its generated accessor
-    /// calls `fatalError` when the bundle is not where SwiftPM left it — an app that forgot to copy it
-    /// would crash on the diagnostic button instead of reporting `"golden": null`. Looked for beside the
-    /// executable (the CLI, `swift test`), in the main bundle's resources (an app), and beside the code.
-    package static func resource(_ relative: String) -> URL? {
-        let name = "Siliconed_Siliconed.bundle"
-        var folders: [URL] = []
-        if let resources = Bundle.main.resourceURL { folders.append(resources) }
-        folders.append(Bundle.main.bundleURL)
-        if let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() {
-            let folder = executable.deletingLastPathComponent()
-            // The developer's command line in `Contents/Helpers` shares the app's `Contents/Resources` (tools/app.sh).
-            folders += [folder, folder.deletingLastPathComponent().appendingPathComponent("Resources")]
-        }
-        let code = Bundle(for: BundleMarker.self).bundleURL
-        folders += [code, code.deletingLastPathComponent()]
-        let fm = FileManager.default
-        for folder in folders {
-            for bundle in [folder.appendingPathComponent(name), folder.appendingPathComponent("Contents/Resources/\(name)")] {
-                for candidate in [bundle.appendingPathComponent("Resources/\(relative)"),
-                                  bundle.appendingPathComponent("Contents/Resources/Resources/\(relative)")]
-                where fm.fileExists(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-    private final class BundleMarker {}
 
     // ── the machine ─────────────────────────────────────────────────────────────────────────
 
     public static func machine() -> Machine {
         let device = MTLCreateSystemDefaultDevice()
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        let osBuild = sysctlString("kern.osversion")
         return Machine(chip: sysctlString("machdep.cpu.brand_string"), hardwareModel: sysctlString("hw.model"),
-                       performanceCores: sysctlInteger("hw.perflevel0.physicalcpu"),
-                       efficiencyCores: sysctlInteger("hw.perflevel1.physicalcpu"),
-                       gpuCores: gpuCoreCount(), memoryBytes: sysctlInteger("hw.memsize"),
-                       macOS: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)" + (osBuild == "unknown" ? "" : " (\(osBuild))"),
-                       version: binaryVersion(),
-                       build: SHA256.hash(data: Data(RenderCache.build.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined(),
+                       performanceCores: sysctlInteger("hw.perflevel0.physicalcpu") ?? 0,
+                       efficiencyCores: sysctlInteger("hw.perflevel1.physicalcpu") ?? 0,
+                       gpuCores: gpuCoreCount(), memoryBytes: sysctlInteger("hw.memsize") ?? 0,
+                       macOS: macOSLabel(), version: binaryVersion(), build: buildStamp(),
                        gpu: device?.name ?? "none", gpuFamily: device.map(appleFamily) ?? "",
                        gpuWorkingSetBytes: Int(device?.recommendedMaxWorkingSetSize ?? 0))
+    }
+
+    /// "26.0.1 (25A…)": the version and, when the kernel says it, the build.
+    private static func macOSLabel() -> String {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let osBuild = sysctlString("kern.osversion")
+        return "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)" + (osBuild == "unknown" ? "" : " (\(osBuild))")
+    }
+
+    /// The first 12 hex digits of the SHA-256 of `RenderCache.build` (the executable's path, size, date).
+    private static func buildStamp() -> String {
+        SHA256.hash(data: Data(RenderCache.build.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// **What a map is valid for**: the hardware model, the chip, macOS with its build, and the binary
+    /// that measured it (its version and its build stamp). Any of them changing — a new Mac restored from
+    /// a backup, a macOS update that moves MPS, an app update that moves a kernel — makes the map stale:
+    /// the stale one is not applied, and the app offers to measure again (14 s).
+    public struct Fingerprint: Codable, Sendable, Equatable, CustomStringConvertible {
+        public var hardwareModel, chip, macOS, version, build: String
+
+        public init(hardwareModel: String, chip: String, macOS: String, version: String, build: String) {
+            self.hardwareModel = hardwareModel; self.chip = chip; self.macOS = macOS; self.version = version
+            self.build = build
+        }
+
+        public init(_ machine: Machine) {
+            self.init(hardwareModel: machine.hardwareModel, chip: machine.chip, macOS: machine.macOS,
+                      version: machine.version, build: machine.build)
+        }
+
+        /// This process's, read without Metal (`sysctl`, the bundle, the executable's stamp).
+        public static var current: Fingerprint {
+            Fingerprint(hardwareModel: sysctlString("hw.model"), chip: sysctlString("machdep.cpu.brand_string"),
+                        macOS: macOSLabel(), version: binaryVersion(), build: buildStamp())
+        }
+
+        public var description: String { "\(chip) (\(hardwareModel)) · macOS \(macOS) · \(version) · \(build)" }
+    }
+
+    /// **The CPU flags a product can use**, read: half-precision arithmetic (`FEAT_FP16`, `FEAT_FHM`),
+    /// bf16 (`FEAT_BF16`, `FEAT_EBF16`), the int8 matrix and dot products (`FEAT_I8MM`, `FEAT_DotProd`),
+    /// and SME — the M4's matrix unit made architectural — with its outer products by type and its
+    /// vector length. Not measured: BNNS decides what it runs on, and its products are (`LowPrecision`).
+    package static let featureNames = [
+        "FEAT_FP16", "FEAT_FHM", "FEAT_BF16", "FEAT_EBF16", "FEAT_I8MM", "FEAT_DotProd",
+        "FEAT_SME", "FEAT_SME2", "SME_F32F32", "SME_F16F32", "SME_B16F32", "SME_I8I32",
+        "FEAT_SME_F16F16", "FEAT_SME_B16B16",
+    ]
+
+    package static func cpuFeatures() -> [String: Int] {
+        var flags: [String: Int] = [:]
+        for name in featureNames { flags[name] = sysctlInteger("hw.optional.arm.\(name)") }
+        flags["sme_max_svl_b"] = sysctlInteger("hw.optional.arm.sme_max_svl_b")
+        return flags
     }
 
     /// The highest `appleN` family: `MTLGPUFamily.apple1` is 1001, and the next ones follow.
@@ -854,73 +596,6 @@ public enum Diagnostic {
         return (type as String) == kIOPSBatteryPowerValue
     }
 
-    /// Bytes this process has read from the disk (`ri_diskio_bytesread`): a map read from the page
-    /// cache does not count.
-    package static func diskBytesRead() -> Int {
-        var info = rusage_info_v4()
-        let ok = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(getpid(), RUSAGE_INFO_V4, $0) }
-        }
-        return ok == 0 ? Int(info.ri_diskio_bytesread) : 0
-    }
-
-    // ── the witness ─────────────────────────────────────────────────────────────────────────
-
-    /// **The chip's fp32 GEMM, GPU against AMX** — `C = A × B`, `A [511 × 3840]`, `B [3840 × 3840]`: the
-    /// Z-Image DiT's attention projections at the row count just under `amx_min` (512), so the GPU runs
-    /// alone even where the conductor is on (the AMX check's "GPU-alone reference"). The AMX side is
-    /// `cblas_sgemm` on the same operands, which is also the truth the GPU's rows are judged against.
-    /// One warm-up each, then the median of five. ~0.2 s and 83 MB on the M1 Pro; `nil` without Metal.
-    package static func witness() -> Witness? {
-        let m = Conductor.minimumRows - 1, k = 3840, n = 3840
-        guard m > 0, let gemm = try? GEMM(freezeCut: true),
-              let arena = try? Arena(capacity: (m * k + k * n + 2 * m * n) * 4 + (32 << 20)),
-              let a = try? arena.reserve("witness.a", bytes: m * k * 4).assumingMemoryBound(to: Float.self),
-              let b = try? arena.reserve("witness.b", bytes: k * n * 4).assumingMemoryBound(to: Float.self),
-              let c = try? arena.reserve("witness.c", bytes: m * n * 4).assumingMemoryBound(to: Float.self),
-              let truth = try? arena.reserve("witness.truth", bytes: m * n * 4).assumingMemoryBound(to: Float.self)
-        else { return nil }
-        defer { withExtendedLifetime(arena) {} }
-        var state: UInt64 = 0xA11CE
-        func noise() -> Float {
-            state ^= state << 13; state ^= state >> 7; state ^= state << 17
-            return Float(Int32(truncatingIfNeeded: state)) / Float(Int32.max)
-        }
-        for i in 0..<(m * k) { a[i] = noise() }
-        for i in 0..<(k * n) { b[i] = noise() }
-        guard let ab = try? gemm.wrap(UnsafeMutableRawPointer(a), bytes: m * k * 4, name: "witness.a"),
-              let bb = try? gemm.wrap(UnsafeMutableRawPointer(b), bytes: k * n * 4, name: "witness.b"),
-              let cb = try? gemm.wrap(UnsafeMutableRawPointer(c), bytes: m * n * 4, name: "witness.c") else { return nil }
-        func median(_ run: () -> Void) -> Double {
-            run()
-            let times = (0..<5).map { _ -> Double in
-                let begin = DispatchTime.now().uptimeNanoseconds
-                run()
-                return Double(DispatchTime.now().uptimeNanoseconds - begin) * 1e-9
-            }.sorted()
-            return times[2]
-        }
-        let amx = median {
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, Int32(m), Int32(n), Int32(k),
-                        1, a, Int32(k), b, Int32(n), 0, truth, Int32(n))
-        }
-        let gpu = median { _ = gemm.linear(a: ab, b: bb, c: cb, m: m, k: k, n: n, weightIsTransposed: true) }
-        var worst = 0.0
-        for row in 0..<m {
-            var numerator = 0.0, denominator = 0.0
-            for column in 0..<n {
-                let i = row * n + column
-                let d = Double(c[i]) - Double(truth[i])
-                numerator += d * d
-                denominator += Double(truth[i]) * Double(truth[i])
-            }
-            let relative = denominator > 0 ? (numerator / denominator).squareRoot() : 0
-            worst = max(worst, relative.isNaN ? .infinity : relative)
-        }
-        let flops = 2.0 * Double(m) * Double(k) * Double(n)
-        return Witness(gpuTFLOPS: flops / gpu / 1e12, amxTFLOPS: flops / amx / 1e12, gpuWorstRowError: worst)
-    }
-
     private static func sysctlString(_ name: String) -> String {
         var size = 0
         guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return "unknown" }
@@ -929,11 +604,12 @@ public enum Diagnostic {
         return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
-    private static func sysctlInteger(_ name: String) -> Int {
+    /// `nil` when the kernel does not know the name.
+    private static func sysctlInteger(_ name: String) -> Int? {
         var value: Int64 = 0
         var size = MemoryLayout<Int64>.size
-        if sysctlbyname(name, &value, &size, nil, 0) == 0 { return size == 4 ? Int(Int32(truncatingIfNeeded: value)) : Int(value) }
-        return 0
+        guard sysctlbyname(name, &value, &size, nil, 0) == 0 else { return nil }
+        return size == 4 ? Int(Int32(truncatingIfNeeded: value)) : Int(value)
     }
 
     /// The `AGXAccelerator`'s `gpu-core-count` in the IORegistry — Metal does not say it.
@@ -993,31 +669,6 @@ public enum Diagnostic {
         guard process.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
-    /// `vm_stat`'s "Swapouts" (pages): the machine's, not the process's — what the zero-swap rule reads.
-    package static func swapouts() -> Int {
-        var stats = vm_statistics64()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &stats) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count) }
-        }
-        return result == KERN_SUCCESS ? Int(stats.swapouts) : 0
-    }
-
-    /// `channelError` on planar `[C, H, W]` tensors: the channel is the latent's.
-    package static func channelError(planar got: [Float], _ expected: [Float], channels: Int)
-        -> (worst: Double, channel: Int, median: Double) {
-        let g = channelsLast(got, channels: channels), e = channelsLast(expected, channels: channels)
-        return e.withUnsafeBufferPointer { Siliconed.channelError(g, $0, columns: channels) }
-    }
-
-    /// `[C, h, w]` → `[h·w, C]`.
-    package static func channelsLast(_ v: [Float], channels: Int) -> [Float] {
-        let count = v.count / channels
-        var out = [Float](repeating: 0, count: v.count)
-        for ch in 0..<channels { for t in 0..<count { out[t * channels + ch] = v[ch * count + t] } }
-        return out
-    }
 }
 
 // ── the common measures — shared by the diagnostic and every check of the CLI ──────────────────
@@ -1039,15 +690,28 @@ public enum Diagnostic {
 /// reads exactly like a check's.
 package func channelError(_ got: [Float], _ expected: UnsafeBufferPointer<Float>, columns: Int)
     -> (worst: Double, channel: Int, median: Double) {
+    relativeErrorByColumn(got, expected, columns: columns)
+}
+
+/// The same against an **fp64** truth — the diagnostic's exact, which an fp32 copy would round by
+/// 6·10⁻⁸ per value, the size of what it judges.
+package func channelError(_ got: [Float], _ expected: UnsafeBufferPointer<Double>, columns: Int)
+    -> (worst: Double, channel: Int, median: Double) {
+    relativeErrorByColumn(got, expected, columns: columns)
+}
+
+private func relativeErrorByColumn<E: BinaryFloatingPoint>(_ got: [Float], _ expected: UnsafeBufferPointer<E>, columns: Int)
+    -> (worst: Double, channel: Int, median: Double) {
     let rows = expected.count / columns
     var numerator = [Double](repeating: 0, count: columns)
     var denominator = [Double](repeating: 0, count: columns)
     for row in 0..<rows {
         for column in 0..<columns {
             let i = row * columns + column
-            let d = Double(got[i]) - Double(expected[i])
+            let e = Double(expected[i])
+            let d = Double(got[i]) - e
             numerator[column] += d * d
-            denominator[column] += Double(expected[i]) * Double(expected[i])
+            denominator[column] += e * e
         }
     }
     var norms = denominator.filter { $0 > 0 }.map { $0.squareRoot() }
@@ -1105,7 +769,7 @@ package enum StageJudgement {
 }
 
 /// **The peak `phys_footprint`, sampled** every 10 ms on a thread of its own — shared by
-/// the diagnostic and the checks that report a peak.
+/// the checks that report a peak.
 package final class FootprintPeak: @unchecked Sendable {
     private let lock = NSLock()
     private var peak = 0, running = true

@@ -5,7 +5,7 @@ import Metal
 import MetalPerformanceShadersGraph
 
 /// **The SDPA cut by heads between the GPU and the AMX** — Z-Image's only SDPA path at
-/// S ≥ 1024 (judged at threshold on its goldens; md5 of the 512² seed-42 render `798d5497`), and
+/// S ≥ 1024 (judged at threshold on its goldens), and
 /// Qwen-Image-2.1's for its target's queries on all the keys (judged at the fp64 witness).
 ///
 ///     q [S, H·Dh], k, v [K, H·Dh] fp32, as the GEMMs wrote them (unified memory, no copy)
@@ -66,6 +66,17 @@ package final class HeadSplitAttention {
     /// Below this, the cut is not taken: the text blocks run at 32 tokens, where a CPU head is
     /// microseconds and the rendezvous would dominate.
     package static let minimumSequence = 1024
+
+    /// The `head_split` setting (`EngineSettings.headSplit`, on by default; the capacity map decides it in
+    /// the app): off, every attention runs in one MPSGraph SDPA, at every length.
+    package static let enabled = EngineSettings.effective.headSplit
+
+    /// **Whether an attention of `sequence` query rows is cut by heads** — the one condition the
+    /// blocks, Qwen-Image-2.1's target and the memory formulas share: the setting, fp32 (the half
+    /// precision SDPA has no CPU part), and `minimumSequence`.
+    package static func applies(sequence: Int) -> Bool {
+        enabled && !Attention.useHalfPrecision && sequence >= minimumSequence
+    }
 
     /// **Which heads go where, defined once.** `fraction` is the share of heads handed to the CPU,
     /// rounded to the nearest head; the GPU keeps at least one head, the CPU may get none.
@@ -196,8 +207,8 @@ package final class HeadSplitAttention {
     }
 
     /// **The host memory one instance holds**: its arena, `hostSlices` each rounded to the page — all
-    /// of it, mapped by `init` and unmapped by `deinit`. The memory need does not charge it yet: the
-    /// instance's measured law (`OperatorFootprint.sdpaSplit`) has it inside.
+    /// of it, mapped by `init` and unmapped by `deinit`. The memory need charges it whole, as the
+    /// head split's term beside the GPU heads' query copy (`OperatorFootprint.sdpaQueries`).
     package static func hostBytes(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int,
                                   cpuFraction: Double = HeadSplitAttention.cpuFraction,
                                   threads: Int = EngineSettings.effective.machine.performanceCores) -> Int {

@@ -48,11 +48,11 @@ import Foundation
 ///     Its encoder is the base's to the bit, its `processor/` another set of files with the same tokens.
 ///
 /// What is ours, not the reference's — **the spectral schedule** (`QwenImage21DenoisingModule.plan`):
-/// a generation evaluates its first **two** steps on the half grid, as Z-Image does, −18 % at 1024²
-/// (~160 → ~131 s). The rule is a fixed `k = 2`, not Z-Image's threshold: under the former 6-step
-/// turbo LoRA that threshold gave `k = 3` and patchwork faces; on the Turbo's 8 steps `k = 2` was
-/// judged clean on two prompts × three seeds. **Off (`k = 0`) wherever Z-Image turns it off** — a
-/// user LoRA, Detail, a start past 0 — **and in every edit**, and wherever the half grid would fall
+/// a generation evaluates its first **two** steps on the half grid. The rule is a fixed `k = 2`, not a
+/// threshold on the band the first σs carry: under the former 6-step turbo LoRA such a threshold gave
+/// `k = 3` and patchwork faces; on the Turbo's 8 steps `k = 2` was judged clean on two prompts × three
+/// seeds. (Z-Image no longer has one: on its eight evaluations even `k = 1` left grain.) **Off
+/// (`k = 0`)** under a user LoRA, Detail, a start past 0 — **and in every edit**, and wherever the half grid would fall
 /// under 512 px on a side (`Spectral.floor`, counted in 16-px cells): every check at 512² runs
 /// without it, the engine reproduces the reference there. How the half-size phase is built, and why
 /// it is a phase and not a flag, is `QwenImage21Sampler`'s.
@@ -208,20 +208,19 @@ package enum QwenImage21Pipeline {
 /// LoRAs, if any, size its arenas), one prefill, the steps.
 ///
 /// **The spectral schedule** (`reduced`, generation only; the header) is one more phase in
-/// front: the first `k` steps on a DiT built for the half grid, `x += dt · 𝓘 v(𝓟 x)` with Z-Image's two
-/// operators (`Resample`, as `Sampler`): the state stays at full size, only the evaluation goes down.
+/// front: the first `k` steps on a DiT built for the half grid, `x += dt · 𝓘 v(𝓟 x)` with the two
+/// resampling operators (`Resample`): the state stays at full size, only the evaluation goes down.
 /// What makes it a phase rather than a flag on the DiT, and what a port by analogy would miss:
 ///
 ///   - **the target's grid is built into the joint sequence** (`QwenImage21Sequence`: its slots, its
-///     RoPE rows, the arenas' `S`), where Z-Image's DiT takes a grid per call: the half-size steps
-///     need their own DiT, hence their own prefill;
+///     RoPE rows, the arenas' `S`): the half-size steps need their own DiT, hence their own prefill;
 ///   - **that prefill gives the same K/V as the full one**: the conditions come first and never see
 ///     the target (block-causal), and the RoPE lays the target out *after* them, its `(y, x)` centred
 ///     on its own grid (`QwenImage21Rope.forward` in diffusers). A half-size evaluation is exactly a
 ///     native 512² evaluation of the same conditions; for a generation the prefix is a few dozen
 ///     text rows, fused into the first step: the second prefill costs nearly nothing;
 ///   - **the latent has no 2×2 packing** (`_pack_latents` is a flatten): 𝓟 and 𝓘 work on the planar
-///     `[64, h, w]` as on Z-Image's `[16, h, w]`;
+///     `[64, h, w]`;
 ///   - **the schedule stays the full grid's**: the half-size evaluation is told the same σ;
 ///   - **the floor counts 16-px cells**: a 1024² latent is 64², its half 32² = 512² (`Spectral.floor`).
 package struct QwenImage21Sampler {

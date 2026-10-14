@@ -579,8 +579,8 @@ package final class QwenImage21VAEDecoder {
     package static let tailLevels = 2
 
     /// **A band of the tail** for a tail input of `tailHeight × tailWidth` (the latent ×4): the margin in
-    /// rows of that input, the core each band keeps, and the window it reads — one source, `tail` runs
-    /// it, `OperatorFootprint.qwenDecoderBytes` reads its window (`factor · window` output rows).
+    /// rows of that input, the core each band keeps, and the window it reads (`factor · window` output
+    /// rows) — one source, which `tail` runs.
     /// The margin, back from the output: `conv_out`, the last block's resnets and its upsampling conv;
     /// then, per level below, ×2 (rounded up), that block's resnets and upsampling conv.
     package static func band(config: QwenImage21VAE.Config, tailHeight h: Int, tailWidth w: Int,

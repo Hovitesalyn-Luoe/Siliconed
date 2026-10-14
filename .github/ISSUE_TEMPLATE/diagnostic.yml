@@ -5,20 +5,22 @@
 # percent-encoded (RFC 3986). The app opens, on one line:
 #
 #   https://github.com/gwenn-ha-dev/Siliconed/issues/new?template=diagnostic.yml
-#     &title=Diagnostic%3A%20Apple%20M1%20Pro%2C%2016%20GB
-#     &chip=Apple%20M1%20Pro%20(8%20CPU%3A%206P%2B2E%2C%2014%20GPU)
+#     &labels=diagnostic
+#     &title=Diagnostic%3A%20Apple%20M1%20Pro%20%C2%B7%2016%20GB%20%C2%B7%20macOS%2027.0.1%20%2826A434%29
+#     &chip=Apple%20M1%20Pro%20%2814-core%20GPU%29
 #     &memory=16%20GB
-#     &macos=15.6%20(24G84)
-#     &version=0.1.0%20(abc1234)
+#     &macos=27.0.1%20%2826A434%29
+#     &version=0.8.2%20%281%29
 #     &report=%7B...%7D
 #
 #   template  diagnostic.yml (this file)
-#   title     "Diagnostic: <chip>, <memory>"
-#   chip      chip name with its CPU (P+E) and GPU core counts
+#   title     "Diagnostic: <chip> · <memory> · macOS <version>"
+#   chip      chip name with its GPU core count (the CPU's P and E cores are in the report)
 #   memory    physical memory, e.g. "16 GB"
 #   macos     macOS version and build
 #   version   app version and the engine's commit
-#   report    the JSON report, only if the whole URL stays under ~8 000 characters
+#   report    the JSON report (schema 5, the machine's capacity map: ~7 000 characters encoded), only
+#             if the whole URL stays under ~8 000 characters
 #
 # Labels come from `labels:` below; a `labels=` parameter is ignored for users without triage
 # rights, so the app does not rely on it. A browser or GitHub may truncate a long URL: when the JSON
@@ -32,14 +34,16 @@ body:
     attributes:
       value: |
         Thank you. These reports fill the per-chip table in the README: one machine is not a benchmark.
+        The report is a map of what this Mac's GPU and CPU compute — matrix products, attention, weight
+        widening — how fast, and whether each result matches the exact one; it needs no model.
         The fields below were prefilled by the app; check them, paste the JSON if it is empty, and submit.
         The report holds no image, no prompt and no file path.
   - type: input
     id: chip
     attributes:
       label: Chip
-      description: Chip name, CPU cores (performance + efficiency) and GPU cores.
-      placeholder: Apple M1 Pro (8 CPU, 6P+2E, 14 GPU)
+      description: Chip name and GPU cores.
+      placeholder: Apple M1 Pro (14-core GPU)
     validations:
       required: true
   - type: input
@@ -53,14 +57,14 @@ body:
     id: macos
     attributes:
       label: macOS
-      placeholder: 15.6 (24G84)
+      placeholder: 27.0.1 (26A434)
     validations:
       required: true
   - type: input
     id: version
     attributes:
       label: App version
-      placeholder: 0.1.0 (abc1234)
+      placeholder: 0.8.2 (1)
     validations:
       required: true
   - type: textarea

@@ -47,8 +47,6 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 cp .build/release/SiliconedApp "$app/Contents/MacOS/Siliconed"
 cp .build/release/silicontrol "$app/Contents/Helpers/silicontrol"
-# The library's resources (the diagnostic's reduced goldens), shared by the app and its helper.
-cp -R .build/release/Siliconed_Siliconed.bundle "$app/Contents/Resources/"
 xcrun xcstringstool compile Sources/SiliconedApp/Localizable.xcstrings --output-directory "$app/Contents/Resources" >/dev/null
 # English is the language of the keys: the compiler emits only what differs (the translations, and
 # the plurals), so its table may be empty, but `en.lproj` must exist for a system in English to pick
@@ -87,7 +85,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Siliconed</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Siliconed</string>
-  <key>CFBundleShortVersionString</key><string>0.8.2</string>
+  <key>CFBundleShortVersionString</key><string>0.9</string>
   <key>CFBundleVersion</key><string>$build</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array>$localizations</array>

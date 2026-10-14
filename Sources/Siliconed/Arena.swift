@@ -182,22 +182,6 @@ package final class Arena {
 
     package var used: Int { cursor }
 
-    /// **What of each slice is resident now** (`mincore`, page by page): a page never touched is not,
-    /// and is not in `phys_footprint` either. The `memory-need` check reads it to tell a slice written
-    /// whole from a slice written in part. `pagedOut`: written, then compressed (or swapped) —
-    /// in the footprint at its compressed size only.
-    package func residency() -> [(name: String, bytes: Int, resident: Int, pagedOut: Int)] {
-        let pages = capacity / Self.alignment
-        var vector = [CChar](repeating: 0, count: pages)
-        guard mincore(base, capacity, &vector) == 0 else { return [] }
-        return slots.values.sorted { $0.offset < $1.offset }.map { slot in
-            let first = slot.offset / Self.alignment, end = (slot.offset + slot.bytes + Self.alignment - 1) / Self.alignment
-            let resident = (first..<end).filter { vector[$0] & CChar(MINCORE_INCORE) != 0 }.count
-            let out = (first..<end).filter { vector[$0] & CChar(MINCORE_INCORE) == 0 && vector[$0] & CChar(MINCORE_PAGED_OUT) != 0 }.count
-            return (slot.name, slot.bytes, resident * Self.alignment, out * Self.alignment)
-        }
-    }
-
     /// What the kernel actually bills the process for, sampled. A peak that is not sampled
     /// does not exist on this side, and a peak read from an allocator says nothing about what swaps.
     package static func processFootprint() -> Int {

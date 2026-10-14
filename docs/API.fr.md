@@ -3,7 +3,7 @@
 # L'API de Siliconed
 
 Pour qui écrit une app macOS (SwiftUI, « à la Draw Things ») par-dessus la bibliothèque
-`Siliconed`. État au 11/10/2026. Une app SwiftUI complète, **Siliconed.app**, est dans
+`Siliconed`. État au 14/10/2026. Une app SwiftUI complète, **Siliconed.app**, est dans
 [`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (sa télécommande : [`REMOTE-CONTROL.fr.md`](REMOTE-CONTROL.fr.md)). Elle
 est **compilée par le paquet** (cible exécutable `SiliconedApp`, en client pur, sans `@testable`), donc
 elle ne peut pas dériver de l'API : en cas de doute, c'est l'exemple de référence. `tools/app.sh` la
@@ -121,8 +121,8 @@ cache sert aux modèles construits depuis une bibliothèque (`Model.named(_:in:)
   sur le SSD interne. Aucun disque externe n'a été mesuré.
 - **Ce qu'on en montre** : `library.displayPath` (`~/Library/Application Support/Siliconed`), jamais
   `root.path` — une capture porterait le nom du compte. `Library.withoutHome(_:)` écrit le dossier
-  personnel `~` partout dans un texte (un message d'erreur qui cite un chemin) ; l'`error` du
-  diagnostic y passe avant de pouvoir être publiée.
+  personnel `~` partout dans un texte (un message d'erreur qui cite un chemin), avant que l'app ne
+  le montre ou qu'une issue ne le publie.
 - `Library.processWide` est le repli du paquet quand aucune bibliothèque n'est désignée
   (`SILICONED_ROOT`, puis le répertoire courant s'il a un `store/`, puis le dépôt déduit du binaire,
   puis `Library.standard`). Il est `package` : une app n'a pas à l'utiliser.
@@ -132,10 +132,20 @@ cache sert aux modèles construits depuis une bibliothèque (`Model.named(_:in:)
   une `Request` (son `reproducible` vaut `nil`, « le réglage de la machine », résolu au rendu),
   ni un `Model`, ni `library.models()`. Seuls un rendu, `EngineSettings.effective` et `load`
   lui-même les lisent. On appelle donc `load` au lancement (au plus tard avant le premier
-  rendu) ; **trop tard, il lève `EngineError.settingsAlreadyLoaded`** au lieu de ne rien faire
-  en silence (sauf si le profil déjà lu est le même). Un profil mesuré sur une autre machine est
-  ignoré, avec un avertissement dans `EngineSettings.effective.warnings`, et les défauts
-  s'appliquent.
+  rendu, et avant d'afficher un `ModelCard.memoryNeed`, qui les lit aussi) ; **trop tard, il lève
+  `EngineError.settingsAlreadyLoaded`** au lieu de ne rien faire en silence (sauf si le profil et la
+  carte déjà lus sont les mêmes). Un profil mesuré sur une autre machine est ignoré, avec un
+  avertissement dans `EngineSettings.effective.warnings`, et les défauts s'appliquent.
+- `try EngineSettings.load(from: library, map: report)` remet en plus une **carte des capacités** :
+  un `Diagnostic.Report` que l'app a gardé (§3.13). Des règles sur ses mesures — jamais sur le nom
+  d'une puce — choisissent la co-exécution GPU + AMX et sa part, le noyau flash et la coupe par têtes
+  de l'attention ; la priorité est défaut → carte → profil → environnement. Ne la passer que si
+  `report.isCurrent` (même matériel, même puce, même build de macOS et de l'app — son
+  `fingerprint`) ; sinon, les défauts (une carte périmée est refusée avec un avertissement.
+  Les réglages se lisant une seule fois, une carte mesurée dans ce processus s'applique au lancement
+  suivant). Sans carte (la ligne de commande, les contrôles), les défauts. L'app ne mesure que quand
+  l'utilisateur le demande (« Signaler ma configuration ») : les rendus d'avant tournent sur les
+  défauts, ceux d'après sur les branchements de la carte.
 - Accès bas niveau : `map(_ name: String) -> String` (`<root>/store/<nom>`), `profile`. Le
   reste (composants, référence du DiT, téléchargements) est interne au paquet.
 
@@ -284,11 +294,12 @@ public init(text: any TextModule, denoising: any DenoisingModule,
 Le système est **fermé** : les protocoles sont publics pour qu'on puisse composer une chaîne
 avec les modules du dépôt, pas pour en écrire de nouveaux (leur `Context` n'a rien d'utilisable
 hors du paquet). Une app n'a presque jamais besoin d'une `Chain` explicite : `model.chain`
-suffit. Le seul réglage utile est celui du débruiteur de Z-Image :
+suffit. Le débruiteur de Z-Image ne prend que sa carte, que `Model.zImage(in:denoising:)` permet
+de nommer :
 
 ```swift
-let withoutSpectral = try Model.zImage(in: library, denoising: ZImageDenoisingModule(
-    map: library.map("z-image-turbo-dit.v1.silicon"), spectral: 0))
+let onItsMap = try Model.zImage(in: library, denoising: ZImageDenoisingModule(
+    map: library.map("z-image-turbo-dit.v1.silicon")))
 ```
 
 Une chaîne composée à la main se rend comme les autres, sous une fiche :
@@ -831,51 +842,72 @@ retirées et réordonnées en glissant ou depuis le menu d'une vignette. L'image
 celle qu'on édite, la ligne de taille montre le format de sortie (« suit l'image 1 »), et une ligne
 discrète rappelle que le prompt peut dire « image 1 / image 2 ».
 
-### 3.13 Le diagnostic : ce que fait cette machine, dans un JSON
+### 3.13 Le diagnostic : ce que calcule cette machine, dans un JSON
 
-`Diagnostic.run` mesure les modèles installés sur **ce** Mac et rend un rapport `Codable` — ce
+`Diagnostic.run` dresse la carte des capacités de **ce** Mac et rend un rapport `Codable` — ce
 qu'envoie le bouton « Signaler ma configuration » de l'app, et ce qui remplit le tableau par puce du
-README. Pour chaque modèle passé qui est installé (`ModelCard.missing(in:) == nil` ; les autres sont
-sautés), à 512², prompt « a 30 year old woman posing in a library », graine 42 : l'encodeur de texte
-(à froid, sans le cache de rendu), **deux évaluations du DiT** (la première paie la construction et
-l'échauffement, la seconde est le pas en régime), le décodeur VAE. Un rendu entier est **dérivé, pas
-exécuté** : `estimatedRenderSeconds = encodeur + première + (E − 1) · régime + décodeur`, `E` les
-évaluations des pas par défaut du modèle. À côté des temps : la machine (puce, cœurs P/E, cœurs GPU,
-mémoire, macOS, version), le pic `phys_footprint` échantillonné toutes les 10 ms, les swapouts
-`vm_stat` avant et après, et — pour un modèle dont une petite sortie de référence est embarquée dans la bibliothèque
-(Z-Image et Qwen-Image-2.1) — l'écart du second `model_out` à la référence fp32, canal par canal, avec
-son seuil. Un modèle qui n'en a pas rend `"golden": null, "deviation": null` ; un modèle qui échoue rend son
-`error`, et les autres tournent quand même : `run` ne lève jamais.
+README. Environ 30 s sur un M1 Pro, **sans modèle ni poids** : des opérandes synthétiques, les mêmes
+sur toutes les machines, par les chemins de calcul du moteur lui-même, chaque sortie vérifiée contre
+un résultat exact calculé en fp64 sur le CPU.
 
-Chaque modèle tourne sous le plan mémoire qu'un rendu prendrait (`memory` : B dans `budgetBytes`, le budget
-de ce Mac, le plancher, le besoin du plan choisi dans B phase par phase, `lean`, les `decisions` du plan, et
-le pic mesuré de chaque phase contre son besoin dans `check` ; rempli même quand le contrôle préalable refuse), et dit
-les octets qu'il a lus sur le disque (`diskReadBytes` : une carte lue depuis le cache de pages ne compte
-pas). Le rapport ajoute l'état de la machine `before`/`after` (état thermique, mode économie
-d'énergie, batterie, swap occupé), un témoin GEMM fp32
-`witnessBefore`/`witnessAfter` sur le GPU et par `cblas_sgemm` (TFLOP/s, et la pire ligne du GPU contre
-`cblas`), les `settings` qui ne sont pas aux défauts (et `amx`, toujours), le `profile` lu, et le nom
-Metal, la famille et l'ensemble de travail du GPU dans `machine`. `schema` vaut 4.
+- `products` : les produits matriciels fp32 des blocs de Z-Image et de Qwen-Image-2.1 (`[m, d]·[d, ffn]`
+  et `[m, ffn]·[ffn, d]`, `m` = 1024 et 4096) sur le GPU (`gpu`), sur l'unité matricielle du CPU par
+  BNNS (`amx`), et sur les deux à la fois, les lignes coupées à la part mesurée du GPU (`gpuShare`,
+  `coexecution`, `coexecutionGPURows`) ;
+- `lowPrecision` : des produits fp16 et bf16 sur le GPU (`mpsgraph`, résultat dans le type), sur l'unité
+  matricielle du CPU (`bnns`, résultat fp32) et par les opérations tensorielles de Metal 4 (`matmul2d`,
+  résultat fp32 ; les accélérateurs neuronaux du GPU sur un M5), chacun avec le plancher (`floor`) que
+  permet son type de sortie et son seuil (`threshold`) ;
+- `attention` : l'attention fp32 à S = 1024 et 4096 avec les têtes de chaque modèle, par `MPSGraph`
+  (`graph`), le noyau flash maison (`flash`) et les têtes partagées entre GPU et CPU (`headSplit`) ;
+- `widening` : un poids élargi en fp32 — bf16, et int8 fois une échelle bf16 par colonne — sur le CPU
+  et sur le GPU (G valeurs/s) ;
+- `witness` : le premier produit rechronométré à la fin, la dérive de la machine pendant la mesure ;
+- `machine` (puce, cœurs P/E, cœurs GPU et famille Metal, mémoire, macOS, version), `cpuFeatures`
+  (les drapeaux `hw.optional.arm.*` : `FEAT_BF16`, `FEAT_I8MM`, `FEAT_SME`…), l'état `before`/`after`
+  (état thermique, mode économie d'énergie, batterie, swap occupé), les `settings` qui ne sont pas aux
+  défauts, les seuils (`thresholds`). `schema` vaut 5 ;
+- `decisions` : ce que ces mesures font utiliser à ce Mac (`Diagnostic.decide(report)`) : par
+  branchement (`amx`, `flash`, `headSplit`) `on`, `passed` (chaque moteur qu'il emploierait a calculé
+  juste), le gain (`gain`) sur le GPU seul ou MPSGraph et ses `gains` à 1024 et 4096, la part du GPU
+  dans les lignes (`amxFraction`), et la marge qu'un gain doit franchir (`margin` : la dérive du
+  témoin, au moins 5 %). Un rapport partagé dit ainsi ce que la machine a choisi.
+
+Une mesure s'écrit `[rate, error, pass]` : des TFLOP/s (des G valeurs/s pour un élargissement), l'écart
+relatif de la pire ligne au résultat exact, et s'il tient dans son seuil (`Diagnostic.Measure`,
+`report.passes` pour toutes). Un moteur qui ne peut pas tourner sur la machine vaut `null`.
 
 ```swift
-let cards = library.models().filter { ["z-image", "qwen-image-2.1"].contains($0.id) }   // les visibles
-let report = await Task.detached {
-    Diagnostic.run(cards, in: library) { card, stage in   // stage : .textEncoder, .denoiser, .decoder
-        print("\(card.name) · \(stage)")                  // sur le fil du diagnostic : passer à celui de l'UI
-    }
-}.value                                                   // ~15 s par modèle
+let report = try await Task.detached {
+    try Diagnostic.run { stage in print(stage) }   // stage : .products, .lowPrecision, .attention, .widening, .witness
+}.value                                            // ~30 s ; sur le fil du diagnostic : passer à celui de l'UI
+for p in report.products where p.m == 4096 {
+    print(p.model, p.product, p.gpu.rate, p.amx?.rate ?? 0, p.coexecution?.rate ?? 0, p.gpu.pass)
+}
 let json = try report.json()                  // stable : clés triées, null explicites
 let issue = try report.issueURL()            // une issue GitHub préremplie : NSWorkspace.shared.open(issue)
 let form = try report.issueURL(includingReport: false)   // le même formulaire sans le JSON, à coller
 ```
 
-Un lien au-delà de ~8 000 caractères est coupé par les navigateurs et GitHub : l'app copie alors
-`json()` dans le presse-papiers et ouvre `issueURL(includingReport: false)`. `Diagnostic.Stage` est
-ce que `onProgress` rapporte, en anglais par `description`, pour qu'une app le dise dans sa langue.
+Un lien au-delà de ~8 000 caractères est coupé par les navigateurs et GitHub (un rapport en fait
+environ 7 000) : l'app copie alors `json()` dans le presse-papiers et ouvre
+`issueURL(includingReport: false)`. `Diagnostic.Stage` est ce que `onProgress` rapporte, en anglais
+par `description`, pour qu'une app le dise dans sa langue.
 
-Il est synchrone et lourd (les poids d'un modèle à la fois, 2,9 Go au pic pour Qwen-Image-2.1) : le
-lancer hors du fil principal, et **jamais pendant un rendu** — les chiffres mesureraient les deux.
-Sa `cancellation` est consultée entre les étages.
+Il est synchrone et occupe le GPU et le CPU (moins de 1 Go au pic sur le M1 Pro) : le lancer hors du
+fil principal. Il attend la file du moteur et tient le verrou de rendu de la machine, donc il ne
+tourne jamais à côté d'un rendu — celui d'un autre processus le refuse
+(`EngineError.renderAlreadyRunning`) ; sa `cancellation` est consultée entre deux mesures
+(`.cancelled`). Le moteur ne lit un rapport que si une app le lui remet par
+`EngineSettings.load(from:map:)` au lancement (§2.1) : l'app garde le dernier (`json(pretty: false)`,
+relu par `JSONDecoder`), propose de mesurer à nouveau quand il n'est plus `isCurrent`, et les
+branchements le suivent dès le lancement suivant.
+
+```swift
+let kept: Diagnostic.Report? = …                            // les préférences de l'app
+try EngineSettings.load(from: library, map: kept?.isCurrent == true ? kept : nil)
+// quand l'utilisateur le demande : let r = try Diagnostic.run(), garder r.json(pretty: false) — utilisé au lancement suivant
+```
 
 ### 3.14 Les alternatives dans un prompt : `{a|b}`
 
@@ -1232,7 +1264,7 @@ deux premiers et le verrou ne s'y appliquent pas.
 | `memoryNeedUnknown(model:)` | `memory_need_unknown` | rendu ; `card.checkMemory` avant le clic : les fichiers du modèle sont illisibles, son besoin ne se calcule pas | réinstaller ou réimporter le modèle |
 | `renderAlreadyRunning` | `render_already_running` | rendu, pendant qu'un autre processus rend sur la machine | attendre, ou mettre en file |
 | `cancelled` | `cancelled` | l'utilisateur a annulé (une `Task` annulée aussi) | rien : revenir à l'état prêt |
-| `settingsAlreadyLoaded(loaded:requested:)` | `settings_already_loaded` | `EngineSettings.load(from:)` après un rendu | appeler `load` au lancement |
+| `settingsAlreadyLoaded(loaded:requested:)` | `settings_already_loaded` | `EngineSettings.load(from:map:)` après un rendu, ou avec un autre profil ou une autre carte | appeler `load` au lancement |
 | `internalFailure(component:detail:)` | `internal_failure` | une panne au fond du moteur (GPU, noyaux, arènes, forge) | afficher, journaliser, relancer ; une issue si elle persiste |
 
 Le moteur **n'imprime rien**. Ses avertissements arrivent en évènements `.warning` pendant un rendu,
@@ -1263,8 +1295,8 @@ budget d'une autre machine — l'image reste la même, seul le temps change.
   Nunchaku), mxfp8, fp8 E5M2, int8 asymétrique, et LoRA LyCORIS / DoRA / `diff` : refusés à l'import,
   avec le message qui dit pourquoi (§3.11). Un fichier quantifié reste sur le disque tel que publié,
   mais le calcul est en fp32 : pas de produit matriciel int8 ni 4 bits.
-- Changer de profil de machine en cours de processus (`EngineSettings` se lit une seule fois ;
-  `load` le dit en levant).
+- Changer de profil de machine ou de carte des capacités en cours de processus (`EngineSettings` se
+  lit une seule fois ; `load` le dit en levant) : une carte nouvelle s'applique au lancement suivant.
 - Relire un PNG pour **rejouer** un img2img : l'image source n'est pas dans les métadonnées (la
   clé `image` le dit), et les LoRA n'y figurent que par leur nom de fichier.
 - Annuler **au milieu** d'un VAE (encodage, décodage) : l'annulation attend la fin de l'étage (quelques secondes au plus).

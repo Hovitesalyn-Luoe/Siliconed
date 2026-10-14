@@ -1,7 +1,7 @@
 import Accelerate
 import Foundation
 
-/// The two operators of the spectral schedule, 𝓟 and 𝓘.
+/// The two operators of the spectral schedule (Qwen-Image-2.1's, `QwenImage21Sampler`), 𝓟 and 𝓘.
 ///
 ///     x_{k+1} = x_k + Δσ · 𝓘 v_θ(𝓟 x_k, σ_k)
 ///
@@ -17,8 +17,8 @@ import Foundation
 ///   standard deviation of 0.3166 against 1.0022 expected, i.e. ×3.2 too small — and the model then receives an
 ///   out-of-distribution input). Decimation keeps the marginal law **exactly**: it is a
 ///   subset of i.i.d. samples. It folds the top of the spectrum onto the bottom, which is
-///   precisely what the spectral argument says does not matter in the early steps — `f*` is
-///   0.056 to 0.25 there.
+///   precisely what the spectral argument says does not matter in the early steps, where the noise
+///   still covers the high band.
 /// - 𝓘 **interpolates**, because we are spreading a low-frequency velocity without removing anything. A nearest-neighbor
 ///   upsampling would leave 2×2 steps in the velocity field, which the following
 ///   high-resolution steps would have to erase.

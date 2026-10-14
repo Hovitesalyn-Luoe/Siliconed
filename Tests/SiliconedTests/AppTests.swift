@@ -134,7 +134,6 @@ final class AppTests: XCTestCase {
             (Safetensors.Failure.missingTensor(file: "/vae", name: "w"), .corruptMap(file: "/vae")),
             (ImageRGB.Failure.unreadable("/a.png"), .imageUnreadable(file: "/a.png")),
             (ImageRGB.Failure.encoding, .imageEncodingFailed),
-            (Sampler.Failure.belowFloor(side: 32), .imageTooSmall(side: 256, minimum: 512)),
             (Request.Failure.emptyPrompt, .emptyPrompt),
             (Request.Failure.steps(0), .invalidSteps(steps: 0, allowed: [])),
             (QwenImage21Pipeline.Failure.steps(6), .invalidSteps(steps: 6, allowed: [8])),
@@ -147,7 +146,7 @@ final class AppTests: XCTestCase {
         for (failure, expected) in folds {
             XCTAssertEqual(EngineError(failure), expected, "\(failure)")
         }
-        for e in [Arena.Failure.allocationFailed(1) as any Error, Sampler.Failure.missingSide, GEMM.Failure.noDevice] {
+        for e in [Arena.Failure.allocationFailed(1) as any Error, GEMM.Failure.noDevice] {
             guard case .internalFailure = EngineError(e) else { return XCTFail("\(e)") }
         }
         for e in folds.map(\.1) + [EngineError(Arena.Failure.allocationFailed(1))] {

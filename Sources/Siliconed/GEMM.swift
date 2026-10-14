@@ -143,17 +143,15 @@ package final class GEMM {
     /// return the same bits.
     package private(set) var widener: WidenGPU?
 
-    /// The conductor of GPU + AMX co-execution, if requested **and** compatible.
-    ///
-    /// An incompatibility is reported and not endured: co-execution refused silently
-    /// would give correct numbers but twice too slow, and the cause would be sought in the
-    /// GEMM.
+    /// The conductor of GPU + AMX co-execution, if requested.
     package private(set) var conductor: Conductor?
 
     /// - Parameter freezeCut: the GPU/AMX cut is not servo-controlled. This is the reproducible mode:
     ///   `T` stays the profile's, so `cut` is a pure function and two renders of the same
     ///   seed return the same bits. No effect when co-execution is off.
-    package init(freezeCut: Bool = EngineSettings.effective.frozenCut) throws {
+    /// - Parameter coexecution: the GPU/AMX conductor, `Conductor.enabled` by default. The diagnostic
+    ///   asks for both on any chip: the GPU alone and the cut, measured on the same product.
+    package init(freezeCut: Bool = EngineSettings.effective.frozenCut, coexecution: Bool = Conductor.enabled) throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.noDevice
         }
@@ -168,10 +166,8 @@ package final class GEMM {
         if EngineSettings.effective.widenGPU {
             widener = try? WidenGPU(device: device, queue: queue)
         }
-        if Conductor.enabled {
-            do { conductor = try Conductor(queue: queue, fusedWiden: Block.fusedWiden,
-                                           driven: !freezeCut) }
-            catch { Warnings.emit("⚠ \(error)") }
+        if coexecution {
+            conductor = Conductor(queue: queue, driven: !freezeCut)
         }
     }
 
@@ -216,20 +212,13 @@ package final class GEMM {
     /// - Parameter weightIsTransposed: the weight is stored `[input, output]` by the forge, so there
     ///   is nothing to transpose. `transposeRight` costs **2.26×** on `w2`'s `K=10240` shape
     ///   (1.578 against 3.564 TFLOP/s) and −23.6 % on a whole block.
-    /// - Parameter before: something to encode a job **in the same command buffer**, right
-    ///   before the GEMM. This is how the fused widening goes through: the weight is widened and
-    ///   consumed without a second submission, and Metal guarantees ordering and coherence between two
-    ///   encoders of the same buffer. The price is that the returned time then covers **both** — the
-    ///   GEMM census stops being comparable with previous sessions, which is why this
-    ///   is not the default.
     package func linear(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
-                       weightIsTransposed: Bool = false,
-                       before: ((MTLCommandBuffer) -> Void)? = nil) -> Double {
+                       weightIsTransposed: Bool = false) -> Double {
         // From 8 to 32 rows, the GEMM goes through the padding tiers (see `poisonedRows`). The
         // GPU/AMX cut never applies there (`amx_min` = 512).
         if GEMM.poisonedRows.contains(m) {
             return padded(a: a, b: b, c: c, first: 0, rows: m, k: k, n: n,
-                          weightIsTransposed: weightIsTransposed, before: before)
+                          weightIsTransposed: weightIsTransposed)
         }
         // The per-token cut, if the conductor takes it. It returns `nil` when it does not
         // apply — too few rows — and the original path resumes, unchanged.
@@ -237,7 +226,7 @@ package final class GEMM {
                                                       weightIsTransposed: weightIsTransposed,
                                                       multiply: { rows in
             submitRows(a: a, b: b, c: c, m: rows, k: k, n: n,
-                       weightIsTransposed: weightIsTransposed, before: before)
+                       weightIsTransposed: weightIsTransposed)
         }) {
             // Under a separate key: **wall time, not GPU time**. Mixing them would make a
             // census that compares neither with itself nor with previous sessions.
@@ -247,32 +236,30 @@ package final class GEMM {
             return wall
         }
         return submitRows(a: a, b: b, c: c, m: m, k: k, n: n,
-                          weightIsTransposed: weightIsTransposed, before: before)
+                          weightIsTransposed: weightIsTransposed)
     }
 
     /// `m` rows on the GPU at heights MPS computes right (`rowQuantum`): the body as it is, the
     /// tail through the tier. Two submissions only when the height requires it.
     private func submitRows(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
-                            weightIsTransposed: Bool,
-                            before: ((MTLCommandBuffer) -> Void)?) -> Double {
+                            weightIsTransposed: Bool) -> Double {
         let (body, tail) = GEMM.rowSplit(m)
         let time = submit(a: a, b: b, c: c, m: body, k: k, n: n,
-                          weightIsTransposed: weightIsTransposed, before: before)
+                          weightIsTransposed: weightIsTransposed)
         guard tail > 0 else { return time }
         return time + padded(a: a, b: b, c: c, first: body, rows: tail, k: k, n: n,
-                             weightIsTransposed: weightIsTransposed, before: nil)
+                             weightIsTransposed: weightIsTransposed)
     }
 
     /// Rows `first ..< first + rows` (fewer than 64) computed at 64 in the padding tier: `A`'s rows
     /// copied there, the product written there, its first `rows` rows copied back into `C`.
     private func padded(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, first: Int, rows: Int, k: Int, n: Int,
-                        weightIsTransposed: Bool,
-                        before: ((MTLCommandBuffer) -> Void)?) -> Double {
+                        weightIsTransposed: Bool) -> Double {
         let l = GEMM.submittedRows
         let (pa, pc) = (tiers.a(l * k), tiers.c(l * n))
         pa.contents().copyMemory(from: a.contents() + first * k * 4, byteCount: rows * k * 4)
         let time = submit(a: pa, b: b, c: pc, m: l, k: k, n: n,
-                          weightIsTransposed: weightIsTransposed, before: before)
+                          weightIsTransposed: weightIsTransposed)
         (c.contents() + first * n * 4).copyMemory(from: pc.contents(), byteCount: rows * n * 4)
         return time
     }
@@ -280,8 +267,7 @@ package final class GEMM {
     /// **A weight's LoRA stack: `C += (x·bas)·haut`, in ONE submission.**
     ///
     /// The two skinny GEMMs are encoded in the **same** command buffer, and Metal guarantees
-    /// ordering between two encoders of the same buffer — that is already what the fused widening
-    /// relies on. A measurement showed that a LoRA's overhead has a **floor per
+    /// ordering between two encoders of the same buffer. A measurement showed that a LoRA's overhead has a **floor per
     /// submission**, constant with the rank; making two of them instead of one would double that floor
     /// for nothing.
     ///
@@ -382,8 +368,7 @@ package final class GEMM {
     /// An MPS submission and its wait. It is `linear`'s original body, extracted so that the
     /// conductor can call it again on a **slice** of rows.
     private func submit(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
-                        weightIsTransposed: Bool,
-                        before: ((MTLCommandBuffer) -> Void)?) -> Double {
+                        weightIsTransposed: Bool) -> Double {
         let shape = Shape(m: m, k: k, n: n, transposed: weightIsTransposed)
         let multiply: MPSMatrixMultiplication
         if let existing = operators[shape] {
@@ -408,7 +393,6 @@ package final class GEMM {
             descriptors[shape] = shapes
         }
         let commands = queue.makeCommandBuffer()!
-        before?(commands)
         multiply.encode(commandBuffer: commands,
                         leftMatrix: MPSMatrix(buffer: a, descriptor: shapes.0),
                         rightMatrix: MPSMatrix(buffer: b, descriptor: shapes.1),

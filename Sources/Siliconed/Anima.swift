@@ -65,12 +65,6 @@ package final class AnimaDiT {
     private let transposed: Bool
     /// The sizing grid, which is that of every evaluation (no spectral schedule here).
     private let latentHeight, latentWidth, imageTokens, textLength: Int
-    /// **`SILICONED_ANIMA_EXACT=gemm,sdpa` — a diagnostic instrument, never a render path.**
-    /// Replaces the GEMM and/or the SDPA with their DOUBLE computation on the CPU, to attribute a
-    /// deviation from fp64 to one or the other. Slow (several minutes per evaluation), and announced.
-    private static let exact: Set<String> = Set(
-        (ProcessInfo.processInfo.environment["SILICONED_ANIMA_EXACT"] ?? "")
-            .split(separator: ",").map(String.init))
     /// **The LoRA stack** (`ForgeLoRA`, Anima's names and RoPE): `ΔW = B·A` per module, the
     /// GEMMs through `gemm.lora` (two thin products accumulated into the output), the modulation
     /// `gemv`s in double like their main weight. The cached text k/v carry it too:
@@ -78,8 +72,8 @@ package final class AnimaDiT {
     package let lora: LoRA?
     private let loraDown, loraUp, loraMid: UnsafeMutablePointer<Float>?
     private var loraBuffers: (down: MTLBuffer, up: MTLBuffer, mid: MTLBuffer)?
-    /// The GELU on the GPU. `SILICONED_ANIMA_GELU_CPU=1` restores the old path — the reference.
-    private let gelu: AnimaGELU?
+    /// The GELU on the GPU.
+    private let gelu: AnimaGELU
     private var selfAttentions: [Int: Attention] = [:]
     private var crossAttentions: [Int: Attention] = [:]
 
@@ -115,8 +109,7 @@ package final class AnimaDiT {
         self.config = Config(header: artifact.header)
         self.prefetcher = Prefetcher(artifact: artifact)
         self.gemm = try GEMM(freezeCut: freezeCut)
-        self.gelu = ProcessInfo.processInfo.environment["SILICONED_ANIMA_GELU_CPU"] == "1"
-            ? nil : try AnimaGELU(device: gemm.device, queue: gemm.queue)
+        self.gelu = try AnimaGELU(device: gemm.device, queue: gemm.queue)
         self.transposed = artifact.linearWeightsTransposed
         self.latentHeight = latentHeight
         self.latentWidth = latentWidth
@@ -311,12 +304,8 @@ package final class AnimaDiT {
         // ── 3. GELU FFN ───────────────────────────────────────────────────────────────────────
         try modulate(3)
         try linearGPU(prefix + "ff.net.0.proj.weight", a: normed, into: h1, m: s, k: d, n: h)
-        if let gelu {
-            let buffer = try gemm.wrap(UnsafeMutableRawPointer(h1), bytes: imageTokens * h * 4, name: "c")
-            timed("gelu") { timings["gelu GPU", default: 0] += gelu.run(buffer, count: s * h) }
-        } else {
-            timed("gelu") { AnimaOps.gelu(h1, count: s * h) }
-        }
+        let buffer = try gemm.wrap(UnsafeMutableRawPointer(h1), bytes: imageTokens * h * 4, name: "c")
+        timed("gelu") { timings["gelu GPU", default: 0] += gelu.run(buffer, count: s * h) }
         try linearGPU(prefix + "ff.net.2.weight", a: h1, into: o, m: s, k: h, n: d)
         if let tag { record(tag + "ff_out", o, s * d) }
         timed("residual") { Ops.gatedResidual(x, plus: o, gate: gate, rows: s, columns: d) }
@@ -350,13 +339,6 @@ package final class AnimaDiT {
     private func attend(_ attention: Attention, q: UnsafeMutablePointer<Float>, k: UnsafeMutablePointer<Float>,
                         v: UnsafeMutablePointer<Float>, keyRows: Int) throws {
         let d = config.dim
-        if AnimaDiT.exact.contains("sdpa") {
-            timed("sdpa exact") {
-                AnimaExact.attention(q: q, k: k, v: v, into: merged, queries: attention.sequence,
-                                     keys: attention.keySequence, heads: config.heads, headDim: config.headDim)
-            }
-            return
-        }
         let qb = try gemm.wrap(UnsafeMutableRawPointer(q), bytes: imageTokens * d * 4, name: "q")
         let kb = try gemm.wrap(UnsafeMutableRawPointer(k), bytes: keyRows * d * 4, name: "k")
         let vb = try gemm.wrap(UnsafeMutableRawPointer(v), bytes: keyRows * d * 4, name: "v")
@@ -420,11 +402,6 @@ package final class AnimaDiT {
         let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
         guard got == k * n else {
             throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
-        }
-        if AnimaDiT.exact.contains("gemm") {
-            timed("gemm exact") { AnimaExact.linear(a: a, w: reserve, into: c, m: m, k: k, n: n,
-                                                    weightIsTransposed: transposed) }
-            return
         }
         let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: (rowsA ?? imageTokens) * k * 4, name: "a")
         let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: config.dim * config.hidden * 4, name: "w")
@@ -546,8 +523,7 @@ package enum AnimaOps {
     }
 }
 
-/// The double computations: those of the `SILICONED_ANIMA_EXACT` diagnostic, and the modulation
-/// `gemv`, which borrows them permanently (see `AnimaDiT.gemv`).
+/// The double computation of the modulation `gemv` (see `AnimaDiT.gemv`).
 enum AnimaExact {
     /// `C[m, n] = A[m, k] · W`, W laid out `[k, n]` if the forge transposed it, `[n, k]` otherwise.
     static func linear(a: UnsafePointer<Float>, w: UnsafePointer<Float>, into c: UnsafeMutablePointer<Float>,
@@ -560,38 +536,5 @@ enum AnimaExact {
                     Int32(m), Int32(n), Int32(k), 1, a64, Int32(k), w64,
                     Int32(weightIsTransposed ? n : k), 0, &c64, Int32(n))
         vDSP_vdpsp(c64, 1, c, 1, vDSP_Length(m * n))
-    }
-
-    /// SDPA without mask, `[S, H·Dh]` in and out, head by head, in double.
-    static func attention(q: UnsafePointer<Float>, k: UnsafePointer<Float>, v: UnsafePointer<Float>,
-                          into out: UnsafeMutablePointer<Float>, queries: Int, keys: Int,
-                          heads: Int, headDim: Int) {
-        let width = heads * headDim, scale = 1 / Double(headDim).squareRoot()
-        for h in 0..<heads {
-            func gather(_ x: UnsafePointer<Float>, _ rows: Int) -> [Double] {
-                var out = [Double](repeating: 0, count: rows * headDim)
-                for r in 0..<rows { for j in 0..<headDim { out[r * headDim + j] = Double(x[r * width + h * headDim + j]) } }
-                return out
-            }
-            let qh = gather(q, queries), kh = gather(k, keys), vh = gather(v, keys)
-            var scores = [Double](repeating: 0, count: queries * keys)
-            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, Int32(queries), Int32(keys), Int32(headDim),
-                        scale, qh, Int32(headDim), kh, Int32(headDim), 0, &scores, Int32(keys))
-            scores.withUnsafeMutableBufferPointer { s in
-                nonisolated(unsafe) let s = s.baseAddress!   // one row per thread
-                DispatchQueue.concurrentPerform(iterations: queries) { r in
-                    let row = s + r * keys
-                    var peak = -Double.infinity
-                    for j in 0..<keys { peak = max(peak, row[j]) }
-                    var total = 0.0
-                    for j in 0..<keys { row[j] = exp(row[j] - peak); total += row[j] }
-                    for j in 0..<keys { row[j] /= total }
-                }
-            }
-            var result = [Double](repeating: 0, count: queries * headDim)
-            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, Int32(queries), Int32(headDim), Int32(keys),
-                        1, scores, Int32(keys), vh, Int32(headDim), 0, &result, Int32(headDim))
-            for r in 0..<queries { for j in 0..<headDim { out[r * width + h * headDim + j] = Float(result[r * headDim + j]) } }
-        }
     }
 }

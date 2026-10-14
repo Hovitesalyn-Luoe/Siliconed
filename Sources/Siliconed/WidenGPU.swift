@@ -2,7 +2,7 @@ import Foundation
 import Metal
 
 /// bf16 → fp32 widening **on the GPU**, read directly from the memory-mapped map — a setting
-/// (`widen_gpu`, `widen_fused`), **off by default**.
+/// (`widen_gpu`), **off by default**.
 ///
 /// **The engine refuted it on this machine: +20 % at 1024²**, because the widening is queued
 /// behind the GEMM, which is the bottleneck. It stays as a branch for a chip where the CPU is the
@@ -332,9 +332,8 @@ package final class WidenGPU {
         return buffer
     }
 
-    /// Encodes the widening into a command buffer that the caller owns — it is the form
-    /// that allows chaining it to MPS **without a second submission** (see `GEMM.linear`).
-    package func encode(into commands: MTLCommandBuffer, source: Source,
+    /// Encodes the widening into a command buffer that `run` owns.
+    private func encode(into commands: MTLCommandBuffer, source: Source,
                        destination: MTLBuffer, count: Int) {
         guard let encoder = commands.makeComputeCommandEncoder() else { return }
         if let blocks = source.packed, let pipeline = packedDequantizers[blocks.kind], let block = blocks.kind.packedBlock {
@@ -367,7 +366,7 @@ package final class WidenGPU {
         widened += count
     }
 
-    /// A submission on its own, for the **separate** path — the one that keeps the instruments.
+    /// A submission on its own, which keeps the widening's phase on the clock apart from the GEMM's.
     ///
     /// Returns the GPU time. **A failing `MTLCommandBuffer` throws nothing**: it returns
     /// `gpuEndTime == gpuStartTime`, hence an infinite throughput, and the device stays upset — all

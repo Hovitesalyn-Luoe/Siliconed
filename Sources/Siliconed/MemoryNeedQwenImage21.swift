@@ -395,7 +395,7 @@ package struct QwenImage21Need {
             for piece in 0..<slices {
                 let end = (piece + 1) * count / slices, rows = end - piece * count / slices
                 let visible = causal ? keys - count + end : keys
-                let split = target && !Attention.useHalfPrecision && rows >= HeadSplitAttention.minimumSequence
+                let split = target && HeadSplitAttention.applies(sequence: rows)
                 // `attentions` and `headSplits` are two dictionaries: the same key may live in both.
                 let key = "\(rows)×\(visible)\(causal ? "c" : "")"
                 guard built.insert((split ? "s" : "a") + key).inserted else { continue }

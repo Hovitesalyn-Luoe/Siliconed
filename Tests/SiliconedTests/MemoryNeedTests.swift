@@ -230,7 +230,6 @@ final class MemoryNeedTests: XCTestCase {
         for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
             let n = try need(w, h)
             let latent = 16 * (h / 8) * (w / 8) * 4
-            let halved = ZImageDenoisingModule.spectralSteps > 0
             let image = (h / 16) * (w / 16), cap = 64, s = image + cap
             func split(_ rows: Int) -> Int {
                 HeadSplitAttention.hostBytes(heads: 30, sequence: rows, headDim: 128, threads: 6) + rows * gpuHeads * 128 * 4
@@ -244,7 +243,7 @@ final class MemoryNeedTests: XCTestCase {
                            2 * Arena.capacity(for: 64 * 10240 * 4))
             XCTAssertEqual(phase(n, .denoising)!.bytes,
                            DiT.arenaBytes(config: dit, latentHeight: h / 8, latentWidth: w / 8, capLength: 50, loraRank: 0)
-                            + staging + latent + (halved ? latent / 4 : 0) + attentions + gemm, "\(w)×\(h)")
+                            + staging + latent + attentions + gemm, "\(w)×\(h)")
         }
         // A LoRA: its cache over every module a block can apply it to, the `mid` slices in the arenas;
         // two LoRAs, one module's `down` staging besides.
@@ -255,9 +254,8 @@ final class MemoryNeedTests: XCTestCase {
         XCTAssertEqual(phase(two, .denoising)!.bytes("LoRA down"), LoRA.downBytes(k: 10240, rank: 64))
     }
 
-    /// **Only the full-size attentions are alive at the peak** (`DiT.forgetReducedAttentions`):
-    /// two head splits (image refiners, layers) and the context refiners' MPSGraph SDPA, with or without
-    /// the spectral schedule; the DiT's attention is not causal.
+    /// **One attention per block, at the full grid**: two head splits (image refiners, layers) and the
+    /// context refiners' MPSGraph SDPA, with or without a LoRA; the DiT's attention is not causal.
     func testOnlyTheFullSizeAttentionsAreAlive() throws {
         for ranks in [[], [16]] as [[Int]] {
             let terms = phase(try need(1024, 1024, ranks: ranks), .denoising)!.terms
@@ -277,8 +275,8 @@ final class MemoryNeedTests: XCTestCase {
             let start = try need(w, h, references: [(w, h)])
             let encoder = VAEEncoder.plan(family: .flux, height: h, width: w)
             XCTAssertEqual(phase(start, .references)!.bytes, encoder.bytes + encoder.outside)
-            // Nothing of the encoder is carried into the denoising any more; only the spectral schedule goes.
-            XCTAssertLessThanOrEqual(phase(start, .denoising)!.bytes, phase(n, .denoising)!.bytes)
+            // Nothing of the encoder is carried into the denoising.
+            XCTAssertEqual(phase(start, .denoising)!.bytes, phase(n, .denoising)!.bytes)
         }
         let other = try need(1024, 1024, references: [(2048, 1024)])
         XCTAssertEqual(phase(other, .references)!.bytes("fitted copy"), 3 * 1024 * 1024 * 4)

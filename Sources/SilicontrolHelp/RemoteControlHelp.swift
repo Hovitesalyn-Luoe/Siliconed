@@ -102,7 +102,7 @@ public enum RemoteControlHelp {
       open                                     launches the app and waits until it answers
       models                                   installed models, formats, LoRAs, default steps
       install ID [--standard|--compact|--light] shows a model's license and size in the app, to accept there
-      diagnose [--issue]                       measures this Mac (≈ 15 s per model) → the report's JSON
+      diagnose [--issue]                       measures this Mac (≈ 30 s, no model) → the report's JSON
       add [options] "<prompt>" [format] [seed] puts a request in the queue → its job (t3)
       grid --x AXIS [--y AXIS] [options] "<prompt>" …
                                                an XY grid: one job per cell, then a sheet → its grid (g2)
@@ -243,22 +243,28 @@ public enum RemoteControlHelp {
         silicontrol diagnose [--issue]
 
         « Report My Configuration » (the app's Help menu), from the terminal. The sheet opens in
-        the app and the diagnostic runs on the visible installed models, at 512²: the text
-        encoder, two DiT steps (the second judged against the fp32 reference when the model has
-        one), the decoder — about 15 s per model. The queue waits for it, and it for the queue.
+        the app and the diagnostic runs — about 30 s, no model needed: the fp32 matrix products of
+        the DiT blocks on the GPU, on the CPU's matrix unit and on both, fp16 and bf16 products,
+        the attention through the engine's three kernels, the weight widening on the CPU and the
+        GPU; each output checked against the exact result. The queue waits for it, and it for the
+        queue. A measure is [rate, error, pass]: TFLOP/s (G values/s for a widening), the worst
+        row's relative error, within the report's "thresholds". The report becomes this Mac's
+        map: from the next launch, the engine branches on it ("decisions": GPU + CPU products,
+        flash, head split — each "on", its "gain", the "margin"); before it, the defaults.
 
-          {"type": "started", "models": ["z-image", "qwen-image-2.1"]}
-          {"ok": true, "report": {"machine": {…}, "models": [{"model": "z-image",
-            "seconds": {…}, "estimatedRenderSeconds": 31.6, "peakFootprintBytes": …,
-            "swapouts": 0, "deviation": null | {"worst": …, "threshold": …, "pass": true}, …}], …}}
+          {"type": "started", "stages": ["fp32 matrix products", …]}
+          {"ok": true, "report": {"schema": 5, "machine": {…}, "products": [{"model": "z-image",
+            "product": "up", "m": 1024, "gpu": [3.46, 1.1e-06, true], "amx": […],
+            "gpuShare": 0.609, "coexecution": […], …}], "attention": […], "widening": […],
+            "lowPrecision": […], "witness": {…}, "decisions": {"amx": {"on": true, …}, …}, …}}
 
         --issue   then opens GitHub's issue form in the browser, prefilled with the report (the
                   sheet's « Open the Issue »); the user submits it. "issue_url_length" says how
                   long the link was; beyond ~8 000 characters the JSON goes to the clipboard
                   instead and "message" says so.
 
-        FAILURES: usage, busy (a render or an installation is running, or nothing is installed),
-        stopped (« Stop » in the sheet).
+        FAILURES: usage, busy (a render or an installation is running), render_already_running
+        (another process renders), stopped (« Stop » in the sheet).
         """,
 
         "add": """
@@ -708,7 +714,7 @@ public enum RemoteControlHelp {
       open                                     lance l'app et attend qu'elle réponde
       models                                   modèles installés, formats, LoRA, pas par défaut
       install ID [--standard|--compact|--light] montre dans l'app la licence et la place d'un modèle, à accepter là
-      diagnose [--issue]                       mesure ce Mac (≈ 15 s par modèle) → le JSON du rapport
+      diagnose [--issue]                       mesure ce Mac (≈ 30 s, sans modèle) → le JSON du rapport
       add [options] "<prompt>" [format] [seed] met une demande en file → son travail (t3)
       grid --x AXE [--y AXE] [options] "<prompt>" …
                                                une grille XY : un travail par case, puis une planche → sa grille (g2)
@@ -851,22 +857,29 @@ public enum RemoteControlHelp {
         silicontrol diagnose [--issue]
 
         « Signaler ma configuration » (menu Aide de l'app), depuis le terminal. La feuille s'ouvre
-        dans l'app et le diagnostic tourne sur les modèles visibles installés, en 512² : l'encodeur
-        de texte, deux pas du DiT (le second jugé contre la référence fp32 quand le modèle en a
-        une), le décodeur — environ 15 s par modèle. La file l'attend, et lui attend la file.
+        dans l'app et le diagnostic tourne — environ 30 s, sans modèle : les produits matriciels
+        fp32 des blocs du DiT sur le GPU, sur l'unité matricielle du CPU et sur les deux, des
+        produits fp16 et bf16, l'attention par les trois noyaux du moteur, l'élargissement des
+        poids sur le CPU et le GPU ; chaque sortie vérifiée contre le résultat exact. La file
+        l'attend, et lui attend la file. Une mesure est [débit, écart, verdict] : TFLOP/s (G
+        valeurs/s pour un élargissement), l'écart relatif de la pire ligne, dans les
+        "thresholds" du rapport. Le rapport devient la carte de ce Mac : dès le lancement
+        suivant, le moteur s'y branche ("decisions" : produits GPU + CPU, flash, coupe par
+        têtes — chacun "on", son "gain", la "margin") ; avant, les défauts.
 
-          {"type": "started", "models": ["z-image", "qwen-image-2.1"]}
-          {"ok": true, "report": {"machine": {…}, "models": [{"model": "z-image",
-            "seconds": {…}, "estimatedRenderSeconds": 31.6, "peakFootprintBytes": …,
-            "swapouts": 0, "deviation": null | {"worst": …, "threshold": …, "pass": true}, …}], …}}
+          {"type": "started", "stages": ["fp32 matrix products", …]}
+          {"ok": true, "report": {"schema": 5, "machine": {…}, "products": [{"model": "z-image",
+            "product": "up", "m": 1024, "gpu": [3.46, 1.1e-06, true], "amx": […],
+            "gpuShare": 0.609, "coexecution": […], …}], "attention": […], "widening": […],
+            "lowPrecision": […], "witness": {…}, "decisions": {"amx": {"on": true, …}, …}, …}}
 
         --issue   ouvre ensuite le formulaire d'issue GitHub dans le navigateur, prérempli avec le
                   rapport (« Ouvrir le signalement » de la feuille) ; c'est l'utilisateur qui l'envoie.
                   "issue_url_length" dit la longueur du lien ; au-delà de ~8 000 caractères le
                   JSON va dans le presse-papiers et "message" le dit.
 
-        ÉCHECS : usage, busy (un rendu ou une installation tourne, ou rien n'est installé),
-        stopped (« Arrêter » dans la feuille).
+        ÉCHECS : usage, busy (un rendu ou une installation tourne), render_already_running (un
+        autre processus fait un rendu), stopped (« Arrêter » dans la feuille).
         """,
 
         "add": """

@@ -120,7 +120,7 @@ struct ModelManagement: View {
                 Spacer()
                 Button("Show in Finder") { app.showInFinder() }
                 Button("Report My Configuration…") { app.openDiagnostic() }
-                    .help("Measures the installed models on this Mac, then opens a prefilled GitHub issue")
+                    .help("Measures what this Mac computes, then opens a prefilled GitHub issue")
             }
             if app.visibleReady.isEmpty {
                 Text("Nothing comes with Siliconed. Choose a model: its license and the space it takes are shown before anything is downloaded.")

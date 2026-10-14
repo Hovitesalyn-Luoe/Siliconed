@@ -17,7 +17,7 @@ import Foundation
 /// (27,632 pages): `MPSGraph` keeps every intermediate of a graph until it ends, at full
 /// resolution. Past the head, it now runs layer by layer in our own buffers, each layer by
 /// horizontal bands (`decodeBanded`): **2.1 GB at 1024², 2.9 GB at 1024×1536 — the bits of the one
-/// graph**, at every band size (checked against the one graph). Two things make it exact where a
+/// graph**, at every band size. Two things make it exact where a
 /// tiling is not: each `GroupNorm` takes its statistics over the whole tensor, in a graph of their own,
 /// and every band window starts on an even row (`alignment`).
 ///
@@ -25,8 +25,7 @@ import Foundation
 /// a placement heap laid out in advance, MPS's workspace in a heap we hand it — all sized by `plan`, the
 /// decoder walked without a device. Every graph is **one kernel** (a norm, its affine and SiLU, a
 /// convolution and its sum), the ×2 and the attention's transposes kernels of ours: MPSGraph allocated
-/// the rest beside our heaps (172 MB at 1024²). The same bits (md5 against `decodeInOnePiece` at
-/// 512² and the renders); what stays MPSGraph's is its SDPA's own copies (`VAELayout.sdpaOutside`).
+/// the rest beside our heaps (172 MB at 1024²). The same bits as the one graph it replaced; what stays MPSGraph's is its SDPA's own copies (`VAELayout.sdpaOutside`).
 package final class VAE {
     package struct Config: Hashable, Sendable {
         package let scaling: Float, shift: Float
@@ -50,16 +49,11 @@ package final class VAE {
 
     /// The elements of one window, all channels, at most (8 Mi floats = 32 MB): a band's height is
     /// chosen so that its widest tensor — input, output or residual — stays under it. At 1024², 2²³
-    /// and 2²⁴ cost the same time (4.4 s) and 2²³ 140 MB less; 2²⁰ costs 7.3 s. Settable by the
-    /// checks, to force bands where one piece would do, or one piece where bands would.
-    nonisolated(unsafe) package static var bandElements = 1 << 23
+    /// and 2²⁴ cost the same time (4.4 s) and 2²³ 140 MB less; 2²⁰ costs 7.3 s.
+    package static let bandElements = 1 << 23
     /// This decoding's band: `bandElements`, or the smallest proved one on a plan whose B does not hold
     /// it (`MemoryPlan.decoderBand`). Set as `decodeBanded` starts.
     private var band = VAE.bandElements
-
-    /// Called after the head and after each banded layer with its name — `vae-bands` reads the footprint
-    /// there. Set by a single-threaded check before decoding, never by the product.
-    nonisolated(unsafe) package static var layerDone: ((String) -> Void)?
 
     /// The channels of the four up blocks, from the bottleneck out (`block_out_channels` reversed).
     private static let levels = [512, 512, 256, 128]
@@ -94,76 +88,6 @@ package final class VAE {
             }
             self.tile = nil
         }
-    }
-
-    /// **The head: everything at the latent's resolution, in one graph** — the denormalization,
-    /// `conv_in`, the middle block and its attention, the first up block's
-    /// three resnets. Its tensors are 512 channels at `h × w` (48 MB at 1024×1536): the only large
-    /// term is the bottleneck attention, which `vae_bloc_requetes` slices.
-    private static func head(_ b: VAEBuildingBlocks, _ input: MPSGraphTensor, height H: Int, width W: Int,
-                             config: Config) throws -> MPSGraphTensor {
-        let graph = b.graph
-        var x = input
-        // The pipeline denormalizes BEFORE the decoder: `latents / scaling + shift`.
-        if config.scaling != 1 || config.shift != 0 {
-            x = graph.addition(
-                graph.division(input, graph.constant(Double(config.scaling), dataType: .float32), name: nil),
-                graph.constant(Double(config.shift), dataType: .float32), name: "denormalize")
-        }
-
-        /// The attention of the middle block, over `H·W` tokens of 512 channels.
-        func attention(_ x: MPSGraphTensor, _ prefix: String, channels: Int, size: (h: Int, w: Int)) throws -> MPSGraphTensor {
-            // **The attention matrix gets materialized anyway, and it is 2.52 GB**.
-            //
-            // A chain `matmul → ×scale → softMax → matmul` holds three full `[1, S, S]` tensors: at
-            // 1024² the latent is 128², so `S = 128² = 16,384` and **each weighs 1.073 GB**.
-            // `scaledDotProductAttention` is 25 % faster at strictly identical PSNR, but it does not
-            // remove the matrix: it holds it on the API's side. It was measured with a probe that
-            // removed the bottleneck and nothing else (it rendered a wrong image, and is gone):
-            //
-            //     1024²   with 7,107 MB   ·   without 4,587 MB   →   the bottleneck weighs 2,520 MB
-            //      512²   with 1,356 MB   ·   without 1,375 MB   →   nothing, the matrix is 67 MB
-            //
-            // 2.52 GB for a 1.073 GB matrix: the API therefore holds two or three copies, not
-            // zero. That is half of the decoder's footprint problem; the other half, 4.28 GB,
-            // is **proportional to pixels** — the full-resolution intermediate tensors
-            // that `MPSGraph` keeps alive (verified: 1,071 MB at 512², exactly ×4).
-            //
-            // It had already been established for the DiT: `MPSGraph.scaledDotProductAttention`
-            // **materializes** — 6.1 GB of traffic for 75 ms of compute. The VAE does not escape it.
-            //
-            // **`SILICONED_VAE_BLOCK=n` — the `S×S` matrix in slices of `n` queries.**
-            //
-            // What this buys is **room**, not time: materialization goes from
-            // `S×S` to `n×S`, i.e. 2,520 MB → ~160 MB at `n = 1024` and `S = 16,384` (the probe's
-            // starting figure). The split had been measured on the DiT's SDPA and
-            // rejected it **for time** (×0.73 to ×0.80); here the decoder only costs 4.4 s out of a
-            // 140 s render, so the trade is good as soon as room runs short.
-            //
-            // **Correctness is not up for discussion**: splitting the queries reassociates nothing — each
-            // output row depends only on its own row of scores, and the softmax is already
-            // per row. A measurement verified it and found only summation-order noise
-            // (worst channel 9.4·10⁻⁸). It is not an approximation, it is the same sum.
-            //
-            // The default stays **0**, the whole matrix: on this machine, at 1024², the peak already
-            // fits in 16 GB. A smaller machine — or a larger resolution, where the
-            // term is in pixels² — will set it to 1024 or 2048. It is a per-target setting.
-            let normalized = try b.groupNorm(x, prefix + ".group_norm", channels: channels, h: size.h, w: size.w)
-            return try b.attention(x, normalized: normalized, channels: channels, size: size,
-                                   qkv: { (try b.projection($0, prefix + ".to_q"), try b.projection($0, prefix + ".to_k"),
-                                           try b.projection($0, prefix + ".to_v")) },
-                                   output: prefix + ".to_out.0", requestBlock: EngineSettings.effective.vaeRequestBlock)
-        }
-
-        let L = (h: H, w: W)
-        x = try b.conv(x, "decoder.conv_in", padding: 1)
-        x = try b.resnetFlux(x, "decoder.mid_block.resnets.0", inChannels: 512, outChannels: 512, size: L)
-        x = try attention(x, "decoder.mid_block.attentions.0", channels: 512, size: L)
-        x = try b.resnetFlux(x, "decoder.mid_block.resnets.1", inChannels: 512, outChannels: 512, size: L)
-        for r in 0..<3 {
-            x = try b.resnetFlux(x, "decoder.up_blocks.0.resnets.\(r)", inChannels: 512, outChannels: 512, size: L)
-        }
-        return x
     }
 
     /// **The whole decoder on a `[C, h, w]` latent, exactly — the head by passes, then layer by
@@ -202,7 +126,7 @@ package final class VAE {
         let input = try memory.register([1, config.latentChannels, h, w])
         if let latent, memory.isLive { input.values.update(from: latent, count: input.count) }
         // The head, at the latent's grid: the denormalization, `conv_in`, the
-        // middle block and its attention, the first up block's three resnets — `head`'s operations, by passes.
+        // middle block and its attention, the first up block's three resnets, by passes.
         var x = input
         if config.scaling != 1 || config.shift != 0 {
             x = try bands.whole([input], input.shape, weights: []) { b, p in
@@ -219,7 +143,6 @@ package final class VAE {
         try bands.attention(x, "decoder.mid_block.attentions.0")
         x = try bands.resnet(x, "decoder.mid_block.resnets.1", inChannels: c, outChannels: c)
         for r in 0..<3 { x = try bands.resnet(x, "decoder.up_blocks.0.resnets.\(r)", inChannels: c, outChannels: c) }
-        if memory.isLive { VAE.layerDone?("head") }
         for level in 1..<VAE.levels.count {
             let (entry, exit) = (VAE.levels[level - 1], VAE.levels[level])
             let doubled = try bands.upsample(x, "decoder.up_blocks.\(level - 1).upsamplers.0")
@@ -267,41 +190,6 @@ package final class VAE {
                                  bands: Bands(memory: memory, weights: weights, name: "VAE", groups: config.groups, band: band))
         }
         memory.finish()
-        return image
-    }
-
-    /// **The decoder as one graph — the reference of the band check, never the product.** It is
-    /// the decoder as it was before the bands, operation for operation, run the same way (`graph.run`): the
-    /// bands are judged against it on the same latent. At 1024×1536 it holds 7.2 GB.
-    package func decodeInOnePiece(latent: UnsafePointer<Float>) throws -> [Float] {
-        let (H, W) = (latentHeight, latentWidth)
-        let graph = MPSGraph()
-        let b = VAEBuildingBlocks(graph: graph, weights: weights, name: "VAE", groups: config.groups)
-        let shape = [1, config.latentChannels, H, W].map { NSNumber(value: $0) }
-        let input = graph.placeholder(shape: shape, dataType: .float32, name: "input")
-        var x = try VAE.head(b, input, height: H, width: W, config: config)
-        var size = (h: H, w: W)
-        for level in 1..<VAE.levels.count {
-            let (entry, exit) = (VAE.levels[level - 1], VAE.levels[level])
-            x = try b.conv(b.double(x, channels: entry, size: size), "decoder.up_blocks.\(level - 1).upsamplers.0.conv",
-                           padding: 1)
-            size = (2 * size.h, 2 * size.w)
-            for r in 0..<3 {
-                x = try b.resnetFlux(x, "decoder.up_blocks.\(level).resnets.\(r)", inChannels: r == 0 ? entry : exit,
-                                     outChannels: exit, size: size)
-            }
-        }
-        x = try b.silu(b.groupNorm(x, "decoder.conv_norm_out", channels: VAE.levels.last!, h: size.h, w: size.w))
-        x = try b.conv(x, "decoder.conv_out", padding: 1)
-        let count = config.latentChannels * H * W
-        guard let buffer = device.makeBuffer(length: count * 4, options: .storageModeShared) else { throw GEMM.Failure.noDevice }
-        buffer.contents().assumingMemoryBound(to: Float.self).update(from: latent, count: count)
-        var image = [Float](repeating: 0, count: 3 * size.h * size.w)
-        autoreleasepool {
-            let results = graph.run(with: queue, feeds: [input: MPSGraphTensorData(buffer, shape: shape, dataType: .float32)],
-                                    targetTensors: [x], targetOperations: nil)
-            image.withUnsafeMutableBytes { results[x]!.mpsndarray().readBytes($0.baseAddress!, strideBytes: nil) }
-        }
         return image
     }
 
@@ -704,7 +592,6 @@ extension VAE {
             if let rw { memory.free(rw) }
             memory.free(out); memory.free(nw); memory.free(ng); memory.free(xw)
             memory.free(stats.variance); memory.free(stats.mean)
-            if memory.isLive { VAE.layerDone?(conv) }
             return output
         }
 
@@ -727,7 +614,6 @@ extension VAE {
                 done(p)
             }
             memory.free(out); memory.free(xw)
-            if memory.isLive { VAE.layerDone?(prefix) }
             return output
         }
 
@@ -753,7 +639,6 @@ extension VAE {
                 done(p)
             }
             memory.free(out); memory.free(dw); memory.free(xw)
-            if memory.isLive { VAE.layerDone?(prefix) }
             return output
         }
 
@@ -783,7 +668,6 @@ extension VAE {
                 done(p)
             }
             memory.free(out); memory.free(xw)
-            if memory.isLive { VAE.layerDone?(prefix) }
             return output
         }
 
@@ -814,6 +698,22 @@ extension VAE {
             // 2 MiB (`VAELayout.sdpaAsk`); and four
             // more copies of its own, beside our heaps (`VAELayout.sdpaOutside`).
             memory.outside(VAELayout.sdpaOutside(tokens: s, channels: c))
+            // **`SILICONED_VAE_BLOCK=n` — the `S×S` matrix in slices of `n` queries.**
+            //
+            // What this buys is **room**, not time: materialization goes from
+            // `S×S` to `n×S`, i.e. 2,520 MB → ~160 MB at `n = 1024` and `S = 16,384` (the probe's
+            // starting figure). The split had been measured on the DiT's SDPA and
+            // rejected it **for time** (×0.73 to ×0.80); here the decoder only costs 4.4 s out of a
+            // 140 s render, so the trade is good as soon as room runs short.
+            //
+            // **Correctness is not up for discussion**: splitting the queries reassociates nothing — each
+            // output row depends only on its own row of scores, and the softmax is already
+            // per row. A measurement verified it and found only summation-order noise
+            // (worst channel 9.4·10⁻⁸). It is not an approximation, it is the same sum.
+            //
+            // The default stays **0**, the whole matrix: on this machine, at 1024², the peak already
+            // fits in 16 GB. A smaller machine — or a larger resolution, where the
+            // term is in pixels² — will set it to 1024 or 2048. It is a per-target setting.
             let a = try whole(qkv, [1, s, c], weights: [], workspace: max(VAELayout.minimumAsk / 4, VAELayout.sdpaAsk(tokens: s, channels: c))) { b, p in
                 b.scaledDotProduct(p[0], p[1], p[2], channels: c, requestBlock: EngineSettings.effective.vaeRequestBlock)
             }
@@ -822,7 +722,6 @@ extension VAE {
             memory.free(a)
             memory.dispatch(.untokensAdd, [x, o], constants: [UInt32(c), UInt32(s)], grid: MTLSize(width: s, height: c, depth: 1))
             memory.free(o)
-            if memory.isLive { VAE.layerDone?(prefix) }
         }
     }
 }

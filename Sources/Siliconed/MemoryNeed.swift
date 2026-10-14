@@ -26,8 +26,8 @@ import Synchronization
 /// the structure allows, never folded in as figures: the check reports what is left of them.
 ///
 /// A phase charges **only what is alive at its peak**, following the pipeline's real order: a
-/// tokenizer dropped before its encoder maps its arena, a half-size attention dropped when the full
-/// steps begin, a VAE's heaps released before the next phase are not charged beside what follows them.
+/// tokenizer dropped before its encoder maps its arena, a half-size DiT released before the full one
+/// is built, a VAE's heaps released before the next phase are not charged beside what follows them.
 ///
 /// **The verification is the product's** (`MemoryCheck`): every render reads its own peak
 /// (`ri_interval_max_phys_footprint`) and compares it with this; a peak above the need is a defect of

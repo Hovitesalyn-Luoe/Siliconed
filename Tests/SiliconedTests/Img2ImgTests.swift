@@ -50,20 +50,17 @@ final class Img2ImgTests: XCTestCase {
         XCTAssertEqual(AnimaDenoisingModule(map: "").plan(height: 64, width: 64, steps: 8, start: 0).evaluations, 8)
     }
 
-    /// **The spectral switches off in img2img**: at 1024² (latent 128), the product's `k` (0 since
-    /// 0.8.2) at start 0, `k = 0` from start 1 — even when forced.
-    func testTheSpectralTurnsOffAsSoonAsTheStartIsNonZero() {
-        let product = ZImageDenoisingModule(map: "")
-        XCTAssertEqual(product.plan(height: 128, width: 128, steps: 8, start: 0).reduced, ZImageDenoisingModule.spectralSteps)
-        XCTAssertEqual(ZImageDenoisingModule(map: "", spectral: 2).plan(height: 128, width: 128, steps: 8, start: 0).reduced, 2)
-        XCTAssertEqual(product.plan(height: 128, width: 128, steps: 8, start: 1).reduced, 0)
-        XCTAssertEqual(ZImageDenoisingModule(map: "", spectral: 3).plan(height: 128, width: 128, steps: 8, start: 2).reduced, 0)
-    }
-
-    /// **Under a LoRA, the product's spectral switches off** — a `k` that is set has the last word.
-    func testTheProductsSpectralTurnsOffUnderALoRA() {
-        XCTAssertEqual(ZImageDenoisingModule(map: "").plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: true).reduced, 0)
-        XCTAssertEqual(ZImageDenoisingModule(map: "", spectral: 2).plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: true).reduced, 2)
+    /// **Z-Image never evaluates at half size** (since 0.8.2): at 1024² (latent 128), from any start,
+    /// with or without a LoRA, every evaluation is at the full grid.
+    func testZImageNeverHalves() {
+        let z = ZImageDenoisingModule(map: "")
+        for start in [0, 1, 3] {
+            for withLoRA in [false, true] {
+                let plan = z.plan(height: 128, width: 128, steps: 8, start: start, withLoRA: withLoRA)
+                XCTAssertEqual(plan.reduced, 0)
+                XCTAssertEqual([plan.reducedHeight, plan.reducedWidth], [128, 128])
+            }
+        }
     }
 
     /// **Every strength above 0 keeps an evaluation**: Z-Image's last step moves since 0.8.2 (it

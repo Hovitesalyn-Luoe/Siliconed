@@ -12,9 +12,8 @@ import XCTest
 /// byte of map, and they are not covered by a check that requires the whole machine — that is, they
 /// are **never** verified between two close-outs.
 ///
-/// These tests found their first defect before having been run even once: the rule of
-/// `Spectral.divisors` contradicted `Spectral.steps` on the only step where the two pronounce
-/// together. See the comment of `Spectral.divisors`.
+/// These tests found their first defect before having been run even once: a per-step divisor rule
+/// (since retired with Z-Image's spectral schedule) contradicted the step count it was derived from.
 ///
 /// **Rule of this target**: no test reads a file, opens the GPU or exceeds a second. What needs
 /// the map belongs in the close-out, not here.
@@ -59,7 +58,7 @@ final class PureFunctionsTests: XCTestCase {
     }
 
     func testScheduleGivesBackTheReferenceValues() {
-        // The σ of the reference's schedule, as in the spectral schedule documentation.
+        // The σ of the reference's schedule, as in `FlowMatchSchedule`'s documentation.
         let expected: [Float] = [1, 0.955, 0.9, 0.833, 0.75, 0.643, 0.5, 0.3, 0]
         let s = FlowMatchSchedule(steps: 8)
         for (i, value) in expected.enumerated() {
@@ -78,63 +77,17 @@ final class PureFunctionsTests: XCTestCase {
 
     // ── the spectral schedule ──────────────────────────────────────────────────────────────
 
-    func testSpectralDoesNotApplyBelow1024() {
-        let s = FlowMatchSchedule(steps: 8)
-        // 512² → latent 64: `k` half-size evaluations there would be 256², outside the model's
-        // domain (256² was removed from the bench for this reason).
-        XCTAssertEqual(Spectral.steps(height: 64, width: 64, schedule: s), 0)
-        XCTAssertEqual(Spectral.steps(height: 128, width: 128, schedule: s), 2,
-                       "the rule f* ≤ 0.10 gives k = 2 at 1024², not k = 3")
-    }
-
-    func testDivisorsFollowTheSameRuleAsTheStepCount() {
-        let s = FlowMatchSchedule(steps: 8)
-        let d = Spectral.divisors(height: 128, width: 128, schedule: s)
-        // One divisor per STEP, hence eight — `Sampler.divisor(_:)` indexes them over `0..<8`.
-        // The threshold alone would give [4, 4, 1, …], but a quarter of 1024² is 256², below the
-        // 512² floor: the first two steps drop to 2.
-        XCTAssertEqual(d, [2, 2, 1, 1, 1, 1, 1, 1])
-        // **The property that found the defect**: both functions derive from the same threshold,
-        // so they must agree. The number of reduced-size steps according to `divisors` is the `k`
-        // that `steps` announces. Written `seuil / d`, the rule gave [4,1,1,…] and this assertion
-        // failed.
-        XCTAssertEqual(d.filter { $0 >= 2 }.count, Spectral.steps(height: 128, width: 128, schedule: s))
-    }
-
-    func testNoDivisorGoesBelow512() {
-        let s = FlowMatchSchedule(steps: 8)
-        for latent in [128, 256] {
-            let d = Spectral.divisors(height: latent, width: latent, schedule: s)
-            XCTAssertTrue(d.allSatisfy { latent / $0 >= Spectral.minimumSide }, "latent \(latent)")
+    /// **The floor is per side, and the half grid must patchify** (in Qwen-Image-2.1's 16-px cells):
+    /// 832×1216 (52 × 76) has the area of 1024², but its half would be 416 px on a side — no halving;
+    /// 1024×1536 (64 × 96) halves; 1056² (66²) would halve to an odd grid the ×2 patch cannot tile.
+    func testSpectralHalvesOnlyAtTheFloorOnEachSide() {
+        let floor = Spectral.floor(factor: 16)
+        for (h, w) in [(76, 52), (52, 76), (64, 32), (32, 96)] {
+            XCTAssertFalse(Spectral.divisible(height: h, width: w, by: 2, floor: floor), "\(w * 16)×\(h * 16)")
         }
-    }
-
-    func testDivisorsAreAllOneBelow1024() {
-        let s = FlowMatchSchedule(steps: 8)
-        let d = Spectral.divisors(height: 64, width: 64, schedule: s)
-        XCTAssertEqual(d.count, 8, "one divisor per step")
-        XCTAssertTrue(d.allSatisfy { $0 == 1 })
-    }
-
-    /// **The floor is per side**: 832×1216 (latent 104 × 152) has the area of 1024², but its
-    /// half-size would be 416 px tall — below the floor. Hence `k = 0`, on both axes.
-    func testSpectralIsZeroIfAHalfSideFallsBelowTheFloor() {
-        let s = FlowMatchSchedule(steps: 8)
-        for (h, w) in [(152, 104), (104, 152), (168, 96), (96, 168), (128, 64), (64, 192)] {
-            XCTAssertEqual(Spectral.steps(height: h, width: w, schedule: s), 0, "\(w * 8)×\(h * 8)")
-            XCTAssertTrue(Spectral.divisors(height: h, width: w, schedule: s).allSatisfy { $0 == 1 })
-        }
-        // Both half-sizes at the floor: the spectral applies, as for the square.
-        XCTAssertEqual(Spectral.steps(height: 128, width: 192, schedule: s), 2)
-        XCTAssertEqual(Spectral.divisors(height: 192, width: 128, schedule: s), [2, 2, 1, 1, 1, 1, 1, 1])
-    }
-
-    /// An odd half-latent cannot be patchified (patch ×2): 1040 px → latent 130 → 65. The
-    /// spectral declines there instead of throwing at the first step.
-    func testSpectralIsZeroIfTheHalfLatentDoesNotPatchify() {
-        let s = FlowMatchSchedule(steps: 8)
-        XCTAssertEqual(Spectral.steps(height: 130, width: 130, schedule: s), 0)
-        XCTAssertEqual(Spectral.steps(height: 132, width: 132, schedule: s), 2)
+        XCTAssertTrue(Spectral.divisible(height: 96, width: 64, by: 2, floor: floor))
+        XCTAssertTrue(Spectral.divisible(height: 64, width: 96, by: 2, floor: floor))
+        XCTAssertFalse(Spectral.divisible(height: 66, width: 66, by: 2, floor: floor))
     }
 
     /// **Qwen-Image-2.1's cell is 16 px**: its 1024² latent is 64², whose half (32² = 512²) is at the
@@ -567,17 +520,5 @@ final class PureFunctionsTests: XCTestCase {
         for p in 0..<16 { XCTAssertEqual(table[last + 2 * p], 1); XCTAssertEqual(table[last + 2 * p + 1], 0) }
         XCTAssertEqual(table[last + 2 * 16], Float(cos(1.0)), accuracy: 1e-7, "axis h, frequency 1, position 1")
         XCTAssertFalse(table.contains { $0.isNaN })
-    }
-
-    /// GQA: the `q` head of index `h` reads the `k`/`v` head of index `h / 4` (`repeat_interleave`,
-    /// not `repeat` — which would make it read `h mod 12`).
-    func testKrea2GQARepeatsConsecutively() {
-        let kvHeads = 2, group = 3, headDim = 1
-        let source: [Float] = [10, 20]                 // one row, two k/v heads
-        var wide = [Float](repeating: 0, count: kvHeads * group)
-        source.withUnsafeBufferPointer { s in wide.withUnsafeMutableBufferPointer {
-            Krea2Ops.expandKV(s.baseAddress!, into: $0.baseAddress!, rows: 1, kvHeads: kvHeads,
-                              group: group, headDim: headDim) } }
-        XCTAssertEqual(wide, [10, 10, 10, 20, 20, 20])
     }
 }

@@ -537,8 +537,8 @@ final class RemoteControl {
     // ── diagnose ──
 
     /// `diagnose [--issue]`: **« Report My Configuration », from the terminal** — the sheet opens in the
-    /// app and the diagnostic runs (~15 s per visible installed model, the queue held meanwhile); the
-    /// answer is the report, the same JSON the issue carries. `--issue` then does what the sheet's
+    /// app and the diagnostic runs (~30 s, no weights, the queue held meanwhile); the answer is the
+    /// report, the same JSON the issue carries. `--issue` then does what the sheet's
     /// « Open the Issue » does: GitHub's form opens in the browser, prefilled — the user submits it.
     private func diagnose(_ arguments: [String], _ c: Connection) throws {
         let issue = arguments.contains("--issue")
@@ -549,12 +549,16 @@ final class RemoteControl {
         app.openDiagnostic()
         app.startDiagnostic()
         NSApp.activate()
-        emit(c, ["type": "started", "models": app.diagnosticCards.map(\.id)])
+        emit(c, ["type": "started", "stages": Diagnostic.Stage.allCases.map(\.rawValue)])
         Task { @MainActor [weak self] in
             while let self, self.app.diagnosticRunning, !c.broken {
                 try? await Task.sleep(for: .milliseconds(500))
             }
             guard let self else { return }
+            if case .failed(let problem) = self.app.diagnostic {
+                self.finish(c, Response.failure(problem.code ?? "failed", problem.text))
+                return
+            }
             guard case .finished(let report) = self.app.diagnostic,
                   let data = try? report.json(pretty: false),
                   let object = try? JSONSerialization.jsonObject(with: data) else {

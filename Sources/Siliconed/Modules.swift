@@ -47,16 +47,9 @@ public struct ZImageTextModule: TextModule {
     }
 }
 
-/// Z-Image's S3 DiT under its sampler (negation, spectral schedule).
+/// Z-Image's S3 DiT under its sampler (negation, every evaluation at full size).
 public struct ZImageDenoisingModule: DenoisingModule {
     public var map: String
-    /// The number of half-size evaluations. `nil`: `SILICONED_SPECTRAL` if set (read at render
-    /// time, by `EngineSettings`), otherwise the product's rule (`Spectral.steps`).
-    public var spectral: Int?
-    /// The per-step side divisor. Empty: derived from `spectral`.
-    public var divisors: [Int]
-    /// The caption positions to erase — a measuring instrument. See `DiT.capsDrop`.
-    public var capsDrop: [Int]
 
     public var model: String { "z-image" }
     public var name: String { "DiT Z-Image" }
@@ -66,64 +59,23 @@ public struct ZImageDenoisingModule: DenoisingModule {
     /// Every `Solver`: its sampler walks them all (`SolverWalk`).
     public var solvers: [Solver] { Solver.allCases }
 
-    public init(map: String, spectral: Int? = nil,
-                divisors: [Int] = [], capsDrop: [Int] = []) {
-        self.map = map; self.spectral = spectral; self.divisors = divisors
-        self.capsDrop = capsDrop
-    }
-
-    /// **The product's denoiser** — the defaults, plus what the environment forces.
-    ///
-    /// It is here, and nowhere lower down, that `SILICONED_DIVISORS` and `SILICONED_CAPS_DROP` are
-    /// read: the environment keeps the last word because a measurement is taken by forcing a
-    /// setting, but it says so **at the edge**. `SILICONED_SPECTRAL`, for its part, goes through
-    /// `EngineSettings` and is read at render time (`plan`): building a model must not freeze the
-    /// machine's profile.
-    static func product(map: String) -> ZImageDenoisingModule {
-        let env = ProcessInfo.processInfo.environment
-        return ZImageDenoisingModule(
-            map: map,
-            divisors: env["SILICONED_DIVISORS"]?.split(separator: ",").compactMap { Int($0) } ?? [],
-            capsDrop: env["SILICONED_CAPS_DROP"]?.split(separator: ",").compactMap { Int($0) } ?? [])
-    }
+    public init(map: String) { self.map = map }
 
     public func sigmas(steps: Int) -> [Float] { FlowMatchSchedule(steps: steps).sigmas }
 
-    /// **The product's half-size evaluations: none** (since 0.8.2). `Spectral.steps` gives `k = 2` at
-    /// 1024², judged clean on the seven-evaluation schedule of before 0.8.2; on the recipe's eight
-    /// (first full step at σ = 0.9, six full steps after) the half-size steps' leftover
-    /// high-frequency noise is no longer resorbed — sand on the skin and grain on the walls, with or
-    /// without freckles in the prompt, and `k = 1` keeps it too. `k = 0` is clean, +19 % at 1024².
-    /// 512² never halved (`Spectral.minimumSide`). A set or forced `k` still measures.
-    package static let spectralSteps = 0
-
-    /// **In img2img (`start > 0`), the spectral schedule is off: `k = 0`**, even when forced.
-    ///
-    /// `Spectral.steps` counts the **leading** σs of the full schedule, calibrated on pure-noise
-    /// starts; truncated, it would reduce steps that no longer run. Related to the σs
-    /// actually evaluated, it would give `k = 1` only at start 1 (σ = 0.955) and `k = 0` from
-    /// start 2 on (σ = 0.9, `f* = 0.111 > 0.10`) — nothing to gain at useful strengths
-    /// (≤ 0.75), and a never-measured regime: the state already carries the image's high
-    /// frequencies. At `k = 0`, the trajectory reproduces the oracle. Forced divisors turn
-    /// off for the same reason.
+    /// **Every evaluation at full size: no spectral schedule** (since 0.8.2). Half-size first steps
+    /// were judged clean on the seven-evaluation schedule of before 0.8.2; on the recipe's eight
+    /// (first full step at σ = 0.9, six full steps after), the high-frequency noise the half-size steps
+    /// leave in the full latent (the up-sampled velocity does not carry it) is no longer resorbed —
+    /// sand on the skin and grain on the walls at 1024², at `k = 2` and at `k = 1`. Qwen-Image-2.1 keeps
+    /// its own (`QwenImage21DenoisingModule.plan`): a 16-px cell, another model, judged on its own.
     ///
     /// Evaluations are counted from the start to the end: every step moves (`FlowMatchSchedule`),
-    /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s`.
-    ///
-    /// **Under a LoRA, the product's rule returns `k = 0`**; a set or forced `k` keeps the last
-    /// word, so one can still measure. The half-size steps leave the full latent's high-frequency
-    /// noise intact (the up-sampled velocity does not carry it): ~13 % too much at σ = 0.88,
-    /// which the full steps must resorb. `k = 2` was judged clean without a LoRA;
-    /// under a LoRA, nothing has judged it, and grain and blotches were seen at 1024². **Detail goes the same way** (the engine passes `withLoRA` for it too): it tells
-    /// those full steps that less noise remains than does, and the excess stays — sand on walls and
-    /// skin at 1024² (measured: amount 1 at k = 2, confetti; at k = 0, +19 %, clean).
+    /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s` in img2img.
     public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let σ = FlowMatchSchedule(steps: steps).sigmas
-        let rule = withLoRA ? 0 : Self.spectralSteps
-        return DenoisingPlan(startStep: start, startSigma: σ[start],
-                                evaluations: steps - start,
-                                reduced: start > 0 ? 0 : spectral ?? Spectral.forced ?? rule,
-                                reducedHeight: height / 2, reducedWidth: width / 2)
+        return DenoisingPlan(startStep: start, startSigma: σ[start], evaluations: steps - start,
+                             reduced: 0, reducedHeight: height, reducedWidth: width)
     }
 
     public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
@@ -137,13 +89,10 @@ public struct ZImageDenoisingModule: DenoisingModule {
                           capLength: text.rows, freezeCut: context.reproducible, lora: lora)
             context.keptDenoiser = dit
         }
-        dit.capsDrop = capsDrop
         dit.cancellation = context.cancellation
         let sampler = Sampler(dit: dit, steps: steps)
         let planned = plan(height: height, width: width, steps: steps, start: start,
                            withLoRA: lora != nil || context.detail != .normal)
-        sampler.spectralSteps = planned.reduced
-        sampler.divisors = start > 0 ? [] : divisors
         sampler.detail = context.detail
         sampler.detailScale = context.detailScale
         sampler.solver = context.solver
@@ -499,15 +448,16 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     public func sigmas(steps: Int) -> [Float] { scheduler.sigmas }
 
     /// The Turbo's spectral schedule: **its first two evaluations at half size** (`spectralSteps`, the
-    /// half-size phase of `QwenImage21Sampler`), a generation at 1024² −18 % (~160 → ~131 s), clean
-    /// by eye on two prompts × three seeds. A fixed `k`, not Z-Image's threshold rule (`f* ≤ 0.10`):
-    /// that rule gives `k = 3` here, which broke faces and shelves into patchwork under the former
-    /// 6-step turbo LoRA — a 16-px, 64-channel cell carries far more of the image than Z-Image's
-    /// 8-px one, and the threshold does not transfer.
+    /// half-size phase of `QwenImage21Sampler`), judged clean by eye on two prompts × three seeds. A
+    /// fixed `k`, not a threshold on the band the first σs carry (`f* = (1 − σ)/σ ≤ 0.10`): that rule
+    /// gives `k = 3` here, which broke faces and shelves into patchwork under the former 6-step turbo
+    /// LoRA — a 16-px, 64-channel cell carries far more of the image than an 8-px one, and a band
+    /// threshold does not say how much leftover noise the full steps resorb. (Z-Image, whose rule it
+    /// was, has had none since 0.8.2: on its eight evaluations even `k = 1` left grain.)
     ///
-    /// **`k = 0`, as Z-Image's rule gives it**: under a user LoRA or Detail (`withLoRA`, see
-    /// `ZImageDenoisingModule.plan`: the half-size steps leave the full latent's high-frequency noise
-    /// for the full steps to resorb, judged clean without either), from a start past 0, where the half
+    /// **`k = 0`**: under a user LoRA or Detail (`withLoRA`: the half-size steps leave the full
+    /// latent's high-frequency noise — the up-sampled velocity does not carry it — for the full steps
+    /// to resorb, judged clean without either), from a start past 0, where the half
     /// grid would go under 512 px on a side (`Spectral.floor`: a 512² or 832×1216 never halves), and
     /// in an edit — the plan cannot see the references, the chain zeroes it (`DenoisingPlan.unreduced`)
     /// and the denoiser ignores it with references. `SILICONED_SPECTRAL` forces `k` (a measurement),
@@ -731,8 +681,7 @@ public struct Model: Sendable {
         return path
     }
 
-    /// Z-Image Turbo — the product's default. `denoising`: a denoiser tuned differently from the
-    /// product's (a forced spectral schedule, for instance).
+    /// Z-Image Turbo — the product's default. `denoising`: a denoiser on another map.
     public static func zImage(in b: Library, denoising: ZImageDenoisingModule? = nil) throws(EngineError) -> Model {
         try building(ModelCard.zImage.id) { try zImage(in: b, card: .zImage, dit: b.ditMap(.zImage), denoising: denoising) }
     }
@@ -742,7 +691,7 @@ public struct Model: Sendable {
         Model(card: card, library: b, chain: try Chain(
                    text: ZImageTextModule(map: try map(b.encoderMap(.zImage), b),
                                       tokenizer: try b.component(.zImage, "tokenizer")),
-                   denoising: denoising ?? .product(map: try map(dit, b)),
+                   denoising: denoising ?? ZImageDenoisingModule(map: try map(dit, b)),
                    decoding: FluxDecodingModule(path: try b.component(.zImage, "vae.safetensors")),
                    encoding: FluxEncodingModule(path: try b.component(.zImage, "vae.safetensors"))))
     }

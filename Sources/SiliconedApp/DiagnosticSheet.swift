@@ -1,12 +1,12 @@
-// **« Report My Configuration »: what this Mac does, measured, then sent as a GitHub issue if the user
-// wants** (`docs/API.md` §3.13).
+// **« Report My Configuration »: what this Mac computes, measured, then sent as a GitHub issue if the
+// user wants** (`docs/API.md` §3.13).
 //
-// Three states in one sheet: what the diagnostic does and how long (it loads each model's weights,
-// ~15 s per model, so it waits for an empty queue — and the queue waits for it); its progress; then the
-// report as a person reads it — the chip, the memory, and per model the step in steady state, the
-// render it implies (« estimated », never « measured »), the memory peak, the swap, the deviation from
-// the reference ✓/✗. « Open the issue » opens GitHub's form prefilled by `report.issueURL()`; nothing
-// is sent without that click, and the issue is submitted in the browser, by the user.
+// Three states in one sheet: what the diagnostic does and how long (~30 s, no model needed; it occupies
+// the GPU and the CPU, so it waits for an empty queue — and the queue waits for it); its progress; then
+// the report as a person reads it — the chip, the memory, and per capacity its throughput and ✓/✗, the
+// output computed right against the exact or not. « Open the issue » opens GitHub's form prefilled by
+// `report.issueURL()`; nothing is sent without that click, and the issue is submitted in the browser,
+// by the user.
 
 import AppKit
 import Siliconed
@@ -21,7 +21,7 @@ struct DiagnosticSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Report My Configuration").font(.title2.weight(.semibold))
-                Text("Measures the installed models on this Mac, at 512² — then, if you want, opens a prefilled GitHub issue. Nothing is sent without your click.")
+                Text("Measures what this Mac's chip computes, and how fast — then, if you want, opens a prefilled GitHub issue. Nothing is sent without your click.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -31,7 +31,8 @@ struct DiagnosticSheet: View {
                 switch app.diagnostic {
                 case .ready: ready
                 case let .running(done, total, line): running(done: done, total: total, line: line)
-                case .finished(let report): ReportView(report: report)
+                case .finished(let report): ReportView(report: report, inUse: report == app.mapInUse)
+                case .failed(let problem): ProblemView(problem: problem).padding(20)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -45,18 +46,44 @@ struct DiagnosticSheet: View {
 
     private var ready: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("For each model below: the text encoder, two steps of the denoiser — the second, judged against the reference computed in fp32 —, and the decoder. About 15 seconds per model; the queue waits meanwhile.")
+            Text("Matrix products, attention and weight widening, on the GPU and on the CPU, each checked against the exact result. No model is needed, nothing is downloaded. About 30 seconds; the queue waits meanwhile.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
-            ForEach(app.diagnosticCards) { card in
-                Label(card.name, systemImage: "cpu")
-            }
+            mapStatus
             if let reason = app.diagnosticBlocker {
                 Label(reason, systemImage: "hourglass").foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(20)
+    }
+
+    /// **Where this session stands against the map** — the before/after the user can see: no map, the
+    /// defaults; a map in use since launch; a newer one waiting for the next launch; a stale one ignored.
+    @ViewBuilder private var mapStatus: some View {
+        let text: LocalizedStringKey? = {
+            if let used = app.mapInUse {
+                return used == app.storedMap
+                    ? "This session uses the choices of this Mac's measure of \(Self.day(used.date))."
+                    : "This session uses the measure of \(Self.day(used.date)); the newer one applies from the next launch."
+            }
+            if let stored = app.storedMap {
+                return stored.isCurrent
+                    ? "A measure of \(Self.day(stored.date)) applies from the next launch; this session uses the defaults."
+                    : "The measure of \(Self.day(stored.date)) was taken with another macOS or another version of Siliconed: it is not used. Measure again to let Siliconed choose for this Mac."
+            }
+            return "This session uses Siliconed's defaults. Measuring lets it choose for this Mac, from the next launch."
+        }()
+        if let text {
+            Text(text).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// A report's ISO date as a day the user reads.
+    static func day(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 
     // ── during ──
@@ -93,6 +120,11 @@ struct DiagnosticSheet: View {
                     .disabled(app.diagnosticBlocker != nil)
             case .running:
                 Button("Stop") { app.cancelDiagnostic() }.keyboardShortcut(.cancelAction)
+            case .failed:
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Measure Again") { notice = nil; app.startDiagnostic() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(app.diagnosticBlocker != nil)
             case .finished(let report):
                 Button("Measure Again") { notice = nil; app.startDiagnostic() }
                     .disabled(app.diagnosticBlocker != nil)
@@ -106,19 +138,114 @@ struct DiagnosticSheet: View {
     }
 }
 
-/// **The report, as a person reads it** — the JSON says the same, and more.
+/// **The report, as a person reads it** — one line per capacity: the median throughput of its
+/// measures, and ✓ when every one of them computed right. The JSON says each measure.
 private struct ReportView: View {
     let report: Diagnostic.Report
+    /// This report is the map this session's settings were read with.
+    var inUse = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 machine
-                ForEach(report.models, id: \.model) { ModelLine(model: $0) }
-                Text("\(Figures.duration(report.totalSeconds)) in all · peak \(Figures.memory(report.peakFootprintBytes)) · \(report.swapouts) pages swapped out")
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                    let products = report.products
+                    row("Matrix products, GPU", products.map(\.gpu), unit: "TFLOP/s")
+                    row("Matrix products, CPU matrix unit", products.compactMap(\.amx), unit: "TFLOP/s")
+                    row("Matrix products, GPU and CPU together", products.compactMap(\.coexecution), unit: "TFLOP/s")
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    row("Attention, system kernel", report.attention.compactMap(\.graph), unit: "TFLOP/s")
+                    row("Attention, Siliconed kernel", report.attention.compactMap(\.flash), unit: "TFLOP/s")
+                    row("Attention, split between GPU and CPU", report.attention.compactMap(\.headSplit), unit: "TFLOP/s")
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    row("Weight widening, CPU", report.widening.map(\.cpu), unit: "G/s")
+                    row("Weight widening, GPU", report.widening.compactMap(\.gpu), unit: "G/s")
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    row("Half precision, GPU", engine: "mpsgraph")
+                    row("Half precision, CPU matrix unit", engine: "bnns")
+                    row("Half precision, GPU tensor units (Metal 4)", engine: "matmul2d")
+                }
+                .font(.callout)
+                .textSelection(.enabled)
+                if let d = report.decisions { decisions(d) }
+                Text("\(Figures.duration(report.seconds)) in all")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(20)
+        }
+    }
+
+    /// One capacity: the median rate of its measures, ✓ when all pass; "not available" without any.
+    @ViewBuilder private func row(_ label: LocalizedStringKey, _ measures: [Diagnostic.Measure], unit: String) -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            if measures.isEmpty {
+                Text("not available").foregroundStyle(.secondary)
+                Text(verbatim: "")
+            } else {
+                let rates = measures.map(\.rate).sorted()
+                Text(verbatim: String(format: "%.2f ", rates[rates.count / 2]) + unit).monospacedDigit()
+                verdict(measures.allSatisfy(\.pass))
+            }
+        }
+    }
+
+    /// Half precision: fp16 and bf16 side by side, one engine.
+    @ViewBuilder private func row(_ label: LocalizedStringKey, engine: String) -> some View {
+        let items = report.lowPrecision.filter { $0.engine == engine }
+        let measured = items.compactMap { item in item.measure.map { (item.type, $0) } }
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            if measured.isEmpty {
+                Text("not available").foregroundStyle(.secondary)
+                Text(verbatim: "")
+            } else {
+                Text(verbatim: measured.map { String(format: "%@ %.2f", $0.0 as NSString, $0.1.rate) }.joined(separator: " · ")
+                     + " TFLOP/s").monospacedDigit()
+                verdict(measured.allSatisfy { $0.1.pass })
+            }
+        }
+    }
+
+    /// **What these measures make this Mac use** (`Diagnostic.decide`): each branch, used or not, and the
+    /// gain behind it — what a shared report says the machine chose.
+    @ViewBuilder private func decisions(_ d: Diagnostic.Decisions) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("What this Mac uses").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                decision("Matrix products, GPU and CPU together", d.amx,
+                         detail: d.amxFraction.map { String(format: " · GPU %.0f %%", $0 * 100) } ?? "")
+                decision("Attention, Siliconed kernel", d.flash)
+                decision("Attention, split between GPU and CPU", d.headSplit)
+            }
+            .font(.callout)
+            .textSelection(.enabled)
+            let noise = String(format: "%.0f %%", d.margin * 100)
+            Text(inUse ? "In use in this session; a gain within this run's noise (±\(noise)) does not count."
+                       : "In use from the next launch; a gain within this run's noise (±\(noise)) does not count.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private func decision(_ label: LocalizedStringKey, _ x: Diagnostic.Decision, detail: String = "") -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            Text(x.on ? "Used" : "Not used")
+            if x.passed {
+                Text(verbatim: String(format: "×%.2f", x.gain) + detail).monospacedDigit()
+            } else {
+                verdict(false)
+            }
+        }
+    }
+
+    @ViewBuilder private func verdict(_ pass: Bool) -> some View {
+        if pass {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Computed right: within its threshold of the exact result")
+        } else {
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help("Computed wrong: beyond its threshold of the exact result")
         }
     }
 
@@ -144,75 +271,5 @@ private struct ReportView: View {
         }
         .font(.callout)
         .textSelection(.enabled)
-    }
-}
-
-/// One model: its timings, its memory, and the verdict against the reference.
-private struct ModelLine: View {
-    let model: Diagnostic.ModelReport
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(model.name).font(.headline)
-                Spacer()
-                verdict
-            }
-            if let error = model.error {
-                // The app's sentence for the engine's case; the engine's text under it, as the issue quotes it.
-                if let failure = model.failure {
-                    let p = Problem(failure)
-                    Text(p.title).font(.callout).foregroundStyle(.red)
-                    if let s = p.suggestion { Text(s).font(.caption).foregroundStyle(.secondary) }
-                }
-                Text(verbatim: error).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-            } else if let s = model.seconds {
-                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
-                    GridRow {
-                        Text("Step in steady state").foregroundStyle(.secondary)
-                        Text(Figures.seconds(s.steadyEvaluation)).monospacedDigit()
-                    }
-                    if let e = model.estimatedRenderSeconds {
-                        GridRow {
-                            Text("Render at 512², estimated").foregroundStyle(.secondary)
-                            Text(verbatim: "≈ " + Figures.duration(e)).monospacedDigit()
-                        }
-                    }
-                    GridRow {
-                        Text("Memory peak").foregroundStyle(.secondary)
-                        Text(Figures.memory(model.peakFootprintBytes)).monospacedDigit()
-                    }
-                    GridRow {
-                        Text("Swap").foregroundStyle(.secondary)
-                        Text(model.swapouts == 0 ? String(localized: "none") : String(localized: "\(model.swapouts) pages"))
-                            .foregroundStyle(model.swapouts == 0 ? Color.primary : Color.orange)
-                    }
-                    if let d = model.deviation {
-                        GridRow {
-                            Text("Deviation from the reference").foregroundStyle(.secondary)
-                            Text(verbatim: String(format: "%.2e", d.worst) + (d.pass ? " ≤ " : " > ") + String(format: "%.0e", d.threshold))
-                                .monospacedDigit()
-                        }
-                    }
-                }
-                .font(.callout)
-            }
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
-    }
-
-    @ViewBuilder private var verdict: some View {
-        if model.error != nil {
-            Label("failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red)
-        } else if let d = model.deviation {
-            if d.pass {
-                Label("matches the reference", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-            } else {
-                Label("differs from the reference", systemImage: "xmark.circle.fill").foregroundStyle(.red)
-            }
-        } else {
-            Label("timed (no reference yet)", systemImage: "clock").foregroundStyle(.secondary)
-        }
     }
 }

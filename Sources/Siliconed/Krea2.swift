@@ -80,12 +80,6 @@ package final class Krea2DiT {
     /// The GQA SDPA, per sequence length. The flash kernel (`FlashMatrix`) is no longer
     /// wired in: it wants repeated `k`/`v`, and it tied on Krea 2.
     private var attentions: [Int: Attention] = [:]
-    /// **`SILICONED_KREA2_EXACT=gemm,sdpa` — a diagnostic instrument, never a render path.**
-    /// The GEMM and/or the SDPA in DOUBLE on the CPU (`AnimaExact`), to attribute a deviation to one or
-    /// the other — or to the fp32 oracle. Slow, and announced.
-    private static let exact: Set<String> = Set(
-        (ProcessInfo.processInfo.environment["SILICONED_KREA2_EXACT"] ?? "")
-            .split(separator: ",").map(String.init))
 
     private let x, normed, q, k, v, gate, merged, o, h1, h2: UnsafeMutablePointer<Float>
     private let reserve, tokens, projected, freqs: UnsafeMutablePointer<Float>
@@ -368,18 +362,7 @@ package final class Krea2DiT {
     }
 
     private func attend(rows n: Int) throws {
-        let d = config.dim, kv = config.kvWidth, group = config.heads / config.kvHeads
-        if Krea2DiT.exact.contains("sdpa") {
-            // The double instrument wants repeated `k`/`v` heads: it repeats them for itself.
-            var kWide = [Float](repeating: 0, count: n * d), vWide = kWide
-            Krea2Ops.expandKV(k, into: &kWide, rows: n, kvHeads: config.kvHeads, group: group, headDim: config.headDim)
-            Krea2Ops.expandKV(v, into: &vWide, rows: n, kvHeads: config.kvHeads, group: group, headDim: config.headDim)
-            timed("sdpa exact") {
-                AnimaExact.attention(q: q, k: kWide, v: vWide, into: merged, queries: n, keys: n,
-                                     heads: config.heads, headDim: config.headDim)
-            }
-            return
-        }
+        let d = config.dim, kv = config.kvWidth
         let attention: Attention
         if let a = attentions[n] { attention = a } else {
             attention = Attention(device: gemm.device, queue: gemm.queue, heads: config.heads,
@@ -402,11 +385,6 @@ package final class Krea2DiT {
         let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
         guard got == k * n else {
             throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
-        }
-        if Krea2DiT.exact.contains("gemm") {
-            timed("gemm exact") { AnimaExact.linear(a: a, w: reserve, into: c, m: m, k: k, n: n,
-                                                    weightIsTransposed: true) }
-            return
         }
         let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: (rowsA ?? maxRows) * k * 4, name: "a")
         let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: config.dim * config.hidden * 4, name: "w")
@@ -728,25 +706,6 @@ package enum Krea2Ops {
             for i in start..<end {
                 let value = x[i]
                 x[i] = 0.5 * value * (1 + tanhf(c * (value + 0.044715 * value * value * value)))
-            }
-        }
-    }
-
-    /// `kvHeads` heads repeated `group` times, consecutively: `repeat_interleave(group, dim=2)`,
-    /// so the `q` head of index `h` reads the `k`/`v` head of index `h / group`.
-    /// Only serves the double instrument now (`SILICONED_KREA2_EXACT=sdpa`): the render's SDPA reads
-    /// `k`/`v` without repetition.
-    package static func expandKV(_ source: UnsafePointer<Float>, into destination: UnsafeMutablePointer<Float>,
-                                rows: Int, kvHeads: Int, group: Int, headDim: Int) {
-        Parallel.rows(rows, width: kvHeads * group * headDim) { first, howMany in
-            for s in first..<(first + howMany) {
-                for kvHead in 0..<kvHeads {
-                    let from = source + (s * kvHeads + kvHead) * headDim
-                    for repetition in 0..<group {
-                        (destination + (s * kvHeads * group + kvHead * group + repetition) * headDim)
-                            .update(from: from, count: headDim)
-                    }
-                }
             }
         }
     }

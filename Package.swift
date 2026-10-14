@@ -12,7 +12,7 @@ let package = Package(
     targets: [
         // The current CBLAS headers of Accelerate (the old ones are deprecated since macOS 13.3).
         // Same routines, same 32-bit integers: ILP64 is not requested.
-        .target(name: "Siliconed", dependencies: ["AMXLegacy"], resources: [.copy("Resources")], cSettings: [.define("ACCELERATE_NEW_LAPACK")]),
+        .target(name: "Siliconed", dependencies: ["AMXLegacy"], cSettings: [.define("ACCELERATE_NEW_LAPACK")]),
         // `BNNSMatMul`, deprecated and kept: isolated in C, where the deprecation is acknowledged once.
         .target(name: "AMXLegacy", linkerSettings: [.linkedFramework("Accelerate")]),
         // **The app, `Siliconed.app` — the product.** It is also the SwiftUI example of

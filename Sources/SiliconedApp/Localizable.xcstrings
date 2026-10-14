@@ -445,36 +445,30 @@
         }
       }
     },
-    "%@ in all · peak %@ · %lld pages swapped out" : {
+    "%@ in all" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ insgesamt · Spitze %@ · %lld Seiten ausgelagert"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ in all · peak %2$@ · %3$lld pages swapped out"
+            "value" : "%@ insgesamt"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ en total · pico %@ · %lld páginas enviadas a intercambio"
+            "value" : "%@ en total"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ en tout · pic %@ · %lld pages swappées"
+            "value" : "%@ en tout"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ in tutto · picco %@ · %lld pagine in swap"
+            "value" : "%@ in tutto"
           }
         }
       }
@@ -1697,34 +1691,6 @@
         }
       }
     },
-    "%lld pages" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld Seiten"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld páginas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld pages"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld pagine"
-          }
-        }
-      }
-    },
     "%lld performance, %lld efficiency, %lld GPU" : {
       "localizations" : {
         "de" : {
@@ -2803,6 +2769,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Una griglia che fa variare il modello non accetta LoRA: ogni LoRA è fatta per un solo modello."
+          }
+        }
+      }
+    },
+    "A measure of %@ applies from the next launch; this session uses the defaults." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Messung vom %@ gilt ab dem nächsten Start; diese Sitzung verwendet die Standardwerte."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una medición del %@ se aplica desde el próximo inicio; esta sesión usa los valores predeterminados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une mesure du %@ s’applique au prochain lancement ; cette session utilise les réglages par défaut."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una misura del %@ si applica dal prossimo avvio; questa sessione usa i valori predefiniti."
           }
         }
       }
@@ -3901,6 +3895,90 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un altro programma sta già eseguendo rendering su questa libreria."
+          }
+        }
+      }
+    },
+    "Attention, Siliconed kernel" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention, Kernel von Siliconed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atención, núcleo de Siliconed"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention, noyau de Siliconed"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attenzione, kernel di Siliconed"
+          }
+        }
+      }
+    },
+    "Attention, split between GPU and CPU" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention, aufgeteilt auf GPU und CPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atención, repartida entre GPU y CPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention, partagée entre GPU et CPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attenzione, divisa tra GPU e CPU"
+          }
+        }
+      }
+    },
+    "Attention, system kernel" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention, Kernel des Systems"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atención, núcleo del sistema"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention, noyau du système"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attenzione, kernel di sistema"
           }
         }
       }
@@ -5025,6 +5103,62 @@
         }
       }
     },
+    "Computed right: within its threshold of the exact result" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richtig gerechnet: innerhalb seiner Schwelle zum exakten Ergebnis"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cálculo correcto: dentro de su umbral respecto al resultado exacto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calcul juste : dans son seuil du résultat exact"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calcolo corretto: entro la sua soglia dal risultato esatto"
+          }
+        }
+      }
+    },
+    "Computed wrong: beyond its threshold of the exact result" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falsch gerechnet: jenseits seiner Schwelle zum exakten Ergebnis"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cálculo incorrecto: más allá de su umbral respecto al resultado exacto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calcul faux : au-delà de son seuil du résultat exact"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calcolo errato: oltre la sua soglia dal risultato esatto"
+          }
+        }
+      }
+    },
     "Consecutive" : {
       "localizations" : {
         "de" : {
@@ -5833,34 +5967,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Modalità sviluppatore"
-          }
-        }
-      }
-    },
-    "Deviation from the reference" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abweichung von der Referenz"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Desviación respecto a la referencia"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Écart à la référence"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scarto dal riferimento"
           }
         }
       }
@@ -7293,34 +7399,6 @@
         }
       }
     },
-    "For each model below: the text encoder, two steps of the denoiser — the second, judged against the reference computed in fp32 —, and the decoder. About 15 seconds per model; the queue waits meanwhile." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Für jedes der folgenden Modelle: der Text-Encoder, zwei Schritte des Entrauschers – der zweite an der in fp32 berechneten Referenz gemessen – und der Decoder. Etwa 15 Sekunden pro Modell; die Warteschlange wartet so lange."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para cada modelo de abajo: el codificador de texto, dos pasos del eliminador de ruido — el segundo, juzgado frente a la referencia calculada en fp32 — y el decodificador. Unos 15 segundos por modelo; mientras tanto, la cola espera."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pour chaque modèle ci-dessous : l’encodeur de texte, deux pas du débruiteur — le second jugé contre la référence calculée en fp32 —, et le décodeur. Environ 15 secondes par modèle ; la file attend pendant ce temps."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Per ogni modello qui sotto: l’encoder di testo, due passi del denoiser — il secondo giudicato rispetto al riferimento calcolato in fp32 —, e il decoder. Circa 15 secondi per modello; nel frattempo la coda attende."
-          }
-        }
-      }
-    },
     "Format" : {
       "localizations" : {
         "de" : {
@@ -7772,6 +7850,90 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "I gruppi di alternative non si possono annidare (carattere %@)."
+          }
+        }
+      }
+    },
+    "Half precision, CPU matrix unit" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halbe Genauigkeit, Matrixeinheit der CPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media precisión, unidad matricial de la CPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demi-précision, unité matricielle du CPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mezza precisione, unità matriciale della CPU"
+          }
+        }
+      }
+    },
+    "Half precision, GPU" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halbe Genauigkeit, GPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media precisión, GPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demi-précision, GPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mezza precisione, GPU"
+          }
+        }
+      }
+    },
+    "Half precision, GPU tensor units (Metal 4)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halbe Genauigkeit, Tensor-Einheiten der GPU (Metal 4)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Media precisión, unidades tensoriales de la GPU (Metal 4)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demi-précision, unités tensorielles du GPU (Metal 4)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mezza precisione, unità tensoriali della GPU (Metal 4)"
           }
         }
       }
@@ -8336,6 +8498,62 @@
         }
       }
     },
+    "In use from the next launch; a gain within this run's noise (±%@) does not count." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwendet ab dem nächsten Start; ein Gewinn innerhalb des Rauschens dieser Messung (±%@) zählt nicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En uso desde el próximo inicio; una ganancia dentro del ruido de esta medición (±%@) no cuenta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisé au prochain lancement ; un gain dans le bruit de cette mesure (±%@) ne compte pas."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In uso dal prossimo avvio; un guadagno entro il rumore di questa misura (±%@) non conta."
+          }
+        }
+      }
+    },
+    "In use in this session; a gain within this run's noise (±%@) does not count." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In dieser Sitzung verwendet; ein Gewinn innerhalb des Rauschens dieser Messung (±%@) zählt nicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En uso en esta sesión; una ganancia dentro del ruido de esta medición (±%@) no cuenta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisé dans cette session ; un gain dans le bruit de cette mesure (±%@) ne compte pas."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In uso in questa sessione; un guadagno entro il rumore di questa misura (±%@) non conta."
+          }
+        }
+      }
+    },
     "Incomplete installation — it will resume where it stopped" : {
       "localizations" : {
         "de" : {
@@ -8416,34 +8634,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Installa %@…"
-          }
-        }
-      }
-    },
-    "Install a model first: the diagnostic measures the models installed." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installieren Sie zuerst ein Modell: Die Diagnose misst die installierten Modelle."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instala primero un modelo: el diagnóstico mide los modelos instalados."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installez d’abord un modèle : le diagnostic mesure les modèles installés."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installa prima un modello: la diagnostica misura i modelli installati."
           }
         }
       }
@@ -9400,6 +9590,118 @@
         }
       }
     },
+    "Matrix products, CPU matrix unit" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte, Matrixeinheit der CPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales, unidad matricial de la CPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels, unité matricielle du CPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali, unità matriciale della CPU"
+          }
+        }
+      }
+    },
+    "Matrix products, GPU" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte, GPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales, GPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels, GPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali, GPU"
+          }
+        }
+      }
+    },
+    "Matrix products, GPU and CPU together" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte, GPU und CPU zusammen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales, GPU y CPU juntas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels, GPU et CPU ensemble"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali, GPU e CPU insieme"
+          }
+        }
+      }
+    },
+    "Matrix products, attention and weight widening, on the GPU and on the CPU, each checked against the exact result. No model is needed, nothing is downloaded. About 30 seconds; the queue waits meanwhile." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte, Attention und Aufweitung der Gewichte, auf der GPU und auf der CPU, jeweils gegen das exakte Ergebnis geprüft. Kein Modell nötig, nichts wird heruntergeladen. Etwa 30 Sekunden; die Warteschlange wartet so lange."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales, atención y ampliación de los pesos, en la GPU y en la CPU, cada uno comprobado frente al resultado exacto. No hace falta ningún modelo, no se descarga nada. Unos 30 segundos; la cola espera mientras tanto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels, attention et élargissement des poids, sur le GPU et sur le CPU, chacun vérifié contre le résultat exact. Aucun modèle n’est nécessaire, rien n’est téléchargé. Environ 30 secondes ; la file attend pendant ce temps."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali, attenzione e ampliamento dei pesi, sulla GPU e sulla CPU, ciascuno verificato rispetto al risultato esatto. Non serve alcun modello, non si scarica nulla. Circa 30 secondi; la coda attende nel frattempo."
+          }
+        }
+      }
+    },
     "Measure Again" : {
       "localizations" : {
         "de" : {
@@ -9456,58 +9758,58 @@
         }
       }
     },
-    "Measures the installed models on this Mac, at 512² — then, if you want, opens a prefilled GitHub issue. Nothing is sent without your click." : {
+    "Measures what this Mac computes, then opens a prefilled GitHub issue" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Misst die installierten Modelle auf diesem Mac bei 512² – und öffnet dann auf Wunsch ein vorausgefülltes GitHub-Issue. Ohne Ihren Klick wird nichts gesendet."
+            "value" : "Misst, was dieser Mac rechnet, und öffnet dann ein vorausgefülltes GitHub-Issue"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mide los modelos instalados en este Mac, a 512² — y luego, si quieres, abre una incidencia de GitHub ya rellenada. No se envía nada sin tu clic."
+            "value" : "Mide lo que calcula este Mac y luego abre una incidencia de GitHub ya rellenada"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mesure les modèles installés sur ce Mac, à 512² — puis, si vous le voulez, ouvre un signalement GitHub prérempli. Rien n’est envoyé sans votre clic."
+            "value" : "Mesure ce que calcule ce Mac, puis ouvre un signalement GitHub prérempli"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Misura i modelli installati su questo Mac, a 512² — poi, se vuoi, apre una segnalazione GitHub precompilata. Nulla viene inviato senza il tuo clic."
+            "value" : "Misura ciò che calcola questo Mac, poi apre una segnalazione GitHub precompilata"
           }
         }
       }
     },
-    "Measures the installed models on this Mac, then opens a prefilled GitHub issue" : {
+    "Measures what this Mac's chip computes, and how fast — then, if you want, opens a prefilled GitHub issue. Nothing is sent without your click." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Misst die installierten Modelle auf diesem Mac und öffnet dann ein vorausgefülltes GitHub-Issue"
+            "value" : "Misst, was der Chip dieses Macs rechnet und wie schnell – und öffnet dann auf Wunsch ein vorausgefülltes GitHub-Issue. Ohne Ihren Klick wird nichts gesendet."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mide los modelos instalados en este Mac y luego abre una incidencia de GitHub ya rellenada"
+            "value" : "Mide lo que calcula el chip de este Mac, y a qué velocidad — y luego, si quieres, abre una incidencia de GitHub ya rellenada. No se envía nada sin tu clic."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mesure les modèles installés sur ce Mac, puis ouvre un signalement GitHub prérempli"
+            "value" : "Mesure ce que calcule la puce de ce Mac, et à quelle vitesse — puis, si vous le voulez, ouvre un signalement GitHub prérempli. Rien n’est envoyé sans votre clic."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Misura i modelli installati su questo Mac, poi apre una segnalazione GitHub precompilata"
+            "value" : "Misura ciò che calcola il chip di questo Mac, e a quale velocità — poi, se vuoi, apre una segnalazione GitHub precompilata. Nulla viene inviato senza il tuo clic."
           }
         }
       }
@@ -9564,34 +9866,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Memoria (picco)"
-          }
-        }
-      }
-    },
-    "Memory peak" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Speicherspitze"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pico de memoria"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pic mémoire"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Picco di memoria"
           }
         }
       }
@@ -10699,6 +10973,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non installato"
+          }
+        }
+      }
+    },
+    "Not used" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht verwendet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No usado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non utilisé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non usato"
           }
         }
       }
@@ -12442,34 +12744,6 @@
         }
       }
     },
-    "Render at 512², estimated" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rendering in 512², geschätzt"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Renderizado a 512², estimado"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rendu en 512², estimé"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rendering a 512², stimato"
-          }
-        }
-      }
-    },
     "Render statistics (⌥⌘I)" : {
       "localizations" : {
         "de" : {
@@ -14134,34 +14408,6 @@
         }
       }
     },
-    "Step in steady state" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schritt im Dauerbetrieb"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paso en régimen estable"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pas en régime"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Passo a regime"
-          }
-        }
-      }
-    },
     "Steps" : {
       "localizations" : {
         "de" : {
@@ -14725,34 +14971,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Variazioni sottili"
-          }
-        }
-      }
-    },
-    "Swap" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swap"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Intercambio"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swap"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swap"
           }
         }
       }
@@ -15947,6 +16165,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il profilo macchina imposta «%@», cosa che non gli spetta: un profilo regola velocità e spazio, mai l’immagine."
+          }
+        }
+      }
+    },
+    "The measure of %@ was taken with another macOS or another version of Siliconed: it is not used. Measure again to let Siliconed choose for this Mac." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Messung vom %@ wurde mit einem anderen macOS oder einer anderen Version von Siliconed erstellt: Sie wird nicht verwendet. Messen Sie erneut, damit Siliconed für diesen Mac wählt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La medición del %@ se hizo con otro macOS u otra versión de Siliconed: no se usa. Mida de nuevo para que Siliconed elija para este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La mesure du %@ a été prise avec un autre macOS ou une autre version de Siliconed : elle n’est pas utilisée. Mesurez à nouveau pour que Siliconed choisisse pour ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La misura del %@ è stata presa con un altro macOS o un’altra versione di Siliconed: non è usata. Misura di nuovo perché Siliconed scelga per questo Mac."
           }
         }
       }
@@ -17533,6 +17779,90 @@
         }
       }
     },
+    "This session uses Siliconed's defaults. Measuring lets it choose for this Mac, from the next launch." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Sitzung verwendet die Standardwerte von Siliconed. Eine Messung lässt es ab dem nächsten Start für diesen Mac wählen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta sesión usa los valores predeterminados de Siliconed. Medir le permite elegir para este Mac, desde el próximo inicio."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette session utilise les réglages par défaut de Siliconed. Mesurer lui permet de choisir pour ce Mac, dès le prochain lancement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa sessione usa i valori predefiniti di Siliconed. Misurare gli permette di scegliere per questo Mac, dal prossimo avvio."
+          }
+        }
+      }
+    },
+    "This session uses the choices of this Mac's measure of %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Sitzung verwendet die Wahl aus der Messung dieses Macs vom %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta sesión usa las elecciones de la medición de este Mac del %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette session utilise les choix de la mesure de ce Mac du %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa sessione usa le scelte della misura di questo Mac del %@."
+          }
+        }
+      }
+    },
+    "This session uses the measure of %@; the newer one applies from the next launch." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Sitzung verwendet die Messung vom %@; die neuere gilt ab dem nächsten Start."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta sesión usa la medición del %@; la más reciente se aplica desde el próximo inicio."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette session utilise la mesure du %@ ; la plus récente s’applique au prochain lancement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa sessione usa la misura del %@; la più recente si applica dal prossimo avvio."
+          }
+        }
+      }
+    },
     "Thumbnail size" : {
       "localizations" : {
         "de" : {
@@ -17993,6 +18323,34 @@
         }
       }
     },
+    "Used" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwendet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usato"
+          }
+        }
+      }
+    },
     "VAE" : {
       "localizations" : {
         "de" : {
@@ -18273,6 +18631,62 @@
         }
       }
     },
+    "Weight widening, CPU" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufweitung der Gewichte, CPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliación de los pesos, CPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Élargissement des poids, CPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliamento dei pesi, CPU"
+          }
+        }
+      }
+    },
+    "Weight widening, GPU" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufweitung der Gewichte, GPU"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliación de los pesos, GPU"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Élargissement des poids, GPU"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliamento dei pesi, GPU"
+          }
+        }
+      }
+    },
     "Welcome to Siliconed" : {
       "localizations" : {
         "de" : {
@@ -18353,6 +18767,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cosa legge il modello: il prompt riscritto, ogni soggetto legato alla sua immagine"
+          }
+        }
+      }
+    },
+    "What this Mac uses" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was dieser Mac verwendet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que usa este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce que ce Mac utilise"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa usa questo Mac"
           }
         }
       }
@@ -19085,6 +19527,34 @@
         }
       }
     },
+    "attention" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attention"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "atención"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "attention"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "attenzione"
+          }
+        }
+      }
+    },
     "average %@ per full step" : {
       "localizations" : {
         "de" : {
@@ -19165,34 +19635,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "calcolo"
-          }
-        }
-      }
-    },
-    "differs from the reference" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "weicht von der Referenz ab"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "se desvía de la referencia"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "s’écarte de la référence"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "si scosta dal riferimento"
           }
         }
       }
@@ -19539,34 +19981,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "argomento in più: «%@»"
-          }
-        }
-      }
-    },
-    "failed" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "fehlgeschlagen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "error"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "échec"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "non riuscito"
           }
         }
       }
@@ -20075,30 +20489,58 @@
         }
       }
     },
-    "matches the reference" : {
+    "matrix products in fp16 and bf16" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "entspricht der Referenz"
+            "value" : "Matrixprodukte in fp16 und bf16"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "conforme a la referencia"
+            "value" : "productos matriciales en fp16 y bf16"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "conforme à la référence"
+            "value" : "produits matriciels en fp16 et bf16"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "conforme al riferimento"
+            "value" : "prodotti matriciali in fp16 e bf16"
+          }
+        }
+      }
+    },
+    "matrix products in fp32" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte in fp32"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "productos matriciales en fp32"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "produits matriciels en fp32"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "prodotti matriciali in fp32"
           }
         }
       }
@@ -20607,30 +21049,30 @@
         }
       }
     },
-    "none" : {
+    "not available" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "keine"
+            "value" : "nicht verfügbar"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ninguno"
+            "value" : "no disponible"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "aucun"
+            "value" : "non disponible"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "nessuna"
+            "value" : "non disponibile"
           }
         }
       }
@@ -21307,34 +21749,6 @@
         }
       }
     },
-    "text encoder" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Text-Encoder"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "codificador de texto"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "encodeur de texte"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "encoder di testo"
-          }
-        }
-      }
-    },
     "that of the imported model (architecture %@: %@)" : {
       "localizations" : {
         "de" : {
@@ -21487,6 +21901,34 @@
         }
       }
     },
+    "the first measurement again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "die erste Messung erneut"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "de nuevo la primera medición"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "la première mesure, de nouveau"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "di nuovo la prima misura"
+          }
+        }
+      }
+    },
     "the prompt is ONE argument: put it in quotes — silicontrol help add" : {
       "localizations" : {
         "de" : {
@@ -21623,34 +22065,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "tempo"
-          }
-        }
-      }
-    },
-    "timed (no reference yet)" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "gemessen (noch keine Referenz)"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cronometrado (aún sin referencia)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "chronométré (pas encore de référence)"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cronometrato (ancora nessun riferimento)"
           }
         }
       }
@@ -21819,34 +22233,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "attiva Sperimentale → Soggetti con nome nel menu dell’app"
-          }
-        }
-      }
-    },
-    "two DiT evaluations" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "zwei DiT-Auswertungen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "dos evaluaciones del DiT"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "deux évaluations du DiT"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "due valutazioni del DiT"
           }
         }
       }
@@ -22043,6 +22429,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "wait segue una sola griglia: wait g2 [--out D]"
+          }
+        }
+      }
+    },
+    "weight widening" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufweitung der Gewichte"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ampliación de los pesos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "élargissement des poids"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ampliamento dei pesi"
           }
         }
       }

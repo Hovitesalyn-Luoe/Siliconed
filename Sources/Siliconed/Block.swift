@@ -54,20 +54,18 @@ package final class Block {
     /// judged against the double. It was 3.1–3.4 % of an
     /// evaluation on the CPU, the first elementwise item of the budget; the norms stay on the CPU.
     private let elementwise: ElementwiseGPU
-    /// **One attention per sequence length, built on demand.** The `MPSGraph` graph freezes
-    /// its shapes at construction; the spectral schedule needs two — the full sequence and
-    /// that of the low evaluation. The arena slices do not move: they are
-    /// sized for the longest, and a shorter sequence only occupies their beginning.
-    private var attentions: [Int: Attention] = [:]
-    /// The matrix flash kernel, when `SILICONED_FLASH=1` asks for it — **one per length**, like
-    /// the other. It is not the default: in isolation it is on a par with `MPSGraph`, and what
-    /// decides is what it returns *inside the engine*, where it removes 6.1 GB of traffic per call.
-    private var flashes: [Int: FlashMatrix] = [:]
+    /// **The block's attention, built on first use** at its one length (`shapes.sequence`): the
+    /// `MPSGraph` graph freezes its shapes at construction.
+    private var builtAttention: Attention?
+    /// The matrix flash kernel, when `SILICONED_FLASH=1` asks for it. It is not the default: in
+    /// isolation it is on a par with `MPSGraph`, and what decides is what it returns *inside the
+    /// engine*, where it removes 6.1 GB of traffic per call.
+    private var builtFlash: FlashMatrix?
     static let useFlash = EngineSettings.effective.flash
-    /// The SDPA cut by heads between the GPU and the AMX (the only path), one per
-    /// length like the others. Not taken under `SILICONED_FLASH` nor in half precision, and below
-    /// `HeadSplitAttention.minimumSequence`, where the text blocks run (32 tokens).
-    private var headSplits: [Int: HeadSplitAttention] = [:]
+    /// The SDPA cut by heads between the GPU and the AMX. Not taken under `flash`, nor where
+    /// `HeadSplitAttention.applies` says no (`head_split` off, half precision, below
+    /// `minimumSequence`, where the text blocks run at 32 tokens): MPSGraph there.
+    private var builtHeadSplit: HeadSplitAttention?
     private let arena: Arena
     private let artifact: Artifact
     private var prefix: String = ""
@@ -161,48 +159,24 @@ package final class Block {
         }
     }
 
-    /// **`SILICONED_WIDEN_FUSED=1`** — widen in the GEMM's command buffer rather than
-    /// in its own.
-    ///
-    /// The two paths do the same work on the same hardware; they do not *measure* the same.
-    /// Separate, the widening keeps its phase on the clock and the GEMM census stays comparable
-    /// with all previous sessions — at the price of one more submission per weight, ~240 per
-    /// evaluation. Fused, those submissions are saved but the returned time covers both, and
-    /// "gemm GPU" stops meaning what it used to mean.
-    ///
-    /// The default is **separate**, because the first thing we want to know is what
-    /// GPU widening costs *on its own* against the CPU's 0.94 s — and a total that does not
-    /// partition is useless. Fused or separate, GPU widening is off by default on this
-    /// machine (+20 % in the engine, `WidenGPU`).
-    package static let fusedWiden = EngineSettings.effective.widenFused
-
     /// Puts the weight `name` into fp32 in the reserve, by the shortest path available.
     ///
-    /// Returns a prologue to chain onto the GEMM if the widening is to blend into its command
-    /// buffer, and `nil` if it is already done — separate GPU or CPU. The three paths produce the
-    /// **same bits** (identical over 39.3 M values): the choice is about speed, never about
+    /// GPU or CPU, the two paths produce the **same bits**: the choice is about speed, never about
     /// correctness.
-    private func prepareWeight(_ name: String, count: Int,
-                               buffer: MTLBuffer) throws -> ((MTLCommandBuffer) -> Void)? {
+    private func prepareWeight(_ name: String, count: Int, buffer: MTLBuffer) throws {
         if let widener, let source = widener.source(prefix + name, in: artifact) {
             guard artifact.tensors[prefix + name]?.count == count else {
                 throw Artifact.Failure.badHeader("\(prefix + name): unexpected shape")
             }
-            if Block.fusedWiden {
-                return { commands in
-                    widener.encode(into: commands, source: source, destination: buffer, count: count)
-                }
-            }
             try timed("widening") {
                 _ = try widener.run(source: source, destination: buffer, count: count)
             }
-            return nil
+            return
         }
         // The fallback: an fp32 tensor in the map (`t_embedder`, `cap_embedder`), a count that
         // is not a multiple of four, or no GPU at all. This is the previous path, intact.
         widener?.countFallback(count)
         try timed("widening") { try widen(name, count: count, into: weightReserve) }
-        return nil
     }
 
 
@@ -270,19 +244,20 @@ package final class Block {
         boundaries[name] = Array(UnsafeBufferPointer(start: pointer, count: count))
     }
 
-    /// The flash kernel of this length, or `nil` if it does not apply — too short for its
+    /// The flash kernel, or `nil` if it does not apply — too short for its
     /// tiling, `Dh` other than 128, or simply not requested. *A path that silently decides
     /// not to apply is a path of which we will not know later whether it was used*: the fallback
     /// is reported once, through the warnings.
-    private func flash(_ sequence: Int) -> FlashMatrix? {
+    private func flash() -> FlashMatrix? {
         guard Block.useFlash else { return nil }
-        if let existing = flashes[sequence] { return existing }
+        if let existing = builtFlash { return existing }
+        let sequence = shapes.sequence
         do {
             let built = try FlashMatrix(device: gemm.device, queue: gemm.queue,
                                         heads: shapes.heads, sequence: sequence,
                                         headDim: shapes.headDim, rowsPerSimdgroup: 8,
                                         dimsPerSimdgroup: 64, keysPerTile: 16, blocksPerGroup: 8)
-            flashes[sequence] = built
+            builtFlash = built
             return built
         } catch {
             Warnings.emit("⚠ SILICONED_FLASH: falling back to MPSGraph at S=\(sequence) — \(error)")
@@ -290,50 +265,33 @@ package final class Block {
         }
     }
 
-    /// **Drop every attention built at another length than `sequence`**: the spectral schedule's
-    /// half-size ones once the full-size steps begin — they never run again in this render, and each
-    /// holds its scratch and spill (a split at 1024 rows, ~37 MB) beside the full-size ones.
-    func forgetAttentions(except sequence: Int) {
-        headSplits = headSplits.filter { $0.key == sequence }
-        attentions = attentions.filter { $0.key == sequence }
-        flashes = flashes.filter { $0.key == sequence }
-    }
-
-    /// The head split of this length, or `nil` when it does not apply.
-    private func headSplit(_ sequence: Int) throws -> HeadSplitAttention? {
-        guard !Attention.useHalfPrecision, sequence >= HeadSplitAttention.minimumSequence else { return nil }
-        if let existing = headSplits[sequence] { return existing }
+    /// The head split, or `nil` when it does not apply.
+    private func headSplit() throws -> HeadSplitAttention? {
+        let sequence = shapes.sequence
+        guard HeadSplitAttention.applies(sequence: sequence) else { return nil }
+        if let existing = builtHeadSplit { return existing }
         let built = try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: shapes.heads,
                                        sequence: sequence, headDim: shapes.headDim)
-        headSplits[sequence] = built
+        builtHeadSplit = built
         return built
     }
 
-    /// The attention of this length, built on first call.
-    private func attention(_ sequence: Int) -> Attention {
-        if let existing = attentions[sequence] { return existing }
+    /// The attention, built on first call.
+    private func attention() -> Attention {
+        if let existing = builtAttention { return existing }
         let built = Attention(device: gemm.device, queue: gemm.queue,
-                              heads: shapes.heads, sequence: sequence, headDim: shapes.headDim)
-        attentions[sequence] = built
+                              heads: shapes.heads, sequence: shapes.sequence, headDim: shapes.headDim)
+        builtAttention = built
         return built
     }
 
-    /// `x` as `[S, D]`, modified in place. `freqs` as `[S, Dh/2, 2]`. `adaln` as `[256]`.
-    ///
-    /// - Parameter sequence: the length **of this call**, at most the sizing one. The
-    ///   spectral schedule evaluates the first steps on fewer tokens; the slices are
-    ///   the same, only their useful part shrinks. A larger length would be a write outside the
-    ///   slice, so it is refused rather than truncated.
+    /// `x` as `[S, D]`, modified in place, `S` the sizing length. `freqs` as `[S, Dh/2, 2]`.
+    /// `adaln` as `[256]`.
     package func forward(x: UnsafeMutablePointer<Float>, freqs: UnsafePointer<Float>,
-                        adaln: UnsafePointer<Float>, adalnDim: Int, prefix: String,
-                        sequence: Int? = nil) throws {
+                        adaln: UnsafePointer<Float>, adalnDim: Int, prefix: String) throws {
         self.prefix = prefix
-        let s = sequence ?? shapes.sequence
+        let s = shapes.sequence
         let d = shapes.dim, h = shapes.hidden
-        guard s <= shapes.sequence else {
-            throw Artifact.Failure.misuse(
-                "\(prefix): \(s) tokens requested, \(shapes.sequence) reserved")
-        }
         let heads = shapes.heads, headDim = shapes.headDim
 
         // ── modulation: a bare Linear, with bias, four pieces. No SiLU (pitfall 3.3).
@@ -380,8 +338,8 @@ package final class Block {
         for (name, destination, buffer, label) in [("attention.to_q.weight", qHeads, qb, "layer0_q"),
                                                    ("attention.to_k.weight", kHeads, kb, "layer0_k"),
                                                    ("attention.to_v.weight", vHeads, vb, "layer0_v")] {
-            let prologue = try prepareWeight(name, count: d * d, buffer: w)
-            timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: buffer, m: s, k: d, n: d, weightIsTransposed: transposed, before: prologue) }
+            try prepareWeight(name, count: d * d, buffer: w)
+            timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: buffer, m: s, k: d, n: d, weightIsTransposed: transposed) }
             try applyLoRA(name, x: a, c: buffer, m: s, k: d, n: d)
             record(label, destination, s * d)
         }
@@ -403,8 +361,8 @@ package final class Block {
         // the precision conversion live in `Attention`'s graph — see its initialization comment
         // for what this CPU copy cost.
         let ob = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: shapes.sequence * d * 4, name: "sdpaOut")
-        let flash = flash(s)
-        let split = flash == nil ? try headSplit(s) : nil
+        let flash = flash()
+        let split = flash == nil ? try headSplit() : nil
         timed("sdpa wall") {
             if let flash {
                 timings["sdpa GPU", default: 0] += flash.run(q: qb, k: kb, v: vb, into: ob)
@@ -413,14 +371,14 @@ package final class Block {
                 timings["sdpa GPU", default: 0] += gpu
                 timings["sdpa CPU", default: 0] += cpu
             } else {
-                timings["sdpa GPU", default: 0] += attention(s).run(q: qb, k: kb, v: vb, into: ob)
+                timings["sdpa GPU", default: 0] += attention().run(q: qb, k: kb, v: vb, into: ob)
             }
         }
         record("layer0_sdpa_out", merged, s * d)
 
-        let outPrologue = try prepareWeight("attention.to_out.0.weight", count: d * d, buffer: w)
+        try prepareWeight("attention.to_out.0.weight", count: d * d, buffer: w)
         let mb = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: shapes.sequence * d * 4, name: "merged")
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: mb, b: w, c: o, m: s, k: d, n: d, weightIsTransposed: transposed, before: outPrologue) }
+        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: mb, b: w, c: o, m: s, k: d, n: d, weightIsTransposed: transposed) }
         try applyLoRA("attention.to_out.0.weight", x: mb, c: o, m: s, k: d, n: d)
         record("layer0_attention_out", qkv, s * d)
 
@@ -438,20 +396,20 @@ package final class Block {
 
         let h1 = try gemm.wrap(UnsafeMutableRawPointer(hidden1), bytes: shapes.sequence * h * 4, name: "h1")
         let h3 = try gemm.wrap(UnsafeMutableRawPointer(hidden3), bytes: shapes.sequence * h * 4, name: "h3")
-        let w1Prologue = try prepareWeight("feed_forward.w1.weight", count: h * d, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: h1, m: s, k: d, n: h, weightIsTransposed: transposed, before: w1Prologue) }
+        try prepareWeight("feed_forward.w1.weight", count: h * d, buffer: w)
+        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: h1, m: s, k: d, n: h, weightIsTransposed: transposed) }
         try applyLoRA("feed_forward.w1.weight", x: a, c: h1, m: s, k: d, n: h)
         record("layer0_w1_out", hidden1, s * h)
-        let w3Prologue = try prepareWeight("feed_forward.w3.weight", count: h * d, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: h3, m: s, k: d, n: h, weightIsTransposed: transposed, before: w3Prologue) }
+        try prepareWeight("feed_forward.w3.weight", count: h * d, buffer: w)
+        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: h3, m: s, k: d, n: h, weightIsTransposed: transposed) }
         try applyLoRA("feed_forward.w3.weight", x: a, c: h3, m: s, k: d, n: h)
         record("layer0_w3_out", hidden3, s * h)
 
         timed("swiglu") { timings["elementwise GPU", default: 0] += elementwise.swiglu((h1, 0), (h3, 0), count: s * h) }
         record("layer0_swiglu_out", hidden1, s * h)
 
-        let w2Prologue = try prepareWeight("feed_forward.w2.weight", count: d * h, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: h1, b: w, c: o, m: s, k: h, n: d, weightIsTransposed: transposed, before: w2Prologue) }
+        try prepareWeight("feed_forward.w2.weight", count: d * h, buffer: w)
+        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: h1, b: w, c: o, m: s, k: h, n: d, weightIsTransposed: transposed) }
         try applyLoRA("feed_forward.w2.weight", x: h1, c: o, m: s, k: h, n: d)
         record("layer0_feed_forward_out", qkv, s * d)
 

@@ -351,13 +351,15 @@ struct LicenseRequest: Identifiable {
     var id: String { card.id }
 }
 
-/// **The diagnostic** (`Diagnostic.run`, ~15 s per model): what it measures, while it runs, then its report.
+/// **The diagnostic** (`Diagnostic.run`, ~30 s, no weights): what it measures, while it runs, then its report.
 enum DiagnosticPhase {
     /// Not started: the sheet explains what it does, and how long.
     case ready
-    /// Running: the models measured so far out of `total`, and the stage under way.
+    /// Running: the stages done so far out of `total`, and the one under way.
     case running(done: Int, total: Int, line: String)
     case finished(Diagnostic.Report)
+    /// Refused or failed before its report (another process rendering: `renderAlreadyRunning`).
+    case failed(Problem)
 }
 
 /// **What the remote control listens to**: the lifecycle of each job, rendered by it or not.
@@ -444,8 +446,8 @@ final class AppState {
     static let frontFamilies: Set<Family> = [.zImage, .qwenImage21]
     private static let developerModeKey = "developerMode"
     /// **Developer Mode**: the two other families, and the solvers (`offeredSolvers`).
-    /// One of the app's two preferences (the other is `Curtain.preferred`) — written without a render
-    /// gesture, because the user switched it.
+    /// One of the app's preferences (with `Curtain.preferred`, the named subjects' switch and the capacity
+    /// map) — written without a render gesture, because the user switched it.
     var developerMode = UserDefaults.standard.bool(forKey: AppState.developerModeKey) {
         didSet {
             guard developerMode != oldValue else { return }
@@ -716,11 +718,18 @@ final class AppState {
     init(library: Library) {
         self.library = library
         subjects = SubjectLibrary(library: library)
-        // The machine profile, read in THIS library, once per process and before
-        // any render: the app builds only one `AppState` (see `App.swift`).
+        // The machine profile, read in THIS library, and the capacity map the user measured — once per
+        // process and before anything reads the settings (the sidebar's memory need does, at the first
+        // drawing): the app builds only one `AppState` (see `App.swift`). A map that no longer matches
+        // this Mac, this macOS or this build is not handed over (the engine would only refuse it): the
+        // diagnostic sheet says it is stale.
+        let stored = Self.readStoredMap()
+        let map = stored?.isCurrent == true ? stored : nil
+        var loaded = false
         do {
-            try EngineSettings.load(from: library)
+            try EngineSettings.load(from: library, map: map)
             profileWarnings = EngineSettings.effective.warnings.map(Library.withoutHome)
+            loaded = true
         } catch {
             profileWarnings = [Library.withoutHome(error.localizedDescription)]
         }
@@ -729,6 +738,35 @@ final class AppState {
         occupancy = library.occupancy()
         identifier = defaultIdentifier
         readEditors()
+        storedMap = stored
+        mapInUse = loaded ? map : nil
+    }
+
+    // MARK: Capacity map
+
+    /// **The capacity map, in the app's preferences** (`Diagnostic.Report`, its JSON): what the engine
+    /// branches on (`CapacityRules.swift`). Measured **only when the user asks** (« Report My
+    /// Configuration »), never in the background (the user, 14/10/2026): renders before it run on the
+    /// defaults, renders after it on its branches — a before/after the user can see. Without one, the
+    /// defaults; one whose `fingerprint` no longer matches (another Mac, macOS build or app build) is
+    /// ignored, and the sheet offers to measure again.
+    private static let capacityMapKey = "capacityMap"
+
+    private static func readStoredMap() -> Diagnostic.Report? {
+        UserDefaults.standard.data(forKey: capacityMapKey).flatMap { try? JSONDecoder().decode(Diagnostic.Report.self, from: $0) }
+    }
+
+    /// The map kept in the preferences, current or not.
+    private(set) var storedMap: Diagnostic.Report?
+    /// The map this process's settings were read with — `nil`: the defaults. It never changes after
+    /// launch: the settings are read once per process, and a render's bits must not move mid-session.
+    private(set) var mapInUse: Diagnostic.Report?
+
+    /// Keeps `report` as the map of the next launches — never this one's.
+    private func keep(_ report: Diagnostic.Report) {
+        guard let data = try? report.json(pretty: false) else { return }
+        UserDefaults.standard.set(data, forKey: Self.capacityMapKey)
+        storedMap = report
     }
 
     // MARK: Catalog
@@ -1362,8 +1400,8 @@ final class AppState {
 
     /// Launches the queue's first job if nothing is running. Called again at the end of each render,
     /// succeeded, stopped or failed: the queue empties by itself.
-    /// The diagnostic loads weights like a render: the queue waits for it (and it for the queue) — and
-    /// for an installation, which reads and writes GBs (`installBlocker`).
+    /// The diagnostic occupies the GPU and the CPU like a render: the queue waits for it (and it for the
+    /// queue) — and for an installation, which reads and writes GBs (`installBlocker`).
     private func next() {
         guard currentJob == nil, !file.isEmpty, !diagnosticRunning, forgeInProgress == nil else {
             if currentJob == nil, let a = activity {
@@ -2124,7 +2162,8 @@ final class AppState {
     /// only its components and the encoder.
     var familyToInstall: Family? { missing != nil ? card?.family : nil }
 
-    /// A forge, a render, a diagnostic: one waits for the other (all read or write GBs).
+    /// A forge, a render, a diagnostic: one waits for the other (the first two read or write GBs, the
+    /// diagnostic would time them).
     var managementPossible: Bool { forgeInProgress == nil && !busy && !diagnosticRunning }
 
     /// **No render while an installation or an import runs**: one big job at a time on 16 GB — the
@@ -2304,40 +2343,46 @@ final class AppState {
 
     // MARK: Diagnostic
 
-    /// **What the diagnostic measures**: the visible models installed, the publishers' (an imported
-    /// DiT has no golden, and its timings are its family's).
-    var diagnosticCards: [ModelCard] { visibleReady.filter { !$0.isImported } }
-
-    /// Why the diagnostic cannot start now, or `nil`. It loads weights like a render — measured
-    /// beside one, it would measure both.
+    /// Why the diagnostic cannot start now, or `nil`. It occupies the GPU and the CPU like a render —
+    /// measured beside one, it would measure both.
     var diagnosticBlocker: String? {
         if busy { return String(localized: "A render is running: the diagnostic can start once the queue is empty.") }
         if forgeInProgress != nil { return String(localized: "An installation is running: the diagnostic can start once it is done.") }
-        if diagnosticCards.isEmpty { return String(localized: "Install a model first: the diagnostic measures the models installed.") }
         return nil
     }
 
     func openDiagnostic() {
         managementOpen = false
-        if case .finished = diagnostic {} else if !diagnosticRunning { diagnostic = .ready }
+        switch diagnostic {
+        case .finished, .running: break
+        case .ready, .failed: diagnostic = .ready
+        }
         diagnosticOpen = true
     }
 
-    /// **Runs `Diagnostic.run`** off the main thread (~15 s per model), the queue held meanwhile.
+    /// **Runs `Diagnostic.run`** off the main thread (~30 s), the queue held meanwhile.
     func startDiagnostic() {
         guard diagnosticBlocker == nil else { return }
-        let cards = diagnosticCards, b = library
         let cancellation = Cancellation()
         diagnosticCancellation = cancellation
-        diagnostic = .running(done: 0, total: cards.count, line: String(localized: "Preparing…"))
+        let total = Diagnostic.Stage.allCases.count
+        diagnostic = .running(done: 0, total: total, line: String(localized: "Preparing…"))
         Task.detached(priority: .userInitiated) { [weak self] in
-            let report = Diagnostic.run(cards, in: b, cancellation: cancellation) { card, stage in
-                Task { @MainActor in self?.diagnosticProgress(card, stage, cards: cards) }
+            let outcome = Result { () throws(EngineError) -> Diagnostic.Report in
+                try Diagnostic.run(cancellation: cancellation) { stage in
+                    Task { @MainActor in self?.diagnosticProgress(stage) }
+                }
             }
             await MainActor.run {
                 guard let self else { return }
                 self.diagnosticCancellation = nil
-                self.diagnostic = cancellation.isCancelled ? .ready : .finished(report)
+                switch outcome {
+                case _ where cancellation.isCancelled: self.diagnostic = .ready
+                case .success(let report):
+                    self.diagnostic = .finished(report)
+                    self.keep(report)   // what this Mac uses from the next launch
+                case .failure(let error): self.diagnostic = .failed(Problem(error))
+                }
                 self.next()
             }
         }
@@ -2345,15 +2390,17 @@ final class AppState {
 
     func cancelDiagnostic() { diagnosticCancellation?.cancel() }
 
-    /// The library names the model and the stage (`Diagnostic.Stage`): the app says it in the user's language.
-    private func diagnosticProgress(_ card: ModelCard, _ stage: Diagnostic.Stage, cards: [ModelCard]) {
-        guard case .running = diagnostic, let i = cards.firstIndex(where: { $0.id == card.id }) else { return }
-        let name = switch stage {
-        case .textEncoder: String(localized: "text encoder")
-        case .denoiser: String(localized: "two DiT evaluations")
-        case .decoder: String(localized: "VAE decoder")
+    /// The library names the stage (`Diagnostic.Stage`): the app says it in the user's language.
+    private func diagnosticProgress(_ stage: Diagnostic.Stage) {
+        guard case .running = diagnostic, let i = Diagnostic.Stage.allCases.firstIndex(of: stage) else { return }
+        let line = switch stage {
+        case .products: String(localized: "matrix products in fp32")
+        case .lowPrecision: String(localized: "matrix products in fp16 and bf16")
+        case .attention: String(localized: "attention")
+        case .widening: String(localized: "weight widening")
+        case .witness: String(localized: "the first measurement again")
         }
-        diagnostic = .running(done: i, total: cards.count, line: "\(card.name) · \(name)")
+        diagnostic = .running(done: i, total: Diagnostic.Stage.allCases.count, line: line)
     }
 
     /// **« Open the issue »**: the GitHub form, prefilled by the report. A URL beyond ~8 000 characters is

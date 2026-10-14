@@ -24,7 +24,7 @@ import MetalPerformanceShaders
 /// engine wait, and the wait is wall-clock time that neither of them counts as its own.
 /// The conductor therefore servo-controls it, shape by shape, on the times actually observed.
 ///
-/// ## Three things that cannot be guessed
+/// ## Two things that cannot be guessed
 ///
 /// 1. **The GPU always takes the first rows.** Its `MPSMatrix` therefore starts at offset zero, and
 ///    the question of a Metal offset's alignment never arises; it is the AMX, which works
@@ -33,11 +33,6 @@ import MetalPerformanceShaders
 ///    *same* output, each on its slice of rows. The first measurement read two distinct buffers, hence
 ///    314 MB of traffic where there is only 157: its measurement was **pessimistic** about
 ///    bandwidth, not optimistic.
-/// 3. **Fused widening is incompatible with co-execution**, and silently so.
-///    Fused, the weight is widened *in the GEMM's command buffer*: Metal orders its two
-///    encoders, but the AMX is not in that buffer — it would read the reserve while the GPU
-///    is still writing it. The conductor therefore refuses to start if both flags are set, rather
-///    than return plausible and wrong numbers.
 ///
 /// **`@unchecked Sendable`**: the AMX thread reads `self` while the calling thread works
 /// on the GPU, and that is intended. Their baton pass is made of two semaphores (`ready`, `done`)
@@ -101,12 +96,6 @@ package final class Conductor: @unchecked Sendable {
     /// default, and the flag's +2.8 % was the price of a correct computation.
     package static let spinning = EngineSettings.effective.amxSpin
 
-    /// The number of threads entrusted to BNNS. **Two**, because it was measured that there is one AMX block per
-    /// P cluster — two on this machine — and that two threads return exactly the throughput of "all
-    /// the threads" (1.969 TFLOP/s in both cases). Letting BNNS decide makes it partition
-    /// according to the cores it believes are free, yet the conductor occupies one of them.
-    package static let threads = EngineSettings.effective.amxThreads
-
     /// The cut's step. Big enough for the MPS operator cache to stay small, fine enough
     /// for the servo-control to keep something to correct with: at 4,128 rows, 256 leaves sixteen points.
     package static let quantum = EngineSettings.effective.amxQuantum
@@ -141,6 +130,9 @@ package final class Conductor: @unchecked Sendable {
     /// throughput ratio nor the same sensitivity to `m`: a single `T` would serve one and
     /// penalize the other.
     package private(set) var fraction: [String: Double] = [:]
+    /// **The GPU's share before the servo moves it** — the whole of a frozen cut's `T`:
+    /// `amxFraction` by default; the diagnostic sets the share it has just measured on the product.
+    package var initialFraction = EngineSettings.effective.amxFraction
     /// What each engine spent waiting for the other. This is the imbalance, and it is invisible
     /// if it is not recorded: neither the GPU nor the AMX counts it as its own.
     package private(set) var idleGPU = 0.0
@@ -149,13 +141,6 @@ package final class Conductor: @unchecked Sendable {
     /// The FLOPs passed through the cut, and the wall-clock time they cost.
     package private(set) var coFLOP = 0.0
     package private(set) var coSeconds = 0.0
-
-    package enum Failure: Error, CustomStringConvertible {
-        case incompatible(String)
-        package var description: String {
-            switch self { case .incompatible(let why): return "co-execution: \(why)" }
-        }
-    }
 
     /// **Is the cut servo-controlled?** True by default, and it is the speed path: `T` follows the
     /// thermal drift, which was recorded at 13.2 % over four renders.
@@ -167,13 +152,8 @@ package final class Conductor: @unchecked Sendable {
     /// What is lost is the drift correction, not the accuracy.
     package let driven: Bool
 
-    package init(queue: MTLCommandQueue, fusedWiden: Bool, driven: Bool = true) throws {
+    package init(queue: MTLCommandQueue, driven: Bool = true) {
         self.driven = driven
-        guard !fusedWiden else {
-            throw Failure.incompatible(
-                "SILICONED_WIDEN_FUSED widens the weight in the GEMM's command buffer; "
-                + "the AMX is not in that buffer and would read the reserve while the GPU is writing it")
-        }
         self.queue = queue
         job.pointee = Job()
         amxSeconds.pointee = 0
@@ -237,23 +217,35 @@ package final class Conductor: @unchecked Sendable {
 
     private func amx(_ j: Job) {
         guard j.rows > 0 else { return }
-        // The weight is stored `[input, output]` by forge v3, so nothing to transpose; if it
-        // were not, it would be `[output, input]` and it is `B` that we would transpose — the same
-        // decision as `transposeRight` on the MPS side, made at the same place.
-        var (A, B, C) = Conductor.descriptors(a: aPointer.advanced(by: j.offset * j.k * 4), b: bPointer,
-                                              c: cPointer.advanced(by: j.offset * j.n * 4),
-                                              rows: j.rows, k: j.k, n: j.n, transposeWeight: j.transposeWeight)
-        var params = BNNSFilterParameters()
-        let size = amx_matmul_workspace(false, j.transposeWeight, 1.0, &A, &B, &C, &params)
+        let (status, size) = Conductor.multiply(a: aPointer.advanced(by: j.offset * j.k * 4), b: bPointer,
+                                                c: cPointer.advanced(by: j.offset * j.n * 4), rows: j.rows,
+                                                k: j.k, n: j.n, transposeWeight: j.transposeWeight,
+                                                workspace: &workspace)
         lastWorkspace = size
-        guard size >= 0 else { refusals += 1; return }
+        if size >= 0 { lastStatus = status }
+        if status != 0 { refusals += 1 }
+    }
+
+    /// **The AMX's side of the cut, on the calling thread**: `C [rows, n] = A [rows, k] · B`, `B` stored
+    /// `[k, n]` (or `[n, k]` under `transposeWeight`), one `BNNSMatMul` — what `amx` runs on the worker
+    /// thread, and what the diagnostic times as "the AMX alone". Returns BNNS's status (−1 when it
+    /// refuses the shapes) and the workspace it asked for.
+    ///
+    /// The weight is stored `[input, output]` by forge v3, so nothing to transpose; if it were not, it
+    /// would be `[output, input]` and it is `B` that we would transpose — the same decision as
+    /// `transposeRight` on the MPS side, made at the same place.
+    package static func multiply(a: UnsafeMutableRawPointer, b: UnsafeMutableRawPointer, c: UnsafeMutableRawPointer,
+                                 rows: Int, k: Int, n: Int, transposeWeight: Bool,
+                                 workspace: inout Pages?) -> (status: Int32, workspaceBytes: Int) {
+        var (A, B, C) = descriptors(a: a, b: b, c: c, rows: rows, k: k, n: n, transposeWeight: transposeWeight)
+        var params = BNNSFilterParameters()
+        let size = amx_matmul_workspace(false, transposeWeight, 1.0, &A, &B, &C, &params)
+        guard size >= 0 else { return (-1, size) }
         // The workspace is kept and grown, never reallocated per call: 13 to 67 MB per GEMM, 238 GEMMs
         // per evaluation, would be gigabytes of mapping and unmapping for nothing. It ends at the
         // largest `workspaceBytes` of the AMX slices this conductor ran.
         if size > (workspace?.capacity ?? 0) { workspace = Pages(bytes: size) }
-        lastStatus = amx_matmul(false, j.transposeWeight, 1.0, &A, &B, &C,
-                                size > 0 ? workspace?.base : nil, &params)
-        if lastStatus != 0 { refusals += 1 }
+        return (amx_matmul(false, transposeWeight, 1.0, &A, &B, &C, size > 0 ? workspace?.base : nil, &params), size)
     }
 
     /// **The BNNS workspace of an AMX slice of `rows` rows** of `[rows, k] × [k, n]`: what `amx` asks of
@@ -299,7 +291,7 @@ package final class Conductor: @unchecked Sendable {
         // The starting point is the measured throughput ratio (3.364 / 5.333). It does not stay
         // long: the first shapes correct it within a few blocks — unless the cut is
         // frozen, in which case it is the end-to-end value, and `fraction` stays empty.
-        let T = fraction[key] ?? EngineSettings.effective.amxFraction
+        let T = fraction[key] ?? initialFraction
         // A multiple of `quantum` (256 by default), so a multiple of any tile: a slice that falls
         // in the middle of a tile makes the GPU pay for a partial row, and that is the kind of loss
         // that does not show in a total. **The cut is quantized, and not merely aligned.**
@@ -357,7 +349,7 @@ package final class Conductor: @unchecked Sendable {
             ? fraction.sorted { $0.key < $1.key }
                   .map { "\($0.key) → \(String(format: "%.3f", $0.value))" }
                   .joined(separator: ", ")
-            : String(format: "%.3f, frozen (reproducible)", EngineSettings.effective.amxFraction)
+            : String(format: "%.3f, frozen (reproducible)", initialFraction)
         return String(format: "co-execution: %.3f TFLOP/s over %.1f s wall, %d rendezvous   ·   "
                             + "GPU idle %.2f s, AMX %.2f s   ·   BNNS: %d refusals, status %d, "
                             + "workspace %d B   ·   T = %@",

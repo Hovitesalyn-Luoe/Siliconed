@@ -9,7 +9,7 @@ import Synchronization
 /// win elsewhere, and **that is a reason to keep it as a conditional branch, not to throw it
 /// away**: code that is not optimal *on this machine* is parameterized code, not dead code.
 ///
-/// Hence three rules:
+/// Hence four rules:
 ///
 /// 1. **These settings are compute branches kept for other chips** (M2–M5) that the reference
 ///    machine could not decide between: each one has its default measured here, and the other
@@ -17,12 +17,16 @@ import Synchronization
 ///    nothing) or wrong (a probe that renders a false image) has no such reason, and is removed.
 /// 2. **The default is the reference machine's**, so that nothing moves unless asked: with no
 ///    profile and no environment variable, the engine takes the paths measured on the M1 Pro.
-/// 3. **The priority is: default → profile → environment.** The profile is what a bench measured
-///    on *this* machine (the developer's bench writes it); the environment keeps the last word,
-///    because a measurement is taken by forcing a setting, never by editing a file.
+/// 3. **The priority is: default → map → profile → environment.** The map is the diagnostic's
+///    capacity map of *this* machine, which only an app designates (`load(from:map:)`) and the rules
+///    of `CapacityRules.swift` turn into `amx`, `amx_fraction`, `flash`, `head_split`; the profile is
+///    what a bench measured here (the developer's bench writes it); the environment keeps the last
+///    word, because a measurement is taken by forcing a setting, never by editing a file.
+/// 4. **Outside an app nothing designates a map**: the command line, the checks and the close-out run
+///    on the defaults, so their bits and the md5 judges do not depend on a measurement of the day.
 ///
-/// The profile carries the fingerprint of the machine that produced it. **It is refused if the
-/// model does not match** — a profile measured on an M4 Pro applied here would pass its constants
+/// The profile carries the fingerprint of the machine that produced it, the map a finer one
+/// (`Diagnostic.Fingerprint`). **Each is refused if it does not match** — a profile measured on an M4 Pro applied here would pass its constants
 /// off as ours, and that is exactly the confusion this file exists to prevent.
 public struct EngineSettings: Sendable {
 
@@ -31,18 +35,16 @@ public struct EngineSettings: Sendable {
     /// GPU + AMX co-execution (`SILICONED_AMX`). It gains 22 % on this machine — 512² 41.3 →
     /// 31.0 s — so **it is on by default on the chip it was measured on** (`referenceChip`):
     /// an app never runs the bench, and a first launch would otherwise render a third
-    /// slower than the published timings. Elsewhere it stays off until the bench measures it: the
-    /// frozen split (`amxFraction`) is this GPU's against this AMX, and a larger GPU would wait on
-    /// the AMX. It changes the last bits, so the developer checks force it off.
+    /// slower than the published timings. Elsewhere it stays off until something measures it — in
+    /// the app the capacity map (`CapacityRules.swift`), which also sets `amxFraction`; for a developer
+    /// the bench's profile: the frozen split is this GPU's against this AMX, and a larger GPU would wait
+    /// on the AMX. It changes the last bits, so the developer checks force it off.
     package var amx = false
     /// The chip `amx` and `amxFraction` were measured on (`machdep.cpu.brand_string`).
     package static let referenceChip = "Apple M1 Pro"
     /// The spinning flag, which returns **wrong** results. It serves only to make the check
     /// fail, and it has no place in a profile.
     package var amxSpin = false
-    /// Two threads: one AMX block per P cluster on this machine (measured). A three-cluster chip would
-    /// ask for three — it is a machine setting, not a law.
-    package var amxThreads = 2
     /// The split's step in tokens. 256 leaves sixteen servo points at 4,128 rows.
     package var amxQuantum = 256
     /// Below that, the split costs more than the computation handed over (the text blocks run at m = 32).
@@ -89,6 +91,11 @@ public struct EngineSettings: Sendable {
     /// 1.673 against 1.667 TFLOP/s, −132 MB. A chip with a larger fp32 accumulator budget would
     /// make it win — the measured cliff is a property of the chip.
     package var flash = false
+    /// **The SDPA cut by heads between the GPU and the CPU** (`HeadSplitAttention`) from S = 1024 on;
+    /// off, those attentions run in one MPSGraph SDPA, as below 1024. ×1.5 on this machine (the map,
+    /// 14/10/2026: 2.33–2.44 against 1.57–1.63 TFLOP/s), hence on by default; a chip whose GPU leaves
+    /// the CPU far behind would reverse it.
+    package var headSplit = true
     /// SDPA in half precision: 3.02 against 1.665 TFLOP/s, ~9 s on a render, and an error of
     /// 1.26·10⁻³ on `model_out`. **Set aside by decision, not by measurement**.
     package var sdpaFp16 = false
@@ -97,13 +104,11 @@ public struct EngineSettings: Sendable {
     /// queued behind the GEMM, which is the bottleneck. On a machine where the CPU is the
     /// bottleneck — fewer P cores, or a more heavily used AMX — the verdict reverses.
     package var widenGPU = false
-    /// The widening fused into the block's kernel.
-    package var widenFused = false
 
-    /// The spectral schedule, **when forced**: `k` half-size evaluations, 0 = full schedule. Not
-    /// forced, the product's rule decides (`Spectral.steps`). `k = 3` renders in 98.9 s instead of
-    /// 140.1 at 1024², but free draws showed debris at `k = 3`: judged on one draw,
-    /// the earlier verdict did not hold. A profile may not write it.
+    /// Qwen-Image-2.1's spectral schedule, **when forced** (`SILICONED_SPECTRAL`): `k` half-size
+    /// evaluations, 0 = full schedule, within the 512-px floor (`Spectral.forced`). Not forced, the
+    /// product's `k` decides (`QwenImage21DenoisingModule.spectralSteps`). A measurement's setting:
+    /// it changes the image, so a profile may not write it. Z-Image has no half-size path to force.
     package var spectral = 0
 
     /// **Splitting the VAE's attention into query blocks.** 0 = whole matrix.
@@ -157,7 +162,7 @@ public struct EngineSettings: Sendable {
 
     // ── where each value comes from ───────────────────────────────────────────────────────────
 
-    package enum Provenance: String, Sendable { case byDefault = "default", profile = "profile", environment = "env" }
+    package enum Provenance: String, Sendable { case byDefault = "default", map = "map", profile = "profile", environment = "env" }
     /// By setting name, where the active value comes from. It is what the developer's command line
     /// displays — a profile one cannot read cannot be debugged.
     package private(set) var provenance: [String: Provenance] = [:]
@@ -165,6 +170,10 @@ public struct EngineSettings: Sendable {
     package private(set) var profileRead: String? = nil
     /// What the profile says about the machine that measured it, if it mentions it.
     package private(set) var machineProfile: String? = nil
+    /// The date of the capacity map applied, if one was (`load(from:map:)`).
+    package private(set) var mapRead: String? = nil
+    /// What the rules made of it.
+    package private(set) var mapDecisions: Diagnostic.Decisions? = nil
     /// **What the reading refused** — a profile from another machine, a setting a profile is not
     /// allowed to write. The library writes nothing to standard error: the caller displays them
     /// (the CLI at startup, an app wherever it likes).
@@ -220,20 +229,21 @@ public struct EngineSettings: Sendable {
     /// The process's active settings, read once, on first access. The whole engine goes through here.
     public static let effective: EngineSettings = EngineSettings()
 
-    /// The profile an app designated before the first access (`load(profile:)`).
-    private static let designatedProfile = Mutex<String?>(nil)
+    /// What an app designated before the first access (`load(from:map:)`): its profile, its map.
+    private static let designated = Mutex<(profile: String?, map: Diagnostic.Report?)>((nil, nil))
 
     /// The profile's path: `SILICONED_PROFILE`, otherwise the one an app designated
     /// (`load(from:)`), otherwise the process library's `store/profil.json`
     /// (`Library.processWide`) — not the current directory's, which is `/` in an app.
     package static var profilePath: String {
         ProcessInfo.processInfo.environment["SILICONED_PROFILE"]
-            ?? designatedProfile.withLock { $0 } ?? Library.processWide.profile
+            ?? designated.withLock { $0.profile } ?? Library.processWide.profile
     }
 
     /// What `load` refuses.
     package enum Failure: Error, CustomStringConvertible, Equatable {
-        /// The settings were already read, on another profile: designating this one would change nothing.
+        /// The settings were already read, on another profile or another map: designating this one
+        /// would change nothing.
         case alreadyRead(profileRead: String, requested: String)
         package var description: String {
             switch self {
@@ -244,31 +254,41 @@ public struct EngineSettings: Sendable {
         }
     }
 
-    /// **For an app: read the machine's profile from ITS library.**
+    /// **For an app: read the machine's profile from ITS library, and its capacity map.**
     ///
     /// The settings are a property of the machine, read once for the whole process (`effective`) —
     /// there is no sense in changing them along the way, and the engine reads them deep in its
-    /// loops. **Nothing reads them before a render**: neither building a `Request`, nor a
-    /// `Model`, nor listing the catalog — only a render, `effective` and this `load` do. An app
-    /// therefore calls this at launch, or at least before its first render. **Too late, it
-    /// throws** (`EngineError.settingsAlreadyLoaded`) instead of silently doing nothing — unless the profile already
-    /// read is this one. Without this call, the profile sought is `Library.processWide`'s,
-    /// which the CLI follows and a sandboxed app would not find.
-    public static func load(from library: Library) throws(EngineError) {
+    /// loops. **Nothing reads them before a render** but a render's memory need: neither building a
+    /// `Request`, nor a `Model`, nor listing the catalog — a render, `ModelCard.memoryNeed`,
+    /// `effective` and this `load` do. An app therefore calls this at launch, before it shows a need or
+    /// renders. **Too late, it throws** (`EngineError.settingsAlreadyLoaded`) instead of silently doing
+    /// nothing — unless the profile and the map already read are these. Without this call, the profile
+    /// sought is `Library.processWide`'s, which the CLI follows and a sandboxed app would not find.
+    ///
+    /// `map`: the diagnostic's report this app kept (`Diagnostic.run`), applied by the rules of
+    /// `CapacityRules.swift` between the defaults and the profile. **Refused with a warning when it is not
+    /// `isCurrent`** (another machine, another macOS, another build): the defaults then apply, and the
+    /// app offers to measure again. **It never applies mid-process**: a map measured now applies at the next launch.
+    public static func load(from library: Library, map: Diagnostic.Report? = nil) throws(EngineError) {
         let path = library.profile
         // Designate and read under the same lock: a render that read `effective` between the two
         // cannot make the result lie.
-        let refusal: Failure? = designatedProfile.withLock { designated in
+        let refusal: Failure? = designated.withLock { designated in
             if alreadyRead.load(ordering: .acquiring) {
                 let loaded = ProcessInfo.processInfo.environment["SILICONED_PROFILE"]
-                    ?? designated ?? Library.processWide.profile
-                return loaded == path ? nil : .alreadyRead(profileRead: loaded, requested: path)
+                    ?? designated.profile ?? Library.processWide.profile
+                if loaded != path { return .alreadyRead(profileRead: loaded, requested: path) }
+                if designated.map != map {
+                    func named(_ m: Diagnostic.Report?) -> String { m.map { ", map of \($0.date)" } ?? ", no map" }
+                    return .alreadyRead(profileRead: loaded + named(designated.map), requested: path + named(map))
+                }
+                return nil
             }
-            designated = path
+            designated = (path, map)
             return nil
         }
         if let refusal { throw EngineError(refusal) }
-        _ = effective   // read now: the warnings (profile from another machine) are ready
+        _ = effective   // read now: the warnings (profile from another machine, stale map) are ready
     }
 
     /// Set on the first read of `effective`: after it, designating a profile no longer serves any purpose.
@@ -279,6 +299,19 @@ public struct EngineSettings: Sendable {
         machine = Machine.detected()
         amx = machine.chip == EngineSettings.referenceChip
         var refusal: String? = nil
+
+        // ── the capacity map, if an app designated one and it is this machine's, this build's ────────
+        if let map = EngineSettings.designated.withLock({ $0.map }) {
+            if map.isCurrent {
+                let decisions = Diagnostic.decide(map)
+                mapRead = map.date
+                mapDecisions = decisions
+                apply(decisions.settings, .map)
+            } else {
+                warnings.append("⚠ the capacity map of \(map.date) was measured on \(map.fingerprint), this is "
+                                + "\(Diagnostic.Fingerprint.current) — map ignored, the defaults apply.")
+            }
+        }
 
         // ── the profile, if it exists and if it speaks of this machine ──────────────────────────
         let path = EngineSettings.profilePath
@@ -305,15 +338,14 @@ public struct EngineSettings: Sendable {
         // The keys (second argument) are those of `store/profil.json`: on-disk keys, kept for existing profiles.
         read("SILICONED_AMX", "amx")
         read("SILICONED_AMX_SPIN", "amx_spin")
-        read("SILICONED_AMX_THREADS", "amx_threads")
         read("SILICONED_AMX_QUANTUM", "amx_quantum")
         read("SILICONED_AMX_MIN", "amx_min")
         read("SILICONED_AMX_FRACTION", "amx_fraction")
         read("SILICONED_REPRODUCIBLE", "coupe_figee")
         read("SILICONED_FLASH", "flash")
+        read("SILICONED_HEAD_SPLIT", "head_split")
         read("SILICONED_SDPA_FP16", "sdpa_fp16")
         read("SILICONED_WIDEN_GPU", "widen_gpu")
-        read("SILICONED_WIDEN_FUSED", "widen_fused")
         read("SILICONED_SPECTRAL", "spectral")
         read("SILICONED_VAE_BLOCK", "vae_bloc_requetes")
         read("SILICONED_VAE_TILE", "vae_tuile")
@@ -361,7 +393,7 @@ public struct EngineSettings: Sendable {
     /// Internal and not private: the test target verifies that every setting that changes the
     /// image is listed here. A rule that cannot be queried gets bypassed by oversight.
     static let outsideProfile: Set<String> = [
-        "spectral",             // product choice: judged on the image, against the spectral oracle
+        "spectral",             // product choice: judged on the image
         "sdpa_fp16",            // set aside by decision, not by measurement
         "vae_tuile",            // changes the image: per-tile GroupNorm, per-tile attention
         "vae_recouvrement",
@@ -391,15 +423,14 @@ public struct EngineSettings: Sendable {
         }
         flag("amx", &amx)
         flag("amx_spin", &amxSpin)
-        integer("amx_threads", &amxThreads)
         integer("amx_quantum", &amxQuantum)
         integer("amx_min", &amxMinimumRows)
         real("amx_fraction", &amxFraction)
         flag("coupe_figee", &frozenCut)
         flag("flash", &flash)
+        flag("head_split", &headSplit)
         flag("sdpa_fp16", &sdpaFp16)
         flag("widen_gpu", &widenGPU)
-        flag("widen_fused", &widenFused)
         integer("spectral", &spectral)
         integer("vae_bloc_requetes", &vaeRequestBlock)
         integer("vae_tuile", &vaeTile)
@@ -416,6 +447,7 @@ public struct EngineSettings: Sendable {
     /// unless asked: what one wants to see in a second is **what is not the default**.
     package func report(all: Bool = false) -> String {
         var output = "machine : \(machine.summary)\n"
+        if let mapRead { output += "map     : \(mapRead)\n" }
         output += "profile : \(profileStatus)\n"
         for row in rows where all || row.source != .byDefault {
             // `%s` wants a `char*` and would yield gibberish on non-ASCII text: we pad in Swift.
@@ -437,13 +469,14 @@ public struct EngineSettings: Sendable {
     /// Every setting, its value as `report` prints it, and where it comes from.
     package var rows: [(key: String, value: String, source: Provenance)] {
         let rows: [(String, String)] = [
-            ("amx", "\(amx)"), ("amx_threads", "\(amxThreads)"), ("amx_quantum", "\(amxQuantum)"),
+            ("amx", "\(amx)"), ("amx_quantum", "\(amxQuantum)"),
             ("amx_min", "\(amxMinimumRows)"), ("amx_spin", "\(amxSpin)"),
             ("amx_fraction", String(format: "%.3f", amxFraction)),
             ("coupe_figee", "\(frozenCut)"),
             ("flash", "\(flash)"),
+            ("head_split", "\(headSplit)"),
             ("sdpa_fp16", "\(sdpaFp16)"),
-            ("widen_gpu", "\(widenGPU)"), ("widen_fused", "\(widenFused)"),
+            ("widen_gpu", "\(widenGPU)"),
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
             ("vae_tuile", vaeTile == 0 ? "no" : "\(vaeTile) (overlap \(vaeOverlap))"),
@@ -457,11 +490,11 @@ public struct EngineSettings: Sendable {
     /// The dictionary of active values, to write into a profile.
     package var values: [String: Any] {
         [
-            "amx": amx, "amx_threads": amxThreads, "amx_quantum": amxQuantum,
+            "amx": amx, "amx_quantum": amxQuantum,
             "amx_min": amxMinimumRows, "amx_fraction": amxFraction,
             "coupe_figee": frozenCut,
-            "flash": flash, "sdpa_fp16": sdpaFp16,
-            "widen_gpu": widenGPU, "widen_fused": widenFused,
+            "flash": flash, "head_split": headSplit, "sdpa_fp16": sdpaFp16,
+            "widen_gpu": widenGPU,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,
         ]
