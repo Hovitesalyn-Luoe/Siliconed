@@ -2,6 +2,23 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.10.2
+
+- **Negative LoRA strengths** (Experimental → Negative LoRA Strengths): the LoRA sliders go from −1.5
+  to 1.5, in the panel and in the exploration. A negative strength pushes the image away from what
+  the LoRA learned: it is meant for « slider » LoRAs (age, detail…), trained to be used from −x to
+  +x; on an ordinary LoRA it mostly damages the image, hence the switch. Off, a negative value is
+  refused, with what to turn on. `silicontrol add --lora name:-0.5` follows the same switch.
+- **A solver axis in the exploration** (Developer Mode): Euler, Euler a, DPM++ 2M and UniPC side by
+  side, same seed, same steps; `silicontrol grid --x solver=euler,dpmpp-2m` does the same. The
+  sheet's subtitle names the solver and the ComfyUI schedule when they are not the defaults.
+
+### Fixed
+
+- **LoRA strengths typed with a point in the exploration** (`0.4, 0.8`) were unreadable on a Mac
+  set to a language that writes decimals with a comma, and « Explore » stayed greyed out. Both
+  forms now read.
+
 ## 0.10.1
 
 - **Anima images credit Anima on Civitai.** Drop an Anima render on Civitai and it links the model

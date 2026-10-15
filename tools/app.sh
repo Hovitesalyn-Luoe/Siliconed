@@ -89,7 +89,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Siliconed</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Siliconed</string>
-  <key>CFBundleShortVersionString</key><string>0.10.1</string>
+  <key>CFBundleShortVersionString</key><string>0.10.2</string>
   <key>CFBundleVersion</key><string>$build</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array>$localizations</array>

@@ -2,6 +2,25 @@
 
 # Siliconed — notes de version
 
+## 0.10.2
+
+- **Forces de LoRA négatives** (Expérimental → Forces de LoRA négatives) : les curseurs des LoRA vont
+  de −1,5 à 1,5, dans le panneau et dans l’exploration. Une force négative éloigne l’image de ce que
+  la LoRA a appris : c’est fait pour les LoRA « curseur » (âge, détail…), entraînées pour servir de
+  −x à +x ; sur une LoRA ordinaire, elle abîme surtout l’image, d’où l’interrupteur. Éteint, une
+  valeur négative est refusée, avec ce qu’il faut allumer. `silicontrol add --lora nom:-0.5` suit le
+  même interrupteur.
+- **Un axe « solveur » dans l’exploration** (mode développeur) : Euler, Euler a, DPM++ 2M et UniPC
+  côte à côte, même graine, mêmes pas ; `silicontrol grid --x solver=euler,dpmpp-2m` fait de même. Le
+  sous-titre de la planche nomme le solveur et le calendrier ComfyUI quand ce ne sont pas ceux par
+  défaut.
+
+### Corrigé
+
+- **Les forces de LoRA tapées avec un point dans l’exploration** (`0.4, 0.8`) ne se lisaient pas sur un
+  Mac réglé dans une langue qui écrit les décimales avec une virgule, et « Explorer » restait grisé.
+  Les deux écritures se lisent.
+
 ## 0.10.1
 
 - **Les images d’Anima créditent Anima sur Civitai.** Déposez un rendu d’Anima sur Civitai, il renvoie
