@@ -2,6 +2,13 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.10.1
+
+- **Anima images credit Anima on Civitai.** Drop an Anima render on Civitai and it links the model
+  page, as Z-Image and Qwen-Image-2.1 renders already did: the PNG names Anima Turbo v1.1
+  (circlestone_labs' own page), whose file is byte for byte the one the app installs. Compact and
+  Light credit the same page.
+
 ## 0.10
 
 ### A third model: Anima Turbo v1.1

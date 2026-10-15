@@ -2,6 +2,13 @@
 
 # Siliconed — notes de version
 
+## 0.10.1
+
+- **Les images d’Anima créditent Anima sur Civitai.** Déposez un rendu d’Anima sur Civitai, il renvoie
+  à la page du modèle, comme le faisaient déjà ceux de Z-Image et de Qwen-Image-2.1 : le PNG nomme
+  Anima Turbo v1.1 (la page de circlestone_labs elle-même), dont le fichier est à l’octet près celui
+  que l’app installe. Compact et Légère créditent la même page.
+
 ## 0.10
 
 ### Un troisième modèle : Anima Turbo v1.1
