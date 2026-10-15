@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The layout, as llama.cpp's `gguf.c` writes it and as the published DiT files carry it (read on
 /// the real headers of `unsloth/Z-Image-Turbo-GGUF` and `unsloth/Qwen-Image-2.1-GGUF`, versioned
-/// as `tools/fixtures/quant/*-gguf/header.json`):
+/// as `Tests/SiliconedTests/Fixtures/quant/*-gguf/header.json`):
 ///
 ///     "GGUF" · u32 version (3) · u64 tensor count · u64 key/value count
 ///     key/value × n      key: u64 length + UTF-8 · u32 type · value (scalars, string, array)

@@ -1,11 +1,10 @@
 # The pure unit tests: no weights are downloaded and nothing touches the GPU.
-# A version is pushed to `release/<version>` first; main moves only once this run is green there
-# (the order is in the maintainer's release procedure).
+# A version is tagged only on a commit this run found green.
 name: test
 
 on:
   push:
-    branches: [main, 'release/**']
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:

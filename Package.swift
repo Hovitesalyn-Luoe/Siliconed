@@ -1,4 +1,5 @@
 // swift-tools-version:6.0
+import Foundation
 import PackageDescription
 
 let package = Package(
@@ -41,3 +42,13 @@ let package = Package(
                     exclude: ["Fixtures"]),
     ]
 )
+
+// **A maintainer's command line, when present.** The checks against the reference implementations
+// (diffusers and transformers in fp32) live outside this repository; when their sources sit in
+// `Sources/CLI`, they build with the package as `siliconed-dev`, reaching its `package` symbols.
+// A clone without them builds the library, the app and `silicontrol` alone.
+if FileManager.default.fileExists(atPath: Context.packageDirectory + "/Sources/CLI") {
+    package.products.append(.executable(name: "siliconed-dev", targets: ["CLI"]))
+    package.targets.append(.executableTarget(name: "CLI", dependencies: ["Siliconed", "AMXLegacy"],
+                                             cSettings: [.define("ACCELERATE_NEW_LAPACK")]))
+}

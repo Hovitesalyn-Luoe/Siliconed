@@ -6,6 +6,7 @@
 #     Contents/Helpers/silicontrol      the remote control (target `Silicontrol`, Foundation only);
 #                                       the app's menu links it into the PATH; `silicontrol help`
 #                                       is the complete reference
+#     Contents/Helpers/siliconed-dev    the maintainer's command line, when its sources are present
 #     Contents/Resources/               the phrases (en, fr, de, es, it), the icon, the library's resource bundle
 #
 # The models live in the app's space (`~/Library/Application Support/Siliconed/`), which it fills
@@ -40,6 +41,8 @@ done
 
 swift build -c release --product SiliconedApp
 swift build -c release --product silicontrol
+# The maintainer's command line, when its sources are present (Package.swift), ships beside it.
+dev=0; [[ -d Sources/CLI ]] && dev=1 && swift build -c release --product siliconed-dev
 tools/translations.sh
 
 app=$root/Siliconed.app
@@ -47,6 +50,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 cp .build/release/SiliconedApp "$app/Contents/MacOS/Siliconed"
 cp .build/release/silicontrol "$app/Contents/Helpers/silicontrol"
+(( dev )) && cp .build/release/siliconed-dev "$app/Contents/Helpers/siliconed-dev"
 xcrun xcstringstool compile Sources/SiliconedApp/Localizable.xcstrings --output-directory "$app/Contents/Resources" >/dev/null
 # English is the language of the keys: the compiler emits only what differs (the translations, and
 # the plurals), so its table may be empty, but `en.lproj` must exist for a system in English to pick
@@ -101,7 +105,7 @@ if [[ $identity == - ]]; then
   echo "→ $app (signed ad hoc: on another Mac, System Settings → Privacy & Security → Open Anyway)"
 else
   # Inside out: the helpers first, then the bundle — `--deep` is not used for a real identity.
-  for binary in "$app/Contents/Helpers/silicontrol" "$app"; do
+  for binary in "$app"/Contents/Helpers/*(N) "$app"; do
     codesign --force --options runtime --timestamp --sign "$identity" "$binary"
   done
   codesign --verify --strict --verbose=2 "$app"

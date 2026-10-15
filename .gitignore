@@ -3,3 +3,7 @@
 /Siliconed.app/
 *.dmg
 .DS_Store
+# The quantization fixtures' heavy companions, rebuilt from the published files: only their JSON is versioned.
+/Tests/SiliconedTests/Fixtures/quant/*/*.gguf
+/Tests/SiliconedTests/Fixtures/quant/*/*.safetensors
+/Tests/SiliconedTests/Fixtures/quant/comfy/*/

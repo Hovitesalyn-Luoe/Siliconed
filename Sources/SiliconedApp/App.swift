@@ -261,7 +261,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     }
 
     /// **"Check for Updates"**: only when asked — nothing leaves the Mac otherwise ("works offline").
-    /// Reads the latest release published on GitHub (tags `vX.Y.Z`, `tools/release-public.sh`) through
+    /// Reads the latest release published on GitHub (tags `vX.Y.Z`) through
     /// an ephemeral session (incognito: no cookie, no cache), and compares it to the running version.
     func checkForUpdates() {
         Task {

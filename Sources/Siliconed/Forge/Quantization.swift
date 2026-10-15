@@ -283,7 +283,7 @@ struct QuantizedGroup {
 }
 
 /// **Reading the published 8-bit layouts** — the names and descriptions each publisher writes,
-/// taken from real headers (`tools/fixtures/quant/*/header.json`), never guessed:
+/// taken from real headers (`Tests/SiliconedTests/Fixtures/quant/*/header.json`), never guessed:
 ///
 ///   · **ComfyUI** "scaled" / `comfy_quant`: `<l>.weight` F8_E4M3 or I8, `<l>.weight_scale` (older:
 ///     `<l>.scale_weight`) F32 `[]` or `[N, 1]`, maybe `<l>.input_scale`, maybe `<l>.comfy_quant`
