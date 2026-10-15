@@ -1039,6 +1039,34 @@
         }
       }
     },
+    "%@ walks Euler only" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ läuft nur mit Euler"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ solo recorre Euler"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne parcourt qu’Euler"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ percorre solo Euler"
+          }
+        }
+      }
+    },
     "%@ wasn't imported: uninstall it from the Models sheet." : {
       "localizations" : {
         "de" : {
@@ -17401,6 +17429,34 @@
         }
       }
     },
+    "The same seed and steps under each solver: Euler is the one this model was distilled for" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Derselbe Seed und dieselben Schritte unter jedem Solver: Euler ist der, auf den dieses Modell destilliert wurde"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La misma semilla y los mismos pasos con cada solver: Euler es aquel para el que se destiló este modelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La même graine et les mêmes pas sous chaque solveur : Euler est celui pour lequel ce modèle a été distillé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo stesso seme e gli stessi passi con ogni solver: Euler è quello per cui questo modello è stato distillato"
+          }
+        }
+      }
+    },
     "The seeds that follow the rack's seed, or the seeds you list" : {
       "localizations" : {
         "de" : {
@@ -19975,6 +20031,34 @@
         }
       }
     },
+    "a solver axis is offered only in Developer Mode" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "eine Solver-Achse gibt es nur im Entwicklermodus"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un eje de solvers solo se ofrece en el Modo de desarrollador"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un axe de solveurs n’est proposé qu’en Mode développeur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un asse di solver è offerto solo in Modalità sviluppatore"
+          }
+        }
+      }
+    },
     "after one exploration" : {
       "localizations" : {
         "de" : {
@@ -22305,6 +22389,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "percorso del socket troppo lungo (%1$lld byte, al massimo %2$lld): %3$@"
+          }
+        }
+      }
+    },
+    "solver" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solver"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "solver"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "solveur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "solver"
           }
         }
       }

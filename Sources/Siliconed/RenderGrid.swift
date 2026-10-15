@@ -26,8 +26,11 @@ import Foundation
 //   multiplied as `PromptAlternatives` alone would: a cell holds one image, and a forgotten group
 //   would silently make each cell a stack — and double the bill. Put it on an axis, or escape it.
 // - **Only what varies is an axis.** The prompt's groups, the seed, the step count, one LoRA's
-//   strength, the model, the image an edit starts from. Not a batch: a cell is one image (the seed
-//   axis is the batch of a grid).
+//   strength, the model, the image an edit starts from, the solver. Not a batch: a cell is one image
+//   (the seed axis is the batch of a grid).
+// - **A solver axis names solvers, not what a model takes**: a cell keeps its solver (`Cell.solver`),
+//   and the app that queues it decides what a model walking Euler alone does with it — as it does
+//   for the rack's choice. Same seed, same σ, same evaluations: only the rule between two steps moves.
 // - **A model axis gives each cell its model's own step count** (`Cell.steps` nil) unless steps are
 //   an axis too: the base's count is one model's, and the families need not agree. And it
 //   refuses a LoRA stack (`loraAcrossModels`): a LoRA is forged for one model, the others would refuse
@@ -69,6 +72,8 @@ public struct RenderGrid: Equatable, Sendable {
         case addedLoRAs([String], strength: Double)
         /// Each of the base's `images` edit images, alone: index 0 is the first.
         case images
+        /// These solvers, in this order.
+        case solvers([Solver])
     }
 
     /// One value of an axis, as an app labels it (and formats it in its language).
@@ -83,6 +88,7 @@ public struct RenderGrid: Equatable, Sendable {
         case addedLoRA(String)
         /// An edit image, by its index in the base's images (from 0).
         case image(Int)
+        case solver(Solver)
     }
 
     /// **What every cell shares**, unless an axis says otherwise. `prompt` is the prompt as typed,
@@ -121,6 +127,8 @@ public struct RenderGrid: Equatable, Sendable {
         /// The one edit image this cell starts from (index in the base's); `nil`: all of them, read
         /// together (no image axis).
         public let image: Int?
+        /// The cell's solver; `nil`: the base's (no solver axis).
+        public let solver: Solver?
     }
 
     /// **The most cells a grid may have** — the app's queue holds that many renders.
@@ -167,6 +175,9 @@ public struct RenderGrid: Equatable, Sendable {
             case let .addedLoRAs(l, strength):
                 guard !l.isEmpty else { throw .gridRefused(reason: .emptyAxis) }
                 guard Set(l).count == l.count, strength.isFinite else { throw .gridRefused(reason: .invalidValue) }
+            case .solvers(let s):
+                guard !s.isEmpty else { throw .gridRefused(reason: .emptyAxis) }
+                guard Set(s).count == s.count else { throw .gridRefused(reason: .invalidValue) }
             }
         }
         // A LoRA is forged for one model: none across models, neither the stack nor an added one.
@@ -195,6 +206,7 @@ public struct RenderGrid: Equatable, Sendable {
         case .models: "model"
         case .images: "image"
         case .addedLoRAs: "added lora"
+        case .solvers: "solver"
         }
     }
 
@@ -208,6 +220,7 @@ public struct RenderGrid: Equatable, Sendable {
         case .models(let m): m.count
         case .images: images
         case .addedLoRAs(let l, _): l.count
+        case .solvers(let s): s.count
         }
     }
 
@@ -227,6 +240,7 @@ public struct RenderGrid: Equatable, Sendable {
         case .models(let m): m.map(Value.model)
         case .images: (0..<base.images).map(Value.image)
         case .addedLoRAs(let l, _): l.map(Value.addedLoRA)
+        case .solvers(let s): s.map(Value.solver)
         }
     }
 
@@ -241,7 +255,7 @@ public struct RenderGrid: Equatable, Sendable {
                 var choice: [Int: String] = [:]
                 var seed = base.seed, strengths = base.loraStrengths
                 var steps: Int? = base.steps, model: String? = nil, image: Int? = nil
-                var added: String? = nil, addedStrength = 0.0
+                var added: String? = nil, addedStrength = 0.0, solver: Solver? = nil
                 var stepsSet = false
                 for (axis, v) in [(Optional(x), Optional(vx)), (y, vy)] {
                     guard let axis, let v else { continue }
@@ -253,13 +267,15 @@ public struct RenderGrid: Equatable, Sendable {
                     case (_, .model(let m)): model = m
                     case (_, .image(let i)): image = i
                     case (.addedLoRAs(_, let f), .addedLoRA(let l)): added = l.isEmpty ? nil : l; addedStrength = f
+                    case (_, .solver(let s)): solver = s
                     default: break
                     }
                 }
                 if model != nil, !stepsSet { steps = nil }
                 result.append(Cell(column: column, row: row, prompt: prompt(choice), seed: seed, steps: steps,
                                    loraStrengths: strengths, model: model,
-                                   addedLoRA: added, addedStrength: added == nil ? 0 : addedStrength, image: image))
+                                   addedLoRA: added, addedStrength: added == nil ? 0 : addedStrength, image: image,
+                                   solver: solver))
             }
         }
         return result
@@ -299,6 +315,7 @@ public struct RenderGrid: Equatable, Sendable {
     ///                                                     lora:2=…      `loras` (or the 2nd)
     ///     model=z-image,qwen-image-2.1                    image         each edit image alone
     ///     loras=none,flat,ink   one LoRA added per cell   loras:0.6=…   at that strength (1 otherwise)
+    ///     solver=euler,dpmpp-2m these solvers, by `Solver.rawValue`
     ///
     /// Values are separated by commas, decimals written with a point: the syntax of a command line,
     /// not of a language. `loras`: the stack's names, in its order. What does not read is
@@ -345,6 +362,8 @@ public struct RenderGrid: Equatable, Sendable {
             return .models(try values { $0.isEmpty ? nil : $0 })
         case "image" where which == nil && list == nil, "images" where which == nil && list == nil:
             return .images
+        case "solver" where which == nil, "solvers" where which == nil:
+            return .solvers(try values { Solver(rawValue: $0.lowercased()) })
         case "loras":
             let strength: Double
             if let which {

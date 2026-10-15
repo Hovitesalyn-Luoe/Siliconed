@@ -123,7 +123,7 @@ un M1 Pro.*
 
 Le panneau d'exploration construit une grille dans le canevas. Ses axes : les graines, les pas, la
 force d'une LoRA, des LoRA à essayer, les modèles, les variantes écrites entre accolades dans le
-prompt, ou chaque image d'une édition. Chaque case est une esquisse, arrêtée après quelques pas, à
+prompt, chaque image d'une édition ou, en mode développeur, les solveurs. Chaque case est une esquisse, arrêtée après quelques pas, à
 512 sur le petit côté (avec Qwen-Image-2.1, une image finie) ; dès qu'un modèle a rendu à cette
 taille, le panneau dit ce que la grille coûtera sur ce Mac avant de la lancer. « Finir cette image »
 rend la case choisie jusqu'au bout avec la même graine : l'image que son esquisse annonçait.

@@ -956,7 +956,9 @@ _ = axis
   alone, with the same instruction: `Cell.image`, its index from 0 — without it, an edit reads all
   its images together), `.addedLoRAs([…], strength:)` (one LoRA added to the stack per cell, all at
   one strength — `""` for the cell without: `Cell.addedLoRA`, `Cell.addedStrength`; the strings
-  are whatever the caller keeps, paths in the app). `values(of:)` gives an axis's values
+  are whatever the caller keeps, paths in the app), `.solvers([…])` (`Cell.solver`: same seed, steps
+  and σ, only the rule between two steps; what a model walking Euler alone does with it is the
+  caller's choice — the app renders Euler). `values(of:)` gives an axis's values
   as `RenderGrid.Value`, for an app to label in its language; `title` is the prompt with its groups
   written back as `{a|b}`.
 - **A model axis gives each cell its model's own step count**: `Cell.steps` is `nil` (the model's

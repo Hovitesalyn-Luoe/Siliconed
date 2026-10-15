@@ -357,7 +357,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
             case .groupNotOnAxis: return "Make every group an axis, or write its braces as \\{ and \\}."
             case .sameAxisTwice: return "Choose another setting for one of the axes."
             case .invalidValue: return "Steps are integers from 1, strengths numbers, seeds at least one."
-            case .unreadableAxis: return "Write an axis as prompt[:N], seed=42,43, seeds=4, steps=6,8, lora[:NAME]=0.4,0.8, loras[:STRENGTH]=none,flat,ink, model=z-image,qwen-image-2.1 or image."
+            case .unreadableAxis: return "Write an axis as prompt[:N], seed=42,43, seeds=4, steps=6,8, lora[:NAME]=0.4,0.8, loras[:STRENGTH]=none,flat,ink, model=z-image,qwen-image-2.1, image or solver=euler,dpmpp-2m."
             case .emptyAxis, .noSuchGroup, .noSuchLoRA: return "Give each axis at least one value, from the prompt and the stack."
             case .loraAcrossModels: return "Remove the LoRAs, or vary something other than the model."
             }

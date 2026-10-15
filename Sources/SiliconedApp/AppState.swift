@@ -62,7 +62,12 @@ final class AppState {
             UserDefaults.standard.set(developerMode, forKey: Self.developerModeKey)
             // A model that leaves the list leaves the form too, and so does a solver.
             if !isVisible(identifier) { identifier = defaultIdentifier }
-            if !developerMode { solver = .euler; comfySchedule = false }
+            if !developerMode {
+                solver = .euler; comfySchedule = false
+                // The solver axis is the rack's choice swept: it leaves with it.
+                if gridX.kind == .solver { gridX.kind = .seed }
+                if gridY.kind == .solver { gridY.kind = .none }
+            }
         }
     }
     func isVisible(_ family: Family) -> Bool { developerMode || Self.frontFamilies.contains(family) }
@@ -639,6 +644,8 @@ final class AppState {
                                          loraStrengths: stack.map(\.strength), images: references.count),
                                    x: x, y: try gridY.axis(stack: stack))
             guard !refusesNegativeStrength(g) else { throw .gridRefused(reason: .invalidValue) }
+            // A solver the form's model does not offer (Developer Mode off, Krea 2) renders nothing new.
+            guard g.cells.allSatisfy({ $0.solver.map(offeredSolvers.contains) ?? true }) else { throw .gridRefused(reason: .invalidValue) }
             return g
         }
     }

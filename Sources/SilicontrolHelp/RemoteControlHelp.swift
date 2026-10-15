@@ -391,6 +391,8 @@ public enum RemoteControlHelp {
           image               each --ref image alone, with the same instruction (an edit)
           loras=none,flat,ink one LoRA added to the stack per cell (none: the cell without), at
           loras:0.6=…         strength 1 — or the one given; names as --lora takes them
+          solver=euler,dpmpp-2m   these solvers (euler, euler-ancestral, dpmpp-2m, unipc), same seed
+                              and steps; Developer Mode, like --solver
           --x gives the columns, --y the rows (without --y: one row). X and Y vary two different
           settings. EVERY {…} GROUP OF THE PROMPT MUST BE AN AXIS: a group left out would stack
           several images in a cell (error "grid"); write \\{ \\} for braces that are not

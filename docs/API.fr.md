@@ -990,7 +990,10 @@ _ = axis
   images d'édition de la base, seule, avec la même instruction : `Cell.image`, son indice depuis 0 —
   sans lui, une édition lit toutes ses images ensemble), `.addedLoRAs([…], strength:)` (une LoRA
   ajoutée à la pile par case, toutes à une même force — `""` pour la case sans : `Cell.addedLoRA`,
-  `Cell.addedStrength` ; les chaînes sont ce que garde l'appelant, des chemins dans l'app).
+  `Cell.addedStrength` ; les chaînes sont ce que garde l'appelant, des chemins dans l'app),
+  `.solvers([…])` (`Cell.solver` : même graine, mêmes pas et mêmes σ, seule la règle entre deux pas
+  change ; ce qu'en fait un modèle qui ne parcourt qu'Euler est le choix de l'appelant — l'app rend
+  Euler).
   `values(of:)` donne
   les valeurs d'un axe en `RenderGrid.Value`, qu'une app étiquette dans sa langue ; `title` est le
   prompt dont les groupes sont réécrits `{a|b}`.

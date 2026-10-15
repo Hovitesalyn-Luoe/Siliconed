@@ -116,7 +116,8 @@ history. It follows the system language (English, French, German, Spanish or Ita
 ### Explore
 
 The exploration panel builds a grid in the canvas. Its axes: seeds, steps, the strength of a LoRA,
-LoRAs to try, models, the alternatives written in braces in the prompt, or each image of an edit.
+LoRAs to try, models, the alternatives written in braces in the prompt, each image of an edit, or,
+in Developer Mode, the solvers.
 Each cell is a sketch, stopped after a few steps, at 512 on the short side (with Qwen-Image-2.1, a
 finished image); once a model has rendered at that size, the panel shows what the grid will cost on
 this Mac before you start. « Finish This Image » renders the

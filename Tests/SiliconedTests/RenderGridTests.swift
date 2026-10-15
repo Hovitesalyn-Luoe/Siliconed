@@ -109,7 +109,9 @@ final class RenderGridTests: XCTestCase {
         XCTAssertEqual(try RenderGrid.axis("image"), .images)
         XCTAssertEqual(try RenderGrid.axis("loras=none,flat"), .addedLoRAs(["", "flat"], strength: 1))
         XCTAssertEqual(try RenderGrid.axis("loras:0.6=flat,ink"), .addedLoRAs(["flat", "ink"], strength: 0.6))
-        for bad in ["", "model=", "model=a,,b", "loras=", "loras:x=flat", "image=1", "image:2", "prompt=1", "prompt:0", "seed", "seed=", "seed=4,,5", "seed=-1", "seeds=4,5",
+        XCTAssertEqual(try RenderGrid.axis("solver=euler, DPMPP-2M,unipc"), .solvers([.euler, .dpmpp2m, .unipc]))
+        XCTAssertEqual(try RenderGrid.axis("solvers=euler-ancestral"), .solvers([.eulerAncestral]))
+        for bad in ["", "solver=", "solver=heun", "solver:1=euler", "model=", "model=a,,b", "loras=", "loras:x=flat", "image=1", "image:2", "prompt=1", "prompt:0", "seed", "seed=", "seed=4,,5", "seed=-1", "seeds=4,5",
                     "steps=6.5", "lora=0;4", "seed:2=4"] {
             XCTAssertThrowsError(try RenderGrid.axis(bad, loras: ["flat"]), bad) {
                 XCTAssertEqual($0 as? EngineError, .gridRefused(reason: .unreadableAxis), bad)
@@ -139,6 +141,21 @@ final class RenderGridTests: XCTestCase {
         XCTAssertEqual(refusal(base, x: .models([])), .gridRefused(reason: .emptyAxis))
         XCTAssertEqual(refusal(base, x: .models(["z-image", "z-image"])), .gridRefused(reason: .invalidValue))
         XCTAssertEqual(refusal(base, x: .models(["z-image"]), y: .models(["anima"])), .gridRefused(reason: .sameAxisTwice))
+    }
+
+    /// A solver axis: each cell its solver, the rest the base's (same seed, same steps); `nil` without
+    /// the axis; empty or repeated refused, and no second solver axis.
+    func testASolverAxisGivesEachCellItsSolver() throws {
+        let base = RenderGrid.Base(prompt: "woman posing in a library", seed: 42, steps: 8)
+        let g = try RenderGrid(base, x: .solvers([.euler, .dpmpp2m]), y: .consecutiveSeeds(count: 2))
+        XCTAssertEqual(g.cells.map(\.solver), [.euler, .dpmpp2m, .euler, .dpmpp2m])
+        XCTAssertEqual(g.cells.map(\.seed), [42, 42, 43, 43])
+        XCTAssertEqual(Set(g.cells.map(\.steps)), [8])
+        XCTAssertEqual(g.values(of: g.x), [.solver(.euler), .solver(.dpmpp2m)])
+        XCTAssertEqual(Set(try RenderGrid(base, x: .consecutiveSeeds(count: 2)).cells.map(\.solver)), [nil])
+        XCTAssertEqual(refusal(base, x: .solvers([])), .gridRefused(reason: .emptyAxis))
+        XCTAssertEqual(refusal(base, x: .solvers([.unipc, .unipc])), .gridRefused(reason: .invalidValue))
+        XCTAssertEqual(refusal(base, x: .solvers([.euler]), y: .solvers([.unipc])), .gridRefused(reason: .sameAxisTwice))
     }
 
     /// A LoRA axis: each cell adds one LoRA (or none) to the stack, at the axis's strength; the stack's

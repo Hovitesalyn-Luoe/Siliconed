@@ -866,6 +866,18 @@ final class RemoteControl {
             let p = Problem(error)
             throw Refusal("grid", p.title, help: p.suggestion ?? "silicontrol help grid")
         }
+        // A solver axis is the rack's Solver swept, so as `--solver`: Developer Mode, and the models in
+        // front (a model axis: a cell of a model walking Euler alone renders Euler, as in the app).
+        if g.cells.contains(where: { ($0.solver ?? .euler) != .euler }) {
+            guard app.developerMode else {
+                throw Refusal("solver", String(localized: "a solver axis is offered only in Developer Mode"),
+                              help: String(localized: "turn on Developer Mode in the app's menu"))
+            }
+            guard g.cells.contains(where: { $0.model != nil }) || card.map({ AppState.solverFamilies.contains($0.family) }) == true else {
+                throw Refusal("solver", String(localized: "\(card?.name ?? model.name) walks Euler only"),
+                              help: String(localized: "Euler only, or --model z-image"))
+            }
+        }
         // Each cell's step count against its own model's schedules (a model axis: each model's).
         for cell in g.cells {
             guard let n = cell.steps else { continue }

@@ -1,7 +1,8 @@
 // **The XY grid in the app: the form's two axes, the cells in the queue, the sheet.**
 //
 //     the exploration  X and Y: a group of the prompt, the seed, the steps, a LoRA's strength, the
-//     window           model, the edit's images — and their values (`GridAxisForm`, `Exploration.swift`)
+//     window           model, the edit's images, the solver (Developer Mode) — and their values
+//                      (`GridAxisForm`, `Exploration.swift`)
 //        │ « Explore » (or `silicontrol grid`)
 //        ▼
 //     RenderGrid       the library checks it and lists its cells, row by row (`RenderGrid.swift`)
@@ -53,6 +54,8 @@ struct GridAxisForm: Equatable {
         case addedLoRA
         /// Each image of the edit, alone.
         case image
+        /// The solvers ticked in `solvers` (Developer Mode, `AppState.offeredSolvers`).
+        case solver
     }
     var kind: Kind
     /// The seed axis: `seedCount` seeds from the form's seed, or the list typed.
@@ -65,6 +68,7 @@ struct GridAxisForm: Equatable {
     var added: [String] = []
     var addedNone = true
     var addedStrength = 0.8
+    var solvers = Solver.allCases
 
     /// **Integers separated by commas, semicolons or spaces** — `nil` when one does not read.
     static func integers<T: FixedWidthInteger>(_ text: String) -> [T]? {
@@ -109,6 +113,7 @@ struct GridAxisForm: Equatable {
         case .model: return .models(models)
         case .addedLoRA: return .addedLoRAs((addedNone ? [""] : []) + added, strength: addedStrength)
         case .image: return .images
+        case .solver: return .solvers(solvers)
         }
     }
 
@@ -127,6 +132,7 @@ struct GridAxisForm: Equatable {
         case .models(let m)?: kind = .model; models = m
         case let .addedLoRAs(l, f)?: kind = .addedLoRA; addedNone = l.contains(""); added = l.filter { !$0.isEmpty }; addedStrength = f
         case .images?: kind = .image
+        case .solvers(let s)?: kind = .solver; solvers = s
         }
     }
 
@@ -180,6 +186,7 @@ enum GridWords {
         case .models: return String(localized: "model")
         case .addedLoRAs: return "LoRA"
         case .images: return String(localized: "image to edit")
+        case .solvers: return String(localized: "solver")
         }
     }
 
@@ -197,6 +204,7 @@ enum GridWords {
         case .model(let m): return modelName(m)
         case .addedLoRA(let l): return l.isEmpty ? String(localized: "no LoRA") : addedName(l)
         case .image(let i): return String(localized: "image \(i + 1)")
+        case .solver(let s): return s.choice
         }
     }
 
@@ -215,6 +223,7 @@ enum GridWords {
         case let .addedLoRAs(l, f):
             return "loras:" + String(format: "%.2f", f) + "=" + l.map { $0.isEmpty ? "none" : RemoteControl.shortName($0) }.joined(separator: ",")
         case .images: return "image"
+        case .solvers(let s): return "solver=" + s.map(\.rawValue).joined(separator: ",")
         }
     }
 
@@ -379,6 +388,7 @@ struct AxisRow: View {
                     if !app.compatibleLoras.isEmpty { Text("LoRA to Compare").tag(GridAxisForm.Kind.addedLoRA) }
                     Text("Model").tag(GridAxisForm.Kind.model)
                     if !app.references.isEmpty { Text("Image to Edit").tag(GridAxisForm.Kind.image) }
+                    if app.offeredSolvers.count > 1 { Text("Solver").tag(GridAxisForm.Kind.solver) }
                 }
                 .labelsHidden()
                 .help("What varies from one column (X) or row (Y) to the next")
@@ -435,6 +445,20 @@ struct AxisRow: View {
             }
             .font(.caption)
             .help("Each model at its own number of steps; the LoRAs are left out, each is made for one model")
+        case .solver:
+            // The solvers ticked, in the rack's order: same seed, same σ, only the rule between steps.
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(app.offeredSolvers, id: \.self) { solver in
+                    Toggle(solver.choice, isOn: Binding(
+                        get: { form.solvers.contains(solver) },
+                        set: { on in
+                            if on { form.solvers = app.offeredSolvers.filter { form.solvers.contains($0) || $0 == solver } }
+                            else { form.solvers.removeAll { $0 == solver } }
+                        }))
+                }
+            }
+            .font(.caption)
+            .help("The same seed and steps under each solver: Euler is the one this model was distilled for")
         case .addedLoRA:
             // One LoRA per cell, added to the stack — and the cell without, to see what it changes.
             VStack(alignment: .leading, spacing: 2) {

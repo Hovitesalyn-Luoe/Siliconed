@@ -54,6 +54,7 @@ extension AppState {
             s.steps = cell.steps ?? card?.defaultSteps ?? settings.steps
             for (i, f) in cell.loraStrengths.enumerated() where s.loras.indices.contains(i) { s.loras[i].strength = f }
             if let l = cell.addedLoRA { s.loras.append(LoRASlot(path: l, strength: cell.addedStrength)) }
+            if let solver = cell.solver { s.solver = solver }
             let used = cell.image.map { references.indices.contains($0) ? [references[$0]] : [] } ?? references
             s.references = used.count
             let model = try? Model.named(s.identifier, in: library)
@@ -178,6 +179,8 @@ extension AppState {
         for (i, l) in stack.enumerated() where lora(g.x) != i && lora(g.y) != i {
             shared.append("\(loraName(l.path)) \(Figures.strength(l.strength))")
         }
+        if r.solver != .euler, !varies({ if case .solvers = $0 { true } else { false } }) { shared.append(r.solver.choice) }
+        if r.schedule != .official { shared.append(String(localized: "ComfyUI schedule")) }
         if run.references > 0, !varies({ if case .images = $0 { true } else { false } }) {
             shared.append(String(localized: "edit, \(run.references) images"))
         }
