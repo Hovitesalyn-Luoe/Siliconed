@@ -448,7 +448,7 @@ struct AxisRow: View {
                         }))
                 }
                 HStack {
-                    Slider(value: $form.addedStrength, in: 0...1.5)
+                    Slider(value: $form.addedStrength, in: app.loraStrengthRange)
                     Text(Figures.strength(form.addedStrength)).monospacedDigit().frame(width: 38, alignment: .trailing)
                 }
                 .help("The strength of each LoRA compared")

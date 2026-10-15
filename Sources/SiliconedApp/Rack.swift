@@ -876,7 +876,7 @@ struct LoRARow: View {
                     ForEach(app.compatibleLoras) { l in Text(l.name).tag(l.path) }
                 }
                 HStack {
-                    Slider(value: $slot.strength, in: 0...1.5)
+                    Slider(value: $slot.strength, in: app.loraStrengthRange)
                     Text(Figures.strength(slot.strength)).monospacedDigit().frame(width: 38, alignment: .trailing)
                 }
                 if let f = app.loraCard(slot.path) {

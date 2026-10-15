@@ -51,6 +51,25 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(out, [1, 2, 3, 4])
     }
 
+    /// **A negative LoRA strength subtracts**: W − |s|·down·up, folded into `down` with its sign, in a
+    /// stack beside a positive one (the app's Experimental switch only opens the slider; the engine
+    /// never refused a sign).
+    func testANegativeLoRAStrengthKeepsItsSign() throws {
+        let lora: [String: Any] = ["kind": "lora", "page": 16, "order": ["t.down", "t.up"], "tensors": [
+            "t.down": ["offset": 256, "bytes": 8, "shape": [2, 1], "dtype": "float32"],
+            "t.up": ["offset": 272, "bytes": 8, "shape": [1, 2], "dtype": "float32"]]]
+        let artifact = try Artifact(path: try map(lora, data: [1, 2, 0, 0, 3, 4]))
+        let stack = try LoRA(layers: [.init(artifact: artifact, strength: -0.5, name: "minus"),
+                                      .init(artifact: artifact, strength: 1, name: "plus")])
+        var down = [Float](repeating: .nan, count: 4), up = [Float](repeating: .nan, count: 4)
+        let rank = try down.withUnsafeMutableBufferPointer { d in
+            try up.withUnsafeMutableBufferPointer { u in try stack.materialize("t", k: 2, n: 2, down: d.baseAddress!, up: u.baseAddress!) }
+        }
+        XCTAssertEqual(rank, 2)
+        XCTAssertEqual(down, [-0.5, 1, -1, 2], "[k, Σr]: each row, the negative LoRA's column then the positive's")
+        XCTAssertEqual(up, [3, 4, 3, 4])
+    }
+
     /// The prologue's length with its high bit set: `Int(UInt64)` trapped, `16 + length` overflowed,
     /// and `header(_:)` asked `readData` for it.
     func testAnAberrantHeaderLengthIsRefused() throws {

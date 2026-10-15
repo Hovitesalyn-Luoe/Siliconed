@@ -291,7 +291,8 @@ public enum RemoteControlHelp {
           --lora NAME[:STRENGTH]
                               repeatable, 3 at most. NAME = a "loras.lora" of « models » (or its
                               displayed name, or a path). STRENGTH: 1 by default, 0.8 attenuates,
-                              > 1 emphasizes.
+                              > 1 emphasizes; below 0 (a « slider » LoRA), with Experimental →
+                              Negative LoRA Strengths on in the app.
           --steps N           number of steps, 1 to 50. Default: the model's "default_steps". A
                               model may have a schedule for some counts only (Qwen-Image-2.1: 8
                               only).

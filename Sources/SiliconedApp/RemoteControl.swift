@@ -628,6 +628,10 @@ final class RemoteControl {
             let n = d.loras.count, max = AppState.maxLoRA
             throw Refusal("lora", String(localized: "\(n) LoRAs: the app stacks \(max) at most"))
         }
+        guard app.negativeLoRAStrengths || !d.loras.contains(where: { $0.strength < 0 }) else {
+            throw Refusal("lora", String(localized: "negative LoRA strengths are off"),
+                          help: String(localized: "turn on Experimental → Negative LoRA Strengths in the app's menu"))
+        }
         let stack = try d.loras.map { entry -> LoRASlot in
             guard let f = b.lora(entry.name, for: model.identifier) ?? b.lora(absolute(entry.name, cwd), for: model.identifier) else {
                 let compatible = b.loras(for: model.identifier).map { Self.shortName($0.path) }
@@ -857,6 +861,7 @@ final class RemoteControl {
             let y = try d.y.map { try resolved(RenderGrid.axis($0, loras: names)) }
             g = try RenderGrid(.init(prompt: prompt, seed: seed, steps: steps, loraStrengths: stack.map(\.strength),
                                      images: references.count), x: x, y: y)
+            guard !app.refusesNegativeStrength(g) else { throw EngineError.gridRefused(reason: .invalidValue) }
         } catch {
             let p = Problem(error)
             throw Refusal("grid", p.title, help: p.suggestion ?? "silicontrol help grid")

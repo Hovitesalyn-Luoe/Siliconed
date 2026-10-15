@@ -540,7 +540,7 @@ extension AppState {
         orientation = r.format.orientation
         format = r.format
         steps = r.steps
-        loras = r.loras
+        loras = r.loras.map(allowedStrength)
         detail = r.detail
         solver = r.solver
         comfySchedule = r.schedule == .comfyUI
@@ -583,6 +583,9 @@ extension AppState {
             if !lost.isEmpty {
                 let names = lost.formatted(.list(type: .and))
                 notes.append(String(localized: "LoRA not found: \(names)."))
+            }
+            if !negativeLoRAStrengths, stack.contains(where: { $0.strength < 0 }) {
+                notes.append(String(localized: "A negative LoRA strength comes back as 0: turn on Experimental → Negative LoRA Strengths."))
             }
         }
 

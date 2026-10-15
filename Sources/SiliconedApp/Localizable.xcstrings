@@ -3165,6 +3165,34 @@
         }
       }
     },
+    "A negative LoRA strength comes back as 0: turn on Experimental → Negative LoRA Strengths." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine negative LoRA-Stärke wird zu 0: Experimentell → Negative LoRA-Stärken einschalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una intensidad de LoRA negativa vuelve a 0: activa Experimental → Intensidades de LoRA negativas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une force de LoRA négative revient à 0 : cochez Expérimental → Forces de LoRA négatives."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’intensità di LoRA negativa torna a 0: attiva Sperimentale → Intensità LoRA negative."
+          }
+        }
+      }
+    },
     "A render is in progress." : {
       "localizations" : {
         "de" : {
@@ -10712,6 +10740,34 @@
         }
       }
     },
+    "Negative LoRA Strengths" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Negative LoRA-Stärken"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intensidades de LoRA negativas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forces de LoRA négatives"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intensità LoRA negative"
+          }
+        }
+      }
+    },
     "New versions:" : {
       "localizations" : {
         "de" : {
@@ -14968,30 +15024,30 @@
         }
       }
     },
-    "Steps are whole numbers from 1, and a grid needs at least one seed." : {
+    "Steps are whole numbers from 1, a grid needs at least one seed, and a negative LoRA strength needs Experimental → Negative LoRA Strengths." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schritte sind ganze Zahlen ab 1, und ein Raster braucht mindestens einen Seed."
+            "value" : "Schritte sind ganze Zahlen ab 1, ein Raster braucht mindestens einen Seed, und eine negative LoRA-Stärke braucht Experimentell → Negative LoRA-Stärken."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los pasos son números enteros a partir de 1, y una cuadrícula necesita al menos una semilla."
+            "value" : "Los pasos son números enteros a partir de 1, una cuadrícula necesita al menos una semilla, y una intensidad de LoRA negativa necesita Experimental → Intensidades de LoRA negativas."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les pas sont des nombres entiers à partir de 1, et une grille demande au moins une graine."
+            "value" : "Les pas sont des nombres entiers à partir de 1, une grille demande au moins une graine, et une force de LoRA négative demande Expérimental → Forces de LoRA négatives."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I passi sono numeri interi a partire da 1, e una griglia richiede almeno un seme."
+            "value" : "I passi sono numeri interi a partire da 1, una griglia richiede almeno un seme, e un’intensità di LoRA negativa richiede Sperimentale → Intensità LoRA negative."
           }
         }
       }
@@ -21525,6 +21581,34 @@
         }
       }
     },
+    "negative LoRA strengths are off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "negative LoRA-Stärken sind ausgeschaltet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "las intensidades de LoRA negativas están desactivadas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "les forces de LoRA négatives sont éteintes"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "le intensità LoRA negative sono disattivate"
+          }
+        }
+      }
+    },
     "never rendered here: no estimate" : {
       "localizations" : {
         "de" : {
@@ -22933,6 +23017,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "attiva Sperimentale → Soggetti con nome nel menu dell’app"
+          }
+        }
+      }
+    },
+    "turn on Experimental → Negative LoRA Strengths in the app's menu" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Experimentell → Negative LoRA-Stärken im Menü der App einschalten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "activa Experimental → Intensidades de LoRA negativas en el menú de la app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cochez Expérimental → Forces de LoRA négatives dans le menu de l’app"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "attiva Sperimentale → Intensità LoRA negative nel menu dell’app"
           }
         }
       }

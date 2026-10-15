@@ -3,9 +3,10 @@
 // **Incognito by default**: the history lives in memory and dies with the
 // process. Nothing is written to disk without an explicit gesture — "Save", "Copy" —,
 // no temporary file, no preference, no log: nothing that Spotlight or recent items
-// could find. **The exceptions**, each a gesture of the user: four preferences — the « Developer
+// could find. **The exceptions**, each a gesture of the user: five preferences — the « Developer
 // Mode » switch, the comparison's curtain or side by side (`Curtain.preferred`), the experimental
-// « Named Subjects » switch (`SubjectLibrary.enabledKey`) and this Mac's capacity map, measured when
+// « Named Subjects » and « Negative LoRA Strengths » switches (`SubjectLibrary.enabledKey`,
+// `negativeLoRAKey`) and this Mac's capacity map, measured when
 // the user asks (`capacityMapKey`), like the system language the app follows —, the licenses accepted, which the library keeps itself (`<root>/accepted-licenses.json`) because its
 // engine refuses a render without them. The named subjects (`Subjects.swift`) live in memory, like
 // the history.
@@ -65,6 +66,35 @@ final class AppState {
         }
     }
     func isVisible(_ family: Family) -> Bool { developerMode || Self.frontFamilies.contains(family) }
+    private static let negativeLoRAKey = "negativeLoRAStrengths"
+    /// **Negative LoRA strengths** (Experimental): W + s·ΔW with s < 0 pushes the image away from what
+    /// the LoRA learned — meant for « slider » LoRAs, trained as a difference to be used from −x to +x;
+    /// on an ordinary LoRA it mostly damages the image, hence the switch. The engine takes any finite
+    /// strength (`LoRA.materialize` folds it into `down`, sign included): the gate is the app's, for
+    /// the rack, the exploration and `silicontrol` alike. Off, the strengths already set come back to 0.
+    var negativeLoRAStrengths = UserDefaults.standard.bool(forKey: AppState.negativeLoRAKey) {
+        didSet {
+            guard negativeLoRAStrengths != oldValue else { return }
+            UserDefaults.standard.set(negativeLoRAStrengths, forKey: Self.negativeLoRAKey)
+            if !negativeLoRAStrengths {
+                loras = loras.map(allowedStrength)
+                gridX.addedStrength = max(0, gridX.addedStrength)
+                gridY.addedStrength = max(0, gridY.addedStrength)
+            }
+        }
+    }
+    /// The range of a LoRA's strength slider.
+    var loraStrengthRange: ClosedRange<Double> { negativeLoRAStrengths ? -1.5...1.5 : 0...1.5 }
+    /// `slot` with its strength at 0 if negative while the switch is off.
+    func allowedStrength(_ slot: LoRASlot) -> LoRASlot {
+        var s = slot
+        if !negativeLoRAStrengths { s.strength = max(0, s.strength) }
+        return s
+    }
+    /// A grid that sets a negative strength while the switch is off.
+    func refusesNegativeStrength(_ g: RenderGrid) -> Bool {
+        !negativeLoRAStrengths && g.cells.contains { $0.loraStrengths.contains { $0 < 0 } || ($0.addedLoRA != nil && $0.addedStrength < 0) }
+    }
     func isVisible(_ id: String) -> Bool { cards.first { $0.id == id }.map { isVisible($0.family) } ?? false }
     /// Where a family comes in a list: the front ones in `frontFamilies`' order, the others after.
     static func displayRank(_ family: Family) -> Int {
@@ -605,9 +635,11 @@ final class AppState {
         let stack = models ? [] : activeLoRAs
         return Result { () throws(EngineError) in
             guard let x = try gridX.axis(stack: stack) else { throw .gridRefused(reason: .emptyAxis) }
-            return try RenderGrid(.init(prompt: explorePrompt, seed: seed, steps: steps,
-                                        loraStrengths: stack.map(\.strength), images: references.count),
-                                  x: x, y: try gridY.axis(stack: stack))
+            let g = try RenderGrid(.init(prompt: explorePrompt, seed: seed, steps: steps,
+                                         loraStrengths: stack.map(\.strength), images: references.count),
+                                   x: x, y: try gridY.axis(stack: stack))
+            guard !refusesNegativeStrength(g) else { throw .gridRefused(reason: .invalidValue) }
+            return g
         }
     }
     var grid: Result<RenderGrid, EngineError> { grid(seed: seed) }

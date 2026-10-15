@@ -63,6 +63,7 @@ private struct AppCommands: Commands {
             // What is not finished, off by default (`Subjects.swift`).
             Menu("Experimental") {
                 Toggle("Named Subjects", isOn: Binding(get: { app.subjects.enabled }, set: { app.subjects.enabled = $0; if !$0 { app.referenceMode = .images } }))
+                Toggle("Negative LoRA Strengths", isOn: Binding(get: { app.negativeLoRAStrengths }, set: { app.negativeLoRAStrengths = $0 }))
             }
         }
         CommandGroup(replacing: .help) {
