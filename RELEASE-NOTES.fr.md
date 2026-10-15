@@ -4,7 +4,11 @@
 
 ## 0.10.2
 
-- **Forces de LoRA négatives** (Expérimental → Forces de LoRA négatives) : les curseurs des LoRA vont
+- **Une fenêtre Réglages** (Siliconed → Réglages…, ⌘,) remplace les interrupteurs du menu de l’app :
+  le mode développeur, Expérimental (Sujets nommés, Forces de LoRA négatives), le rideau ou le côte à
+  côte des comparaisons, la cartographie de ce Mac, la commande silicontrol (installée ou non, et où)
+  et le dossier des modèles, montré dans le Finder ; chacun avec une phrase qui dit ce qu’il fait.
+- **Forces de LoRA négatives** (Réglages → Expérimental) : les curseurs des LoRA vont
   de −1,5 à 1,5, dans le panneau et dans l’exploration. Une force négative éloigne l’image de ce que
   la LoRA a appris : c’est fait pour les LoRA « curseur » (âge, détail…), entraînées pour servir de
   −x à +x ; sur une LoRA ordinaire, elle abîme surtout l’image, d’où l’interrupteur. Éteint, une

@@ -927,6 +927,34 @@
         }
       }
     },
+    "%@ points to another copy of Siliconed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ verweist auf eine andere Kopie von Siliconed."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ apunta a otra copia de Siliconed."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ pointe vers une autre copie de Siliconed."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ punta a un’altra copia di Siliconed."
+          }
+        }
+      }
+    },
     "%@ references" : {
       "localizations" : {
         "de" : {
@@ -3423,6 +3451,34 @@
         }
       }
     },
+    "About 30 seconds, without any model: Siliconed measures this Mac and chooses how it computes from the next launch. Never in the background." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etwa 30 Sekunden, ohne Modell: Siliconed misst diesen Mac und wählt ab dem nächsten Start, wie er rechnet. Nie im Hintergrund."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unos 30 segundos, sin ningún modelo: Siliconed mide este Mac y elige cómo calcula a partir del próximo inicio. Nunca en segundo plano."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une trentaine de secondes, sans aucun modèle : Siliconed mesure ce Mac et choisit comment il calcule à partir du prochain lancement. Jamais en arrière-plan."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Circa 30 secondi, senza alcun modello: Siliconed misura questo Mac e sceglie come calcolare dal prossimo avvio. Mai in background."
+          }
+        }
+      }
+    },
     "About Siliconed" : {
       "localizations" : {
         "de" : {
@@ -5355,6 +5411,62 @@
         }
       }
     },
+    "ComfyUI's schedule on Qwen-Image-2.1, to compare with the official one" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "den Zeitplan von ComfyUI für Qwen-Image-2.1, zum Vergleich mit dem offiziellen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "el calendario de ComfyUI en Qwen-Image-2.1, para compararlo con el oficial"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "le calendrier de ComfyUI sur Qwen-Image-2.1, pour le comparer à l’officiel"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "la pianificazione di ComfyUI su Qwen-Image-2.1, per confrontarla con quella ufficiale"
+          }
+        }
+      }
+    },
+    "Command Line" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Befehlszeile"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Línea de comandos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ligne de commande"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riga di comando"
+          }
+        }
+      }
+    },
     "Command copied" : {
       "localizations" : {
         "de" : {
@@ -5491,6 +5603,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Confronta con l’originale: l’immagine modificata, sotto una tendina"
+          }
+        }
+      }
+    },
+    "Comparison" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vergleich"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparación"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparaison"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confronto"
           }
         }
       }
@@ -6023,6 +6163,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rendering in corso"
+          }
+        }
+      }
+    },
+    "Curtain" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorhang"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cortina"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rideau"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sipario"
           }
         }
       }
@@ -7791,6 +7959,34 @@
         }
       }
     },
+    "For comparing and testing, not for everyday renders. It shows:" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zum Vergleichen und Testen, nicht für alltägliche Bilder. Er zeigt:"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para comparar y probar, no para los renders de cada día. Muestra:"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour comparer et tester, pas pour les rendus de tous les jours. Il montre :"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per confrontare e provare, non per le immagini di tutti i giorni. Mostra:"
+          }
+        }
+      }
+    },
     "Format" : {
       "localizations" : {
         "de" : {
@@ -8354,6 +8550,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Come ogni passo porta al successivo, con gli stessi passi: Euler è quello per cui questo modello è stato distillato"
+          }
+        }
+      }
+    },
+    "How two images are compared in the canvas; its toolbar switches too." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie zwei Bilder auf der Leinwand verglichen werden; ihre Symbolleiste schaltet ebenfalls um."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo se comparan dos imágenes en el lienzo; su barra de herramientas también lo cambia."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comment deux images se comparent dans le canevas ; sa barre d’outils bascule aussi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come si confrontano due immagini nella tela; anche la sua barra degli strumenti lo cambia."
           }
         }
       }
@@ -9086,34 +9310,6 @@
         }
       }
     },
-    "Install the silicontrol command…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "silicontrol-Befehl installieren …"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instalar el comando silicontrol…"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installer la commande silicontrol…"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installa il comando silicontrol…"
-          }
-        }
-      }
-    },
     "Install, import, remove — and what each takes on disk (⇧⌘M)" : {
       "localizations" : {
         "de" : {
@@ -9166,6 +9362,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Installato"
+          }
+        }
+      }
+    },
+    "Installed: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installiert: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalado: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installée : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installato: %@"
           }
         }
       }
@@ -9390,6 +9614,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Krea 2 Community (commerciale sotto 1 M$, filtro dei contenuti obbligatorio)"
+          }
+        }
+      }
+    },
+    "Krea 2 in the list of models" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krea 2 in der Liste der Modelle"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krea 2 en la lista de modelos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krea 2 dans la liste des modèles"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krea 2 nell’elenco dei modelli"
           }
         }
       }
@@ -9842,6 +10094,34 @@
         }
       }
     },
+    "LoRA sliders from −1.5 to 1.5. For « slider » LoRAs (age, detail…), trained to work both ways; on an ordinary LoRA, a negative strength mostly damages the image." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA-Regler von −1,5 bis 1,5. Für „Regler“-LoRAs (Alter, Detail…), die in beide Richtungen trainiert sind; bei einer gewöhnlichen LoRA beschädigt eine negative Stärke meist das Bild."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controles de LoRA de −1,5 a 1,5. Para los LoRA «deslizador» (edad, detalle…), entrenados para funcionar en ambos sentidos; en un LoRA corriente, una intensidad negativa sobre todo estropea la imagen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Curseurs des LoRA de −1,5 à 1,5. Pour les LoRA « curseur » (âge, détail…), entraînées pour marcher dans les deux sens ; sur une LoRA ordinaire, une force négative abîme surtout l’image."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cursori delle LoRA da −1,5 a 1,5. Per le LoRA «cursore» (età, dettaglio…), addestrate per funzionare nei due sensi; su una LoRA normale, un’intensità negativa rovina soprattutto l’immagine."
+          }
+        }
+      }
+    },
     "LoRA to Compare" : {
       "localizations" : {
         "de" : {
@@ -10174,6 +10454,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Misura di nuovo"
+          }
+        }
+      }
+    },
+    "Measure This Mac…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Mac messen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medir este Mac…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesurer ce Mac…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Misura questo Mac…"
           }
         }
       }
@@ -10652,6 +10960,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nomina un soggetto"
+          }
+        }
+      }
+    },
+    "Name a person or a thing from a photo, then cite it as @name in an edit's instruction." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benennen Sie eine Person oder ein Ding auf einem Foto und zitieren Sie es dann als @Name in der Anweisung einer Bearbeitung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombra a una persona o una cosa a partir de una foto, y cítala como @nombre en la instrucción de una edición."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nommez une personne ou une chose d’après une photo, puis citez-la en @nom dans l’instruction d’une édition."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dai un nome a una persona o a una cosa da una foto, poi citala come @nome nell’istruzione di una modifica."
           }
         }
       }
@@ -11505,6 +11841,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non installato"
+          }
+        }
+      }
+    },
+    "Not installed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht installiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No instalado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas installée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non installato."
           }
         }
       }
@@ -12712,6 +13076,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reinstalla il modello dalla finestra Modelli, o importalo di nuovo."
+          }
+        }
+      }
+    },
+    "Reinstall…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu installieren …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinstalar…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinstaller…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinstalla…"
           }
         }
       }
@@ -13960,6 +14352,34 @@
         }
       }
     },
+    "Settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impostazioni"
+          }
+        }
+      }
+    },
     "Settings of %@ restored" : {
       "localizations" : {
         "de" : {
@@ -14012,6 +14432,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Impostazioni della cella riprese dal rack"
+          }
+        }
+      }
+    },
+    "Settings…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impostazioni…"
           }
         }
       }
@@ -14236,6 +14684,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostra la licenza e lo spazio occupato; nulla viene scaricato prima che tu accetti"
+          }
+        }
+      }
+    },
+    "Side by Side" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nebeneinander"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lado a lado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Côte à côte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiancate"
           }
         }
       }
@@ -16981,6 +17457,34 @@
         }
       }
     },
+    "The models, LoRAs and accepted licenses Siliconed installed. Remove a model from the Models window, not from the Finder." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Modelle, LoRAs und akzeptierten Lizenzen, die Siliconed installiert hat. Entfernen Sie ein Modell im Fenster Modelle, nicht im Finder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los modelos, LoRA y licencias aceptadas que Siliconed instaló. Quita un modelo desde la ventana Modelos, no desde el Finder."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les modèles, LoRA et licences acceptées que Siliconed a installés. Retirez un modèle depuis la fenêtre Modèles, pas depuis le Finder."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I modelli, le LoRA e le licenze accettate che Siliconed ha installato. Rimuovi un modello dalla finestra Modelli, non dal Finder."
+          }
+        }
+      }
+    },
     "The next render is a variation of the seed's image, like the image it came from" : {
       "localizations" : {
         "de" : {
@@ -18035,6 +18539,34 @@
         }
       }
     },
+    "This Mac" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Mac"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo Mac"
+          }
+        }
+      }
+    },
     "This family's imported models and LoRAs stay." : {
       "localizations" : {
         "de" : {
@@ -18845,6 +19377,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Digita una dimensione (larghezza × altezza)"
+          }
+        }
+      }
+    },
+    "Unfinished: off by default, and may still change." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unfertig: standardmäßig aus, und kann sich noch ändern."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin terminar: desactivado por defecto, y aún puede cambiar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inachevé : éteint par défaut, et peut encore changer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Incompiuto: disattivato per impostazione predefinita, e può ancora cambiare."
           }
         }
       }
@@ -21609,30 +22169,30 @@
         }
       }
     },
-    "models: %@ — or turn on Developer Mode in the app's menu" : {
+    "models: %@ — or turn on Developer Mode in Settings (⌘,)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modelle: %@ – oder aktivieren Sie den Entwicklermodus im Menü der App"
+            "value" : "Modelle: %@ — oder den Entwicklermodus in den Einstellungen (⌘,) einschalten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "modelos: %@ — o activa el Modo de desarrollador en el menú de la app"
+            "value" : "modelos: %@ — o activa el Modo de desarrollador en Ajustes (⌘,)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "modèles : %@ — ou allumez le Mode développeur dans le menu de l’app"
+            "value" : "modèles : %@ — ou allumez le Mode développeur dans les Réglages (⌘,)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "modelli: %@ — oppure attiva la Modalità sviluppatore nel menu dell’app"
+            "value" : "modelli: %@ — o attiva la Modalità sviluppatore nelle Impostazioni (⌘,)"
           }
         }
       }
@@ -22337,6 +22897,34 @@
         }
       }
     },
+    "silicontrol drives this app from a terminal or a script — an AI agent can use it too: queue renders and explorations, read the queue and the history, save images. In a terminal: silicontrol help" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "silicontrol steuert diese App aus einem Terminal oder einem Skript — auch eine KI kann es nutzen: Bilder und Erkundungen einreihen, Warteschlange und Verlauf lesen, Bilder sichern. Im Terminal: silicontrol help"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "silicontrol maneja esta app desde un terminal o un script — una IA también puede usarlo: poner renders y exploraciones en cola, leer la cola y el historial, guardar imágenes. En un terminal: silicontrol help"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "silicontrol pilote cette app depuis un terminal ou un script — une IA peut s’en servir aussi : mettre des rendus et des explorations en file, lire la file et l’historique, enregistrer des images. Dans un terminal : silicontrol help"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "silicontrol pilota questa app da un terminale o da uno script — anche un’IA può usarlo: mettere in coda immagini ed esplorazioni, leggere la coda e la cronologia, salvare immagini. In un terminale: silicontrol help"
+          }
+        }
+      }
+    },
     "sketch after %lld evaluations" : {
       "localizations" : {
         "de" : {
@@ -22937,6 +23525,34 @@
         }
       }
     },
+    "the solvers Euler a, DPM++ 2M and UniPC beside Euler, in the panel and as an axis of the exploration" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "die Solver Euler a, DPM++ 2M und UniPC neben Euler, im Panel und als Achse der Erkundung"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "los solvers Euler a, DPM++ 2M y UniPC junto a Euler, en el panel y como eje de la exploración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "les solveurs Euler a, DPM++ 2M et UniPC à côté d’Euler, dans le panneau et comme axe de l’exploration"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "i solver Euler a, DPM++ 2M e UniPC accanto a Euler, nel pannello e come asse dell’esplorazione"
+          }
+        }
+      }
+    },
     "time" : {
       "localizations" : {
         "de" : {
@@ -23077,86 +23693,86 @@
         }
       }
     },
-    "turn on Developer Mode in the app's menu" : {
+    "turn on Developer Mode in Settings (⌘,)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "aktivieren Sie den Entwicklermodus im Menü der App"
+            "value" : "den Entwicklermodus in den Einstellungen (⌘,) einschalten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "activa el Modo de desarrollador en el menú de la app"
+            "value" : "activa el Modo de desarrollador en Ajustes (⌘,)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "allumez le Mode développeur dans le menu de l’app"
+            "value" : "allumez le Mode développeur dans les Réglages (⌘,)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "attiva la Modalità sviluppatore nel menu dell’app"
+            "value" : "attiva la Modalità sviluppatore nelle Impostazioni (⌘,)"
           }
         }
       }
     },
-    "turn on Experimental → Named Subjects in the app's menu" : {
+    "turn on Experimental → Named Subjects in Settings (⌘,)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Experimentell → Benannte Motive im Menü der App einschalten"
+            "value" : "Experimentell → Benannte Motive in den Einstellungen (⌘,) einschalten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "activa Experimental → Sujetos con nombre en el menú de la app"
+            "value" : "activa Experimental → Sujetos con nombre en Ajustes (⌘,)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cochez Expérimental → Sujets nommés dans le menu de l’app"
+            "value" : "cochez Expérimental → Sujets nommés dans les Réglages (⌘,)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "attiva Sperimentale → Soggetti con nome nel menu dell’app"
+            "value" : "attiva Sperimentale → Soggetti con nome nelle Impostazioni (⌘,)"
           }
         }
       }
     },
-    "turn on Experimental → Negative LoRA Strengths in the app's menu" : {
+    "turn on Experimental → Negative LoRA Strengths in Settings (⌘,)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Experimentell → Negative LoRA-Stärken im Menü der App einschalten"
+            "value" : "Experimentell → Negative LoRA-Stärken in den Einstellungen (⌘,) einschalten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "activa Experimental → Intensidades de LoRA negativas en el menú de la app"
+            "value" : "activa Experimental → Intensidades de LoRA negativas en Ajustes (⌘,)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cochez Expérimental → Forces de LoRA négatives dans le menu de l’app"
+            "value" : "cochez Expérimental → Forces de LoRA négatives dans les Réglages (⌘,)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "attiva Sperimentale → Intensità LoRA negative nel menu dell’app"
+            "value" : "attiva Sperimentale → Intensità LoRA negative nelle Impostazioni (⌘,)"
           }
         }
       }

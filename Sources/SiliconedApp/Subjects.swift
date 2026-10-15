@@ -11,7 +11,7 @@
 //                           hidden but shown on demand, and the cited subjects' framed pictures sent as
 //                           `Request.references` — the engine is unchanged
 //
-// **One switch turns it on** (`SubjectLibrary.enabledKey`, the app menu's « Experimental »); off, the
+// **One switch turns it on** (`SubjectLibrary.enabledKey`, « Experimental » in the settings window); off, the
 // app is exactly the app without it: the prompt is a `TextEditor`, nothing is rewritten, no switch.
 // Only Qwen-Image-2.1 shows it — the one visible family whose encoder reads images.
 //

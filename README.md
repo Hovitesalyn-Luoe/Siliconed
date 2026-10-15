@@ -251,7 +251,7 @@ Render times on the reference machine are under [Numbers](#numbers).
 ## For AI agents and scripts: silicontrol
 
 Drives the running app from a terminal. It ships in
-`Siliconed.app/Contents/Helpers/silicontrol`; the app menu links it into `/usr/local/bin`. What you
+`Siliconed.app/Contents/Helpers/silicontrol`; Settings → Command Line links it into `/usr/local/bin`. What you
 add appears in the app's window, and there is one queue, never two renders at once.
 
 ```

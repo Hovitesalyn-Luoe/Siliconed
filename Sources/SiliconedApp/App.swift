@@ -48,7 +48,6 @@ private struct AppCommands: Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Siliconed") { window.about() }
             Button("Check for Updates…") { window.checkForUpdates() }
-            Button("Install the silicontrol command…") { SilicontrolCommand.install() }
             // The socket did not open (another Siliconed listening, a library path too long): said
             // here, greyed, where the remote control is — `silicontrol` cannot tell it from outside.
             if let reason = window.remote.failureMessage {
@@ -56,15 +55,10 @@ private struct AppCommands: Commands {
                     .disabled(true)
             }
         }
-        // The app's settings, in its menu rather than a Settings window (whose frame SwiftUI would
-        // remember: incognito).
+        // The app's settings, in a window of ours (`SettingsWindow.swift`): SwiftUI's would keep its frame.
         CommandGroup(replacing: .appSettings) {
-            Toggle("Developer Mode", isOn: Binding(get: { app.developerMode }, set: { app.developerMode = $0 }))
-            // What is not finished, off by default (`Subjects.swift`).
-            Menu("Experimental") {
-                Toggle("Named Subjects", isOn: Binding(get: { app.subjects.enabled }, set: { app.subjects.enabled = $0; if !$0 { app.referenceMode = .images } }))
-                Toggle("Negative LoRA Strengths", isOn: Binding(get: { app.negativeLoRAStrengths }, set: { app.negativeLoRAStrengths = $0 }))
-            }
+            Button("Settings…") { SettingsWindow.shared.show(app) }
+                .keyboardShortcut(",")
         }
         CommandGroup(replacing: .help) {
             Button("Report My Configuration…") { app.openDiagnostic() }
@@ -446,9 +440,21 @@ final class MainWindow: NSObject, NSWindowDelegate {
 /// app: a rebuilt or moved app stays the one it drives, as long as the link points into it.
 enum SilicontrolCommand {
     static let destination = "/usr/local/bin/silicontrol"
+    /// The helper inside this app — what the link must point to.
+    static var source: String { Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/silicontrol").path }
+
+    enum State { case installed, otherCopy, absent }
+    /// **Whether `destination` is this app's helper**: a link to another copy of Siliconed (an old one
+    /// moved, a build) drives that copy's protocol, not this one's.
+    static var state: State {
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination) else {
+            return FileManager.default.fileExists(atPath: destination) ? .otherCopy : .absent
+        }
+        return URL(fileURLWithPath: target).standardizedFileURL.path == URL(fileURLWithPath: source).standardizedFileURL.path
+            ? .installed : .otherCopy
+    }
 
     @MainActor static func install() {
-        let source = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/silicontrol").path
         let alert = NSAlert()
         guard FileManager.default.isExecutableFile(atPath: source) else {
             alert.messageText = String(localized: "The silicontrol command is missing from this app.")

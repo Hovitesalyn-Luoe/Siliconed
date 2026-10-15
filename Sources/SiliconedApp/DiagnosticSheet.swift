@@ -61,23 +61,23 @@ struct DiagnosticSheet: View {
     /// **Where this session stands against the map** — the before/after the user can see: no map, the
     /// defaults; a map in use since launch; a newer one waiting for the next launch; a stale one ignored.
     @ViewBuilder private var mapStatus: some View {
-        let text: LocalizedStringKey? = {
-            if let used = app.mapInUse {
-                return used == app.storedMap
-                    ? "This session uses the choices of this Mac's measure of \(Self.day(used.date))."
-                    : "This session uses the measure of \(Self.day(used.date)); the newer one applies from the next launch."
-            }
-            if let stored = app.storedMap {
-                return stored.isCurrent
-                    ? "A measure of \(Self.day(stored.date)) applies from the next launch; this session uses the defaults."
-                    : "The measure of \(Self.day(stored.date)) was taken with another macOS or another version of Siliconed: it is not used. Measure again to let Siliconed choose for this Mac."
-            }
-            return "This session uses Siliconed's defaults. Measuring lets it choose for this Mac, from the next launch."
-        }()
-        if let text {
-            Text(text).font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        Text(Self.mapStatus(app)).font(.callout).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The sentence of `mapStatus` — the settings window says it too.
+    static func mapStatus(_ app: AppState) -> LocalizedStringKey {
+        if let used = app.mapInUse {
+            return used == app.storedMap
+                ? "This session uses the choices of this Mac's measure of \(day(used.date))."
+                : "This session uses the measure of \(day(used.date)); the newer one applies from the next launch."
         }
+        if let stored = app.storedMap {
+            return stored.isCurrent
+                ? "A measure of \(day(stored.date)) applies from the next launch; this session uses the defaults."
+                : "The measure of \(day(stored.date)) was taken with another macOS or another version of Siliconed: it is not used. Measure again to let Siliconed choose for this Mac."
+        }
+        return "This session uses Siliconed's defaults. Measuring lets it choose for this Mac, from the next launch."
     }
 
     /// A report's ISO date as a day the user reads.

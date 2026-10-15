@@ -4,7 +4,11 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 ## 0.10.2
 
-- **Negative LoRA strengths** (Experimental → Negative LoRA Strengths): the LoRA sliders go from −1.5
+- **A Settings window** (Siliconed → Settings…, ⌘,) replaces the switches of the app menu: Developer
+  Mode, Experimental (Named Subjects, Negative LoRA Strengths), the comparison's curtain or side by
+  side, this Mac's capacity map, the silicontrol command (installed or not, and where) and the models
+  folder, shown in the Finder; each with a sentence saying what it does.
+- **Negative LoRA strengths** (Settings → Experimental): the LoRA sliders go from −1.5
   to 1.5, in the panel and in the exploration. A negative strength pushes the image away from what
   the LoRA learned: it is meant for « slider » LoRAs (age, detail…), trained to be used from −x to
   +x; on an ordinary LoRA it mostly damages the image, hence the switch. Off, a negative value is

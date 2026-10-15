@@ -540,13 +540,13 @@ final class RemoteControl {
         guard card.map({ app.isVisible($0.family) }) ?? true else {
             let visible = visibleCards(b).map(\.id).joined(separator: ", ")
             throw Refusal("model", String(localized: "model \"\(d.model)\" is shown only in Developer Mode"),
-                        help: String(localized: "models: \(visible) — or turn on Developer Mode in the app's menu"))
+                        help: String(localized: "models: \(visible) — or turn on Developer Mode in Settings (⌘,)"))
         }
         // A solver other than Euler: the rack's, so Developer Mode, and the models in front only.
         if d.solver != .euler {
             guard app.developerMode else {
                 throw Refusal("solver", String(localized: "--solver \(d.solver.rawValue) is offered only in Developer Mode"),
-                              help: String(localized: "turn on Developer Mode in the app's menu"))
+                              help: String(localized: "turn on Developer Mode in Settings (⌘,)"))
             }
             guard card.map({ AppState.solverFamilies.contains($0.family) }) == true else {
                 throw Refusal("solver", String(localized: "\(card?.name ?? model.name) doesn't offer the \(d.solver.rawValue) solver"),
@@ -557,7 +557,7 @@ final class RemoteControl {
         if d.schedule != .official {
             guard app.developerMode else {
                 throw Refusal("schedule", String(localized: "--schedule \(d.schedule.rawValue) is offered only in Developer Mode"),
-                              help: String(localized: "turn on Developer Mode in the app's menu"))
+                              help: String(localized: "turn on Developer Mode in Settings (⌘,)"))
             }
             guard model.chain.denoising.schedules.contains(d.schedule) else {
                 throw Refusal("schedule", String(localized: "\(card?.name ?? model.name) doesn't offer the ComfyUI schedule"),
@@ -630,7 +630,7 @@ final class RemoteControl {
         }
         guard app.negativeLoRAStrengths || !d.loras.contains(where: { $0.strength < 0 }) else {
             throw Refusal("lora", String(localized: "negative LoRA strengths are off"),
-                          help: String(localized: "turn on Experimental → Negative LoRA Strengths in the app's menu"))
+                          help: String(localized: "turn on Experimental → Negative LoRA Strengths in Settings (⌘,)"))
         }
         let stack = try d.loras.map { entry -> LoRASlot in
             guard let f = b.lora(entry.name, for: model.identifier) ?? b.lora(absolute(entry.name, cwd), for: model.identifier) else {
@@ -749,7 +749,7 @@ final class RemoteControl {
     private func subjects(_ arguments: [String], cwd: String) throws -> [String: Any] {
         guard app.subjects.enabled else {
             throw Refusal("disabled", String(localized: "named subjects are off"),
-                          help: String(localized: "turn on Experimental → Named Subjects in the app's menu"))
+                          help: String(localized: "turn on Experimental → Named Subjects in Settings (⌘,)"))
         }
         // In memory, like the history: a subject lives as long as the app (incognito) — no path to give.
         func json(_ s: NamedSubjects.Subject) -> [String: Any] {
@@ -871,7 +871,7 @@ final class RemoteControl {
         if g.cells.contains(where: { ($0.solver ?? .euler) != .euler }) {
             guard app.developerMode else {
                 throw Refusal("solver", String(localized: "a solver axis is offered only in Developer Mode"),
-                              help: String(localized: "turn on Developer Mode in the app's menu"))
+                              help: String(localized: "turn on Developer Mode in Settings (⌘,)"))
             }
             guard g.cells.contains(where: { $0.model != nil }) || card.map({ AppState.solverFamilies.contains($0.family) }) == true else {
                 throw Refusal("solver", String(localized: "\(card?.name ?? model.name) walks Euler only"),

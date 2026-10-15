@@ -69,7 +69,7 @@ Le `variation` de chaque image donne ses graines de variation dans l'ordre ; l
 ## La commande
 
 `silicontrol` est livrée dans l'app, `Siliconed.app/Contents/Helpers/silicontrol` (cible `Silicontrol`,
-`Sources/Silicontrol/main.swift`). Le menu de l'app (« Installer la commande silicontrol… ») la lie
+`Sources/Silicontrol/main.swift`). Réglages → Ligne de commande (« Installer la commande silicontrol… ») la lie
 dans `/usr/local/bin`. Ce n'est qu'un tuyau : Foundation seule, elle ne lie pas le moteur. Si
 l'app n'est pas lancée, toute commande sauf l'aide la lance et attend sa prise (30 s au plus) ;
 `silicontrol open` ne fait que cela. L'aide (`help`, `help <sujet>`, `<commande> --help`, aucun

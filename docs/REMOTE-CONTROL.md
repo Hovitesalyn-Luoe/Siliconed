@@ -62,7 +62,7 @@ image. Refused on a grid's sheet, a sketch, or a model that is not ready (`model
 ## The command
 
 `silicontrol` ships inside the app, at `Siliconed.app/Contents/Helpers/silicontrol` (target `Silicontrol`,
-`Sources/Silicontrol/main.swift`). The app menu ("Install the silicontrol command…") links it into
+`Sources/Silicontrol/main.swift`). Settings → Command Line ("Install the silicontrol Command…") links it into
 `/usr/local/bin`. It is a pipe: Foundation only, it does not link the engine. If the app is not
 running, any command but the help launches it and waits for its socket (30 s at most); `silicontrol open`
 does only that. The help (`help`, `help <topic>`, `<command> --help`, no argument) is answered by the

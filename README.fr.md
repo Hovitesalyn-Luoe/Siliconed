@@ -261,7 +261,7 @@ Les temps de rendu de la machine de référence sont dans [Les chiffres](#les-ch
 ## Pour les agents IA et les scripts : silicontrol
 
 Pilote l'app ouverte depuis un terminal. Elle est livrée dans
-`Siliconed.app/Contents/Helpers/silicontrol` ; le menu de l'app la lie dans `/usr/local/bin`. Ce que
+`Siliconed.app/Contents/Helpers/silicontrol` ; Réglages → Ligne de commande la lie dans `/usr/local/bin`. Ce que
 vous ajoutez apparaît dans la fenêtre de l'app, et il n'y a qu'une file, jamais deux rendus à la
 fois.
 
