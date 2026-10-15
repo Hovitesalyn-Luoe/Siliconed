@@ -34,6 +34,9 @@ final class InfotextTests: XCTestCase {
             Steps: 8, Sampler: DPM++ 2M, Seed: 1303787694, Size: 3x2, Model: Qwen-Image-2.1 Turbo, \
             Civitai resources: [{"type":"checkpoint","modelVersionId":3400828}], Version: Siliconed
             """)
+        // Anima: its publisher's page, the same for the three variants.
+        XCTAssertTrue(render(model: "anima", name: "Anima Turbo").parameters(version: nil).contains(
+            #"Civitai resources: [{"type":"checkpoint","modelVersionId":3263843}]"#))
         XCTAssertEqual(Solver.allCases.map(Infotext.sampler), ["Euler", "Euler a", "DPM++ 2M", "UniPC"])
         // A hidden family claims no page.
         XCTAssertFalse(render(model: "krea2", name: "Krea 2 Turbo").parameters(version: nil).contains("Civitai resources"))

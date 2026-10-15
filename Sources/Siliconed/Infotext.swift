@@ -53,11 +53,15 @@ package enum Infotext {
     /// byte Comfy-Org's single-file repackaging of the publisher's weights (same sha256 as on the
     /// Hub): Z Image Turbo 2442439 (`2407613050b8…`, `z_image_turbo_bf16`), Qwen Image 2.1 "v2.1
     /// Turbo" 3400828 (`8b74237a7f50…`, `qwen_image_2.1_turbo_bf16`; its int8 file `8144a0182964…`
-    /// is the Compact's DiT). The hidden families: none checked, none claimed.
+    /// is the Compact's DiT), Anima "turbo-v1.1" 3263843 on circlestone_labs' own page
+    /// (`fba11953276b…`, `anima-turbo-v1.1` of `circlestone-labs/Anima`, the Standard's DiT; the
+    /// Compact and Light are vanes430's GGUFs of it — checked 15/10/2026). The hidden families: none
+    /// checked, none claimed.
     package static func civitaiModelVersion(model: String) -> Int? {
         switch model {
         case "z-image": return 2_442_439
         case "qwen-image-2.1": return 3_400_828
+        case "anima": return 3_263_843
         default: return nil
         }
     }
