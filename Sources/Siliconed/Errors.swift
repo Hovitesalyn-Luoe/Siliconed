@@ -88,6 +88,10 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     case imageToImageUnsupported(model: String)
     /// A `Solver` the model's sampler does not walk (`DenoisingModule.solvers`).
     case solverUnsupported(solver: String, model: String)
+    /// A `SigmaSchedule` the model does not offer (`DenoisingModule.schedules`).
+    case scheduleUnsupported(schedule: String, model: String)
+    /// More or Most detail asked of a model that does not offer it (`DenoisingModule.acceptsDetail`).
+    case detailUnsupported(model: String)
     /// An image ImageIO cannot read.
     case imageUnreadable(file: String)
     /// ImageIO refused to encode the PNG.
@@ -111,8 +115,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     /// maps are missing or their headers do not parse. Refused rather than rendered on a need of 0.
     case memoryNeedUnknown(model: String)
     /// Another process is rendering on this machine (the app, the CLI, whatever their library or
-    /// user — `RenderLock.machine`): two models do not fit
-    /// in 16 GB. Within one process, renders queue instead.
+    /// user — `RenderLock.machine`): two models do not fit in 16 GB. Within one process, renders
+    /// queue instead.
     case renderAlreadyRunning
     /// The render, the installation or the download was cancelled.
     case cancelled
@@ -205,6 +209,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .strengthTooLow: return "strength_too_low"
         case .imageToImageUnsupported: return "image_to_image_unsupported"
         case .solverUnsupported: return "solver_unsupported"
+        case .scheduleUnsupported: return "schedule_unsupported"
+        case .detailUnsupported: return "detail_unsupported"
         case .imageUnreadable: return "image_unreadable"
         case .imageEncodingFailed: return "image_encoding_failed"
         case .imageWriteFailed: return "image_write_failed"
@@ -292,6 +298,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
                 + "it must be above \(String(format: "%.3f", floor))."
         case .imageToImageUnsupported(let model): return "\(model) does not start from an image."
         case let .solverUnsupported(solver, model): return "\(model) does not offer the \(solver) solver."
+        case let .scheduleUnsupported(schedule, model): return "\(model) does not offer the \(schedule) schedule."
+        case .detailUnsupported(let model): return "\(model) does not offer Detail."
         case .imageUnreadable(let file): return "This image cannot be read: \(file)."
         case .imageEncodingFailed: return "The image could not be encoded as PNG."
         case .imageWriteFailed(let file): return "The image could not be saved to \(file)."
@@ -360,6 +368,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .strengthTooLow: return "Increase the strength, or the number of steps."
         case .imageToImageUnsupported: return "Pass the image as reference 1 and describe the change."
         case .solverUnsupported: return "Choose Euler."
+        case .scheduleUnsupported: return "Use the official schedule."
+        case .detailUnsupported: return "Choose Normal."
         case .imageUnreadable: return "Choose a PNG, JPEG or HEIC image."
         case .imageEncodingFailed: return nil
         case .imageWriteFailed: return "Check that the folder exists and that you can write to it."
@@ -398,6 +408,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
             case .steps(let n): self = .invalidSteps(steps: n, allowed: [])
             case let .references(n, max): self = .tooManyReferences(count: n, max: max)
             case let .solver(solver, model): self = .solverUnsupported(solver: solver.rawValue, model: model)
+            case let .schedule(schedule, model): self = .scheduleUnsupported(schedule: schedule.rawValue, model: model)
+            case .detail(let model): self = .detailUnsupported(model: model)
             }
         case let e as Strength.Failure:
             switch e {
@@ -502,7 +514,8 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         .promptTooLong(tokens: 600, max: 512), .gridRefused(reason: .groupNotOnAxis),
         .tooManyGridCells(count: 81, max: 64), .strengthOutOfRange(strength: 1.5),
         .strengthTooLow(strength: 0.1, steps: 8, floor: 0.125), .imageToImageUnsupported(model: "qwen-image-2.1"),
-        .solverUnsupported(solver: "unipc", model: "qwen-image-2.1"),
+        .solverUnsupported(solver: "unipc", model: "qwen-image-2.1"), .scheduleUnsupported(schedule: "comfyui", model: "anima"),
+        .detailUnsupported(model: "anima"),
         .imageUnreadable(file: "/a.png"), .imageEncodingFailed, .imageWriteFailed(file: "/a.png"),
         .unsupportedLoRA(file: "x.lora.silicon", reason: .noTarget),
         .loraForOtherModel(lora: "PopArt", target: "z-image", model: "krea2"),

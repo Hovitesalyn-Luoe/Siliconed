@@ -19,11 +19,25 @@ import Foundation
 /// **Everything is computed in double**, and it is free: forty tokens, six blocks, once per
 /// render. This is the rule — more precision, never less — with nothing to trade off.
 ///
+/// **Its working memory is one arena** (`slices`, `arenaBytes`), mapped for a call of `condition` and
+/// unmapped on its return: the activations in double, one widened weight (`mlp.0`, `4096 × 1024`,
+/// 32 MB of doubles, and its fp32 widening beside), the scores. They were Swift arrays, a fresh one
+/// per weight and per activation — up to ~80 MB of `malloc` at 512 tokens, outside every shape
+/// function, left in the footprint by `free` (`Pages`). The same values in the same order: only where
+/// they live moved.
+///
 /// The weights are read from the published Turbo file, without a forge: 0.13 G parameters read once,
 /// of which only the `embed` table rows of the prompt tokens are touched.
 package final class AnimaConditioner {
-    package let dim = 1024, heads = 16, headDim = 64, blocks = 6, hidden = 4096
-    package let minimumLength = 512
+    /// The adapter's published shapes — what its arena is sized on (`slices`).
+    package enum Shape {
+        package static let dim = 1024, heads = 16, headDim = 64, blocks = 6, hidden = 4096
+        /// The T5 tokens are cut at 512 (`T5Tokenizer.encode`, `</s>` kept), and the output is
+        /// padded with zeros to 512: the DiT's text is always 512 rows.
+        package static let maximumTokens = 512, minimumLength = 512
+    }
+    package let dim = Shape.dim, heads = Shape.heads, headDim = Shape.headDim, blocks = Shape.blocks, hidden = Shape.hidden
+    package let minimumLength = Shape.minimumLength
     private let weights: Safetensors
     private let prefix: String
     package var recordBoundaries = false
@@ -39,43 +53,91 @@ package final class AnimaConditioner {
         }
     }
 
-    private func load(_ name: String) throws -> [Double] {
-        guard let values = weights.materialize(prefix + name) else {
-            throw Safetensors.Failure.badHeader("adapter: \(name) missing")
-        }
-        var out = [Double](repeating: 0, count: values.count)
-        vDSP_vspdp(values, 1, &out, 1, vDSP_Length(values.count))
-        return out
+    // ── sizing: what `condition` maps, and the memory need charges ──────────────────────────────
+
+    /// **The arena's slices, in bytes, in the order `condition` reserves them**, for `t5` query rows
+    /// reading `qwen` rows: in double, `source [qwen, d]`, `x`, `normed` (the three RMS inputs, one at a
+    /// time), `q`, `attended`, `projected` (an attention's or the MLP's output, before it is added) at
+    /// `[t5, d]`; `k`, `v` at the larger of the two lengths (self: `t5`, cross: `qwen`); the MLP's
+    /// `[t5, 4096]`; one weight `[4096, 1024]` (the largest: `mlp.0`, `mlp.2`), its bias (4096), a norm
+    /// (1024), one row of scores; in fp32, the weight's widening from the file and the embedding row.
+    package static func slices(t5 t: Int, qwen q: Int) -> [(name: String, bytes: Int)] {
+        let d = Shape.dim, h = Shape.hidden, c = max(t, q)
+        let w = MemoryLayout<Double>.size, f = MemoryLayout<Float>.size
+        return [("source", q * d * w), ("x", t * d * w), ("normed", t * d * w), ("q", t * d * w), ("k", c * d * w),
+                ("v", c * d * w), ("attended", t * d * w), ("projected", t * d * w), ("hidden", t * h * w),
+                ("weight", h * d * w), ("bias", h * w), ("norm", d * w), ("scores", c * w),
+                ("widened", h * d * f), ("row", d * f)]
     }
 
-    /// `y[r, o] = Σ x[r, i] · W[o, i] (+ b[o])` — `W` in `nn.Linear` layout, `[output, input]`.
-    private func linear(_ x: [Double], rows: Int, _ name: String, inputs: Int, outputs: Int,
-                        bias: Bool = false) throws -> [Double] {
-        let w = try load(name + ".weight")
-        var y = [Double](repeating: 0, count: rows * outputs)
+    /// **The arena a call of `condition` maps** for `t5` query rows and `qwen` rows: its slices, each
+    /// on its page.
+    package static func arenaBytes(t5: Int, qwen: Int) -> Int {
+        Arena.capacity(slices: slices(t5: t5, qwen: qwen).map(\.bytes))
+    }
+
+    /// The arena's slices, as `condition` uses them.
+    private struct Work {
+        let source, x, normed, q, k, v, attended, projected, hidden: UnsafeMutablePointer<Double>
+        let weight, bias, norm, scores: UnsafeMutablePointer<Double>
+        let widened, row: UnsafeMutablePointer<Float>
+        /// What `weight` and `widened` hold, in values; `bias` and `norm` theirs.
+        let weightCapacity, biasCapacity, normCapacity: Int
+
+        init(arena: Arena, t5: Int, qwen: Int) throws {
+            var named: [String: UnsafeMutableRawPointer] = [:]
+            for slice in AnimaConditioner.slices(t5: t5, qwen: qwen) {
+                named[slice.name] = try arena.reserve(slice.name, bytes: slice.bytes)
+            }
+            func wide(_ n: String) -> UnsafeMutablePointer<Double> { named[n]!.assumingMemoryBound(to: Double.self) }
+            source = wide("source"); x = wide("x"); normed = wide("normed"); q = wide("q"); k = wide("k"); v = wide("v")
+            attended = wide("attended"); projected = wide("projected"); hidden = wide("hidden")
+            weight = wide("weight"); bias = wide("bias"); norm = wide("norm"); scores = wide("scores")
+            widened = named["widened"]!.assumingMemoryBound(to: Float.self)
+            row = named["row"]!.assumingMemoryBound(to: Float.self)
+            weightCapacity = Shape.hidden * Shape.dim; biasCapacity = Shape.hidden; normCapacity = Shape.dim
+        }
+    }
+
+    // ── the computation ─────────────────────────────────────────────────────────────────────
+
+    /// A tensor of the adapter, widened from the file into `widened` then to double into `into`.
+    private func load(_ name: String, into destination: UnsafeMutablePointer<Double>, capacity: Int,
+                      work: Work) throws {
+        guard let count = weights.materialize(prefix + name, into: work.widened, capacity: min(capacity, work.weightCapacity)) else {
+            throw Safetensors.Failure.badHeader("adapter: \(name) missing, or larger than the published shapes (`Shape`)")
+        }
+        vDSP_vspdp(work.widened, 1, destination, 1, vDSP_Length(count))
+    }
+
+    /// `y[r, o] = Σ x[r, i] · W[o, i] (+ b[o])` — `W` in `nn.Linear` layout, `[output, input]`. `y` is
+    /// cleared (or filled with the bias) first, as a fresh array was.
+    private func linear(_ x: UnsafePointer<Double>, rows: Int, _ name: String, inputs: Int, outputs: Int,
+                        bias: Bool = false, into y: UnsafeMutablePointer<Double>, work: Work) throws {
+        try load(name + ".weight", into: work.weight, capacity: work.weightCapacity, work: work)
+        vDSP_vclrD(y, 1, vDSP_Length(rows * outputs))
         if bias {
-            let b = try load(name + ".bias")
-            for r in 0..<rows { for o in 0..<outputs { y[r * outputs + o] = b[o] } }
+            try load(name + ".bias", into: work.bias, capacity: work.biasCapacity, work: work)
+            for r in 0..<rows { for o in 0..<outputs { y[r * outputs + o] = work.bias[o] } }
         }
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, Int32(rows), Int32(outputs), Int32(inputs),
-                    1, x, Int32(inputs), w, Int32(inputs), bias ? 1 : 0, &y, Int32(outputs))
-        return y
+                    1, x, Int32(inputs), work.weight, Int32(inputs), bias ? 1 : 0, y, Int32(outputs))
     }
 
-    /// `nn.RMSNorm`: `x · rsqrt(mean(x²) + eps) · w`, per slice of `width`.
-    private func rmsNorm(_ x: [Double], width: Int, weight: [Double], eps: Double = 1e-6) -> [Double] {
-        var y = x
-        for start in stride(from: 0, to: x.count, by: width) {
+    /// `nn.RMSNorm`: `x · rsqrt(mean(x²) + eps) · w`, per slice of `width`, from `x` into `y` (the same
+    /// buffer for the QK-Norms: each value is read before it is written).
+    private func rmsNorm(_ x: UnsafePointer<Double>, count: Int, width: Int, weight: UnsafePointer<Double>,
+                         into y: UnsafeMutablePointer<Double>, eps: Double = 1e-6) {
+        for start in stride(from: 0, to: count, by: width) {
             var sum = 0.0
             for j in 0..<width { sum += x[start + j] * x[start + j] }
             let scale = 1 / (sum / Double(width) + eps).squareRoot()
             for j in 0..<width { y[start + j] = x[start + j] * scale * weight[j] }
         }
-        return y
     }
 
     /// The split RoPE of `AnimaRotaryEmbedding`: the angle `p · θ^(−2j/64)` rotates `(j, j+32)`.
-    private func rope(_ x: inout [Double], rows: Int) {
+    private func rope(_ x: UnsafeMutablePointer<Double>, rows: Int) {
         let half = headDim / 2
         let inverse = (0..<half).map { 1 / pow(10000.0, Double(2 * $0) / Double(headDim)) }
         for r in 0..<rows {
@@ -92,18 +154,22 @@ package final class AnimaConditioner {
         }
     }
 
-    private func attention(_ name: String, query x: [Double], rows: Int, context: [Double],
-                           contextRows: Int) throws -> [Double] {
-        var q = try linear(x, rows: rows, name + ".q_proj", inputs: dim, outputs: dim)
-        var k = try linear(context, rows: contextRows, name + ".k_proj", inputs: dim, outputs: dim)
-        let v = try linear(context, rows: contextRows, name + ".v_proj", inputs: dim, outputs: dim)
-        q = rmsNorm(q, width: headDim, weight: try load(name + ".q_norm.weight"))
-        k = rmsNorm(k, width: headDim, weight: try load(name + ".k_norm.weight"))
-        rope(&q, rows: rows)
-        rope(&k, rows: contextRows)
+    /// One attention of `rows` queries over `contextRows` keys, its `o_proj` written into `output`.
+    private func attention(_ name: String, query x: UnsafePointer<Double>, rows: Int, context: UnsafePointer<Double>,
+                           contextRows: Int, into output: UnsafeMutablePointer<Double>, work: Work) throws {
+        let (q, k, v) = (work.q, work.k, work.v)
+        try linear(x, rows: rows, name + ".q_proj", inputs: dim, outputs: dim, into: q, work: work)
+        try linear(context, rows: contextRows, name + ".k_proj", inputs: dim, outputs: dim, into: k, work: work)
+        try linear(context, rows: contextRows, name + ".v_proj", inputs: dim, outputs: dim, into: v, work: work)
+        try load(name + ".q_norm.weight", into: work.norm, capacity: work.normCapacity, work: work)
+        rmsNorm(q, count: rows * dim, width: headDim, weight: work.norm, into: q)
+        try load(name + ".k_norm.weight", into: work.norm, capacity: work.normCapacity, work: work)
+        rmsNorm(k, count: contextRows * dim, width: headDim, weight: work.norm, into: k)
+        rope(q, rows: rows)
+        rope(k, rows: contextRows)
         let scale = 1 / Double(headDim).squareRoot()
-        var out = [Double](repeating: 0, count: rows * dim)
-        var scores = [Double](repeating: 0, count: contextRows)
+        let out = work.attended, scores = work.scores
+        vDSP_vclrD(out, 1, vDSP_Length(rows * dim))
         for h in 0..<heads {
             for r in 0..<rows {
                 var peak = -Double.infinity
@@ -121,12 +187,12 @@ package final class AnimaConditioner {
                 }
             }
         }
-        return try linear(out, rows: rows, name + ".o_proj", inputs: dim, outputs: dim)
+        try linear(out, rows: rows, name + ".o_proj", inputs: dim, outputs: dim, into: output, work: work)
     }
 
-    private func record(_ name: String, _ x: [Double]) {
+    private func record(_ name: String, _ x: UnsafePointer<Double>, count: Int) {
         guard recordBoundaries else { return }
-        boundaries[name] = x.map { Float($0) }
+        boundaries[name] = (0..<count).map { Float(x[$0]) }
     }
 
     /// - Parameters:
@@ -136,11 +202,18 @@ package final class AnimaConditioner {
     ///   **count** in the softmax of the DiT's cross-attention, which does not mask them.
     package func condition(t5: [Int], qwen: UnsafeBufferPointer<Float>, qwenRows: Int) throws -> [Float] {
         let rows = t5.count
+        // The arena is sized for at most `Shape.maximumTokens` queries, what the need charges.
+        guard rows <= Shape.maximumTokens else {
+            throw Safetensors.Failure.badHeader("T5: \(rows) tokens, at most \(Shape.maximumTokens) (`T5Tokenizer.encode`)")
+        }
         guard qwen.count == qwenRows * dim else {
             throw Safetensors.Failure.badHeader("Qwen: \(qwen.count) values for \(qwenRows) × \(dim)")
         }
-        var source = [Double](repeating: 0, count: qwen.count)
-        vDSP_vspdp(qwen.baseAddress!, 1, &source, 1, vDSP_Length(qwen.count))
+        // The working memory of this call, unmapped on its return (`slices`).
+        let arena = try Arena(capacity: AnimaConditioner.arenaBytes(t5: rows, qwen: qwenRows))
+        let work = try Work(arena: arena, t5: rows, qwen: qwenRows)
+        let (source, x) = (work.source, work.x)
+        vDSP_vspdp(qwen.baseAddress!, 1, source, 1, vDSP_Length(qwen.count))
 
         // The table has 32,128 rows: we only expand those of the prompt.
         // The adapter is written by the forge in its published type (bf16, fp16, fp32), or fp32 when
@@ -149,43 +222,49 @@ package final class AnimaConditioner {
               let tableType = weights.entries[prefix + "embed.weight"]?.dtype, ["BF16", "F16", "F32"].contains(tableType) else {
             throw Safetensors.Failure.badHeader("embed: bf16, fp16 or fp32 expected")
         }
-        var row = [Float](repeating: 0, count: dim)
-        var x = [Double](repeating: 0, count: rows * dim)
+        let row = work.row
         for (r, id) in t5.enumerated() {
             guard id >= 0, id < 32128 else { throw Safetensors.Failure.badHeader("T5 token \(id) outside the vocabulary") }
-            row.withUnsafeMutableBytes {
-                if tableType == "F32" {
-                    $0.copyMemory(from: UnsafeRawBufferPointer(start: table.advanced(by: id * dim * 4), count: dim * 4))
-                } else if tableType == "F16" {
-                    Widen.float16ToFloat32(table.advanced(by: id * dim * 2), count: dim,
-                                           into: $0.baseAddress!.assumingMemoryBound(to: Float.self))
-                } else {
-                    Widen.bfloat16ToFloat32(source: table.advanced(by: id * dim * 2), destination: $0.baseAddress!, count: dim)
-                }
+            if tableType == "F32" {
+                UnsafeMutableRawPointer(row).copyMemory(from: table.advanced(by: id * dim * 4), byteCount: dim * 4)
+            } else if tableType == "F16" {
+                Widen.float16ToFloat32(table.advanced(by: id * dim * 2), count: dim, into: row)
+            } else {
+                Widen.bfloat16ToFloat32(source: table.advanced(by: id * dim * 2), destination: UnsafeMutableRawPointer(row),
+                                        count: dim)
             }
             for j in 0..<dim { x[r * dim + j] = Double(row[j]) }
         }
 
+        let n = rows * dim
+        let (normed, projected, hiddenRows) = (work.normed, work.projected, work.hidden)
         for b in 0..<blocks {
             let p = "blocks.\(b)."
-            let selfIn = rmsNorm(x, width: dim, weight: try load(p + "norm_self_attn.weight"))
-            let a = try attention(p + "self_attn", query: selfIn, rows: rows, context: selfIn, contextRows: rows)
-            for i in 0..<x.count { x[i] += a[i] }
-            let crossIn = rmsNorm(x, width: dim, weight: try load(p + "norm_cross_attn.weight"))
-            let c = try attention(p + "cross_attn", query: crossIn, rows: rows, context: source, contextRows: qwenRows)
-            for i in 0..<x.count { x[i] += c[i] }
-            let mlpIn = rmsNorm(x, width: dim, weight: try load(p + "norm_mlp.weight"))
-            var h = try linear(mlpIn, rows: rows, p + "mlp.0", inputs: dim, outputs: hidden, bias: true)
-            for i in 0..<h.count { h[i] = 0.5 * h[i] * (1 + erf(h[i] / 2.0.squareRoot())) }
-            let m = try linear(h, rows: rows, p + "mlp.2", inputs: hidden, outputs: dim, bias: true)
-            for i in 0..<x.count { x[i] += m[i] }
-            record("cond_block\(b)_out", x)
+            try load(p + "norm_self_attn.weight", into: work.norm, capacity: work.normCapacity, work: work)
+            rmsNorm(x, count: n, width: dim, weight: work.norm, into: normed)
+            try attention(p + "self_attn", query: normed, rows: rows, context: normed, contextRows: rows,
+                          into: projected, work: work)
+            for i in 0..<n { x[i] += projected[i] }
+            try load(p + "norm_cross_attn.weight", into: work.norm, capacity: work.normCapacity, work: work)
+            rmsNorm(x, count: n, width: dim, weight: work.norm, into: normed)
+            try attention(p + "cross_attn", query: normed, rows: rows, context: source, contextRows: qwenRows,
+                          into: projected, work: work)
+            for i in 0..<n { x[i] += projected[i] }
+            try load(p + "norm_mlp.weight", into: work.norm, capacity: work.normCapacity, work: work)
+            rmsNorm(x, count: n, width: dim, weight: work.norm, into: normed)
+            try linear(normed, rows: rows, p + "mlp.0", inputs: dim, outputs: hidden, bias: true, into: hiddenRows, work: work)
+            for i in 0..<(rows * hidden) { hiddenRows[i] = 0.5 * hiddenRows[i] * (1 + erf(hiddenRows[i] / 2.0.squareRoot())) }
+            try linear(hiddenRows, rows: rows, p + "mlp.2", inputs: hidden, outputs: dim, bias: true, into: projected, work: work)
+            for i in 0..<n { x[i] += projected[i] }
+            record("cond_block\(b)_out", x, count: n)
         }
-        let projected = try linear(x, rows: rows, "out_proj", inputs: dim, outputs: dim, bias: true)
-        let normed = rmsNorm(projected, width: dim, weight: try load("norm.weight"))
+        try linear(x, rows: rows, "out_proj", inputs: dim, outputs: dim, bias: true, into: projected, work: work)
+        try load("norm.weight", into: work.norm, capacity: work.normCapacity, work: work)
+        rmsNorm(projected, count: n, width: dim, weight: work.norm, into: normed)
 
         var out = [Float](repeating: 0, count: max(minimumLength, rows) * dim)
-        for i in 0..<normed.count { out[i] = Float(normed[i]) }
+        for i in 0..<n { out[i] = Float(normed[i]) }
+        withExtendedLifetime(arena) {}
         return out
     }
 }

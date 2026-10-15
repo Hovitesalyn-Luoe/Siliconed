@@ -71,9 +71,10 @@ package struct MemoryNeed: Sendable, Equatable {
         /// The library whose installed maps the need reads — the model's own, never another root's.
         package var library: Library = .processWide
         /// The family's maps, given rather than read from the installed ones (the tests); `nil`: the
-        /// library's (`ZImageMaps(card:library:)`, `QwenImage21Maps(card:library:)`).
+        /// library's (`ZImageMaps(card:library:)`, `QwenImage21Maps(card:library:)`, `AnimaMaps(card:library:)`).
         package var zImageMaps: ZImageMaps? = nil
         package var qwenMaps: QwenImage21Maps? = nil
+        package var animaMaps: AnimaMaps? = nil
 
         package init(card: ModelCard, width: Int, height: Int, references: [(width: Int, height: Int)] = [],
                      promptTokens: Int, loraRanks: [Int] = [], tail: MemoryPlan.Tail = .init(fraction: 0.5, slots: 2)) {
@@ -92,7 +93,8 @@ package struct MemoryNeed: Sendable, Equatable {
         /// **An upper bound of the encoder's tokens for `prompt`**, without the tokenizer: a BPE token is
         /// at least one UTF-8 byte, so the bytes of the template and the prompt bound the tokens, cut where
         /// the encoder cuts (512). Z-Image: the chat template around the prompt; Qwen-Image-2.1: the
-        /// system turn, the user header, each reference's tags and the closing turn (`QwenImage21Need`).
+        /// system turn, the user header, each reference's tags and the closing turn (`QwenImage21Need`);
+        /// Anima: the prompt alone (`AnimaTextModule` encodes it without a template, cut at 512).
         package static func promptTokens(_ prompt: String, family: Family, references: Int = 0) -> Int {
             promptTokens(text: prompt.utf8.count, family: family, references: references)
         }
@@ -103,6 +105,8 @@ package struct MemoryNeed: Sendable, Equatable {
             case .qwenImage21:
                 return QwenImage21Need.dropCount + 3 + references * (QwenImage21Need.tokensBefore + QwenImage21Need.tokensAfter)
                     + 5 + min(text, Qwen3VLPrompt.maxPromptTokens)
+            case .anima:
+                return min(max(1, text), 512)
             default:
                 return min(Tokenizer.chatPrefix.utf8.count + text + Tokenizer.chatSuffix.utf8.count, 512)
             }
@@ -157,14 +161,15 @@ package struct MemoryNeed: Sendable, Equatable {
         phases.filter { $0.kind == kind }.map(\.bytes).max().map { $0 + crossing + base }
     }
 
-    /// **The need of a request.** Z-Image and Qwen-Image-2.1 are computed; the two hidden families
-    /// (Anima, Krea 2) have no shape functions for their DiTs yet and take the marked
-    /// fallback (`unmodelled`). `nil` when the maps' headers cannot be read — **the render is then
-    /// refused** (`EngineError.memoryNeedUnknown`), never planned nor accepted on a need of 0.
+    /// **The need of a request.** Z-Image, Qwen-Image-2.1 and Anima are computed; Krea 2, hidden, has no
+    /// shape functions for its DiT yet and takes the marked fallback (`unmodelled`). `nil` when the
+    /// maps' headers cannot be read — **the render is then refused** (`EngineError.memoryNeedUnknown`),
+    /// never planned nor accepted on a need of 0.
     package static func of(_ request: Request) -> MemoryNeed? {
         switch request.card.family {
         case .zImage: zImage(request)
         case .qwenImage21: qwenImage21(request)
+        case .anima: anima(request)
         default: unmodelled(request)
         }
     }
@@ -235,19 +240,17 @@ package struct MemoryNeed: Sendable, Equatable {
 
     // ── the families without a formula ────────────────────────────────────────────────────────
 
-    /// **⚠ FALLBACK — not a computation.** Anima and Krea 2 have no shape
-    /// functions for their DiTs and encoders yet (their constructors size their buffers inline): their
-    /// need is still the whole-render peak measured on the M1 Pro. A format falls in the smallest measured area that holds it and takes the largest
-    /// figure up to it; beyond the family's measurements, the largest figure any of these families
-    /// measured at or beyond it. The references
-    /// are not modelled (these families were measured without). Hidden families: to be replaced by
-    /// their formulas when their constructors expose their sizes.
+    /// **⚠ FALLBACK — not a computation.** Krea 2 has no shape functions for its DiT and encoder yet
+    /// (its constructors size their buffers inline): its need is still the whole-render peak measured
+    /// on the M1 Pro. A format falls in the smallest measured area that holds it and takes the largest
+    /// figure up to it; beyond the measurements, the largest figure measured. The references are not
+    /// modelled (it was measured without). A hidden family: to be replaced by its formula when its
+    /// constructors expose their sizes, as Anima's were (`MemoryNeed.anima`).
     package static func unmodelled(_ request: Request) -> MemoryNeed? {
         let area = request.width * request.height
         func table(_ family: Family) -> [(area: Int, bytes: Int, source: String)] {
             func p(_ w: Int, _ h: Int, _ gb: Double, _ s: String) -> (Int, Int, String) { (w * h, Int((gb * 1e9).rounded()), s) }
             switch family {
-            case .anima: return [p(832, 1216, 5.3, "M1 Pro"), p(1024, 1024, 5.2, "M1 Pro"), p(1024, 1536, 7.6, "M1 Pro")]
             case .krea2: return [p(512, 512, 0.984, "M1 Pro"), p(832, 1216, 5.2, "M1 Pro"), p(1024, 1024, 5.1, "M1 Pro"),
                                  p(1024, 1536, 7.8, "M1 Pro")]
             default: return []
@@ -260,7 +263,7 @@ package struct MemoryNeed: Sendable, Equatable {
             let best = own.filter { $0.area <= tier }.max { $0.bytes < $1.bytes }!
             figure = (best.bytes, best.source)
         } else {
-            let beyond = [Family.anima, .krea2].flatMap(table).filter { $0.area >= area }
+            let beyond = table(.krea2).filter { $0.area >= area }
             let best = (beyond + own).max { $0.bytes < $1.bytes }!
             figure = (best.bytes, best.source)
         }

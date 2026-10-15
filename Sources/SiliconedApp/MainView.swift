@@ -2,13 +2,13 @@
 //
 // On the left (`Sidebar.swift`), **the rack** (`Rack.swift`): the chain of the render drawn from
 // `model.chain`, top to bottom in the direction of the signal — the prompt typed in its box, an edit's
-// images, the encoders, the DiT with its model, size, seed, steps and LoRAs, the latent, the VAE, the
-// image —, wired by type, lit stage by stage while it runs; under it, what it will cost and
-// « Generate ». On the right, the canvas: the step-by-step preview in the frame of the coming image,
-// then the image, its details (the time and memory of each stage), and the history as a strip — in
-// memory, gone with the app. The column follows the window: narrower, its boxes narrow and their
-// rows wrap; too narrow, the split view folds it away. The sheets: the models (`ModelsSheet.swift`),
-// a license to accept (`LicenseSheet.swift`), the diagnostic (`DiagnosticSheet.swift`).
+// images, the encoders, the DiT with its model, size, seed, steps and LoRAs, the VAE —, wired by
+// type, lit stage by stage while it runs; under it, what it will cost and « Generate ». On the
+// right, the canvas: the step-by-step preview in the frame of the coming image, then the image, its
+// details (the time and memory of each stage), and the history as a strip — in memory, gone with the
+// app. The column follows the window: narrower, its boxes narrow and their rows wrap; too narrow,
+// the split view folds it away. The sheets: the models (`ModelsSheet.swift`), a license to accept
+// (`LicenseSheet.swift`), the diagnostic (`DiagnosticSheet.swift`).
 
 import AppKit
 import Siliconed
@@ -124,7 +124,7 @@ private struct GraphCanvas: View {
         .animation(.spring(duration: 0.3), value: app.toast)
         // A PNG Siliconed wrote brings back its settings — the canvas is where an image is opened.
         // Any other image keeps the canvas's meaning: an edit's reference when the model edits
-        // (to edit a Siliconed image, drop it on the rack's « Edit » box, or « Edit This Image »).
+        // (to edit a Siliconed image, drop it on the rack's « Images » box, or « Edit This Image »).
         .dropDestination(for: URL.self) { urls, _ in
             let images = urls.filter { !AppState.importable($0) }
             if images.count == 1, app.restoreSettings(fromPNG: images[0]) { return true }
@@ -430,10 +430,11 @@ private struct Comparison: View {
     }
 }
 
-/// **The first launch**: nothing comes with the app, so the canvas says it in three steps and offers
-/// the two models side by side — what each does, its license, its place on disk. « Install… » opens
-/// the Models sheet on that model's license: nothing is downloaded before it is accepted.
-private struct Welcome: View {
+/// **The first launch**: nothing comes with the app, so the canvas says so and offers
+/// the models in front side by side (`AppState.frontFamilies`) — what each does, its license, its
+/// place on disk. « Install… » opens the Models sheet on that model's license: nothing is downloaded
+/// before it is accepted.
+struct Welcome: View {
     let app: AppState
     /// The version chosen on each card (`Family.preselectedVariant` until the user picks another:
     /// Standard, Light on a Mac of 8 GB).
@@ -447,8 +448,13 @@ private struct Welcome: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: 460)
             }
-            HStack(alignment: .top, spacing: 16) {
-                ForEach([Family.zImage, .qwenImage21], id: \.self) { card($0) }
+            // Side by side when the canvas holds them, else two then one.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 16) { ForEach(AppState.frontFamilies, id: \.self) { card($0) } }
+                VStack(spacing: 16) {
+                    HStack(alignment: .top, spacing: 16) { ForEach(AppState.frontFamilies.prefix(2), id: \.self) { card($0) } }
+                    HStack(alignment: .top, spacing: 16) { ForEach(AppState.frontFamilies.dropFirst(2), id: \.self) { card($0) } }
+                }
             }
             if let title = app.forgeInProgress {
                 HStack(spacing: 8) {
@@ -468,16 +474,14 @@ private struct Welcome: View {
         let size = family.installedSize(variant)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: family == .qwenImage21 ? "wand.and.stars" : "sparkles")
+                Image(systemName: Self.symbol(family))
                     .font(.title2).foregroundStyle(Color.accentColor)
                 Spacer()
                 Text(verbatim: model.licenseName).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.tail)
             }
             Text(verbatim: model.name).font(.title3.weight(.semibold))
-            Text(family == .qwenImage21
-                 ? "Generates, and edits a photo by instruction: “change her jacket to red”."
-                 : "Fast and photographic. The one to start with.")
+            Text(Self.blurb(family) ?? "")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -504,6 +508,27 @@ private struct Welcome: View {
         .frame(width: 270, height: family.variants.count > 1 ? 270 : 200)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surface))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline))
+    }
+
+    static func symbol(_ family: Family) -> String {
+        switch family {
+        case .qwenImage21: "wand.and.stars"
+        case .anima: "paintbrush"
+        default: "sparkles"
+        }
+    }
+
+    /// **What the model does, in one sentence** — said, not sold. Also the tooltip of its row in the
+    /// Models sheet.
+    /// Krea 2, behind Developer Mode, has none.
+    static func blurb(_ family: Family) -> String? {
+        switch family {
+        case .zImage: String(localized: "Fast and photographic. The one to start with.")
+        case .qwenImage21: String(localized: "Generates, and edits a photo by instruction: “change her jacket to red”.")
+        // Its publisher trained it for illustration and keeps it there: no photorealism, by choice.
+        case .anima: String(localized: "Illustration, painting and anime. No photorealism: its publisher's choice.")
+        case .krea2: nil
+        }
     }
 }
 
@@ -536,7 +561,7 @@ private struct ProgressIndicator: View {
                     ProgressView().controlSize(.mini)
                     Text(label).font(.callout).lineLimit(1)
                     Spacer(minLength: 12)
-                    if app.estimatedRemaining != nil {
+                    if app.remaining(at: .now) != nil {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             Text("\(Figures.duration(app.remaining(at: context.date) ?? 0)) left")
                                 .font(.callout).monospacedDigit().foregroundStyle(.secondary)

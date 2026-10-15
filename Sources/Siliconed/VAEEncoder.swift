@@ -233,15 +233,6 @@ package final class VAEEncoder {
 
     /// `image`: `[3, height, width]` planar, in `[-1, 1]` — or, for an encoder built `startingAt` a
     /// probe, that boundary's tensor.
-    /// **The host memory `encode` holds at its peak**: the image's buffer `[3, H, W]` fed to the graph,
-    /// and the two results it reads back, the latent `[C, H/8, W/8]` and the moments (mean and
-    /// log-variance, `2C`). The memory need does not charge it apart: the encoder's measured law
-    /// (`OperatorUse.Kind.vaeEncoder`) holds it with the graph's intermediates.
-    package static func hostBytes(family: Family, height: Int, width: Int) -> Int {
-        let cells = (height / 8) * (width / 8)
-        return (3 * height * width + family.channels * cells + 2 * family.channels * cells) * MemoryLayout<Float>.size
-    }
-
     package func encode(image: UnsafePointer<Float>) throws -> Output {
         guard let graph, let entry else {
             let begin = Date()

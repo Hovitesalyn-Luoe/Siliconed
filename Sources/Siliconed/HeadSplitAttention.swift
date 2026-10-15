@@ -10,7 +10,7 @@ import MetalPerformanceShadersGraph
 ///
 ///     q [S, H·Dh], k, v [K, H·Dh] fp32, as the GEMMs wrote them (unified memory, no copy)
 ///        │
-///        ├─ heads [0, g)  GPU   MPSGraph: slice heads → [g, S, Dh] → SDPA → [S, g, Dh] → pad a zero heads ─► out [S, H·Dh]
+///        ├─ heads [0, g)  GPU   MPSGraph: slice heads → [g, S, Dh] → SDPA → [S, g, Dh] → pad `a` heads of zeros ─► out [S, H·Dh]
 ///        │
 ///        └─ heads [g, H)  CPU   per block of `rows` queries of one head, Q_b, K_h, V_h packed:    ─► spill [S, a·Dh]
 ///                                 scores = Q_b · K_hᵀ                  BNNSMatMul, 1 thread (AMX)
@@ -139,7 +139,7 @@ package final class HeadSplitAttention {
     /// **The share of heads handed to the CPU, frozen: 12 of Z-Image's 30.** Not a setting:
     /// a fraction decides the bits, and one version lives. It was swept in the engine at S = 4128 —
     /// 18 GPU / 12 CPU ahead (155.7 → 95.9 ms) — and judged at threshold on every Z-Image
-    /// golden, then adopted it. Thread count, by contrast, changes the speed and never the bits.
+    /// golden, then adopted. Thread count, by contrast, changes the speed and never the bits.
     package static let cpuFraction = 0.4
 
     /// - Parameter cpuFraction: the share of heads handed to the CPU; the product's is `cpuFraction`,

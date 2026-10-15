@@ -62,7 +62,7 @@ package final class AnimaGELU {
         return t * precise::exp(p - z2) * (1.0f - low);
     }
 
-    static inline float gelu_exacte(float v) {
+    static inline float gelu_exact(float v) {
         float z = fabs(v) * 0.70710678118654752f;
         if (z < 1.0f) return gelu_core(v);
         float c = erfc_tail(z);
@@ -72,7 +72,7 @@ package final class AnimaGELU {
     kernel void gelu(device float *x [[buffer(0)]], constant uint &n [[buffer(1)]],
                      uint i [[thread_position_in_grid]]) {
         if (i >= n) return;
-        x[i] = gelu_exacte(x[i]);
+        x[i] = gelu_exact(x[i]);
     }
     """
 

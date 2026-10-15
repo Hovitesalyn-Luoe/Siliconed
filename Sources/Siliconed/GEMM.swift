@@ -35,8 +35,8 @@ package final class GEMM {
     /// rebuilding the operator — and none held. Counting is less clever and safer.
     ///
     /// **`best` is there for a hypothesis this list did not contain: the asymmetry of the
-    /// measurement itself.** The bench (`m4_gemm.swift`) times the same way — `gpuEndTime −
-    /// gpuStartTime`, one GEMM per buffer — but it keeps the **best of five**, on the same
+    /// measurement itself.** The bench (`m4_gemm.swift`, since archived) timed the same way — `gpuEndTime −
+    /// gpuStartTime`, one GEMM per buffer — but it kept the **best of five**, on the same
     /// buffers left warm. The engine sums *all* its executions, cold operands and clock dropped
     /// between two bursts: it is an average. Comparing a best to an average manufactures a gap
     /// that is not a defect. The engine's best against the bench's best settles it; and the gap
@@ -264,7 +264,7 @@ package final class GEMM {
         return time
     }
 
-    /// **A weight's LoRA stack: `C += (x·bas)·haut`, in ONE submission.**
+    /// **A weight's LoRA stack: `C += (x·down)·up`, in ONE submission.**
     ///
     /// The two skinny GEMMs are encoded in the **same** command buffer, and Metal guarantees
     /// ordering between two encoders of the same buffer. A measurement showed that a LoRA's overhead has a **floor per
@@ -275,7 +275,7 @@ package final class GEMM {
     /// `BNNSMatMul` while the GPU does the others; it has no way to accumulate onto an
     /// existing output — it **writes** its slice. Routing this through it would leave `C` partly overwritten
     /// instead of accumulated, hence a plausible and wrong image. And there would be nothing to gain: at
-    /// `r = 32`, `x·bas` is a skinny GEMM limited by latency, not by compute.
+    /// `r = 32`, `x·down` is a skinny GEMM limited by latency, not by compute.
     ///
     /// - Parameters:
     ///   - mid: `[m, r]`, the work slice — written then read back in the same buffer.
@@ -318,12 +318,25 @@ package final class GEMM {
     /// Qwen-Image-2.1's merged LoRA, `W += down · up` (`m` = the weight's `k`). Outside the conductor, like `lora` and for the
     /// same reason: the GPU/AMX cut writes its slice, it does not accumulate.
     ///
-    /// ⚠️ **It does not split the rows into a multiple of 64 plus a padded tail** as `linear` and
-    /// `lora` do (`rowSplit`): a height that is not a multiple of 64 can reach MPS's fast
-    /// kernel that was caught returning NaN. Only the 8–32-row tiers are refused (precondition).
+    /// Its rows split like `linear`'s and `lora`'s (`rowSplit`): a body, a multiple of 64, then a tail
+    /// through the padding tier, accumulated there — MPS's fast kernel returns NaN at the heights in
+    /// between. Qwen-Image-2.1's weights have `k` = 4 096 or 12 288, multiples of 64: one submission,
+    /// the tier never grown.
     @discardableResult
     package func accumulatedLinear(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
-        precondition(!GEMM.poisonedRows.contains(m), "accumulated GEMM at \(m) rows: outside the padding tiers")
+        func padded(first: Int, rows: Int) -> Double {
+            let l = GEMM.submittedRows
+            let (pa, pc) = (tiers.a(l * k), tiers.c(l * n))
+            pa.contents().copyMemory(from: a.contents() + first * k * 4, byteCount: rows * k * 4)
+            // Accumulated, so the output goes into the tier before and comes back out after.
+            pc.contents().copyMemory(from: c.contents() + first * n * 4, byteCount: rows * n * 4)
+            let time = accumulatedLinear(a: pa, b: b, c: pc, m: l, k: k, n: n)
+            (c.contents() + first * n * 4).copyMemory(from: pc.contents(), byteCount: rows * n * 4)
+            return time
+        }
+        if GEMM.poisonedRows.contains(m) { return padded(first: 0, rows: m) }
+        let (body, tail) = GEMM.rowSplit(m)
+        if tail > 0 { return accumulatedLinear(a: a, b: b, c: c, m: body, k: k, n: n) + padded(first: body, rows: tail) }
         let commands = queue.makeCommandBuffer()!
         encoder(Shape(m: m, k: k, n: n, transposed: true, accumulates: true), into: commands, a, b, c)
         commands.commit()

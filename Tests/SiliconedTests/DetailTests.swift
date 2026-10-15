@@ -113,7 +113,7 @@ final class DetailTests: XCTestCase {
         XCTAssertEqual(Detail.more.modelSigmas(σ, bell: .zImage, scale: 0.5)[5], σ[5] * 0.9, accuracy: 1e-6)
     }
 
-    /// **The standard bell shrinks as the image grows**: ×1 at 512², ×½ at 1024², ×0.41
+    /// **The amount shrinks as the image grows**, whatever the bell: ×1 at 512², ×½ at 1024², ×0.41
     /// at 1024×1536 (Most 0.82) — Most at 1024² is More at 512², to the bit; the late bell (Qwen) too.
     func testTheAmountFollowsTheSide() {
         XCTAssertEqual(Detail.scale(width: 512, height: 512), 1)
@@ -131,7 +131,7 @@ final class DetailTests: XCTestCase {
         func render(_ detail: Detail) -> Engine.Render {
             Engine.Render(model: "z-image", prompt: "woman posing in a library", seed: 42, steps: 8, loras: [],
                           loraSummary: nil, image: ImageRGB(pixels: [Float](repeating: 0, count: 3 * 4), height: 2, width: 2),
-                          reproducible: true, evaluations: 7, sketch: nil, spectral: 0, strength: nil,
+                          reproducible: true, evaluations: 8, sketch: nil, spectral: 0, strength: nil,
                           startStep: 0, startSigma: 1, timings: .init(), footprints: .init(), tokens: 1, detail: detail)
         }
         XCTAssertNil(render(.normal).metadata["detail"])
@@ -145,5 +145,14 @@ final class DetailTests: XCTestCase {
         let recipe = try XCTUnwrap(Engine.Render.Recipe(metadata: m))
         XCTAssertEqual(recipe.detail, .normal)
         XCTAssertEqual(recipe.unreadable, ["detail"])
+    }
+
+    /// **Anima offers no Detail** (mosaic blocks or nothing visible); the others do, and the
+    /// chain refuses More and Most on Anima before any computation (`Request.Failure.detail`).
+    func testOnlyAnimaRefusesDetail() {
+        XCTAssertFalse(AnimaDenoisingModule(map: "").acceptsDetail)
+        XCTAssertTrue(ZImageDenoisingModule(map: "").acceptsDetail)
+        XCTAssertTrue(Krea2DenoisingModule(map: "").acceptsDetail)
+        XCTAssertEqual(EngineError(Request.Failure.detail(model: "anima")), .detailUnsupported(model: "anima"))
     }
 }

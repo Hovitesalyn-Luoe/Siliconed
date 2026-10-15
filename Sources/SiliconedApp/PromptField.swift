@@ -2,7 +2,7 @@
 //
 //     typed      woman posing with @alice in @red-coat and @bob
 //     drawn      woman posing with (▣ alice) in (▣ red-coat) and @bob
-//                                   └ rose edge  └ blue edge    └ unknown: dotted underline
+//                                  └ lavender   └ lavender       └ unknown: dotted underline
 //
 // **The text stays text.** A chip is the characters `@alice`, styled — not an attachment: copying gives
 // `@alice`, pasting `@alice` makes a chip, the caret and the selection go through it as through a word,

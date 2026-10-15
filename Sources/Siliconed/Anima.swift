@@ -29,7 +29,16 @@ import Foundation
 ///   - Cosmos RoPE is *split*: the forge converted it to interleaved (`ForgeDiT`),
 ///     so `Ops.rope` applies as-is on a table specific to Cosmos (`AnimaRope`);
 ///   - the **residuals climb to 2.5·10⁵** at block 13 (golden tensors): four times the fp16
-///     ceiling. Anima requires fp32 as much as Z-Image does.
+///     ceiling. Anima requires fp32 as much as Z-Image does;
+///   - **every modulation depends on σ alone** (not on the latent, not on the text): the 170 `gemv`s of
+///     an evaluation are computed for all the render's σ before the first one (`tabulate`), each weight
+///     read once a render;
+///   - the cross-attention's text k/v do not change between evaluations either: cached (`textKCache`).
+///
+/// Where it runs, at 1024² (measured on the M1 Pro, an evaluation ~5.4 s): the GEMMs on the GPU and the AMX
+/// (`Conductor`, ~3.0 s, at the pair's ceiling), the self- and cross-attention cut by heads between the GPU
+/// and the CPU (`HeadSplitAttention`, ~1.9 s), the GELU on the GPU (`AnimaGELU`); the norms, QK-Norm with
+/// RoPE (one pass), the residuals and the modulations (in double) on the CPU, ~0.4 s.
 package final class AnimaDiT {
     package struct Config {
         package let dim, heads, headDim, hidden, layers, channels, patch, adalnLoRA, textDim: Int
@@ -74,8 +83,6 @@ package final class AnimaDiT {
     private var loraBuffers: (down: MTLBuffer, up: MTLBuffer, mid: MTLBuffer)?
     /// The GELU on the GPU.
     private let gelu: AnimaGELU
-    private var selfAttentions: [Int: Attention] = [:]
-    private var crossAttentions: [Int: Attention] = [:]
 
     // Arena slices, reserved once.
     private let x, normed, q, k, v, merged, o, h1, reserve: UnsafeMutablePointer<Float>
@@ -92,7 +99,13 @@ package final class AnimaDiT {
     /// previous one: another prompt in the same DiT recomputes it, it does not reuse it.
     private let textKCache, textVCache: UnsafeMutablePointer<Float>
     private var textCacheValid = false
-    private let temb, embedded, modulation, scaleOne: UnsafeMutablePointer<Float>
+    private let scaleOne: UnsafeMutablePointer<Float>
+    /// `AnimaExact`'s double copy of a modulation `gemv`'s weight (`gemv`): the widest is
+    /// `time_embed.t_embedder.linear_2`, `d × 3d` — 100 MB of doubles, sized by `exactProducts`. Its input
+    /// and output, `m` rows of them, are the modulation table's (`tableSlices`).
+    private let exactW: UnsafeMutablePointer<Double>
+    /// The doubles `exactW` holds: the largest weight of `exactProducts`.
+    private let exactWeight: Int
 
     /// - Parameter textLength: the length of the text context — 512 for Anima, the conditioner
     ///   padding its output with zeros up to that. The zeros **count**: the reference does not
@@ -114,43 +127,46 @@ package final class AnimaDiT {
         self.latentHeight = latentHeight
         self.latentWidth = latentWidth
         self.textLength = textLength
-        imageTokens = (latentHeight / config.patch) * (latentWidth / config.patch)
+        imageTokens = AnimaDiT.imageTokens(latentHeight: latentHeight, latentWidth: latentWidth, config: config)
 
-        let s = imageTokens, d = config.dim, h = config.hidden
-        let inDim = (config.channels + 1) * config.patch * config.patch
-        let outDim = config.channels * config.patch * config.patch
         let r = lora?.maxRank ?? 0
-        let loraFloats = r > 0 ? max(lora!.maxEntry, d) * r + r * max(lora!.maxOutput, d)
-                                 + max(s, textLength) * r : 0
-        let floats = loraFloats + 7 * s * d + s * h + d * h + s * inDim + s * outDim + s * config.headDim
-            + textLength * config.textDim + 2 * config.layers * textLength * d + 3 * d + 4 * d + 3 * d + 2 * d
+        // The arena is the sum of its slices (`slices`), each on its page — the function the memory
+        // need charges (`MemoryNeed.anima`): the formula equals the allocation by construction. It
+        // used to be the floats counted inline, plus 64 pages and 8 MB of margin no formula could see.
+        let sized = AnimaDiT.slices(config: config, imageTokens: imageTokens, textLength: textLength,
+                                    lora: r > 0 ? (r, lora!.maxEntry, lora!.maxOutput) : nil)
+        let bytes = Dictionary(uniqueKeysWithValues: sized.map { ($0.name, $0.bytes) })
         // LOCAL binding: a nested function cannot capture `self` before the end of
         // initialization (same constraint as in `Attention`).
-        let arena = try Arena(capacity: floats * 4 + 64 * Arena.alignment + (8 << 20))
+        let arena = try Arena(capacity: Arena.capacity(slices: sized.map(\.bytes)))
         self.arena = arena
-        func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
-            try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
-        }
-        x = try slot("x", s * d); normed = try slot("normed", s * d)
-        q = try slot("q", s * d); k = try slot("k", s * d); v = try slot("v", s * d)
-        merged = try slot("merged", s * d); o = try slot("o", s * d)
-        h1 = try slot("h1", s * h); reserve = try slot("reserve", d * h)
-        tokens = try slot("tokens", s * inDim); projected = try slot("projected", s * outDim)
-        freqs = try slot("freqs", s * config.headDim)
-        text = try slot("text", textLength * config.textDim)
-        textKCache = try slot("textK", config.layers * textLength * d)
-        textVCache = try slot("textV", config.layers * textLength * d)
-        temb = try slot("temb", 3 * d); embedded = try slot("embedded", d)
-        modulation = try slot("modulation", 3 * d); scaleOne = try slot("scaleOne", 2 * d)
+        func raw(_ name: String) throws -> UnsafeMutableRawPointer { try arena.reserve(name, bytes: bytes[name]!) }
+        func slot(_ name: String) throws -> UnsafeMutablePointer<Float> { try raw(name).assumingMemoryBound(to: Float.self) }
+        func wide(_ name: String) throws -> UnsafeMutablePointer<Double> { try raw(name).assumingMemoryBound(to: Double.self) }
+        x = try slot("x"); normed = try slot("normed")
+        q = try slot("q"); k = try slot("k"); v = try slot("v")
+        merged = try slot("merged"); o = try slot("o")
+        h1 = try slot("h1"); reserve = try slot("reserve")
+        tokens = try slot("tokens"); projected = try slot("projected")
+        freqs = try slot("freqs")
+        text = try slot("text")
+        textKCache = try slot("textK")
+        textVCache = try slot("textV")
+        scaleOne = try slot("scaleOne")
+        exactW = try wide("exactW")
+        exactWeight = AnimaDiT.exactProducts(config: config).map { $0.k * $0.n }.max()!
         self.lora = r > 0 ? lora : nil
-        if let lora, r > 0 {
-            loraDown = try slot("loraBas", max(lora.maxEntry, d) * r)
-            loraUp = try slot("loraHaut", r * max(lora.maxOutput, d))
-            loraMid = try slot("loraMid", max(s, textLength) * r)
+        if r > 0 {
+            loraDown = try slot("loraBas")
+            loraUp = try slot("loraHaut")
+            loraMid = try slot("loraMid")
         } else {
             loraDown = nil; loraUp = nil; loraMid = nil
         }
     }
+
+    /// The bytes this DiT's arena maps — what the tests compare with `AnimaDiT.arenaBytes`.
+    package var arenaCapacity: Int { arena.capacity }
 
     private func record(_ name: String, _ p: UnsafePointer<Float>, _ n: Int) {
         guard recordBoundaries else { return }
@@ -179,26 +195,11 @@ package final class AnimaDiT {
         prefetcher.request(artifact.order.filter { !$0.hasPrefix("transformer_blocks.") && !$0.hasPrefix("norm_out.") && !$0.hasPrefix("proj_out.") })
         prefetcher.request(prefetcher.namesOfBlock(prefix: "transformer_blocks.0."))
 
-        // ── the timestep: temb [3d] and embedded [d] ───────────────────────────────────────────
-        var sinusoid = [Float](repeating: 0, count: d)
-        sinusoid.withUnsafeMutableBufferPointer {
-            Ops.timestepEmbedding(sigma, into: $0.baseAddress!, dim: d)
-        }
-        try sinusoid.withUnsafeBufferPointer { proj in
-            try gemv("time_embed.t_embedder.linear_1.weight", x: proj.baseAddress!, into: normed, outputs: d, inputs: d)
-            Ops.siluInPlace(normed, count: d, scratch: merged)
-            try gemv("time_embed.t_embedder.linear_2.weight", x: normed, into: temb, outputs: 3 * d, inputs: d)
-            try artifact.materialize("time_embed.norm.weight", into: reserve, capacity: reserveCapacity)
-            Ops.rmsNorm(proj.baseAddress!, weight: reserve, into: embedded, rows: 1, columns: d, eps: 1e-6)
-        }
-        record("temb", temb, 3 * d)
-        record("embedded_timestep", embedded, d)
-        // SiLU(embedded) is the input of ALL the modulations: we compute it once.
-        let siluEmbedded = [Float](unsafeUninitializedCapacity: d) { buffer, n in
-            buffer.baseAddress!.update(from: embedded, count: d)
-            Ops.siluInPlace(buffer.baseAddress!, count: d, scratch: merged)
-            n = d
-        }
+        // ── the timestep: temb, embedded and every modulation, from the table (`tabulate`) ──────
+        try ensureTabulated(sigma)
+        let row = try modulationRow(sigma)
+        record("temb", row + AnimaDiT.ModulationRow.temb(config), 3 * d)
+        record("embedded_timestep", row + AnimaDiT.ModulationRow.embedded(config), d)
 
         // ── patchify, padding mask included, then patch_embed ────────────────────────────────
         AnimaOps.patchify(latent, into: tokens, channels: c, height: height, width: width, patch: p)
@@ -221,20 +222,14 @@ package final class AnimaDiT {
             if layer == config.layers - 1 {
                 prefetcher.request(artifact.order.filter { $0.hasPrefix("norm_out.") || $0.hasPrefix("proj_out.") })
             }
-            try block(layer, sequence: s, silu: siluEmbedded)
+            try block(layer, sequence: s, modulations: row + AnimaDiT.ModulationRow.sublayer(layer, 1, config))
             record("block\(layer)_out", x, s * d)
         }
         textCacheValid = true
 
         // ── norm_out: shift, scale — no gate — and temb[:2d] ─────────────────────────────────
-        try siluEmbedded.withUnsafeBufferPointer { e in
-            try gemv("norm_out.linear_1.weight", x: e.baseAddress!, into: merged,
-                     outputs: config.adalnLoRA, inputs: d)
-            try gemv("norm_out.linear_2.weight", x: merged, into: modulation,
-                     outputs: 2 * d, inputs: config.adalnLoRA)
-        }
-        vDSP_vadd(modulation, 1, temb, 1, modulation, 1, vDSP_Length(2 * d))
-        timed("norm") { AnimaOps.modulate(x, into: normed, shift: modulation, scale: modulation + d,
+        let final = UnsafePointer(row + AnimaDiT.ModulationRow.normOut(config))
+        timed("norm") { AnimaOps.modulate(x, into: normed, shift: final, scale: final + d,
                                           scaleOne: scaleOne, rows: s, columns: d) }
         try linearGPU("proj_out.weight", a: normed, into: projected, m: s, k: d, n: outDim,
                       rowsA: imageTokens, rowsC: imageTokens)
@@ -249,43 +244,41 @@ package final class AnimaDiT {
     }
 
     /// One block: three sublayers, three modulations.
-    private func block(_ layer: Int, sequence s: Int, silu: [Float]) throws {
+    /// - Parameter modulations: the block's three `shift, scale, gate` rows, `3 × 3d` floats, from the table.
+    private func block(_ layer: Int, sequence s: Int, modulations: UnsafePointer<Float>) throws {
         let d = config.dim, h = config.hidden, heads = config.heads, dh = config.headDim
         let prefix = "transformer_blocks.\(layer)."
         let tag = layer == 0 ? "block0_" : nil
+        var modulation = modulations
 
-        /// `shift, scale, gate` of sublayer `i` — in `modulation`, in that order.
-        func modulate(_ i: Int) throws {
-            try silu.withUnsafeBufferPointer { e in
-                try gemv(prefix + "norm\(i).linear_1.weight", x: e.baseAddress!, into: merged,
-                         outputs: config.adalnLoRA, inputs: d)
-                try gemv(prefix + "norm\(i).linear_2.weight", x: merged, into: modulation,
-                         outputs: 3 * d, inputs: config.adalnLoRA)
-            }
-            vDSP_vadd(modulation, 1, temb, 1, modulation, 1, vDSP_Length(3 * d))
-            timed("norm") { AnimaOps.modulate(x, into: normed, shift: modulation, scale: modulation + d,
+        /// `shift, scale, gate` of sublayer `i` — `3d` floats of the table, in that order.
+        func modulate(_ i: Int) {
+            modulation = modulations + (i - 1) * 3 * d
+            let m = modulation
+            timed("norm") { AnimaOps.modulate(x, into: normed, shift: m, scale: m + d,
                                               scaleOne: scaleOne, rows: s, columns: d) }
         }
-        var gate: UnsafePointer<Float> { UnsafePointer(modulation + 2 * d) }
+        var gate: UnsafePointer<Float> { modulation + 2 * d }
 
         // ── 1. self-attention ────────────────────────────────────────────────────────────────
-        try modulate(1)
+        modulate(1)
         try linearGPU(prefix + "attn1.to_q.weight", a: normed, into: q, m: s, k: d, n: d)
         try linearGPU(prefix + "attn1.to_k.weight", a: normed, into: k, m: s, k: d, n: d)
         try linearGPU(prefix + "attn1.to_v.weight", a: normed, into: v, m: s, k: d, n: d)
-        try headNorm(prefix + "attn1.norm_q.weight", q, rows: s * heads)
-        try headNorm(prefix + "attn1.norm_k.weight", k, rows: s * heads)
-        timed("rope") {
-            Ops.rope(q, freqs: freqs, sequence: s, heads: heads, headDim: dh)
-            Ops.rope(k, freqs: freqs, sequence: s, heads: heads, headDim: dh)
+        // QK-Norm then RoPE, one pass per row (`Ops.rmsNormRope`): the same operations in the same order
+        // as the two passes, so the same bits (measured).
+        for (name, tensor) in [("attn1.norm_q.weight", q), ("attn1.norm_k.weight", k)] {
+            try artifact.materialize(prefix + name, into: reserve, capacity: reserveCapacity)
+            timed("qk-norm + rope") { Ops.rmsNormRope(tensor, weight: reserve, freqs: freqs, sequence: s,
+                                                      heads: heads, headDim: dh, eps: 1e-5) }
         }
-        try attend(selfAttention(s), q: q, k: k, v: v, keyRows: imageTokens)
+        try attend(selfAttention(s), "sdpa self", q: q, k: k, v: v, keyRows: imageTokens)
         try linearGPU(prefix + "attn1.to_out.0.weight", a: merged, into: o, m: s, k: d, n: d)
         if let tag { record(tag + "attn1_out", o, s * d) }
         timed("residual") { Ops.gatedResidual(x, plus: o, gate: gate, rows: s, columns: d) }
 
         // ── 2. cross-attention to the text — no RoPE ────────────────────────────────────────
-        try modulate(2)
+        modulate(2)
         try linearGPU(prefix + "attn2.to_q.weight", a: normed, into: q, m: s, k: d, n: d)
         let textK = textKCache + layer * textLength * d, textV = textVCache + layer * textLength * d
         if !textCacheValid {
@@ -296,13 +289,13 @@ package final class AnimaDiT {
             try headNorm(prefix + "attn2.norm_k.weight", textK, rows: textLength * heads)
         }
         try headNorm(prefix + "attn2.norm_q.weight", q, rows: s * heads)
-        try attend(crossAttention(s), q: q, k: textK, v: textV, keyRows: textLength)
+        try attend(crossAttention(s), "sdpa cross", q: q, k: textK, v: textV, keyRows: textLength)
         try linearGPU(prefix + "attn2.to_out.0.weight", a: merged, into: o, m: s, k: d, n: d)
         if let tag { record(tag + "attn2_out", o, s * d) }
         timed("residual") { Ops.gatedResidual(x, plus: o, gate: gate, rows: s, columns: d) }
 
         // ── 3. GELU FFN ───────────────────────────────────────────────────────────────────────
-        try modulate(3)
+        modulate(3)
         try linearGPU(prefix + "ff.net.0.proj.weight", a: normed, into: h1, m: s, k: d, n: h)
         let buffer = try gemm.wrap(UnsafeMutableRawPointer(h1), bytes: imageTokens * h * 4, name: "c")
         timed("gelu") { timings["gelu GPU", default: 0] += gelu.run(buffer, count: s * h) }
@@ -320,30 +313,82 @@ package final class AnimaDiT {
                                     columns: config.headDim, eps: 1e-5) }
     }
 
-    private func selfAttention(_ s: Int) -> Attention {
-        if let a = selfAttentions[s] { return a }
-        let a = Attention(device: gemm.device, queue: gemm.queue, heads: config.heads,
-                          sequence: s, headDim: config.headDim)
-        selfAttentions[s] = a
-        return a
+    /// One attention path, chosen once per DiT: the matrix flash kernel (`flash`, self-attention only),
+    /// the cut by heads (`HeadSplitAttention.applies`), or one MPSGraph SDPA — as `Block` chooses, so the
+    /// capacity map's `flash` and `head_split` (`CapacityRules`) decide Anima's attention as Z-Image's.
+    ///
+    /// **The cut by heads, self and cross** (measured on the M1 Pro): 6 of the 16 heads on the CPU (`cpuFraction` 0.4, the
+    /// shared one — 7 measured the same, 5 slower), the cross-attention's 512 text keys included. At 1024²
+    /// the SDPA went 2.69 → 1.90 s an evaluation (self 2.37 → 1.67, cross 0.33 → 0.23), the render
+    /// 52.6 → 45.7 s; at 512² 0.37 → 0.26 s, the render level. The bits change: `model_out` at 1.43·10⁻⁵ of
+    /// the fp64 witness (MPSGraph alone 1.03, the fp32 oracle 1.47); flash, under the map, 1.67.
+    private enum AttentionPath {
+        case graph(Attention)
+        case split(HeadSplitAttention)
+        case flash(FlashMatrix)
+    }
+    private var selfPath: AttentionPath?
+    private var crossPath: AttentionPath?
+
+    private func selfAttention(_ s: Int) throws -> AttentionPath {
+        if let p = selfPath { return p }
+        let p: AttentionPath
+        var flash: FlashMatrix?
+        if EngineSettings.effective.flash {
+            do {
+                flash = try FlashMatrix(device: gemm.device, queue: gemm.queue, heads: config.heads, sequence: s,
+                                        headDim: config.headDim, rowsPerSimdgroup: 8, dimsPerSimdgroup: 64,
+                                        keysPerTile: 16, blocksPerGroup: 8)
+            } catch {
+                Warnings.emit("⚠ SILICONED_FLASH: falling back at S=\(s) — \(error)")
+            }
+        }
+        if let flash {
+            p = .flash(flash)
+        } else if HeadSplitAttention.applies(sequence: s) {
+            p = .split(try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: config.heads,
+                                              sequence: s, headDim: config.headDim))
+        } else {
+            p = .graph(Attention(device: gemm.device, queue: gemm.queue, heads: config.heads,
+                                 sequence: s, headDim: config.headDim))
+        }
+        selfPath = p
+        return p
     }
 
-    private func crossAttention(_ s: Int) -> Attention {
-        if let a = crossAttentions[s] { return a }
-        let a = Attention(device: gemm.device, queue: gemm.queue, heads: config.heads,
-                          sequence: s, headDim: config.headDim, keySequence: textLength)
-        crossAttentions[s] = a
-        return a
+    private func crossAttention(_ s: Int) throws -> AttentionPath {
+        if let p = crossPath { return p }
+        let p: AttentionPath
+        if HeadSplitAttention.applies(sequence: s) {
+            p = .split(try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: config.heads,
+                                              sequence: s, headDim: config.headDim, keys: textLength))
+        } else {
+            p = .graph(Attention(device: gemm.device, queue: gemm.queue, heads: config.heads,
+                                 sequence: s, headDim: config.headDim, keySequence: textLength))
+        }
+        crossPath = p
+        return p
     }
 
-    private func attend(_ attention: Attention, q: UnsafeMutablePointer<Float>, k: UnsafeMutablePointer<Float>,
-                        v: UnsafeMutablePointer<Float>, keyRows: Int) throws {
+    private func attend(_ path: AttentionPath, _ phase: String, q: UnsafeMutablePointer<Float>,
+                        k: UnsafeMutablePointer<Float>, v: UnsafeMutablePointer<Float>, keyRows: Int) throws {
         let d = config.dim
         let qb = try gemm.wrap(UnsafeMutableRawPointer(q), bytes: imageTokens * d * 4, name: "q")
         let kb = try gemm.wrap(UnsafeMutableRawPointer(k), bytes: keyRows * d * 4, name: "k")
         let vb = try gemm.wrap(UnsafeMutableRawPointer(v), bytes: keyRows * d * 4, name: "v")
         let ob = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: imageTokens * d * 4, name: "merged")
-        timed("sdpa wall") { timings["sdpa GPU", default: 0] += attention.run(q: qb, k: kb, v: vb, into: ob) }
+        timed("sdpa wall") {
+            timed(phase) {
+                switch path {
+                case .graph(let a): timings["sdpa GPU", default: 0] += a.run(q: qb, k: kb, v: vb, into: ob)
+                case .flash(let f): timings["sdpa GPU", default: 0] += f.run(q: qb, k: kb, v: vb, into: ob)
+                case .split(let h):
+                    let (gpu, cpu) = h.run(q: qb, k: kb, v: vb, into: ob, q: q, k: k, v: v, out: merged)
+                    timings["sdpa GPU", default: 0] += gpu
+                    timings["sdpa CPU", default: 0] += cpu
+                }
+            }
+        }
     }
 
     /// `y = W·x`, no bias — no Cosmos `Linear` carries one — **accumulated in double**.
@@ -363,33 +408,181 @@ package final class AnimaDiT {
     ///
     /// Swapping the GEMM and the SDPA for their double computation moved nothing: it was here.
     /// The cost is nil on the clock (7.31 versus 7.35 s) — these products have `M = 1`.
+    ///
+    /// **`m` rows at once, one per σ of the table (`tabulate`)**: the weight is read and widened to double
+    /// once for every σ of a render, instead of once per evaluation. `cblas_dgemm` at `m` rows does not sum
+    /// in the order it does at one row — the doubles differ in their last bits — but each product is
+    /// exact to ~10⁻¹⁶ either way and is narrowed to fp32 at once, so the floats come out the same
+    /// (measured: rendered pixels identical to the one-row computation).
     private func gemv(_ name: String, x: UnsafePointer<Float>, into out: UnsafeMutablePointer<Float>,
-                      outputs: Int, inputs: Int) throws {
+                      rows m: Int, outputs: Int, inputs: Int,
+                      scratch: (a: UnsafeMutablePointer<Double>, c: UnsafeMutablePointer<Double>)) throws {
         let got = try artifact.materialize(name, into: reserve, capacity: reserveCapacity)
         guard got == outputs * inputs else {
             throw Artifact.Failure.badHeader("\(name): \(got) values, \(outputs * inputs) expected")
         }
-        timed("modulation") {
-            AnimaExact.linear(a: x, w: reserve, into: out, m: 1, k: inputs, n: outputs,
-                              weightIsTransposed: transposed)
+        guard inputs * outputs <= exactWeight else {
+            throw Artifact.Failure.badHeader("\(name): \(inputs) × \(outputs) beyond the double scratch (`exactProducts`)")
         }
-        // The modulation LoRA, in double like the weight: `y += (x·down)·up`.
+        timed("modulation") {
+            AnimaExact.linear(a: x, w: reserve, into: out, m: m, k: inputs, n: outputs,
+                              weightIsTransposed: transposed, scratch: (scratch.a, exactW, scratch.c))
+        }
+        // The modulation LoRA, in double like the weight: `y += (x·down)·up`, row by row.
         let target = String(name.dropLast(".weight".count))
         if let lora, let down = loraDown, let up = loraUp, lora.rank(target) > 0 {
             let r = try timed("lora weights") { try lora.materialize(target, k: inputs, n: outputs, down: down, up: up) }
             timed("lora modulation") {
-                var mid = [Double](repeating: 0, count: r)
-                for j in 0..<inputs {
-                    let xj = Double(x[j]), row = down + j * r
-                    for q in 0..<r { mid[q] += xj * Double(row[q]) }
-                }
-                for o in 0..<outputs {
-                    var sum = 0.0
-                    for q in 0..<r { sum += mid[q] * Double(up[q * outputs + o]) }
-                    out[o] = Float(Double(out[o]) + sum)
+                for i in 0..<m {
+                    let x = x + i * inputs, out = out + i * outputs
+                    var mid = [Double](repeating: 0, count: r)
+                    for j in 0..<inputs {
+                        let xj = Double(x[j]), row = down + j * r
+                        for q in 0..<r { mid[q] += xj * Double(row[q]) }
+                    }
+                    for o in 0..<outputs {
+                        var sum = 0.0
+                        for q in 0..<r { sum += mid[q] * Double(up[q * outputs + o]) }
+                        out[o] = Float(Double(out[o]) + sum)
+                    }
                 }
             }
         }
+    }
+
+    // ── the modulation table ────────────────────────────────────────────────────────────────
+
+    /// **Every modulation of a render, computed before its first evaluation**.
+    ///
+    /// Anima's 84 sublayer modulations, `norm_out`'s and `temb` depend on σ alone — not on the latent,
+    /// not on the text. Computed per evaluation, each of the 170 `gemv`s read its weight, widened it to
+    /// fp32 then to double, for one row: 8 times a render, the same 350 MB of bf16 for 8 vectors. Here
+    /// each weight is read once for all the render's σ (`tabulate(sigmas:)`, `m` rows); an evaluation
+    /// whose σ is not in the table (the checks, which call `forward` alone) tabulates its own, one row —
+    /// one path either way. Same bits (`gemv`).
+    private var table: (arena: Arena, index: [UInt32: Int], rows: UnsafeMutablePointer<Float>)?
+
+    /// Where each vector sits in a σ's row of the table, in floats.
+    package enum ModulationRow {
+        static func temb(_ c: Config) -> Int { 0 }
+        static func embedded(_ c: Config) -> Int { 3 * c.dim }
+        /// `shift, scale, gate` of sublayer `i` (1…3) of `layer`, `3d` floats.
+        static func sublayer(_ layer: Int, _ i: Int, _ c: Config) -> Int { 4 * c.dim + (layer * 3 + i - 1) * 3 * c.dim }
+        /// `norm_out`'s `shift, scale`, `2d` floats.
+        static func normOut(_ c: Config) -> Int { 4 * c.dim + c.layers * 9 * c.dim }
+        /// One σ's row: `temb` 3d, `embedded` d, the sublayers', `norm_out`'s.
+        package static func floats(_ c: Config) -> Int { normOut(c) + 2 * c.dim }
+    }
+
+    /// **The table's slices, bytes, in the order `tabulate` reserves them**, for `count` σ: the rows, then
+    /// the computation's scratch — the sinusoids and the hidden `[count, d]`, SiLU's scratch, the
+    /// low-rank middle `[count, 256]`, `AnimaExact`'s double input and output at `count` rows.
+    package static func tableSlices(config: Config, count: Int) -> [Int] {
+        let d = config.dim, f = MemoryLayout<Float>.size, w = MemoryLayout<Double>.size
+        let exact = exactProducts(config: config)
+        return [count * ModulationRow.floats(config) * f, count * d * f, count * d * f, count * 3 * d * f,
+                count * config.adalnLoRA * f, count * exact.map(\.k).max()! * w, count * exact.map(\.n).max()! * w]
+    }
+
+    /// **The table's arena for `count` σ** — what `tabulate` maps, to the byte; the memory need charges it
+    /// at the render's evaluations (`MemoryNeed.anima`).
+    package static func tableBytes(config: Config, count: Int) -> Int {
+        Arena.capacity(slices: tableSlices(config: config, count: count))
+    }
+
+    /// **The σ a table holds at most**: the official recipe's 8 evaluations. A render of more steps
+    /// tabulates them 8 at a time (`schedule`), so the table's size never follows the request — the
+    /// memory need charges these rows, whatever the steps.
+    package static let tableRows = 8
+    /// The render's σ, in order, as `tabulate(sigmas:)` received them: a σ missing from the table is
+    /// looked up here, and the next `tableRows` from it are tabulated.
+    private var schedule: [Float] = []
+
+    /// **The render's σ**: the first `tableRows` distinct ones are tabulated now, the rest when reached.
+    package func tabulate(sigmas: [Float]) throws {
+        schedule = sigmas
+        try tabulate(from: 0)
+    }
+
+    /// `σ`'s row, the table refilled from `σ` on if it does not hold it; a σ outside the schedule (the checks,
+    /// which call `forward` alone) is tabulated alone.
+    private func ensureTabulated(_ sigma: Float) throws {
+        guard table?.index[sigma.bitPattern] == nil else { return }
+        if let i = schedule.firstIndex(where: { $0.bitPattern == sigma.bitPattern }) {
+            try tabulate(from: i)
+        } else {
+            schedule = [sigma]
+            try tabulate(from: 0)
+        }
+    }
+
+    /// Computes the modulations of the `tableRows` distinct σ of `schedule` from `first`, replacing the table.
+    private func tabulate(from first: Int) throws {
+        var unique: [Float] = []
+        for s in schedule[first...] where !unique.contains(where: { $0.bitPattern == s.bitPattern }) {
+            guard unique.count < AnimaDiT.tableRows else { break }
+            unique.append(s)
+        }
+        let m = max(1, unique.count), d = config.dim, a = config.adalnLoRA
+        table = nil   // the previous arena is unmapped before the new one is mapped
+        let sizes = AnimaDiT.tableSlices(config: config, count: m)
+        let arena = try Arena(capacity: Arena.capacity(slices: sizes))
+        func floats(_ name: String, _ i: Int) throws -> UnsafeMutablePointer<Float> {
+            try arena.reserve(name, bytes: sizes[i]).assumingMemoryBound(to: Float.self)
+        }
+        let rows = try floats("rows", 0), sinusoid = try floats("sinusoid", 1), hidden = try floats("hidden", 2)
+        let siluScratch = try floats("silu", 3), mid = try floats("mid", 4)
+        let exactA = try arena.reserve("exactA", bytes: sizes[5]).assumingMemoryBound(to: Double.self)
+        let exactC = try arena.reserve("exactC", bytes: sizes[6]).assumingMemoryBound(to: Double.self)
+        let scratch = (a: exactA, c: exactC), stride = ModulationRow.floats(config)
+        /// The `n` floats of `slot` for each σ, copied into each σ's row at `offset`.
+        func scatter(_ slot: UnsafePointer<Float>, _ n: Int, at offset: Int) {
+            for i in 0..<m { (rows + i * stride + offset).update(from: slot + i * n, count: n) }
+        }
+
+        // temb [3d] and embedded [d]
+        for i in 0..<m { Ops.timestepEmbedding(unique[i], into: sinusoid + i * d, dim: d) }
+        try gemv("time_embed.t_embedder.linear_1.weight", x: sinusoid, into: hidden, rows: m, outputs: d, inputs: d,
+                 scratch: scratch)
+        Ops.siluInPlace(hidden, count: m * d, scratch: siluScratch)
+        // temb lands in `siluScratch` ([m, 3d]), then into the rows.
+        try gemv("time_embed.t_embedder.linear_2.weight", x: hidden, into: siluScratch, rows: m, outputs: 3 * d,
+                 inputs: d, scratch: scratch)
+        scatter(siluScratch, 3 * d, at: ModulationRow.temb(config))
+        try artifact.materialize("time_embed.norm.weight", into: reserve, capacity: reserveCapacity)
+        Ops.rmsNorm(sinusoid, weight: reserve, into: hidden, rows: m, columns: d, eps: 1e-6)
+        scatter(hidden, d, at: ModulationRow.embedded(config))
+        // SiLU(embedded) is the input of ALL the modulations: `sinusoid` holds it from here on.
+        sinusoid.update(from: hidden, count: m * d)
+        Ops.siluInPlace(sinusoid, count: m * d, scratch: hidden)
+
+        /// One low-rank modulation `d → 256 → outputs`, plus `temb[:outputs]`, into each σ's row at `offset`.
+        func modulation(_ prefix: String, outputs: Int, at offset: Int) throws {
+            try gemv(prefix + "linear_1.weight", x: sinusoid, into: mid, rows: m, outputs: a, inputs: d, scratch: scratch)
+            try gemv(prefix + "linear_2.weight", x: mid, into: siluScratch, rows: m, outputs: outputs, inputs: a,
+                     scratch: scratch)
+            for i in 0..<m {
+                let row = rows + i * stride
+                vDSP_vadd(siluScratch + i * outputs, 1, row + ModulationRow.temb(config), 1, row + offset, 1,
+                          vDSP_Length(outputs))
+            }
+        }
+        for layer in 0..<config.layers {
+            for sub in 1...3 {
+                try modulation("transformer_blocks.\(layer).norm\(sub).", outputs: 3 * d,
+                               at: ModulationRow.sublayer(layer, sub, config))
+            }
+        }
+        try modulation("norm_out.", outputs: 2 * d, at: ModulationRow.normOut(config))
+        table = (arena, Dictionary(uniqueKeysWithValues: unique.enumerated().map { ($1.bitPattern, $0) }), rows)
+    }
+
+    /// σ's row of the table.
+    private func modulationRow(_ sigma: Float) throws -> UnsafeMutablePointer<Float> {
+        guard let table, let i = table.index[sigma.bitPattern] else {
+            throw Artifact.Failure.misuse("Anima: σ \(sigma) not tabulated")
+        }
+        return table.rows + i * ModulationRow.floats(config)
     }
 
     /// `C[m, n] = A[m, k] · W`, on the GPU (and the AMX if the driver cuts out).
@@ -492,17 +685,28 @@ package enum AnimaOps {
     }
 
     /// `out = LayerNorm(x) · (1 + scale) + shift` — LayerNorm without affine, eps 1e-6.
+    ///
+    /// **One pass, each row while it is in cache**: `Ops.layerNorm`'s operations, then the `vma`, on the
+    /// same row — the same calls in the same order as the two passes it replaces, so the same bits,
+    /// without reading `[s, d]` back from memory a second time.
     package static func modulate(_ x: UnsafePointer<Float>, into out: UnsafeMutablePointer<Float>,
                                 shift: UnsafePointer<Float>, scale: UnsafePointer<Float>,
                                 scaleOne: UnsafeMutablePointer<Float>, rows: Int, columns: Int) {
         var one: Float = 1
         vDSP_vsadd(scale, 1, &one, scaleOne, 1, vDSP_Length(columns))
-        Ops.layerNorm(x, into: out, rows: rows, columns: columns, eps: 1e-6)
         let n = vDSP_Length(columns)
         let factor = UnsafePointer(scaleOne)
         Parallel.rows(rows, width: columns) { first, howMany in
             for row in first..<(first + howMany) {
-                let r = out + row * columns
+                let source = x + row * columns, r = out + row * columns
+                var mean: Float = 0
+                vDSP_meanv(source, 1, &mean, n)
+                var negativeMean = -mean
+                vDSP_vsadd(source, 1, &negativeMean, r, 1, n)
+                var sumOfSquares: Float = 0
+                vDSP_svesq(r, 1, &sumOfSquares, n)
+                var inverse = 1 / (sumOfSquares / Float(columns) + 1e-6).squareRoot()
+                vDSP_vsmul(r, 1, &inverse, r, 1, n)
                 vDSP_vma(r, 1, factor, 1, shift, 1, r, 1, n)
             }
         }
@@ -525,16 +729,90 @@ package enum AnimaOps {
 
 /// The double computation of the modulation `gemv` (see `AnimaDiT.gemv`).
 enum AnimaExact {
-    /// `C[m, n] = A[m, k] · W`, W laid out `[k, n]` if the forge transposed it, `[n, k]` otherwise.
+    /// `C[m, n] = A[m, k] · W`, W laid out `[k, n]` if the forge transposed it, `[n, k]` otherwise —
+    /// widened to double in the caller's `scratch` (`a` holds `m·k`, `w` `k·n`, `c` `m·n`: the DiT's
+    /// arena slices `exactA`, `exactW`, `exactC`), multiplied, narrowed back. The same `vDSP`
+    /// widenings and the same `cblas_dgemm` call as when the three were fresh arrays; `c` is cleared
+    /// first, as a fresh array was (with β = 0 it is not read).
     static func linear(a: UnsafePointer<Float>, w: UnsafePointer<Float>, into c: UnsafeMutablePointer<Float>,
-                       m: Int, k: Int, n: Int, weightIsTransposed: Bool) {
-        var a64 = [Double](repeating: 0, count: m * k), w64 = [Double](repeating: 0, count: k * n)
-        vDSP_vspdp(a, 1, &a64, 1, vDSP_Length(m * k))
-        vDSP_vspdp(w, 1, &w64, 1, vDSP_Length(k * n))
-        var c64 = [Double](repeating: 0, count: m * n)
+                       m: Int, k: Int, n: Int, weightIsTransposed: Bool,
+                       scratch: (a: UnsafeMutablePointer<Double>, w: UnsafeMutablePointer<Double>,
+                                 c: UnsafeMutablePointer<Double>)) {
+        vDSP_vspdp(a, 1, scratch.a, 1, vDSP_Length(m * k))
+        vDSP_vspdp(w, 1, scratch.w, 1, vDSP_Length(k * n))
+        vDSP_vclrD(scratch.c, 1, vDSP_Length(m * n))
         cblas_dgemm(CblasRowMajor, CblasNoTrans, weightIsTransposed ? CblasNoTrans : CblasTrans,
-                    Int32(m), Int32(n), Int32(k), 1, a64, Int32(k), w64,
-                    Int32(weightIsTransposed ? n : k), 0, &c64, Int32(n))
-        vDSP_vdpsp(c64, 1, c, 1, vDSP_Length(m * n))
+                    Int32(m), Int32(n), Int32(k), 1, scratch.a, Int32(k), scratch.w,
+                    Int32(weightIsTransposed ? n : k), 0, scratch.c, Int32(n))
+        vDSP_vdpsp(scratch.c, 1, c, 1, vDSP_Length(m * n))
+    }
+}
+
+// ── sizing: the shapes the constructor allocates, and the memory need charges ──────────────────
+
+extension AnimaDiT {
+    /// The image tokens of a latent grid: one per `patch × patch` cell — every evaluation's (no
+    /// spectral schedule: the arena is sized once, for the render's grid).
+    package static func imageTokens(latentHeight: Int, latentWidth: Int, config: Config) -> Int {
+        (latentHeight / config.patch) * (latentWidth / config.patch)
+    }
+
+    /// **The `gemv`s computed in double, `(k inputs, n outputs)`** — `temb` (`t_embedder.linear_1`,
+    /// then `linear_2` to `3d`), each sublayer's low-rank modulation (`d → 256 → 3d`) and `norm_out`'s
+    /// (`256 → 2d`): what `AnimaExact`'s scratch must hold, the largest `d × 3d` (100 MB of doubles).
+    package static func exactProducts(config: Config) -> [(k: Int, n: Int)] {
+        let d = config.dim, a = config.adalnLoRA
+        return [(d, d), (d, 3 * d), (d, a), (a, 3 * d), (a, 2 * d)]
+    }
+
+    /// **The widest input and output a LoRA can bring to this DiT** — `LoRA.maxEntry` and `maxOutput`
+    /// are a module's `k` and `n`; the DiT's widest are the FFN's (`ff.net.2` reads `h`, `ff.net.0`
+    /// writes `h`), the cross-attention's text (`textDim`) or the modulation's `3d`: what the memory
+    /// need charges a stack whose modules it does not see (`MemoryNeed.anima`).
+    package static func loraBounds(config: Config) -> (entry: Int, output: Int) {
+        (max(config.hidden, config.dim, config.textDim), max(config.hidden, 3 * config.dim))
+    }
+
+    /// **The DiT's slices, in bytes, in the order `init` reserves them** — each written by an
+    /// evaluation at the sizing grid (`s` image tokens) or by the text it caches:
+    ///   - seven `[s, d]` (`x`, `normed`, `q`, `k`, `v`, `merged`, `o`), the FFN's `[s, h]`, the
+    ///     patches `[s, (C+1)p²]` (the mask channel), the output `[s, Cp²]`, the RoPE table `[s, Dh]`;
+    ///   - `reserve`, one widened weight, `d·h` fp32 **whatever the map's type** — bf16, Q8_0, Q4_K: the
+    ///     map is read through the page cache and widened here, never staged (`materialize`);
+    ///   - the text `[T, 1024]` and its k/v for **every layer** (`textK`, `textV`, `[layers, T, d]`,
+    ///     235 MB at T = 512): computed once per context;
+    ///   - `scaleOne` (2d), and `AnimaExact`'s double copy of the widest modulation weight (`exactProducts`);
+    ///     the modulations themselves live in their own table (`tableBytes`), sized by the render's σ;
+    ///   - under a stack of cumulative rank `r`: its `down [max(k, d), r]`, `up [r, max(n, d)]`, and the
+    ///     `mid [max(s, T), r]` the GPU's two products share.
+    /// The former count charged `4d` for the `d` of `embedded`, and added 64 pages and 8 MB of margin.
+    package static func slices(config: Config, imageTokens s: Int, textLength t: Int,
+                               lora: (rank: Int, entry: Int, output: Int)?) -> [(name: String, bytes: Int)] {
+        let d = config.dim, h = config.hidden, f = MemoryLayout<Float>.size, w = MemoryLayout<Double>.size
+        let inDim = (config.channels + 1) * config.patch * config.patch
+        let outDim = config.channels * config.patch * config.patch
+        let exact = exactProducts(config: config)
+        var slices: [(name: String, bytes: Int)] = [
+            ("x", s * d * f), ("normed", s * d * f), ("q", s * d * f), ("k", s * d * f), ("v", s * d * f),
+            ("merged", s * d * f), ("o", s * d * f), ("h1", s * h * f), ("reserve", d * h * f),
+            ("tokens", s * inDim * f), ("projected", s * outDim * f), ("freqs", s * config.headDim * f),
+            ("text", t * config.textDim * f), ("textK", config.layers * t * d * f), ("textV", config.layers * t * d * f),
+            ("scaleOne", 2 * d * f), ("exactW", exact.map { $0.k * $0.n }.max()! * w),
+        ]
+        if let lora, lora.rank > 0 {
+            slices += [("loraBas", max(lora.entry, d) * lora.rank * f), ("loraHaut", lora.rank * max(lora.output, d) * f),
+                       ("loraMid", max(s, t) * lora.rank * f)]
+        }
+        return slices
+    }
+
+    /// **The DiT's arena**: its slices, each on its page (`Arena.capacity(slices:)`) — `arenaCapacity`
+    /// of the DiT built on these shapes, to the byte.
+    package static func arenaBytes(config: Config, latentHeight: Int, latentWidth: Int, textLength: Int,
+                                   lora: (rank: Int, entry: Int, output: Int)?) -> Int {
+        Arena.capacity(slices: slices(config: config,
+                                      imageTokens: imageTokens(latentHeight: latentHeight, latentWidth: latentWidth,
+                                                               config: config),
+                                      textLength: textLength, lora: lora).map(\.bytes))
     }
 }

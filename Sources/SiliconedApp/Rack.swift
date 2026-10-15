@@ -27,7 +27,7 @@
 // something happens**: at rest the boxes are quiet cards and the wires muted; during a render the box
 // of the stage at work wears the accent and the wire it reads brightens and widens; what is done keeps
 // a discreet check; where the engine refused, the box turns red. Under each box, what it costs: the
-// time learned on this Mac, the DiT's memory peak (rule 7).
+// time learned on this Mac, and under the DiT the memory the render needs, computed (rule 7).
 //
 // **Only the DiT has choices of module today** — the model (the publisher's, or an imported
 // fine-tune) and its LoRA stack. The text encoder and the VAE are fixed by the family: their module
@@ -686,7 +686,8 @@ private struct DiTBox: View {
         Tag(text: Text(verbatim: card.licenseName),
             symbol: card.license.commercial ? "checkmark.seal" : "info.circle")
             .help(card.license.commercial ? String(localized: "Commercial use allowed")
-                                          : String(localized: "Non-commercial: personal and research use only"))
+                  : card.imagesCommercial ? String(localized: "Non-commercial model: personal and research use only. Its images may be used commercially.")
+                  : String(localized: "Non-commercial: personal and research use only"))
     }
 
     @ViewBuilder private var technical: some View {
@@ -769,14 +770,17 @@ private struct DiTBox: View {
                 .fixedSize()
         }
         .help(String(localized: "\(app.card?.defaultSteps ?? 8) steps: the count this Turbo model is distilled for"))
-        Field(title: "Detail") {
-            Picker("Detail", selection: $app.detail) {
-                ForEach(Detail.allCases, id: \.self) { Text(verbatim: $0.choice).tag($0) }
+        // Not on a model that offers none (Anima): a choice that changes nothing is not shown.
+        if app.offersDetail {
+            Field(title: "Detail") {
+                Picker("Detail", selection: $app.detail) {
+                    ForEach(Detail.allCases, id: \.self) { Text(verbatim: $0.choice).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .help("Adds fine texture and small details; Most can over-sharpen")
         }
-        .help("Adds fine texture and small details; Most can over-sharpen")
-        // Developer Mode, Z-Image: how a step moves to the next. Euler is the distillation's own.
+        // Developer Mode, the models in front: how a step moves to the next. Euler is the distillation's own.
         if app.offeredSolvers.count > 1 {
             Field(title: "Solver") {
                 Picker("Solver", selection: $app.solver) {
@@ -785,6 +789,12 @@ private struct DiTBox: View {
                 .labelsHidden().fixedSize()
             }
             .help("How each step moves to the next, with the same steps: Euler is the one this model was distilled for")
+        }
+        // Developer Mode, Qwen-Image-2.1: the σ ComfyUI walks for this model, to compare with the official ones.
+        if app.offersComfySchedule {
+            Toggle("ComfyUI schedule", isOn: $app.comfySchedule)
+                .font(.callout)
+                .help("Walks the noise levels ComfyUI uses for this model (the base model's), instead of the Turbo's own: to compare, same seed, same steps")
         }
         Toggle("Preview every step", isOn: $app.previews)
             .font(.callout)

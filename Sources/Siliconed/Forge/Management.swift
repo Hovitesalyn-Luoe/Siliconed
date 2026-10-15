@@ -315,7 +315,7 @@ extension Library {
     }
 
     /// The free space on the library's volume (the folder, or its first existing parent).
-    public func freeSpace() -> Int? {
+    package func freeSpace() -> Int? {
         var u = root
         while !Self.exists(u.path), u.path != "/" { u = u.deletingLastPathComponent() }
         let v = try? u.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -358,7 +358,8 @@ extension Family {
     /// downloading. Standard: measured on the maps (bf16, as published). Compact: the components are
     /// the Standard's; the maps measured as installed: Z-Image's DiT from
     /// unsloth's GGUF, its encoder from Disty0's; Qwen-Image-2.1's DiT from Comfy-Org's int8 convrot,
-    /// its encoder from unsloth's. An installation needs more while forging: the sources, about as
+    /// its encoder from unsloth's; Anima's DiT from vanes430's GGUF Q8_0 (Q4_K_M for the Light), with
+    /// the Standard's encoder. An installation needs more while forging: the sources, about as
     /// large as the map, then thrown away (`spaceNeeded`).
     public func installedSize(_ variant: Variant) -> (dit: Int, encoder: Int, components: Int) {
         if variant == .light {
@@ -366,6 +367,8 @@ extension Family {
             switch self {
             case .zImage: return (5_039_636_480, installedSize(.compact).encoder, installedSize(.standard).components)
             case .qwenImage21: return (4_167_073_792, installedSize(.compact).encoder, installedSize(.standard).components)
+            // vanes430's Q4_K_M: the map, 1 307 197 440 B, and its text adapter in fp32, 538 671 696 B.
+            case .anima: return (1_845_869_136, installedSize(.compact).encoder, installedSize(.standard).components)
             default: break
             }
         }
@@ -373,6 +376,10 @@ extension Family {
             switch self {
             case .zImage: return (7_247_331_328, 4_317_841_408, installedSize(.standard).components)
             case .qwenImage21: return (7_257_833_472, 9_355_759_616, installedSize(.standard).components)
+            // vanes430's Q8_0: the map, 2 098 118 656 B, and its text adapter, 538 671 696 B — 8-bit in the
+            // source, fp32 here (the conditioner reads no 8-bit), twice the Standard's bf16 one. The
+            // encoder is the Standard's.
+            case .anima: return (2_636_790_352, installedSize(.standard).encoder, installedSize(.standard).components)
             default: break
             }
         }

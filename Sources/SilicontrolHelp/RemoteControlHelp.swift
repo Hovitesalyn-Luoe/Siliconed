@@ -164,9 +164,9 @@ public enum RemoteControlHelp {
         "models": """
         silicontrol models
 
-        The models the app shows, installed or not: Z-Image Turbo and Qwen-Image-2.1 Turbo, plus
-        the models you imported (« add » refuses a model the app does not show). Read it before
-        « add »: the ids, the LoRAs and the formats come from here.
+        The models the app shows, installed or not: Z-Image Turbo, Qwen-Image-2.1 Turbo and Anima
+        Turbo, plus the models you imported (« add » refuses a model the app does not show). Read it
+        before « add »: the ids, the LoRAs and the formats come from here.
 
         Answer:
           {"ok": true, "models": [
@@ -184,24 +184,28 @@ public enum RemoteControlHelp {
 
         id          → --model of « add »; "default": true = the one taken without --model
         variants    → the versions a publisher's model installs in, with their space on disk:
-                      "standard" (the publisher's weights, the default) and, for Z-Image and
-                      Qwen-Image-2.1, "compact" (8-bit weights published by third parties: smaller
-                      on disk, an image slightly different, about as fast) and "light" (the
-                      image model in 4 to 6 bits as a third party publishes it, the Compact's text
-                      encoder: the smallest; another set of weights, an image that may compose
-                      differently). Absent for an imported model
+                      "standard" (the publisher's weights, the default), "compact" (8-bit weights
+                      published by third parties: smaller on disk, an image slightly different) and
+                      "light" (the image model in 4 to 6 bits as a third party publishes it: the
+                      smallest; another set of weights, an image that may compose differently).
+                      Z-Image's and Qwen-Image-2.1's Compact and Light read an 8-bit text encoder;
+                      Anima's three versions read the publisher's (bf16), only the image model
+                      changes. Absent for an imported model
         variant     → the version on disk; null while the model is not installed (and for an
                       imported model, which has its own weights)
         loras.lora  → --lora of « add » (only the LoRAs of THIS model)
         edit        → the model accepts --ref (editing an image with a prompt); null while it is
                       not installed
-        max_references → how many --ref it reads at most (Qwen-Image-2.1 3, Z-Image 0);
+        max_references → how many --ref it reads at most (Qwen-Image-2.1 3, Z-Image and Anima 0);
                       null while it is not installed
         formats     → the suggested formats; any valid WxH is accepted (help add)
         license_urls → the license file(s) on Hugging Face, at the revision the installation takes:
                       the model's, then each component under a license of its own (a Compact: the
                       publisher's, then each third party's model card). Z-Image has none: its model card, which
                       declares Apache 2.0.
+        commercial_license → false: the model is for non-commercial use (Qwen-Image-2.1: Qwen
+                      Research; Anima: CircleStone Labs Non-Commercial — its images may still be
+                      used commercially, the license says so)
         license_accepted → false: the first render of this model waits until the user accepts its
                       license in the app (a sheet shows it); declined, the job ends in "error"
                       with "code": "license_not_accepted"
@@ -224,8 +228,8 @@ public enum RemoteControlHelp {
         of 8 GB — preselected, the user sees all three): a command that names no version never
         switches it.
         --standard  preselects the Standard version (the publisher's weights);
-        --compact   the Compact version, --light the Light version (Z-Image, Qwen-Image-2.1 — the
-                    "variants" of « models »).
+        --compact   the Compact version, --light the Light version (Z-Image, Qwen-Image-2.1, Anima —
+                    the "variants" of « models »).
                     One version of a model is installed at a time: asking for another one of an
                     installed model offers to replace it, and the user still accepts in the app. The
                     installed one keeps rendering until the new one is complete, then goes — unless
@@ -293,11 +297,17 @@ public enum RemoteControlHelp {
                               only).
           --detail more|most  the rack's Detail: finer texture and small details, same time;
                               most can over-sharpen. Default: normal (the image as the model
-                              makes it). Jobs and images say "detail" when it is not normal.
+                              makes it). Not on Anima. Jobs and images say "detail" when it is
+                              not normal.
           --solver NAME       the rack's Solver, in Developer Mode only: euler (default, the one
                               the model was distilled for), euler-ancestral, dpmpp-2m or unipc.
                               Same steps, same time, another image. Jobs and images say "solver"
                               when it is not euler.
+          --schedule comfyui  the rack's "ComfyUI schedule", in Developer Mode, Qwen-Image-2.1
+                              only: the noise levels ComfyUI walks for this model (the base
+                              model's) instead of the Turbo's own — to compare, same seed, same
+                              steps. Default: official. Jobs and images say "schedule" when it is
+                              not official.
           --batch N           N images (1 to 8) with seeds s, s+1, …; the prompt is encoded once
                               for the whole batch (faster than N requests).
           --ref IMAGE|i7      editing by instruction: an image file or an image of the history.
@@ -347,10 +357,10 @@ public enum RemoteControlHelp {
           estimate_s : the sum, null if one job has no estimate yet.
           With --wait: one "type": "added" line per job, then the lines of « wait » for all.
 
-        FAILURES: usage, prompt, model, lora, format, steps, edit, ref, img2img (--image/--strength: the
-        app does none), queue_full (64 waiting, or not
-        enough room for every alternative), busy (an installation is running: no render until it
-        is done), write.
+        FAILURES: usage, prompt, model, solver, schedule, detail, lora, format, steps, edit, ref, img2img
+        (--image/--strength: the app does none), subject (a named subject the prompt cites, help
+        subjects), queue_full (64 waiting, or not enough room for every alternative), busy (an
+        installation is running: no render until it is done), write.
 
         Indicative times (MacBook Pro M1 Pro 16 GB, Z-Image, 8 steps): ~34 s at 512², 113–119 s at 1024².
         """,
@@ -409,8 +419,9 @@ public enum RemoteControlHelp {
           « wait g2 [--out D] » follows a grid later: at once if it has ended.
 
         FAILURES: usage (no --x, --batch, --x given to « add »), grid (an axis that does not read or
-        does not make a grid, more than 64 cells), prompt, model, lora, format, steps, edit, ref,
-        queue_full, busy (an installation is running), write.
+        does not make a grid, more than 64 cells), prompt, model, solver, schedule, detail, lora, format, steps,
+        edit, ref, subject (a grid does not cite named subjects), queue_full, busy (an installation
+        is running), write.
         """,
 
         "wait": """
@@ -431,9 +442,10 @@ public enum RemoteControlHelp {
           Without --out, the image is ONLY in the app's memory (history, lost when it quits):
           « save i7 DEST » writes it later.
 
-        FILE NAMES: <model>[-lora-<name>[@<strength>]…][-p<steps>][-edit]-<W>x<H>-<seed>.png
-          (the strength if it is not 1, the steps if they are not the model's). An existing file
-          is never overwritten: -2, -3… are appended.
+        FILE NAMES: <model>[-lora-<name>[@<strength>]…][-p<steps>][-edit][-sketch<n>]-<W>x<H>-<seed>[-v<seed>x<strength>…].png
+          (the strength if it is not 1, the steps if they are not the model's; a sketch, the
+          evaluations it stopped after; a variation, each variation seed and its strength in
+          hundredths). An existing file is never overwritten: -2, -3… are appended.
 
         VERDICT:
           {"ok": true, "jobs": [{"job": "t3", "outcome": "done", "images": ["i7"]}]}
@@ -464,7 +476,7 @@ public enum RemoteControlHelp {
            "history_images": 12, "library": "/Users/…/Siliconed"}
 
         stage              : text, image (encoding a reference), denoising, decoding.
-        steps_total        : the model's evaluations (fewer than the requested steps in img2img), not the requested steps.
+        steps_total        : the model's evaluations, not the requested steps (a sketch: those it stops after).
         remaining_s        : null until the app has a measurement for this render.
         remaining_complete : false if a waiting job has no estimate (queue_remaining_s is a minimum).
         installing         : an installation or an import in progress, and its last journal line;
@@ -520,6 +532,7 @@ public enum RemoteControlHelp {
         the "image" lines of « wait », without "path": the history is in memory.
 
         Answer: {"ok": true, "images": [{"image": "i7", "job": "t3", "seed": 42, …}, …]}
+        FAILURES: usage (N not an integer ≥ 1).
         """,
 
         "vary": """
@@ -628,6 +641,15 @@ public enum RemoteControlHelp {
                                                                            → a model with "edit": true; its "max_references"
           ref                  unreadable reference image                   → check the path
           img2img              --image / --strength: not in the app         → leave them out
+          solver               --solver outside Developer Mode, or on a model that walks Euler only
+                                                                           → leave it out
+          schedule             --schedule comfyui outside Developer Mode, or on a model other than
+                               Qwen-Image-2.1                              → leave it out
+          detail               --detail more|most on a model without Detail (Anima)
+                                                                           → leave it out
+          subject              a named subject: unknown, a name taken, too many images, a model
+                               that reads none, a grid citing one          → help subjects
+          disabled             (subjects) named subjects are off in the app → turn them on in its menu
           grid                 an axis that does not read, two axes on one setting, a {…} group
                                on no axis, more than 64 cells              → help grid
           queue_full           64 jobs waiting, or no room for every alternative or cell
@@ -777,9 +799,9 @@ public enum RemoteControlHelp {
         "models": """
         silicontrol models
 
-        Les modèles que l'app montre, installés ou non : Z-Image Turbo et Qwen-Image-2.1 Turbo, plus
-        les modèles que vous avez importés (« add » refuse un modèle que l'app ne montre pas). À lire
-        avant « add » : les ids, les LoRA et les formats viennent d'ici.
+        Les modèles que l'app montre, installés ou non : Z-Image Turbo, Qwen-Image-2.1 Turbo et Anima
+        Turbo, plus les modèles que vous avez importés (« add » refuse un modèle que l'app ne montre
+        pas). À lire avant « add » : les ids, les LoRA et les formats viennent d'ici.
 
         Réponse :
           {"ok": true, "models": [
@@ -797,24 +819,28 @@ public enum RemoteControlHelp {
 
         id          → --model de « add » ; "default": true = celui pris sans --model
         variants    → les versions dans lesquelles s'installe un modèle d'éditeur, avec leur place sur
-                      le disque : "standard" (les poids de l'éditeur, le défaut) et, pour Z-Image et
-                      Qwen-Image-2.1, "compact" (poids 8 bits publiés par des tiers : plus léger sur
-                      le disque, une image légèrement différente, à peu près aussi rapide) et "light"
-                      (le modèle d'image en 4 à 6 bits tel qu'un tiers le publie, l'encodeur de la
-                      Compact : la plus petite ; un autre jeu de poids, une image qui peut se composer
-                      autrement). Absent pour un modèle importé
+                      le disque : "standard" (les poids de l'éditeur, le défaut), "compact" (poids
+                      8 bits publiés par des tiers : plus léger sur le disque, une image légèrement
+                      différente) et "light" (le modèle d'image en 4 à 6 bits tel qu'un tiers le
+                      publie : la plus petite ; un autre jeu de poids, une image qui peut se composer
+                      autrement). Les Compact et Légère de Z-Image et de Qwen-Image-2.1 lisent un
+                      encodeur de texte 8 bits ; les trois versions d'Anima lisent celui de l'éditeur
+                      (bf16), seul le modèle d'image change. Absent pour un modèle importé
         variant     → la version sur le disque ; null tant que le modèle n'est pas installé (et pour
                       un modèle importé, qui a ses propres poids)
         loras.lora  → --lora de « add » (seulement les LoRA de CE modèle)
         edit        → le modèle accepte --ref (édition d'une image par un prompt) ; null tant
                       qu'il n'est pas installé
-        max_references → combien de --ref il lit au plus (Qwen-Image-2.1 3, Z-Image 0) ;
+        max_references → combien de --ref il lit au plus (Qwen-Image-2.1 3, Z-Image et Anima 0) ;
                       null tant qu'il n'est pas installé
         formats     → les formats conseillés ; tout WxH valide est accepté (help add)
         license_urls → le(s) fichier(s) de licence sur Hugging Face, à la révision que l'installation
                       prend : celui du modèle, puis chaque composant sous une licence propre
                       (une Compact : celui de l'éditeur, puis la fiche de chaque tiers). Z-Image n'en a pas : sa
                       fiche, qui déclare Apache 2.0.
+        commercial_license → false : le modèle est d'usage non commercial (Qwen-Image-2.1 : Qwen
+                      Research ; Anima : CircleStone Labs Non-Commercial — ses images restent
+                      utilisables commercialement, la licence le dit)
         license_accepted → false : le premier rendu de ce modèle attend que l'utilisateur accepte
                       sa licence dans l'app (une feuille la montre) ; refusée, le travail finit en
                       "error" avec "code": "license_not_accepted"
@@ -837,8 +863,8 @@ public enum RemoteControlHelp {
         un Mac de 8 Go — présélectionnée, l'utilisateur voit les trois) : une commande qui ne nomme
         pas de version n'en change jamais.
         --standard  présélectionne la version Standard (les poids de l'éditeur) ;
-        --compact   la version Compact, --light la version Légère (Z-Image, Qwen-Image-2.1 — les
-                    "variants" de « models »).
+        --compact   la version Compact, --light la version Légère (Z-Image, Qwen-Image-2.1, Anima —
+                    les "variants" de « models »).
                     Une seule version d'un modèle est installée à la fois : en demander une autre d'un
                     modèle installé propose de la remplacer, et l'utilisateur accepte toujours dans
                     l'app. L'installée continue de rendre jusqu'à ce que la nouvelle soit complète,
@@ -907,11 +933,17 @@ public enum RemoteControlHelp {
                               8 seulement).
           --detail more|most  le Détail du rack : texture fine et petits détails, même durée ;
                               most peut trop accentuer. Défaut : normal (l'image telle que le
-                              modèle la fait). Travaux et images disent "detail" s'il n'est pas normal.
+                              modèle la fait). Pas sur Anima. Travaux et images disent "detail"
+                              s'il n'est pas normal.
           --solver NOM        le Solveur du rack, en mode développeur seulement : euler (défaut,
                               celui pour lequel le modèle a été distillé), euler-ancestral,
                               dpmpp-2m ou unipc. Mêmes pas, même durée, une autre image. Travaux
                               et images disent "solver" s'il n'est pas euler.
+          --schedule comfyui  le « Calendrier ComfyUI » du rack, en mode développeur, sur
+                              Qwen-Image-2.1 seulement : les niveaux de bruit que ComfyUI parcourt
+                              pour ce modèle (ceux du modèle de base) au lieu de ceux de la Turbo —
+                              pour comparer, même graine, mêmes pas. Défaut : official. Travaux et
+                              images disent "schedule" s'il n'est pas official.
           --batch N           N images (1 à 8) aux graines s, s+1, … ; le prompt est encodé une
                               fois pour tout le lot (plus rapide que N demandes).
           --ref IMAGE|i7      édition par instruction : un fichier image ou une image de l'historique.
@@ -962,10 +994,10 @@ public enum RemoteControlHelp {
           estimate_s : la somme, null si un travail n'a pas encore d'estimation.
           Avec --wait : une ligne "type": "added" par travail, puis les lignes de « wait » pour tous.
 
-        ÉCHECS : usage, prompt, model, lora, format, steps, edit, ref, img2img (--image/--strength : l'app
-        n'en fait pas), queue_full (64 en attente, ou pas assez
-        de place pour toutes les alternatives), busy (une installation tourne : pas de rendu avant
-        qu'elle soit finie), write.
+        ÉCHECS : usage, prompt, model, solver, schedule, detail, lora, format, steps, edit, ref, img2img
+        (--image/--strength : l'app n'en fait pas), subject (un sujet nommé que le prompt cite,
+        help subjects), queue_full (64 en attente, ou pas assez de place pour toutes les
+        alternatives), busy (une installation tourne : pas de rendu avant qu'elle soit finie), write.
 
         Temps indicatifs (MacBook Pro M1 Pro 16 Go, Z-Image, 8 pas) : ~34 s à 512², 113–119 s à 1024².
         """,
@@ -1026,8 +1058,9 @@ public enum RemoteControlHelp {
           « wait g2 [--out D] » suit une grille plus tard : tout de suite si elle est finie.
 
         ÉCHECS : usage (pas de --x, --batch, --x donné à « add »), grid (un axe illisible ou qui ne
-        fait pas une grille, plus de 64 cases), prompt, model, lora, format, steps, edit, ref,
-        queue_full, busy (une installation tourne), write.
+        fait pas une grille, plus de 64 cases), prompt, model, solver, schedule, detail, lora, format, steps,
+        edit, ref, subject (une grille ne cite pas de sujets nommés), queue_full, busy (une
+        installation tourne), write.
         """,
 
         "wait": """
@@ -1049,9 +1082,11 @@ public enum RemoteControlHelp {
           Sans --out, l'image n'est QUE dans la mémoire de l'app (historique, perdu quand elle
           quitte) : « save i7 DEST » l'écrit plus tard.
 
-        NOMS DES FICHIERS : <model>[-lora-<nom>[@<force>]…][-p<pas>][-edit]-<W>x<H>-<seed>.png
-          (la force si elle n'est pas 1, les pas s'ils ne sont pas ceux du modèle). Un fichier
-          présent n'est jamais écrasé : -2, -3… sont ajoutés.
+        NOMS DES FICHIERS : <model>[-lora-<nom>[@<force>]…][-p<pas>][-edit][-sketch<n>]-<W>x<H>-<seed>[-v<graine>x<force>…].png
+          (la force si elle n'est pas 1, les pas s'ils ne sont pas ceux du modèle ; une esquisse,
+          les évaluations après lesquelles elle s'est arrêtée ; une variation, chaque graine de
+          variation et sa force en centièmes). Un fichier présent n'est jamais écrasé : -2, -3…
+          sont ajoutés.
 
         VERDICT :
           {"ok": true, "jobs": [{"job": "t3", "outcome": "done", "images": ["i7"]}]}
@@ -1082,7 +1117,7 @@ public enum RemoteControlHelp {
            "history_images": 12, "library": "/Users/…/Siliconed"}
 
         stage              : text, image (encodage d'une référence), denoising, decoding.
-        steps_total        : les évaluations du modèle (moins que les pas demandés en img2img), pas les pas demandés.
+        steps_total        : les évaluations du modèle, pas les pas demandés (une esquisse : celles après lesquelles elle s'arrête).
         remaining_s        : null tant que l'app n'a pas de mesure pour ce rendu.
         remaining_complete : false si un travail en attente n'a pas d'estimation (queue_remaining_s est un minimum).
         installing         : une installation ou un import en cours, et la dernière ligne de son
@@ -1140,6 +1175,7 @@ public enum RemoteControlHelp {
         objet que les lignes "image" de « wait », sans "path" : l'historique est en mémoire.
 
         Réponse : {"ok": true, "images": [{"image": "i7", "job": "t3", "seed": 42, …}, …]}
+        ÉCHECS  : usage (N pas un entier ≥ 1).
         """,
 
         "vary": """
@@ -1250,6 +1286,15 @@ public enum RemoteControlHelp {
                                                                            → un modèle "edit": true ; son "max_references"
           ref                  image de référence illisible                 → vérifier le chemin
           img2img              --image / --strength : pas dans l'app        → les retirer
+          solver               --solver hors du mode développeur, ou sur un modèle qui ne fait
+                               qu'Euler                                    → le retirer
+          schedule             --schedule comfyui hors du mode développeur, ou sur un autre modèle
+                               que Qwen-Image-2.1                          → le retirer
+          detail               --detail more|most sur un modèle sans Détail (Anima)
+                                                                           → le retirer
+          subject              un sujet nommé : inconnu, nom déjà pris, trop d'images, modèle qui
+                               n'en lit pas, une grille qui en cite un     → help subjects
+          disabled             (subjects) les sujets nommés sont éteints dans l'app → les allumer dans son menu
           grid                 un axe illisible, deux axes sur un même réglage, un groupe {…} sur
                                aucun axe, plus de 64 cases                 → help grid
           queue_full           64 travaux en attente, ou pas de place pour toutes les alternatives ou cases

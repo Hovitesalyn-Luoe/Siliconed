@@ -48,7 +48,8 @@ package enum Widen {
         }
     }
 
-    /// The reciprocal, which the forge needs and the engine never. Round to nearest even,
+    /// The reciprocal, for the checks and the diagnostic's bf16 operands; the engine never narrows.
+    /// Round to nearest even,
     /// like `torch.Tensor.to(torch.bfloat16)`.
     @inlinable
     package static func float32ToBfloat16(source: UnsafeRawPointer,

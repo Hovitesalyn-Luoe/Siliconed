@@ -486,7 +486,7 @@ final class ForgeTests: XCTestCase {
     /// imposed: a family with one version is always Standard.
     func testTheLightIsPreselectedOnEightGigabytes() {
         let gib: UInt64 = 1 << 30
-        for f in [Family.zImage, .qwenImage21] {
+        for f in [Family.zImage, .qwenImage21, .anima] {
             XCTAssertEqual(f.preselectedVariant(physicalMemory: 8 * gib), .light, f.name)
             XCTAssertEqual(f.preselectedVariant(physicalMemory: 16 * gib), .standard, f.name)
             XCTAssertEqual(f.preselectedVariant(physicalMemory: 12 * gib), .standard, f.name)
@@ -638,6 +638,34 @@ final class ForgeTests: XCTestCase {
         // A family with one version: no flag is Standard, and Compact is refused.
         XCTAssertEqual(try b.resolvedVariant(.krea2, requested: nil, baseDiT: true), .standard)
         XCTAssertThrowsError(try b.resolvedVariant(.krea2, requested: .compact, baseDiT: true))
+    }
+
+    /// **Anima's three versions read one encoder, the Standard's**: switching between them removes
+    /// the other DiT and its text adapter, never the encoder; each version is complete with it.
+    func testAnimaVersionsShareTheStandardEncoder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("siliconed-anima-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let b = Library(root: root)
+        try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
+        XCTAssertEqual(Set(Variant.allCases.map(Family.anima.encoderMap)), [Family.anima.encoderMap])
+        XCTAssertEqual(Set(Variant.allCases.map(Family.anima.ditMap)).count, 3)
+        try place(.anima, in: b)
+        let adapter = adapterPath(fromMap: b.map(Family.anima.ditMap))
+        try Data(repeating: 4, count: 10).write(to: URL(fileURLWithPath: adapter))
+        XCTAssertEqual(b.variant(of: .anima), .standard)
+        // The Light forged beside the Standard: the Standard's DiT and adapter go, the encoder stays.
+        try Data(repeating: 3, count: 500).write(to: URL(fileURLWithPath: b.map(Family.anima.ditMap(.light))))
+        try Data("light".utf8).write(to: URL(fileURLWithPath: b.intendedVariantPath(.anima)))
+        XCTAssertEqual(b.variant(of: .anima), .light)
+        XCTAssertEqual(Set(b.releasable(.anima, keeping: .light)), [b.map(Family.anima.ditMap), adapter])
+        try b.release(.anima, keeping: .light)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: b.map(Family.anima.encoderMap)))
+        XCTAssertEqual(b.variant(of: .anima), .light)
+        XCTAssertTrue(Installer(library: b).isReady(.anima))
+        // Nothing of the encoder is counted as the other versions' (it is the current one's).
+        let plan = try b.installPlan(.anima, variant: .compact, baseDiT: true, free: nil)
+        XCTAssertEqual(plan.added, Family.anima.installedSize(.compact).dit, "the encoder is there: only the DiT is added")
+        XCTAssertEqual(plan.replacing, .light)
     }
 
     /// A family with one version refuses the other before anything — no network, no file touched.

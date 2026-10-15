@@ -14,7 +14,7 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     /// The families offered to the user — `install all`, the app's library sheet. All of them
     /// since Qwen-Image-2.1 renders swap-free at its worst case; a family that
     /// cannot render yet is filtered out here, so that nobody downloads what cannot render.
-    public static let offered: [Family] = allCases
+    package static let offered: [Family] = allCases
 
     public var name: String {
         switch self {
@@ -59,9 +59,9 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     }
 
     /// **The versions a family installs in**: every family has its Standard;
-    /// Z-Image and Qwen-Image-2.1 also have a Compact and a Light.
+    /// Z-Image, Qwen-Image-2.1 and Anima also have a Compact and a Light.
     public var variants: [Variant] {
-        self == .zImage || self == .qwenImage21 ? [.standard, .compact, .light] : [.standard]
+        self == .krea2 ? [.standard] : [.standard, .compact, .light]
     }
 
     /// **The version preselected before an installation** (the welcome cards, « Install… »): the
@@ -80,6 +80,8 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case (.qwenImage21, .compact): return "qwen-image-2.1-turbo-dit.compact.v0.silicon"
         case (.zImage, .light): return "z-image-turbo-dit.light.v0.silicon"
         case (.qwenImage21, .light): return "qwen-image-2.1-turbo-dit.light.v0.silicon"
+        case (.anima, .compact): return "anima-turbo-dit.compact.v0.silicon"
+        case (.anima, .light): return "anima-turbo-dit.light.v0.silicon"
         default: return ditMap
         }
     }
@@ -89,7 +91,9 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     /// Light reads the Compact's encoder, the same map**: no text encoder is published under 8 bits
     /// in a form the forge reads, and quantifying one ourselves is excluded (never below the publisher's
     /// weights unless the user chooses so). Switching between
-    /// Compact and Light therefore keeps the encoder (`Library.releasable`).
+    /// Compact and Light therefore keeps the encoder (`Library.releasable`). **Anima's three versions
+    /// read the Standard's encoder** (Qwen3-0.6B, 1.2 GB in bf16): no 8-bit one is published by the
+    /// third party of its DiT, and what an 8-bit one would save (~0.6 GB) is not worth a second map.
     package func encoderMap(_ v: Variant) -> String {
         switch (self, v) {
         case (.zImage, .compact), (.zImage, .light): return "qwen3-4b-encoder.compact.v0.silicon"
@@ -122,9 +126,10 @@ public enum Variant: String, CaseIterable, Sendable, Codable {
     /// 8-bit weights published by a third party, **DiT and text encoder**, kept 8-bit in the maps:
     /// about 40 % smaller on disk, an image slightly different from the Standard's, a step a little
     /// slower (the weights are widened at each evaluation). Tokenizers and VAE are the Standard's.
+    /// Anima's Compact is its DiT alone in GGUF Q8_0 (vanes430's): its encoder stays the Standard's.
     case compact
-    /// **The DiT in 4 to 6 bits as a third party publishes it** (unsloth's GGUF Q4_K_M, its blocks
-    /// kept whole), the Compact's 8-bit text encoder, the Standard's tokenizers and VAE: the smallest
+    /// **The DiT in 4 to 6 bits as a third party publishes it** (a GGUF Q4_K_M — unsloth's, vanes430's
+    /// for Anima — its blocks kept whole), the Compact's text encoder, the Standard's tokenizers and VAE: the smallest
     /// on disk and the least read from it at each step — another set of weights, an image that may
     /// compose differently. Preselected on a Mac of 8 GB (`Family.preselectedVariant`).
     case light

@@ -421,10 +421,12 @@ final class MemoryNeedQwenTests: XCTestCase {
             one.batch = 2
             XCTAssertLessThan(Self.need(one).peak, b.peak)
         }
-        // A generation that halves first (1024²: two half-size steps) does not keep the full DiT; an
-        // edit, or a format that never halves, does.
+        // A generation that halves first (only when `SILICONED_SPECTRAL` forces it, since 0.10) does not
+        // keep the full DiT; one at full size — the product's, at every format — does.
         let module = QwenImage21DenoisingModule(map: "", scheduler: .init())
-        XCTAssertGreaterThan(module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        if Spectral.forced == nil {
+            XCTAssertEqual(module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        }
         XCTAssertFalse(QwenImage21DenoisingModule.keepsDenoiser(reduced: 2))
         XCTAssertTrue(QwenImage21DenoisingModule.keepsDenoiser(reduced: 0))
         XCTAssertEqual(module.plan(height: 32, width: 32, steps: 8, start: 0, withLoRA: false).reduced, 0)

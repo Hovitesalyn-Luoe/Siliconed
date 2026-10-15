@@ -3,7 +3,7 @@ English · [Français](API.fr.md)
 # Siliconed's API
 
 For whoever writes a macOS app (SwiftUI, “in the manner of Draw Things”) on top of the `Siliconed`
-library. State as of 2026-10-14. A complete SwiftUI app, **Siliconed.app**, is in
+library. State as of 2026-10-15. A complete SwiftUI app, **Siliconed.app**, is in
 [`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (its remote control: [`REMOTE-CONTROL.md`](REMOTE-CONTROL.md)). It is
 **compiled by the package** (executable target `SiliconedApp`, as a pure client, no `@testable`), so it
 cannot drift from the API: when in doubt, it is the reference example. `tools/app.sh` builds it into
@@ -75,8 +75,8 @@ and `profil.json` are kept from the original layout, so existing libraries stay 
 
 | folder | content | size (Standard installation, `family.installedSize(.standard)`) |
 |---|---|---|
-| `<root>/store/` | forged maps (`*.silicon`: DiT, text encoders), forged LoRAs (`*.lora.silicon`), `profil.json` | Z-Image: 12.3 GB DiT + 7.8 GB encoder; Qwen-Image-2.1: 14.2 GB DiT + 16.3 GB encoder (Compact: 11.7 and 17.3 GB in all; Light: 9.5 and 14.2 GB, §3.11) |
-| `<root>/store/composants/<family>/` | a family's small published files, read as is: tokenizers, VAE, `transformer.json`, `dit.json` (names and shapes of the publisher's DiT, against which an import is checked) | 0.18 GB for Z-Image, 0.69 GB for Qwen-Image-2.1 (its VAE as published, in bf16) |
+| `<root>/store/` | forged maps (`*.silicon`: DiT, text encoders), forged LoRAs (`*.lora.silicon`), `profil.json` | Z-Image: 12.3 GB DiT + 7.8 GB encoder; Qwen-Image-2.1: 14.2 GB DiT + 16.3 GB encoder; Anima: 3.9 GB DiT + 0.27 GB text adapter + 1.2 GB encoder (Compact: 11.7, 17.3 and 4.10 GB in all; Light: 9.5, 14.2 and 3.31 GB, §3.11) |
+| `<root>/store/composants/<family>/` | a family's small published files, read as is: tokenizers, VAE, `transformer.json`, `dit.json` (names and shapes of the publisher's DiT, against which an import is checked) | 0.18 GB for Z-Image, 0.69 GB for Qwen-Image-2.1 (its VAE as published, in bf16), 0.26 GB for Anima |
 | `<root>/store/importes/` | imported DiTs (`<name>.silicon`) | the size of one DiT of the family |
 | `<root>/telechargements/` | an installation's sources, for the time it takes to forge them | empty at rest |
 | `<root>/cache/` | **the render cache**: what renders keep between them so as not to redo it (below) | up to ~0.5 GB, plus one Qwen-Image-2.1 edit's K/V (2 to 6.4 GB) |
@@ -152,9 +152,10 @@ exists. If one is missing, the error gives its full path. No computation is star
 ```swift
 public static func zImage(in b: Library, denoising: ZImageDenoisingModule? = nil) throws(EngineError) -> Model
 public static func qwenImage21(in b: Library) throws(EngineError) -> Model
+public static func anima(in b: Library) throws(EngineError) -> Model
 public static func named(_ identifier: String, in b: Library) throws(EngineError) -> Model
 public init(card: ModelCard, chain: Chain)        // a hand-composed chain (§2.4)
-// model.identifier ("z-image" | "qwen-image-2.1" | "<family>/<name>" imported), .name, .family, .license, .card, .chain
+// model.identifier ("z-image" | "qwen-image-2.1" | "anima" | "<family>/<name>" imported), .name, .family, .license, .card, .chain
 ```
 
 The library is always passed under the label `in:`, as in `card.missing(in:)`.
@@ -171,7 +172,7 @@ let loras: [LoRACard] = library.loras(for: "z-image")  // store/*.lora.silicon, 
 
 `ModelCard` (`Identifiable`, `Hashable`: usable as is as a `Picker`'s `tag`): `id`, `name`,
 `family: Family`, `isImported`, `license: License` (`text`, `commercial`, `requiredFilter`, `urls`),
-`defaultSteps` (8 for Z-Image and Qwen-Image-2.1), `space`, `formats: [RecommendedFormat]`. An imported
+`defaultSteps` (8 for Z-Image, Qwen-Image-2.1 and Anima), `space`, `formats: [RecommendedFormat]`. An imported
 model inherits from its family the architecture, the formats and the publisher's license text (to
 be checked on the model's page).
 `LoRACard`: `path`, `name` (readable), `rawName`, `target` (the family aimed at), `rank`,
@@ -181,6 +182,7 @@ be checked on the model's page).
 |---|---|---|---|---|
 | `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 steps | Flux |
 | `qwen-image-2.1` | Qwen-Image-2.1 Turbo (§3.12) | **non-commercial** (Qwen Research) | Qwen-Image-2.1 DiT (32 single-stream layers, block-causal attention) distilled by Qwen, 8 steps on its published schedule; editing with 1 to 3 images (§3.12) | Qwen-Image-2.1 (16×, 64 channels) |
+| `anima` | Anima Turbo | **non-commercial** (CircleStone Labs Non-Commercial); its images may be used commercially | Cosmos-Predict2 DiT (28 blocks, self- and cross-attention), Turbo v1.1, 8 steps, CFG 1; text read by Qwen3-0.6B and a T5-vocabulary adapter; no editing | Qwen-Image (8×, 16 channels) |
 
 ### 2.3 `Request`: everything that distinguishes a render
 
@@ -201,9 +203,9 @@ anything else.
   portrait). The rules are in §4.
 - **Seed**: `UInt64`. The default is 42; for a random seed, the app draws `UInt64.random(in:)`
   itself.
-- **Steps**: `nil` gives the denoiser's default (8 for Z-Image Turbo and Qwen-Image-2.1 Turbo;
-  both are distilled for that number). Another value is accepted by Z-Image, but its quality has not
-  been judged; Qwen-Image-2.1 publishes a schedule for 8 steps only and refuses any other count (§3.12). A count outside `1...Request.maximumSteps` (50) is refused
+- **Steps**: `nil` gives the denoiser's default (8 for Z-Image Turbo, Qwen-Image-2.1 Turbo and
+  Anima Turbo; all three are distilled for that number). Another value is accepted by Z-Image and
+  Anima, but its quality has not been judged; Qwen-Image-2.1 publishes a schedule for 8 steps only and refuses any other count (§3.12). A count outside `1...Request.maximumSteps` (50) is refused
   before any computation (`EngineError.invalidSteps`, `allowed` empty: “N steps: a render takes
   between 1 and 50.”).
 - **LoRA**: `[LoRAEntry]`, a stack. `LoRAEntry(_ path: String, strength: Double = 1)`, or
@@ -224,9 +226,9 @@ anything else.
   (`DenoisingModule.preparedReferences`: Qwen-Image-2.1 at ~1024² at multiples of 32), whatever the
   request's format — giving the request the format of image 1 (`editFormat`, §3.12) keeps the
   framing. Only the denoisers that announce it read them (`DenoisingModule.maxReferences`: 3 for
-  Qwen-Image-2.1, 0 for Z-Image); beyond that, or on another model, the render is refused before
+  Qwen-Image-2.1, 0 for Z-Image and Anima); beyond that, or on another model, the render is refused before
   any computation (`EngineError.tooManyReferences`). Cost: the sequence grows by as many tokens
-  (Qwen-Image-2.1: a 1024² generation ~120 s, an edit at 1248×832 with one reference ~210 s).
+  (Qwen-Image-2.1: a 1024² generation ~134 s, an edit at 1248×832 with one reference ~210 s).
   **Editing by instruction** — the order of the images, how the prompt names them, the
   output's size: §3.12.
 
@@ -245,10 +247,16 @@ let edited = try await Engine().render(request, model: qwen)
 - **`sketch`**: `Int?`, `nil` by default — stop after this many evaluations and decode the model's
   estimate of the final image instead of the image (§3.16). Set as a property, not in `init`.
 - **`detail`**: `Detail` (`.normal`, `.more`, `.most`), `.normal` by default — finer texture at
-  the same cost; `.normal` is the render without it, to the bit (§3.17). Set as a property.
+  the same cost; `.normal` is the render without it, to the bit (§3.17). Not on Anima
+  (`detailUnsupported`). Set as a property.
 - **`solver`**: `Solver` (`.euler`, `.eulerAncestral`, `.dpmpp2m`, `.unipc`), `.euler` by default —
   the update rule between two steps, the steps and their σ unchanged; `.euler` is the render as
-  before, to the bit (§3.19). Z-Image and Qwen-Image-2.1. Set as a property.
+  before, to the bit (§3.19). Z-Image, Qwen-Image-2.1 and Anima. Set as a property.
+- **`schedule`**: `SigmaSchedule` (`.official`, `.comfyUI`), `.official` by default — whose σ the
+  render walks: the Turbo's published ones, or those ComfyUI walks for the model (Qwen-Image-2.1's
+  base-model setting, `flux_time_shift(0.69)` on its `simple` scheduler, checked to the bit against
+  ComfyUI's code). A comparison: same steps, same solver. Qwen-Image-2.1 only (on Z-Image and Anima,
+  ComfyUI's σ are the official ones); another model refuses it (`scheduleUnsupported`). Set as a property.
 - **`variations`**: `[Variation]`, empty by default — the seed's starting noise turned towards other
   seeds', in order: cousins of the image the seed gives (§3.18). Empty: the seed's noise, to the
   bit. In a batch, each seed is turned by the same variations. Set as a property.
@@ -263,9 +271,9 @@ TextModule ─ Conditioning ─┐
 [ImageEncodingModule: ImageRGB → Latent] ─┘   (img2img only)
 ```
 
-The stages are connected by typed wires: `TextFormat` (`.zImage`, `.qwenImage21`) and
+The stages are connected by typed wires: `TextFormat` (`.zImage`, `.qwenImage21`, `.anima`) and
 `LatentSpace` (`.flux` — 16 channels, one cell per 8 pixels —, `.qwenImage21` — 64 channels, one
-cell per 16 pixels). `Chain` checks
+cell per 16 pixels —, `.qwenImage` — Anima's, 16 channels, one cell per 8 pixels). `Chain` checks
 the connections **at construction**, and a wrong connection throws `EngineError.incompatibleChain`. A format that
 **reads the images** (`TextFormat.readsImages`: Qwen-Image-2.1's) must come from an
 `ImageTextModule`, which receives the references with the prompt — otherwise
@@ -280,6 +288,7 @@ public init(text: any TextModule, denoising: any DenoisingModule,
 |---|---|---|---|---|
 | Z-Image | `ZImageTextModule` | `FluxEncodingModule` | `ZImageDenoisingModule` | `FluxDecodingModule` |
 | Qwen-Image-2.1 Turbo | `QwenImage21TextModule` (an `ImageTextModule`) | `QwenImage21EncodingModule` (the references only: img2img is refused) | `QwenImage21DenoisingModule` | `QwenImage21DecodingModule` |
+| Anima Turbo | `AnimaTextModule` | `QwenImageEncodingModule` | `AnimaDenoisingModule` | `QwenImageDecodingModule` |
 
 The system is **closed**: the protocols are public so that a chain can be composed from the
 repository's modules, not so that new ones can be written (their `Context` has nothing usable
@@ -354,7 +363,7 @@ A `warning` can arrive at any time.
 |---|---|
 | `start(Plan)` | `plan.denoising.evaluations`, `plan.seeds`, `plan.stages`, `plan.denoising.startStep` / `startSigma` (img2img), `plan.denoising.reduced` (spectral) |
 | `stage(Stage, image:)` | label “text… / image… / denoising… / decoding…”; emitted *before* the stage |
-| `text(tokens:tokenizer:encoder:)`, `encoding(seconds:)`, `decoding(seconds:)` | timers |
+| `text(tokens:tokenizer:encoder:cached:)`, `encoding(seconds:)`, `decoding(seconds:)` | timers; `cached`: the text read back from the render cache, its seconds not the encoder's |
 | `step(image:index:total:sigma:seconds:latentGridHeight:latentGridWidth:)` | `index` runs from 1 to `total`, numbered the same way for every model |
 | `preview(Preview)` | the step's thumbnail (if `request.previews`) |
 | `image(index:, Render)` | the result (the last event of each image) |
@@ -541,7 +550,7 @@ The keys written are `prompt`, `seed`, `model`, `steps`, `format` (`WxH`), `repr
 `Software`, plus `strength` and `image` (`source not included`) in img2img, and `lora`
 (`file.lora.silicon:0.80,…`, **file name only**) when there are any, and `sketch` (the evaluations
 it stopped after) for a sketch (§3.16), `detail` (`more` or `most`; **absent for `normal`**, as on
-every render before it, §3.17), `solver` (**absent for `euler`**, §3.19) and `variation` (`seed:strength,…`, in the order applied; `seed`
+every render before it, §3.17), `solver` (**absent for `euler`**, §3.19), `schedule` (**absent for `official`**) and `variation` (`seed:strength,…`, in the order applied; `seed`
 stays the origin's, §3.18). They suffice to redo a **txt2img** (same bits if
 `reproducible`, same machine, same version); **not an img2img**: the source image is not in the
 PNG, and the `image` key says so. A key must be ASCII and at most 79 bytes, otherwise it is
@@ -553,13 +562,13 @@ tag per LoRA of positive strength (the weight Civitai shows), then one line `Ste
 (`Euler`, `Euler a`, `DPM++ 2M`, `UniPC`), `Seed`, `Size`, `Model` (the card's name), `Denoising
 strength` in img2img, `Lora hashes` (the sha256 of each LoRA's published `.safetensors`, kept at
 import — a LoRA imported before has none and is named without being credited), `Civitai resources`
-(the model version of Civitai's official page of Z-Image Turbo or Qwen-Image-2.1 Turbo; none for an
-imported fine-tune) and `Version: Siliconed <version>`. No date: identical renders of one version
+(the model version of Civitai's official page of Z-Image Turbo or Qwen-Image-2.1 Turbo; none for Anima
+or an imported fine-tune) and `Version: Siliconed <version>`. No date: identical renders of one version
 stay identical files. The app does not read it back.
 
 `Engine.Render.Recipe(metadata: PNG.text(data))` reads them back as values (`model`, `prompt`,
 `seed`, `steps`, `width`/`height`, `loras`, `strength`, `sourceImageMissing`, `detail` (`normal`
-when the key is absent), `solver` (`euler` when absent), `variations` (empty when absent) — not `sketch`: a sketch's
+when the key is absent), `solver` (`euler` when absent), `schedule` (`official` when absent), `variations` (empty when absent) — not `sketch`: a sketch's
 recipe redoes the finished image), `nil` unless
 `Software` is `Siliconed`; a key present but unreadable is `nil` and listed in `unreadable`. Pure:
 it does not say whether the model or a LoRA is installed, and `model` is the family (`z-image`),
@@ -618,8 +627,8 @@ Z-Image). The 8-bit formats kept as published:
 | GGUF Q8_0 (`.gguf`) | blocks of 32 inputs, `w = d · q`, d fp16 | unsloth |
 
 **Below 8 bits, GGUF only, down to 4 bits.** The `.gguf` files that unsloth, jayn7, leejet
-(stable-diffusion.cpp) and Abiray publish for Z-Image Turbo and Qwen-Image-2.1 are read in these
-types, mixed tensor by tensor as the publisher chose (a `Q4_K_M` file holds Q4_K, Q5_K, Q6_K and
+(stable-diffusion.cpp) and Abiray publish for Z-Image Turbo and Qwen-Image-2.1, and vanes430 for
+Anima Turbo, are read in these types, mixed tensor by tensor as the publisher chose (a `Q4_K_M` file holds Q4_K, Q5_K, Q6_K and
 sometimes Q8_0 tensors):
 
 | Type | Bits per weight | Weight |
@@ -639,7 +648,7 @@ The engine dequantizes each weight when it loads it and **computes in fp32**, as
 int8 matrix product, activations never go down to 8 bits (`input_scale` is ignored). Each fp8,
 int8 and GGUF weight, once dequantized, is **bit-identical to the publisher's own fp32 dequantization** (torchao, SDNQ,
 diffusers' GGUF code, and gguf-py for the types below 8 bits), checked on pieces of published
-Z-Image and Qwen-Image-2.1 files and on whole maps (Z-Image Q8_0, Q6_K, Q4_K_M; Qwen-Image-2.1 Q4_K_M), on CPU and GPU. Int8 convrot, whose reference rounds twice, is exact to the fp32
+Z-Image and Qwen-Image-2.1 files and on whole maps (Z-Image Q8_0, Q6_K, Q4_K_M; Qwen-Image-2.1 Q4_K_M; Anima Q8_0 and Q4_K_M), on CPU and GPU. Int8 convrot, whose reference rounds twice, is exact to the fp32
 rounding of the fp64 result, 10× closer to it than ComfyUI's own fp32.
 
 Measured on Z-Image Turbo (M1 Pro, 16 GB):
@@ -686,7 +695,7 @@ if let id = r.identifier {                           // "z-image/my-model"
 try library.install(.qwenImage21) { print($0) } // baseDiT: false → without the publisher's DiT
 let ready: [Family] = library.readyFamilies() // enough to render an imported model
 
-// Z-Image and Qwen-Image-2.1 also install in a Compact or a Light version (below):
+// Z-Image, Qwen-Image-2.1 and Anima also install in a Compact or a Light version (below):
 try library.install(.zImage, variant: .compact) { print($0) }
 library.variant(of: .zImage)                   // .compact — what the render reads
 Family.zImage.preselectedVariant()             // .light on a Mac of 8 GB, .standard elsewhere
@@ -694,14 +703,16 @@ Family.zImage.preselectedVariant()             // .light on a Mac of 8 GB, .stan
 
 **Standard, Compact or Light.** `Family.variants` lists the versions a family installs in: every family
 has its **Standard** (`Variant.standard`, the publisher's weights as published — the default);
-Z-Image and Qwen-Image-2.1 also have a **Compact** (`Variant.compact`): 8-bit weights published by
-third parties, for the DiT **and** the text encoder, kept 8-bit in the maps — about 40 % smaller on
-disk, an image slightly different from the Standard's, about as fast (the weights are widened at
-each evaluation, and less is read from disk). Tokenizers and VAE are the
-Standard's. They also have a **Light** (`Variant.light`): the DiT as unsloth publishes it in
-GGUF Q4_K_M — 4- to 6-bit blocks kept whole, as any GGUF import (below), Qwen's with four Q8_0
-tensors — and **the Compact's text encoder**, the same map (no text encoder is published below
-8 bits in a form the forge reads, and Siliconed never quantizes one itself). The smallest on disk
+Z-Image, Qwen-Image-2.1 and Anima also have a **Compact** (`Variant.compact`): a DiT in 8 bits
+published by a third party, kept 8-bit in its map — an image slightly different from the Standard's,
+about as fast (the weights are widened at each evaluation, and less is read from disk). For Z-Image
+and Qwen-Image-2.1 the Compact's **text encoder** is 8-bit too (about 40 % smaller on disk in all);
+**Anima's text encoder stays the publisher's bf16** in its Compact and Light, since no 8-bit
+version of it is published (Siliconed never quantizes one itself). Tokenizers and VAE are the
+Standard's. They also have a **Light** (`Variant.light`): the DiT as a third party publishes it in
+GGUF Q4_K_M (unsloth for Z-Image and Qwen-Image-2.1, vanes430 for Anima) — 4- to 6-bit blocks kept
+whole, as any GGUF import (below), Qwen's with four Q8_0 tensors — and **the Compact's text
+encoder**, the same map (no text encoder is published below 8 bits in a form the forge reads). The smallest on disk
 and the least read from it at each step (Z-Image: 1.78 GB per step instead of 2.89); another set
 of weights, so an image that may compose differently. On an M1 Pro with 16 GB it renders in
 the Compact's time (Z-Image 512² −5 to −7 %, 1024² and Qwen-Image-2.1 within ±1.5 %). Switching
@@ -712,11 +723,13 @@ app offers first: the Standard, the Light on a Mac with 8 GB of memory — prese
 |---|---|---|---|
 | Z-Image | `unsloth/Z-Image-Turbo-GGUF` `z-image-turbo-Q8_0.gguf` (GGUF Q8_0) | `Disty0/Z-Image-Turbo-SDNQ-int8` `text_encoder/model.safetensors` (SDNQ int8), with the publisher's `config.json` | 20.4 → 11.7 GB |
 | Qwen-Image-2.1 | `Comfy-Org/Qwen-Image-2.1` `diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors` (int8 convrot of the Turbo) | `unsloth/Qwen-Image-2.1-FP8` `Qwen-Image-2.1-text_encoder-INT8-ConvRot.safetensors` (int8 convrot), with the publisher's `config.json` | 31.2 → 17.3 GB |
+| Anima | `vanes430/Anima-Turbo-V1.1-GGUF` `anima-turbo-v1.1-Q8_0.gguf` (GGUF Q8_0) | the Standard's (bf16) | 5.65 → 4.10 GB |
 
 | family | Light DiT | Light text encoder | on disk, Standard → Light |
 |---|---|---|---|
 | Z-Image | `unsloth/Z-Image-Turbo-GGUF` `z-image-turbo-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K) | the Compact's | 20.4 → 9.5 GB |
 | Qwen-Image-2.1 | `unsloth/Qwen-Image-2.1-Turbo-GGUF` `qwen-image-2.1-turbo-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K, Q8_0) | the Compact's | 31.2 → 14.2 GB |
+| Anima | `vanes430/Anima-Turbo-V1.1-GGUF` `anima-turbo-v1.1-Q4_K_M.gguf` (GGUF Q4_K_M) | the Standard's (bf16) | 5.65 → 3.31 GB |
 
 Each file is pinned (revision and sha256). **One version of a family is installed at a time, and
 never none**: `install(_:variant:)` with another version forges the new one beside the installed
@@ -740,7 +753,7 @@ if plan.removesFirst { print("not enough room for both: the \(plan.replacing!) v
 ```
 
 A gated repository asks you to accept its license on huggingface.co, then to set `HF_TOKEN` (or
-`hf auth login`, whose token is re-read); Z-Image and Qwen-Image-2.1 are open. To show what an installation costs and what is installed:
+`hf auth login`, whose token is re-read); Z-Image, Qwen-Image-2.1 and Anima are open. To show what an installation costs and what is installed:
 `library.occupancy()` (each family's `variant`), `family.installedSize(_:)` (an instance method: the
 `(dit:, encoder:, components:)` bytes of that version), `library.uninstall(_:)`
 (every version).
@@ -751,7 +764,7 @@ The prompt is an **instruction** (“replace the cloudy sky with a blue sky”, 
 person from image 1 and put the dog of image 2 in her place”), and the images it speaks of travel
 in `Request.references`. A model that edits says so in its chain: `chain.entries` holds a
 `.reference` entry, and `chain.denoising.maxReferences` is how many images it reads
-(Qwen-Image-2.1: 3; 0 for a model without editing, Z-Image). Nothing is re-noised: the images
+(Qwen-Image-2.1: 3; 0 for a model without editing, Z-Image and Anima). Nothing is re-noised: the images
 are read, the new image starts from noise. No mask, no inpainting: the prompt alone says what
 changes.
 
@@ -801,7 +814,7 @@ let edited = try await Engine().render(request, model: qwen)
 **Cost**: each reference lengthens the render — its tokens join the sequence. Qwen-Image-2.1's
 conditions (text and references) do not see the image being generated: their keys and values are
 computed **once per render**, then re-read at every step. Measured in series: a 1024²
-generation takes ~120 s, an edit at 1248×832 ~210 s with one reference, ~285 s with two;
+generation takes ~134 s, an edit at 1248×832 ~210 s with one reference, ~297 s with two;
 one DiT evaluation at 1024² ~17 s. An app learns its own cost per model, format **and number of references** (the app does),
 never from a constant.
 
@@ -817,7 +830,7 @@ format (“follows image 1”), and a discreet line reminds that the prompt can 
 ### 3.13 Diagnostic: what this machine computes, in a JSON
 
 `Diagnostic.run` maps the capacities of **this** Mac and returns a `Codable` report — what the app's
-“Report My Configuration” button sends, and what fills the README's table by chip. About 30 s on an
+“Report My Configuration” button sends, and what fills the README's table by chip. About 14 s on an
 M1 Pro, **no model and no weights**: synthetic operands, the same on every machine, through the
 engine's own code paths, each output checked against an exact result computed in fp64 on the CPU.
 
@@ -851,7 +864,7 @@ relative error against the exact, and whether it is within its threshold (`Diagn
 ```swift
 let report = try await Task.detached {
     try Diagnostic.run { stage in print(stage) }   // stage: .products, .lowPrecision, .attention, .widening, .witness
-}.value                                            // ~30 s; on the diagnostic's thread: hop to the UI's
+}.value                                            // ~14 s; on the diagnostic's thread: hop to the UI's
 for p in report.products where p.m == 4096 {
     print(p.model, p.product, p.gpu.rate, p.amx?.rate ?? 0, p.coexecution?.rate ?? 0, p.gpu.pass)
 }
@@ -873,7 +886,7 @@ when an app hands it to `EngineSettings.load(from:map:)` at launch (§2.1): the 
 `isCurrent`, and the branches follow it from the next launch.
 
 ```swift
-let kept: Diagnostic.Report? = …                            // the app's preferences
+let kept: Diagnostic.Report? = nil                          // read back from the app's preferences
 try EngineSettings.load(from: library, map: kept?.isCurrent == true ? kept : nil)
 // when the user asks: let r = try Diagnostic.run(); keep r.json(pretty: false) — used from the next launch
 ```
@@ -947,8 +960,7 @@ _ = axis
   as `RenderGrid.Value`, for an app to label in its language; `title` is the prompt with its groups
   written back as `{a|b}`.
 - **A model axis gives each cell its model's own step count**: `Cell.steps` is `nil` (the model's
-  default — 8 for Z-Image and Qwen-Image-2.1) unless steps are the other
-  axis; without a model axis, it is the base's or the axis's. `Cell.model` is `nil` without a model
+  default, 8 for all three models) unless steps are the other axis; without a model axis, it is the base's or the axis's. `Cell.model` is `nil` without a model
   axis (the base's model), `Cell.image` without an image axis (all the images).
 - **The refusals**, before any render: `gridRefused(reason:)` (`GridRefusal`: `empty_axis` — an
   image axis without edit images is one —, `same_axis_twice` — the seed is one setting however it
@@ -1019,6 +1031,10 @@ print(detailed.detail, detailed.metadata["detail"] ?? "")   // more more
   same pose; `.most` +10–15 %, clean (seeds 42, 7, 0). Qwen-Image-2.1's is late, over its last
   steps only (the 6th at half, the 7th of 8); it has not yet been judged again on the Turbo's
   8-step schedule.
+- **Not on Anima**: it answers the lie with mosaic blocks — flat squares of 16 to 32 pixels — and,
+  at the amounts that stay clean, with nothing visible. `DenoisingModule.acceptsDetail` says it;
+  `.more` or `.most` on Anima is refused before any computation (`detailUnsupported`), and the app
+  hides the choice.
 - **The amount follows the image's side** (× 512/√(w·h)): the same amount paints four times the
   tokens at 1024². There, Z-Image's `.more` gives +6–8 % and `.most` +8–10 %, the same picture,
   clean.
@@ -1090,7 +1106,7 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 - **What it costs**: nothing measurable. At 1024², the four solvers render in the same time within
   the machine's own drift; each renders the same pixels twice, the ancestral one included
   (its noise comes from the seed).
-- **Z-Image and Qwen-Image-2.1**: another model refuses a solver other than Euler before any
+- **Z-Image, Qwen-Image-2.1 and Anima**: another family refuses a solver other than Euler before any
   computation (`EngineError.solverUnsupported`). The app offers them in Developer Mode.
 - The PNG carries `solver` unless `.euler` (§3.8).
 
@@ -1101,22 +1117,23 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 | floor | **each side ≥ 512 px** (latent 64). No evaluation happens below 512: under it, the models are outside their domain | `Format.minimumSide` |
 | multiple | each side a multiple of **16** (VAE ×8, patch ×2) | `Format.multiple` |
 | ceiling | area ≤ **1024×1536** (1,572,864 px), the last format measured | `Format.maxSurface` |
-| memory | **16 GB** machine (MacBookPro18,3). Measured peaks (`phys_footprint`): 1.7 GB for Z-Image and 2.6 GB for Qwen-Image-2.1 at 512², 2.9 GB for Z-Image and 3.7 GB for Qwen-Image-2.1 at 1024² (3.8 GB in a batch of three), **3.8 GB** for Z-Image at 1024×1536, **4.8 GB** for Qwen-Image-2.1 at 1024×1536 with three references; 0 swap-out at each worst case. Before a render, the preflight checks the need against the memory actually available (§5) | the per-stage scope (`Chain.swift`), `MemoryBudget` |
+| memory | **16 GB** machine (MacBookPro18,3). Measured peaks (`phys_footprint`): 1.7 GB for Z-Image and 2.6 GB for Qwen-Image-2.1 at 512², 2.9 GB for Z-Image and 3.7 GB for Qwen-Image-2.1 at 1024² (3.8 GB in a batch of three), 1.4 GB for Anima at 1024² (the engine alone, without the app), **3.8 GB** for Z-Image at 1024×1536, **4.8 GB** for Qwen-Image-2.1 at 1024×1536 with three references; 0 swap-out at each worst case. Before a render, the preflight checks the computed need against B = ¾ · RAM − 2 GiB, set by the RAM alone (§5) | the per-stage scope (`EngineRender.swift`), `MemoryBudget` |
 | precision | **fp32** compute everywhere; the weights may be stored in bf16, fp16, 8 bits or GGUF 4 to 6 bits (§3.11), then widened. No compute in fp16/bf16 | `Widen` (the weights widened to fp32) |
 | determinism | with `reproducible` (true by default, frozen GPU/AMX split): **same seed, same request, same machine and same version → same bits**, and non-regression is judged by md5. Image n of a batch = the isolated render of its seed. `Noise` is **not** `torch.randn`: a seed does not give back diffusers' image nor Draw Things'. From one version to the next, pixels may change, and from one machine to another, nothing has been measured | `Request.reproducible` (`nil`: `EngineSettings.effective.frozenCut`) |
-| spectral schedule (Qwen-Image-2.1) | only when **both sides are ≥ 1024**: 1024², 1024×1536 and its transpose (`k = 2`: the first two evaluations at half size). The usual portraits and landscapes pay all their evaluations at full size. It is off in img2img, under a LoRA or Detail, and in a Qwen-Image-2.1 edit; forced below the floor, it is refused before any computation | `QwenImage21DenoisingModule.plan` |
+| spectral schedule (Qwen-Image-2.1) | **off since 0.10**: every evaluation at full size, the published recipe as it stands. `SILICONED_SPECTRAL` still forces it for a measurement, only when **both sides are ≥ 1024** (1024², 1024×1536 and its transpose); forced below that floor, it is refused before any computation | `QwenImage21DenoisingModule.plan` |
 
 **Indicative times**: MacBookPro18,3 (M1 Pro, 16 GB), machine profile loaded, default steps (8 for
-Z-Image and Qwen-Image-2.1), seed 42, “a 30 year old woman posing in a library”, render cache
+Z-Image, Qwen-Image-2.1 and Anima), seed 42, “a 30 year old woman posing in a library”, render cache
 off, full render (text + denoising + decoding). They depend on heat and on the page cache (the first render re-reads the maps):
 the UI must rely on `Progress.estimatedRemaining`, not on this table.
 
 | model | 512² | 1024² | 1216×832 | 1024×1536 |
 |---|---|---|---|---|
 | Z-Image Turbo (8 steps) | **~34 s** | **113–119 s** | 110 s | 190 s |
-| Qwen-Image-2.1 Turbo (8 steps) | **~44 s** | **~120 s** (spectral k = 2) | — | ~203 s (spectral k = 2) |
+| Qwen-Image-2.1 Turbo (8 steps) | **~44 s** | **~142 s** | — | not remeasured at full size |
+| Anima Turbo (8 steps) | **12.1 s** | **43.7 s** | — | 75.6 s |
 
-Qwen-Image-2.1 editing: at 1248×832, ~210 s with one reference, ~285 s with two;
+Qwen-Image-2.1 editing: at 1248×832, ~210 s with one reference, ~297 s with two;
 1024×1536 with three references ~515 s. A merged LoRA adds 0.2 to 0.4 s per step to an edit. On
 Z-Image, a LoRA's cache adds about +340 MB to the denoising peak.
 
@@ -1138,16 +1155,23 @@ let licenseURLs: [URL] = model.license.urls   // https://huggingface.co/<reposit
 |---|---|
 | Z-Image Turbo | `Tongyi-MAI/Z-Image-Turbo` `README.md` — no license file; the model card declares Apache 2.0 |
 | Qwen-Image-2.1 Turbo | `Qwen/Qwen-Image-2.1-Turbo` `LICENSE` (the Qwen Research text of Qwen-Image-2.1, unchanged) |
+| Anima Turbo | `circlestone-labs/Anima` `LICENSE.md` (the DiT's), then `circlestone-labs/Anima-Base-v1.0-Diffusers` `LICENSE.md` (where the encoder, VAE and tokenizers come from) |
 
 A Compact (§3.11) is under the same license; its installation also links each third party's model
 card, which declares it (`family.licenseURLs(.compact)`): `unsloth/Z-Image-Turbo-GGUF` and
 `Disty0/Z-Image-Turbo-SDNQ-int8` (Apache 2.0), `Comfy-Org/Qwen-Image-2.1` and
 `unsloth/Qwen-Image-2.1-FP8` (Qwen Research). A Light links its DiT's card, then its encoder's:
 `unsloth/Z-Image-Turbo-GGUF` and `Disty0/Z-Image-Turbo-SDNQ-int8`, `unsloth/Qwen-Image-2.1-Turbo-GGUF` and
-`unsloth/Qwen-Image-2.1-FP8`.
+`unsloth/Qwen-Image-2.1-FP8`. Anima's Compact and Light link `vanes430/Anima-Turbo-V1.1-GGUF`
+after the publisher's two files: its card declares Apache 2.0, but the bytes are CircleStone's DiT,
+under CircleStone's license.
 
 - **Z-Image Turbo**: Apache 2.0.
 - **Qwen-Image-2.1 Turbo**: Qwen Research, non-commercial.
+- **Anima Turbo**: CircleStone Labs Non-Commercial; the model derives from NVIDIA's Cosmos-Predict2
+  (NVIDIA Open Model License). The images it makes (the license's « Outputs ») may be used
+  commercially, as the publisher's model card says. `license.commercial` is `false`: it describes
+  the model's license, not the images'.
 - Each LoRA has its own license, which the library does not read.
 
 ---
@@ -1211,7 +1235,9 @@ An installation checks the disk **before its first byte** (`diskFull`). A hand-c
 | `gridRefused(reason:)`, `tooManyGridCells(count:max:)` | `grid_refused`, `too_many_grid_cells` | `RenderGrid(_:x:y:limit:)`, `RenderGrid.axis(_:loras:)` (§3.15) | grey out “Generate”; the cells before the click |
 | `strengthOutOfRange(strength:)`, `strengthTooLow(strength:steps:floor:)` | `strength_out_of_range`, `strength_too_low` | render | bound the slider to `]floor ; 1]` |
 | `imageToImageUnsupported(model:)` | `image_to_image_unsupported` | render | Qwen-Image-2.1: pass the image as reference 1 |
-| `solverUnsupported(solver:model:)` | `solver_unsupported` | render, before any computation | a `Solver` other than Euler on a model other than Z-Image and Qwen-Image-2.1: offer it on those only |
+| `solverUnsupported(solver:model:)` | `solver_unsupported` | render, before any computation | a `Solver` the model's `DenoisingModule.solvers` does not list (the three public models walk all four): offer only those |
+| `scheduleUnsupported(schedule:model:)` | `schedule_unsupported` | render, before any computation | a `SigmaSchedule` the model's `DenoisingModule.schedules` does not list (`.comfyUI`: Qwen-Image-2.1 only): use `.official` |
+| `detailUnsupported(model:)` | `detail_unsupported` | render, before any computation | `.more` or `.most` on a model whose `DenoisingModule.acceptsDetail` is false (Anima): offer Detail only where it is true |
 | `imageUnreadable(file:)`, `imageEncodingFailed`, `imageWriteFailed(file:)` | `image_unreadable`, `image_encoding_failed`, `image_write_failed` | `ImageRGB(contentsOf:)`, `png()`, `PNG.write` | refuse the image; save elsewhere |
 | `unsupportedLoRA(file:reason:)`, `loraForOtherModel(lora:target:model:)` | `unsupported_lora`, `lora_for_other_model` | render (~0.3 s) | offer only `loras(for:)`; otherwise re-import |
 | `incompatibleChain(output:input:)` | `incompatible_chain` | `Chain(…)` | programming bug: does not happen with `model.chain` |
@@ -1233,12 +1259,13 @@ machine's budget — the image stays the same, only the time changes.
 
 ## 6. What the API does not do yet
 
-- **CFG and negative prompt**: both models are distilled (Z-Image: a single evaluation per step;
-  Qwen-Image-2.1: distilled by Qwen into 8 steps, no CFG). There is no `negative` field.
+- **CFG and negative prompt**: the three models are distilled (Z-Image: a single evaluation per
+  step; Qwen-Image-2.1: distilled by Qwen into 8 steps, no CFG; Anima Turbo: 8 steps at CFG 1). There is no `negative` field.
 - **Inpainting / outpainting / masks**, **ControlNet**, IP-Adapter, reference image.
 - **Upscaling** (upscaler, *hires fix*); formats beyond 1024×1536.
-- **Choice of sampler or schedule**: each model has its own (Euler flow matching; `Sampler` for
-  Z-Image).
+- **Choice of schedule**: each model keeps its own steps and σ; `Request.solver` changes only the
+  update rule between two of them (§3.19), and `Request.schedule` offers one other list, ComfyUI's,
+  on Qwen-Image-2.1 only, to compare.
 - Prompt weighting, textual inversion. A batch varies the seed only; different **prompts** are a
   series of renders (`PromptAlternatives`, §3.14), not one batch.
 - **Keeping the DiT loaded** between two images or two renders: it is rebuilt every time, to fit in

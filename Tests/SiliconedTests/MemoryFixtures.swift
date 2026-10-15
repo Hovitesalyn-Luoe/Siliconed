@@ -61,6 +61,56 @@ enum MemoryFixtures {
         return request
     }
 
+    /// **Anima's maps**: the DiT's 28 blocks with the published shapes (Cosmos-Predict2-2B, `d` 2048,
+    /// `h` 8192, the published config), and Qwen3-0.6B's 28 layers. `ditBytesPerValue` is the DiT's
+    /// type — 2 (Standard, bf16), 1 (Compact, Q8_0), 0 for a 4-bit table (Light, Q4_K_M: half a byte a
+    /// value, laid out as a quarter of bf16's) — and the formula must not read it; `encoderBytesPerValue`
+    /// the encoder's, which it reads (its staging buffers).
+    static func animaMaps(ditBytesPerValue: Int = 2, encoderBytesPerValue: Int = 2) -> MemoryNeed.AnimaMaps {
+        let (d, h, a) = (2048, 8192, 256)
+        let block: [(String, [Int])] = [
+            ("attn1.norm_k.weight", [128]), ("attn1.norm_q.weight", [128]), ("attn1.to_k.weight", [d, d]),
+            ("attn1.to_out.0.weight", [d, d]), ("attn1.to_q.weight", [d, d]), ("attn1.to_v.weight", [d, d]),
+            ("attn2.norm_k.weight", [128]), ("attn2.norm_q.weight", [128]), ("attn2.to_k.weight", [1024, d]),
+            ("attn2.to_out.0.weight", [d, d]), ("attn2.to_q.weight", [d, d]), ("attn2.to_v.weight", [1024, d]),
+            ("ff.net.0.proj.weight", [d, h]), ("ff.net.2.weight", [h, d]),
+            ("norm1.linear_1.weight", [d, a]), ("norm1.linear_2.weight", [a, 3 * d]),
+            ("norm2.linear_1.weight", [d, a]), ("norm2.linear_2.weight", [a, 3 * d]),
+            ("norm3.linear_1.weight", [d, a]), ("norm3.linear_2.weight", [a, 3 * d]),
+        ]
+        let ditTensors = ditBytesPerValue > 0 ? block : block.map { ($0.0, $0.1.count == 2 ? [$0.1[0], $0.1[1] / 4] : $0.1) }
+        var dit = table(layers: 28, prefix: { "transformer_blocks.\($0)." }, tensors: ditTensors,
+                        bytesPerValue: max(1, ditBytesPerValue))
+        dit["kind"] = "anima-turbo-dit"; dit["rope_layout"] = "interleaved"
+        dit["config"] = ["num_attention_heads": 16, "attention_head_dim": 128, "mlp_ratio": 4.0, "num_layers": 28,
+                         "in_channels": 16, "patch_size": [1, 2, 2], "adaln_lora_dim": 256, "text_embed_dim": 1024,
+                         "rope_scale": [1.0, 4.0, 4.0]] as [String: Any]
+        let (e, i) = (1024, 3072)
+        let layer: [(String, [Int])] = [
+            ("input_layernorm.weight", [e]), ("mlp.down_proj.weight", [i, e]), ("mlp.gate_proj.weight", [e, i]),
+            ("mlp.up_proj.weight", [e, i]), ("post_attention_layernorm.weight", [e]), ("self_attn.k_norm.weight", [128]),
+            ("self_attn.k_proj.weight", [e, 1024]), ("self_attn.o_proj.weight", [2048, e]),
+            ("self_attn.q_norm.weight", [128]), ("self_attn.q_proj.weight", [e, 2048]), ("self_attn.v_proj.weight", [e, 1024]),
+        ]
+        var encoder = table(layers: 28, prefix: { "layers.\($0)." }, tensors: layer, bytesPerValue: encoderBytesPerValue)
+        encoder["last_layer"] = 27
+        encoder["config"] = ["hidden_size": e, "num_attention_heads": 16, "num_key_value_heads": 8, "head_dim": 128,
+                             "intermediate_size": i, "rope_parameters": ["rope_theta": 1_000_000.0, "rope_type": "default"]]
+            as [String: Any]
+        return MemoryNeed.AnimaMaps(dit: dit, encoder: encoder)!
+    }
+
+    /// An Anima request on the fixture's maps, `threads` P cores, no process base.
+    static func animaRequest(_ width: Int, _ height: Int, tokens: Int = 50, ranks: [Int] = [],
+                             references: [(width: Int, height: Int)] = [], threads: Int = 6,
+                             maps: MemoryNeed.AnimaMaps = animaMaps()) -> MemoryNeed.Request {
+        var request = MemoryNeed.Request(card: .anima, width: width, height: height, references: references,
+                                         promptTokens: tokens, loraRanks: ranks)
+        request.threads = threads
+        request.animaMaps = maps
+        return request
+    }
+
     /// The published tokenizer's tables (`Tokenizer.tableBytes(file:)` on it).
     static let qwenTokenizerTables = ByteTableFigures.mapped(entries: 151_643, keyBytes: 3_989_982)
         + ByteTableFigures.mapped(entries: 151_387, keyBytes: 7_426_578)

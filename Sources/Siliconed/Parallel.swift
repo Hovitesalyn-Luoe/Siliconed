@@ -22,14 +22,14 @@ package enum Parallel {
             body(0, count)
             return
         }
-        let chunk = (count + threads - 1) / threads
-        // Each thread receives its own rows: `body` never writes twice to the same place,
-        // and `concurrentPerform` returns when all have finished — it does not escape.
+        // Each thread receives its own rows, bounded by their ends (`count · worker / threads`):
+        // `body` never writes twice to the same place, and `concurrentPerform` returns when all
+        // have finished — it does not escape.
         withoutActuallyEscaping(body) { body in
             nonisolated(unsafe) let body = body
             DispatchQueue.concurrentPerform(iterations: threads) { worker in
-                let start = worker * chunk
-                let end = min(start + chunk, count)
+                let start = count * worker / threads
+                let end = count * (worker + 1) / threads
                 if start < end { body(start, end - start) }
             }
         }

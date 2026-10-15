@@ -2,11 +2,11 @@ import Foundation
 
 /// **The models' root: one folder, and every path derives from it.**
 ///
-///     <racine>/store/                        forged maps (DiT, encoders), forged LoRAs, profil.json
-///     <racine>/store/composants/<famille>/   a family's tokenizers, VAE, configs — the small
-///                                            published files the engine reads as is
-///     <racine>/store/importes/               the imported DiTs (Civitai checkpoints), one per model
-///     <racine>/telechargements/              for the duration of an installation only
+///     <root>/store/                       forged maps (DiT, encoders), forged LoRAs, profil.json
+///     <root>/store/composants/<family>/   a family's tokenizers, VAE, configs — the small
+///                                         published files the engine reads as is
+///     <root>/store/importes/              the imported DiTs (Civitai checkpoints), one per model
+///     <root>/telechargements/             for the duration of an installation only
 ///
 /// **Everything can be redone**: `store/` rebuilds from nothing (the installation), and
 /// nothing else is read at render time — neither a Hugging Face cache nor a file brought by the
@@ -21,7 +21,7 @@ public struct Library: Sendable {
 
     public init(root: URL) { self.root = root.standardizedFileURL }
 
-    /// `<racine>/store/<nom>` — a forged map, a forged LoRA.
+    /// `<root>/store/<name>` — a forged map, a forged LoRA.
     public func map(_ name: String) -> String {
         root.appendingPathComponent("store").appendingPathComponent(name).path
     }
@@ -46,7 +46,7 @@ public struct Library: Sendable {
         return text.replacingOccurrences(of: home, with: "~")
     }
 
-    /// `<racine>/store/importes/` — the imported DiTs.
+    /// `<root>/store/importes/` — the imported DiTs.
     // on-disk layout, kept for existing libraries (store/importes, store/composants, profil.json)
     package var imported: URL { root.appendingPathComponent("store/importes") }
 
@@ -61,14 +61,12 @@ public struct Library: Sendable {
     /// **The process's library, for the command line** — read once.
     ///
     /// 1. `SILICONED_ROOT`, if set: it has the last word.
-    /// 2. The current directory, if it has a `store/` — the nominal case: the close-out and the
-    ///    checks run from the repository root, which is also the models' root (everything lives in
-    ///    the repository).
-    /// 3. The repository deduced from the binary: walk up from the executable in `.build/release/` to the
-    ///    first folder that has a `store/`. That is what makes the developer's command line work when launched
-    ///    from elsewhere.
-    /// 4. Otherwise the app's library (`Library.standard`): a repository without `store/`
-    ///    renders with the models the app installed, without keeping a second copy of them.
+    /// 2. The current directory, if it has a `store/`.
+    /// 3. The first folder above the executable that has a `store/` (a binary in `.build/release/`
+    ///    launched from elsewhere).
+    /// 4. Otherwise the app's library (`Library.standard`) — the nominal case: the repository keeps
+    ///    no `store/`, so the close-out and the checks render with the models the app installed,
+    ///    without keeping a second copy of them.
     ///
     /// An app does not depend on it: it builds its own `Library(root:)`, and calls
     /// `EngineSettings.load(from:)` at startup so the machine's profile is its own.

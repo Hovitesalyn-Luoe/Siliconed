@@ -4,11 +4,11 @@ import Foundation
 /// **What a render does not redo when only the seed changes** — kept on disk, under the library,
 /// between two renders, two processes, the CLI and the app.
 ///
-///     <racine>/cache/conditioning/<key>.bin   the text stage's output (every model) and the image
-///                                             encoder's latents (img2img start, editing references):
-///                                             a small header, then the floats — LRU by mtime under `budget`
-///     <racine>/cache/kv/<key>.kv              Qwen-Image-2.1's conditions K/V of the LAST edit, the file
-///                                             the prefill wrote
+///     <root>/cache/conditioning/<key>.bin   the text stage's output (every model) and the image
+///                                           encoder's latents (img2img start, editing references):
+///                                           a small header, then the floats — LRU by mtime under `budget`
+///     <root>/cache/kv/<key>.kv              Qwen-Image-2.1's conditions K/V of the LAST edit, the file
+///                                           the prefill wrote
 ///
 /// **Bit for bit, by construction**: what comes back is the floats that were written, and a key
 /// names everything that determined them — the module's type and parameters, each file it reads
@@ -297,7 +297,7 @@ package protocol CacheIdentified {
 }
 
 extension Library {
-    /// `<racine>/cache/` — what renders keep between them (`RenderCache`). Everything in it can be
+    /// `<root>/cache/` — what renders keep between them (`RenderCache`). Everything in it can be
     /// thrown away: it only saves recomputing.
     public var cacheFolder: URL { root.appendingPathComponent("cache") }
 

@@ -2,6 +2,53 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.10
+
+### A third model: Anima Turbo v1.1
+
+- **[Anima](https://huggingface.co/circlestone-labs/Anima) Turbo v1.1**, by CircleStone Labs and
+  Comfy Org, joins Z-Image Turbo and Qwen-Image-2.1 in the app, without Developer Mode. A
+  2-billion-parameter DiT (Cosmos-Predict2) that reads the prompt with Qwen3-0.6B and an adapter, and
+  decodes with the Qwen-Image VAE. It makes illustration, painting and anime; **no photorealism**, by its
+  publisher's choice. It knows artists by name, written with `@` in front (`@name`), as its model
+  card says.
+- **Its recipe**: 8 evaluations, CFG 1. Text-to-image, image-to-image, LoRAs (kohya and ComfyUI
+  layouts), the rectangular formats, the four solvers in Developer Mode; no editing by instruction,
+  and no Detail: on this model it makes mosaic blocks, or nothing visible.
+- **Times**: on an M1 Pro with 16 GB, Standard, seed 42, 8 evaluations, 512² in 12.1 s, 1024² in
+  43.7 s, 1024×1536 in 75.6 s.
+- **Standard, Compact or Light**: 5.65 GB, 4.10 GB (the DiT in GGUF Q8_0) or 3.31 GB (the DiT in
+  GGUF Q4_K_M), the DiTs as vanes430 publishes them. The text encoder stays the publisher's bf16 in
+  all three: no 8-bit version of it is published.
+- **Checked against the reference**, stage by stage: at 1024², the denoiser's output is 1.43·10⁻⁵
+  from an fp64 computation of the same evaluation, the fp32 reference 1.47·10⁻⁵; the VAE closer
+  to the fp64 than the reference; a LoRA against ComfyUI's own merge.
+- **License**: CircleStone Labs Non-Commercial for the model, which derives from NVIDIA's
+  Cosmos-Predict2 (NVIDIA Open Model License). **The images it makes may be used commercially**,
+  as its publisher's model card says. The app shows the license before the first byte is downloaded.
+
+### Qwen-Image-2.1: the recipe as published
+
+- **Every step at full size.** Until now a 1024² generation took its first two steps at half size,
+  a shortcut of ours; it is gone: the image is the Turbo's 8 published steps and nothing else. A
+  1024² takes 134 s in the app (142 s from the command line) instead of ~120 s on an M1 Pro with 16 GB;
+  1024×1536 232 s instead of 190 s. Edits are unchanged: they never took a step at half size.
+- **ComfyUI's schedule, to compare** (Developer Mode): a « ComfyUI schedule » switch walks the noise
+  levels ComfyUI uses for this model — the base model's, not the Turbo's — same seed, same steps.
+  `silicontrol add --schedule comfyui` does the same.
+
+### Fixed
+
+- **An artist written `@name` in an Anima prompt** was refused by `silicontrol` with Named Subjects on
+  (« No subject is called @name »): a model that reads no images now keeps its `@` as text, as the
+  rack already did.
+- **The text encoder's time** in the rack could read « ≈ 0.00 s » after a prompt read back from the
+  render cache; only a prompt actually encoded now teaches it.
+- **The time left** counted the running render as nothing until its first full step: the pace learned
+  for that model and size now stands in.
+- **The rack's seed** kept showing an old fixed seed after a `silicontrol` render with a random one; it
+  now says Random.
+
 ## 0.9
 
 ### Report My Configuration now measures the chip

@@ -1,0 +1,205 @@
+// **`AppState`: the library** — importing, installing, removing models, the forge in progress. The
+// state itself is in `AppState.swift`.
+
+import AppKit
+import ImageIO
+import Siliconed
+import SwiftUI
+import UniformTypeIdentifiers
+
+extension AppState {
+    // MARK: Import, install
+
+    /// Re-reads the library: after an import, an installation, a removal.
+    func refreshCatalog() {
+        cards = library.cards()
+        readySet = Set(library.models().map(\.id))
+        occupancy = library.occupancy()
+        modelsRead = [:]
+        readModelCatalog()
+        readEditors()
+    }
+
+    /// The chosen model's family, if it must be installed to render — an imported model requires
+    /// only its components and the encoder.
+    var familyToInstall: Family? { missing != nil ? card?.family : nil }
+
+    /// A forge, a render, a diagnostic: one waits for the other (the first two read or write GBs, the
+    /// diagnostic would time them).
+    var managementPossible: Bool { forgeInProgress == nil && !busy && !diagnosticRunning }
+
+    /// **No render while an installation or an import runs**: one big job at a time on 16 GB — the
+    /// forge reads and writes GBs, a render maps as many. Why « Generate », « Explore » and the
+    /// variations are greyed out, and what `silicontrol add` answers (`busy`); the queue waits too.
+    var installBlocker: String? {
+        forgeInProgress == nil ? nil : String(localized: "An installation is running: renders can start once it is done.")
+    }
+
+    /// What an import takes: a `.safetensors` (a LoRA, or a DiT in bf16, fp16, fp32 or 8 bits as
+    /// published) or a `.gguf` (a DiT, 4 bits at least). The forge refuses the rest and says why.
+    static let importExtensions: Set<String> = ["safetensors", "gguf"]
+    static func importable(_ url: URL) -> Bool { importExtensions.contains(url.pathExtension.lowercased()) }
+
+    /// Choose a `.safetensors` or a `.gguf` (LoRA or model, as published on Civitai) and import it.
+    func chooseToImport() {
+        guard managementPossible else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = Self.importExtensions.sorted().map { UTType(filenameExtension: $0) ?? .data }
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Import")
+        panel.message = String(localized: "A model or a LoRA of a known family, as published (Civitai, Hugging Face). The encoder and VAE come with the family: there is nothing else to provide.")
+        guard panel.runModal() == .OK else { return }
+        perform(panel.urls)
+    }
+
+    /// Imports `.safetensors` and `.gguf` files, one after the other. The file brought in may be discarded afterwards.
+    func perform(_ urls: [URL]) {
+        let files = urls.filter(Self.importable)
+        guard !files.isEmpty, managementPossible else { return }
+        let names = files.map(\.lastPathComponent).joined(separator: ", ")
+        launchForge(String(localized: "Importing \(names)")) { b, cancellation, journal in
+            try files.map { try ModelImport.importFile($0.path, in: b, cancellation: cancellation, journal: journal) }
+        } end: { [weak self] (results: [ModelImport.Outcome]) in
+            guard let self else { return }
+            for r in results {
+                if let id = r.identifier {
+                    identifier = id
+                    flash(String(localized: "Model imported: \(r.name)"))
+                } else if compatibleLoras.contains(where: { $0.path == r.path }) && loras.count < Self.maxLoRA {
+                    loras.append(LoRASlot(path: r.path))
+                    flash(String(localized: "LoRA imported: \(r.name)"))
+                } else {
+                    flash(String(localized: "LoRA imported for \(r.family.name): \(r.name)"))
+                }
+            }
+        }
+    }
+
+    /// **Offers to install a family**: the Models sheet opens on it, with its license and the place it
+    /// takes on disk. Nothing is downloaded before « Accept and Install » (`acceptAndInstall`).
+    /// `variant`: the version preselected in the panel — by default the one installed, else
+    /// `Family.preselectedVariant` (the publisher's weights unless the user picks another; the
+    /// Light preselected on a Mac of 8 GB, shown among the three).
+    /// `baseDiT` false (what an imported model lacks) never changes the version: the one installed is
+    /// imposed, Standard if none, whatever `variant` says (`Library.installPlan`).
+    func offerInstall(_ family: Family, baseDiT: Bool = true, variant: Variant? = nil) {
+        let installed = library.installedVariant(of: family)
+        installOffer = InstallOffer(family: family, baseDiT: baseDiT,
+                                    variant: baseDiT ? variant ?? installed ?? family.preselectedVariant() : installed ?? .standard)
+        managementOpen = true
+    }
+
+    /// **The user read the license and the size, and accepted**: the acceptance is recorded in the
+    /// library first (the engine will ask for it at every render), then the first byte is downloaded.
+    /// `baseDiT` false: what an imported model of the family lacks (encoder, VAE), not its DiT.
+    /// The other version of the family, if installed, is replaced (`Library.install`).
+    func acceptAndInstall(_ family: Family, variant: Variant, baseDiT: Bool = true) {
+        guard managementPossible else { return }
+        do { try library.acceptLicense(ModelCard.of(family)) } catch {
+            problem = Problem(error)
+            return
+        }
+        installOffer = nil
+        // The plan the panel showed: when the old version must go first, a Stop leaves the family
+        // without a complete version — the flash says so instead of « Stopped — … kept » alone.
+        let plan = try? library.installPlan(family, variant: variant, baseDiT: baseDiT)
+        let stopped = plan.flatMap { p in p.removesFirst ? p.replacing : nil }.map { old in
+            String(localized: "Stopped — \(family.name) can render again after a new installation: the \(VersionChoice.name(old)) version was removed to make room. The files already downloaded are kept; the one in progress will start over.")
+        }
+        launchForge(String(localized: "Installing \(family.name)"), stopped: stopped) { b, cancellation, journal in
+            try b.install(family, variant: variant, baseDiT: baseDiT, cancellation: cancellation, journal: journal)
+        } end: { [weak self] (_: Void) in
+            guard let self else { return }
+            // The model just installed becomes the form's, if the form's does not render.
+            if !readySet.contains(identifier), baseDiT { identifier = ModelCard.of(family).id }
+            flash(String(localized: "\(family.name) installed"))
+        }
+    }
+
+    /// The model chosen in the form is not installed: offer its family.
+    func installSelectedModel() {
+        guard let f = familyToInstall else { return }
+        offerInstall(f, baseDiT: card?.isImported != true)
+    }
+
+    /// Stops the installation or import in progress; the files already downloaded are kept.
+    func cancelForge() { cancellationForge?.cancel() }
+
+    /// Uninstalls a family (DiT, components, encoder if not shared). Its imported
+    /// models and its LoRAs remain.
+    func uninstall(_ family: Family) {
+        guard managementPossible else { return }
+        do {
+            try library.uninstall(family)
+            refreshCatalog()
+            flash(String(localized: "\(family.name) uninstalled"))
+        } catch { problem = Problem(error) }
+    }
+
+    /// Removes an imported model (its map; the original file was already no longer read).
+    func remove(_ f: ModelCard) {
+        guard f.isImported, managementPossible else { return }
+        do {
+            try ModelImport.remove(f)
+            refreshCatalog()
+            if identifier == f.id { identifier = ModelCard.of(f.family).id }
+            flash(String(localized: "Model \(f.name) removed"))
+        } catch { problem = Problem(error) }
+    }
+
+    /// Removes a forged LoRA, and from the stack if it was there.
+    func remove(_ lora: LoRACard) {
+        guard managementPossible else { return }
+        do {
+            try ModelImport.remove(lora)
+            loras.removeAll { $0.path == lora.path }
+            refreshCatalog()
+            flash(String(localized: "LoRA \(lora.name) removed"))
+        } catch { problem = Problem(error) }
+    }
+
+    func emptyDownloads() {
+        guard managementPossible else { return }
+        do { try library.emptyDownloads(); refreshCatalog() } catch { problem = Problem(error) }
+    }
+
+    /// The library folder, in the Finder.
+    func showInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([library.root])
+    }
+
+    /// A forge in the background: it reads and writes GBs, the main thread does not wait.
+    /// `stopped`: what « Stop » flashes, when « the files already downloaded are kept » is not all.
+    private func launchForge<T: Sendable>(_ title: String, stopped: String? = nil,
+                                          _ job: @escaping @Sendable (Library, Cancellation, @escaping @Sendable (String) -> Void) throws -> T,
+                                          end: @escaping @MainActor (T) -> Void) {
+        forgeInProgress = title
+        forgeJournal = []
+        problem = nil
+        let b = library
+        let cancellation = Cancellation()
+        cancellationForge = cancellation
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let journal: @Sendable (String) -> Void = { rowLine in Task { @MainActor in self?.forgeJournal.append(rowLine) } }
+            let result = Result { try job(b, cancellation, journal) }
+            await MainActor.run {
+                guard let self else { return }
+                self.forgeInProgress = nil
+                self.cancellationForge = nil
+                self.refreshCatalog()
+                switch result {
+                case .success(let r): end(r)
+                case .failure(let e):
+                    // « Stop » cancels the token: the engine throws `EngineError.cancelled`.
+                    if EngineError(e) == .cancelled {
+                        self.flash(stopped ?? String(localized: "Stopped — the files already downloaded are kept; the one in progress will start over"))
+                    } else {
+                        self.problem = Problem(e)
+                    }
+                }
+                // Jobs that entered the queue meanwhile waited for the forge (`next()`).
+                self.next()
+            }
+        }
+    }
+}

@@ -81,8 +81,8 @@ package final class Sampler {
     ///
     /// - Parameter latentHeight, latentWidth: `H` and `W`, the grid every step evaluates — handed to
     ///   `afterEvaluation` (the preview reads it); 0 when nobody reads it.
-    /// - Parameter start: the first step executed of the full calendar — img2img's `t_start`
-    ///   (`Strength.startStep`), 0 in txt2img. The calendar does not change; only steps
+    /// - Parameter start: the first step executed of the full schedule — img2img's `t_start`
+    ///   (`Strength.startStep`), 0 in txt2img. The schedule does not change; only steps
     ///   `start … N − 1` run, under their absolute number (`modelTime(at:)` included).
     /// - Parameter onStep: `(step, σ, seconds)`.
     @discardableResult
@@ -115,9 +115,9 @@ package final class Sampler {
             // **Where does the trajectory go wrong?** An entirely `NaN` image does not say at which step
             // it became so, and there are eight. The check costs 262,144 comparisons per
             // step — nothing next to an evaluation — and it turns "the render is broken"
-            // into "the velocity of step 3 contains 412 non-finite values". It announces itself (a warning,
-            // hence an event during a render) and does not stop: the rest of the trajectory says whether it propagates or
-            // resolves, and the two do not have the same cause.
+            // into "the velocity of step 3 contains 412 non-finite values". It announces itself (a
+            // warning, hence an event during a render) and does not stop: the rest of the trajectory
+            // says whether it propagates or resolves, and the two do not have the same cause.
             if let bad = Sampler.countNotFinite(negated, count) {
                 Warnings.emit("✗ step \(step): the VELOCITY carries \(bad.count) non-finite values "
                     + "(first at index \(bad.first), evaluation at \(width)×\(height))")
@@ -146,8 +146,8 @@ package final class Sampler {
         return evaluations
     }
 
-    /// The non-finite values of a buffer, or `nil` if there are none — the common case, and the one
-    /// that must cost the least. A single pass, bailing out as soon as we know there are some.
+    /// The non-finite values of a buffer (how many, and the first one's index), or `nil` if there are
+    /// none — the common case. A single pass.
     private static func countNotFinite(_ values: some Collection<Float>, _ count: Int)
             -> (count: Int, first: Int)? {
         var bad = 0, first = -1

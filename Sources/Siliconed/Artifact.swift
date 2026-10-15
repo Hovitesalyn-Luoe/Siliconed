@@ -177,11 +177,10 @@ package final class Artifact {
     /// bf16 values, so bf16 carries them bit for bit and widening is a shift.
     /// v3: transposed `Linear` weights, `[input, output]`.
     ///
-    /// The reader accepts a **range** and exposes the version: what the map carries is written in
-    /// the map, not in the code that reads it.
+    /// The reader accepts a **range**: what the map carries is written in the map, not in the code
+    /// that reads it.
     private static let signature: [UInt8] = Array("SILICON".utf8)
     private static let supportedVersions: ClosedRange<UInt8> = 2...3
-    package private(set) var version: UInt8 = 0
 
     package let path: String
     package let size: Int
@@ -227,7 +226,6 @@ package final class Artifact {
         self.size = size
         self.descriptor = fd
         self.base = UnsafeRawPointer(mapped)
-        self.version = parsed.version
         self.header = parsed.header
         self.page = parsed.page
         self.order = parsed.order
@@ -236,7 +234,6 @@ package final class Artifact {
 
     /// What `init(opening:)` reads from the mapped bytes, every number bounded before it is used.
     private struct Parsed {
-        let version: UInt8
         let header: [String: Any]
         let page: Int
         let order: [String]
@@ -337,7 +334,7 @@ package final class Artifact {
         guard Set(order) == Set(tensors.keys) else {
             throw Failure.badHeader("`order` and `tensors` disagree")
         }
-        return Parsed(version: got[7], header: parsed, page: page, order: order, tensors: tensors)
+        return Parsed(header: parsed, page: page, order: order, tensors: tensors)
     }
 
     /// An 8-bit tensor's `scale` entry, checked against its shape: a scale read with the wrong
@@ -438,14 +435,6 @@ package final class Artifact {
         stream = try TailStream(artifact: self, blocks: blocks, slots: slots)
     }
     package private(set) var stream: TailStream?
-
-    /// Asks the kernel to bring a range in before it is needed. The access order is known ahead
-    /// (it is the file order), so prefetching needs no policy — only a hint, issued early enough.
-    package func prefetch(_ name: String) {
-        guard let t = tensors[name] else { return }
-        let start = base.advanced(by: t.offset)
-        _ = madvise(UnsafeMutableRawPointer(mutating: start), t.bytes, MADV_WILLNEED)
-    }
 
     /// **The opposite hint: these pages will not be read again soon.** `MADV_DONTNEED` moves them to
     /// the front of the kernel's reclaim queue — they are clean and file-backed, dropped without a

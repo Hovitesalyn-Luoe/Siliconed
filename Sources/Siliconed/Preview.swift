@@ -21,8 +21,8 @@ extension Engine {
     /// 2. **The coefficients are fitted on our golden tensors**, by least squares, and not copied
     ///    (see `PreviewProjection`).
     ///
-    /// **Cost: C × H × W multiply-adds** (262 k at 1024², 16 or 64 channels alike) and a byte array, against 10 to 38 s of
-    /// evaluation. **Off by default** (`Request.previews`): without it, nothing is computed or
+    /// **Cost: C × H × W multiply-adds** (262 k at 1024², 16 or 64 channels alike) and a byte array,
+    /// against 10 to 38 s of evaluation. **Off by default** (`Request.previews`): without it, nothing is computed or
     /// copied. It works on a read of the latent, never on the latent itself: the denoising's fp32
     /// computation is untouched.
     public struct Preview: Sendable {
@@ -41,8 +41,9 @@ extension Engine {
     }
 }
 
-/// **The C → RGB projection of a latent space** (16 channels, 64 for Qwen-Image-2.1): `rgb = Wᵀ·z + b`, in `[-1, 1]`, then the
-/// post-processing of `ImageRGB.rgba8` (`x/2 + 0.5`, clamped, ×255, rounded).
+/// **The C → RGB projection of a latent space** (16 channels, 64 for Qwen-Image-2.1):
+/// `rgb = Wᵀ·z + b`, in `[-1, 1]`, then the post-processing of `ImageRGB.rgba8` (`x/2 + 0.5`,
+/// clamped, ×255, rounded).
 ///
 /// ## Where the numbers come from — the fitting script
 ///
@@ -62,8 +63,8 @@ extension Engine {
 /// two edits, the encoder's two references — fitted on goldens of the base model under the
 /// third-party turbo LoRA the family carried before the official Turbo; the latent space and the VAE
 /// are the same, the Turbo's VAE being the base's rounded to bf16, so the fit was not redone), the
-/// latent *before* its per-channel denormalization, RGB of the RGBA decode. One pair held out: 26.2 to 29.1 dB — optimistic, the pairs go by twos;
-/// both generations held out together, judged on them: **23.9 dB**. ComfyUI publishes nothing for
+/// latent *before* its per-channel denormalization, RGB of the RGBA decode. One pair held out: 26.2
+/// to 29.1 dB — optimistic, the pairs go by twos; both generations held out together, judged on them: **23.9 dB**. ComfyUI publishes nothing for
 /// this space.
 package struct PreviewProjection: Sendable, Equatable {
     /// `[channel][r, g, b]`, C × 3, one row per channel.
@@ -81,13 +82,13 @@ package struct PreviewProjection: Sendable, Equatable {
     /// `sigma = 0` projects `x` as is.
     package func apply(x: UnsafePointer<Float>, v: UnsafePointer<Float>?, sigma: Float,
                           height: Int, width: Int) -> [UInt8] {
-        let plan = height * width
-        var rgba = [UInt8](repeating: 255, count: plan * 4)
-        for p in 0..<plan {
+        let plane = height * width
+        var rgba = [UInt8](repeating: 255, count: plane * 4)
+        for p in 0..<plane {
             var r = bias[0], g = bias[1], b = bias[2]
             for c in 0..<channels {
-                var z = x[c * plan + p]
-                if let v, sigma != 0 { z -= sigma * v[c * plan + p] }
+                var z = x[c * plane + p]
+                if let v, sigma != 0 { z -= sigma * v[c * plane + p] }
                 r += weights[c * 3] * z; g += weights[c * 3 + 1] * z; b += weights[c * 3 + 2] * z
             }
             for (k, value) in [r, g, b].enumerated() {

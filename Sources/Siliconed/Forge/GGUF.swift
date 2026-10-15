@@ -36,7 +36,7 @@ import Foundation
 ///     other row, and a file that says otherwise is refused. A published file mixes them tensor by
 ///     tensor (unsloth's Q4_0 carries Q4_1 on every `w2`; a Q4_K_M, Q5_K, Q6_K, Q8_0 and BF16).
 ///
-/// **Read: F32, F16, BF16, Q8_0, Q6_K, Q5_K, Q4_K, Q5_1, Q5_0, Q4_1, Q4_0 — 4 bits is the floor**
+/// **Read: F32, F16, BF16, Q8_0, Q6_K, Q5_K, Q4_K, Q5_1, Q5_0, Q4_1, Q4_0 — 4 bits is the floor.**
 /// Any other ggml type — Q3_K, Q2_K, the I-quants, the ternary TQ, MXFP4, Q8_1,
 /// Q8_K — refuses the file in its entirety, by name: a model some of whose layers are below the
 /// floor is not imported with those layers widened.

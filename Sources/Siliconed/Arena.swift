@@ -97,7 +97,7 @@ package final class Arena {
     }
 
     package let capacity: Int
-    package private(set) var slots: [String: Slot] = [:]
+    private var slots: [String: Slot] = [:]
     private let base: UnsafeMutableRawPointer
     private var cursor = 0
 
@@ -179,8 +179,6 @@ package final class Arena {
         buffer.label = name
         return buffer
     }
-
-    package var used: Int { cursor }
 
     /// What the kernel actually bills the process for, sampled. A peak that is not sampled
     /// does not exist on this side, and a peak read from an allocator says nothing about what swaps.

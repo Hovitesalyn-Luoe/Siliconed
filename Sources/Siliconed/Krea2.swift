@@ -18,7 +18,7 @@ import Foundation
 ///     x += pregate · Wo( SDPA(RoPE(n(q)), RoPE(n(k)), v) ⊙ σ(Wg·h) ),  h = RMSNorm(x)(1+prescale)+preshift
 ///     x += postgate · SwiGLU( RMSNorm(x)(1+postscale) + postshift )
 ///
-/// What sets it apart from the other two targets, and what a port by analogy would miss:
+/// What sets it apart from the other targets, and what a port by analogy would miss:
 ///
 ///   - **the attention is an ordinary softmax SDPA**, followed by a **sigmoid gate on its
 ///     output**, element by element. Our first notes announced a "sigmoid attention": that was

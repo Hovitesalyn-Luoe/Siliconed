@@ -2,7 +2,7 @@ import Metal
 import MetalPerformanceShadersGraph
 import Foundation
 
-/// The Qwen-Image VAE decoder (Anima's), in fp32, through `MPSGraph`.
+/// The Qwen-Image VAE decoder (Anima's), in fp32, by passes of one kernel (`QwenImage21VAE.Stage`).
 ///
 ///     latent [16, h, w] ─ ×std + mean ─ post_quant_conv ─ conv_in ─ mid(resnet, attention, resnet)
 ///       ─ up×4 (3 resnets, ×2 except the last) ─ RMSNorm ─ SiLU ─ conv_out ─ clamp ─ image [3, 8h, 8w]
@@ -77,9 +77,10 @@ package final class AnimaVAE {
     ///     latent [16, h, w] → [384, h, w] → ×2 [192, 2h, 2w] → [384, 2h, 2w] → ×2 [192, 4h, 4w]
     ///       → ×2 [96, 8h, 8w] → image [3, 8h, 8w]
     ///
-    /// **Not proven at the bit here**: neither Anima's nor Krea 2's VAE is installed on the machine that
-    /// made the cut — the passes lay the operations `graph.run` executed, in the same order,
-    /// cut where the two VAEs it was proven on kept their bits.
+    /// **Judged against the fp64 witness** (the oracle's VAE recomputed in float64): not at the bit against the
+    /// fp32 oracle — no GPU convolution sums in the order of torch's CPU one —, but closer to the exact
+    /// than that oracle: worst plane 6.3·10⁻⁷ against its 1.0·10⁻⁶ at 512², 3.2·10⁻⁷ against 8.4·10⁻⁷
+    /// at 1024² (`anima-vae`).
     private static func stages(config: Config, latentHeight h: Int, latentWidth w: Int) -> [QwenImage21VAE.Stage] {
         typealias V = QwenImage21VAE
         let L = (h: h, w: w), L2 = (h: 2 * h, w: 2 * w), L4 = (h: 4 * h, w: 4 * w), L8 = (h: 8 * h, w: 8 * w)

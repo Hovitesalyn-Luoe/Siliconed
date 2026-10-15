@@ -25,9 +25,9 @@ import Foundation
 /// What sets these rules apart — what rules written by analogy with the defaults would get wrong:
 ///
 ///   - **the margin is the map's own noise, not a constant.** A map taken on a hot or battery-throttled
-///     machine drifts (this M1 Pro on battery, 14/10/2026: the GPU ×0.84 over 16 s); 5 % is only the floor. Within the margin, a
-///     branch stays on the side the GPU alone stands — MPSGraph, no cut: the path with fewer moving
-///     parts. Flash on this M1 Pro is such a tie, and stays off;
+///     machine drifts (this M1 Pro on battery, 14/10/2026: the GPU ×0.84 over 16 s); 5 % is only the
+///     floor. Within the margin, a branch stays on the side the GPU alone stands — MPSGraph, no cut:
+///     the path with fewer moving parts. Flash on this M1 Pro is such a tie, and stays off;
 ///   - **`amx_fraction` is the share that balances the whole set of products**: `R` is each engine's
 ///     total work over its total time (all eight items, each weighted by its flops), the GPU taking
 ///     `R_gpu / (R_gpu + R_amx)` of the rows. It moves the frozen cut (quantum 256), hence the last

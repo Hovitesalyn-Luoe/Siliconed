@@ -17,10 +17,10 @@ extension ImageRGB {
     /// to ±1.14, so without it the values overflow.
     public func rgba8() -> [UInt8] {
         var bytes = [UInt8](repeating: 255, count: height * width * 4)
-        let plan = height * width
-        for p in 0..<plan {
+        let plane = height * width
+        for p in 0..<plane {
             for c in 0..<3 {
-                let value = pixels[c * plan + p] / 2 + 0.5
+                let value = pixels[c * plane + p] / 2 + 0.5
                 bytes[p * 4 + c] = UInt8(max(0, min(1, value)) * 255 + 0.5)
             }
         }

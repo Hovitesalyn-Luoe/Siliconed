@@ -1,7 +1,7 @@
 // **What the app says when something refuses or fails** — one sentence per `EngineError.code`,
 // translated, and what the user can do on a second line.
 //
-// The engine throws a closed enumeration (`EngineError`, 38 cases, `docs/API.md` §5): each case
+// The engine throws a closed enumeration (`EngineError`, `docs/API.md` §5): each case
 // carries its values, never a ready-made sentence. Here each case becomes the app's sentence, in the
 // system language (`Localizable.xcstrings`, English source — the engine's `errorDescription`
 // reworded for a person rather than a program —, every language required by `tools/translations.sh`). The
@@ -142,6 +142,10 @@ struct Problem: Equatable, Sendable {
             return String(localized: "\(name(m)) doesn't start from an image.")
         case let .solverUnsupported(s, m):                           // solver_unsupported
             return String(localized: "\(name(m)) doesn't offer the \(s) solver.")
+        case let .scheduleUnsupported(_, m):                         // schedule_unsupported
+            return String(localized: "\(name(m)) doesn't offer the ComfyUI schedule.")
+        case .detailUnsupported(let m):                              // detail_unsupported
+            return String(localized: "\(name(m)) doesn't offer Detail.")
         case .imageUnreadable(let f):                                // image_unreadable
             return String(localized: "This image can't be read: \(file(f)).")
         case .imageEncodingFailed:                                   // image_encoding_failed
@@ -243,6 +247,10 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Give the image as image 1 of an edit, and say what changes.")
         case .solverUnsupported:
             return String(localized: "Choose Euler.")
+        case .scheduleUnsupported:
+            return String(localized: "Use the official schedule.")
+        case .detailUnsupported:
+            return String(localized: "Choose Normal.")
         case .imageUnreadable:
             return String(localized: "Choose a PNG, JPEG or HEIC image.")
         case .imageWriteFailed:
@@ -284,10 +292,18 @@ extension ModelCard {
         return String(localized: "that of the imported model (architecture \(architecture): \(inherited))")
     }
 
+    /// **Whether the images it makes may be used commercially** — a license may say yes to its
+    /// outputs and no to the model: CircleStone's (Anima) grants its « Outputs » any use, commercial
+    /// included (§ 2.e). An imported model: its family's, like its license's name.
+    var imagesCommercial: Bool {
+        let text = isImported ? ModelCard.of(family).license.text : license.text
+        return license.commercial || text == "CircleStone Labs Non-Commercial"
+    }
+
     private static func licenseName(_ text: String) -> String {
         switch text {
         case "Apache 2.0": text
-        case "non-commercial (circlestone-labs)": String(localized: "non-commercial (circlestone-labs)")
+        case "CircleStone Labs Non-Commercial": String(localized: "CircleStone Labs Non-Commercial")
         case "Krea 2 Community (commercial < $1M, mandatory content filter)":
             String(localized: "Krea 2 Community (commercial under $1M, mandatory content filter)")
         case "Qwen Research (non-commercial)": String(localized: "Qwen Research (non-commercial)")

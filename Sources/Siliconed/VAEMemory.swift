@@ -473,12 +473,12 @@ package final class VAEMemory {
 /// **The VAEs' pure copies, as kernels of ours** — what MPSGraph materialized beside our heaps,
 /// up to twice over (a `broadcast` then its reshape: 5 tensors' worth beyond its output for the ×2 alone):
 ///
-///   - `double`: `nearest-exact` ×2, each pixel its 2×2 block — `VAEBuildingBlocks.double`;
+///   - `double`: `nearest-exact` ×2, each pixel its 2×2 block — `QwenImage21VAE.double`, and Flux's in `VAE.Bands`;
 ///   - `dup_up_add`: `main + DupUp3D(skip)` in place over `main` — the gather of `QwenImage21VAE.dupUpSources`
-///     and one fp32 sum, as `addDupUp` laid it;
+///     and one fp32 sum, as the graph it replaced laid it;
 ///   - `avg_down_add`: `main + AvgDown3D(x)` in place over `main` — the group mean of
 ///     `QwenImage21VAE.avgDownGroups` (members of the zero frame add 0), summed in member order then
-///     divided by the group size, as `avgDown`'s `mean` (a power of two: the division is exact).
+///     divided by the group size, as the replaced graph's `mean` (a power of two: the division is exact).
 ///
 /// Copies and single sums round once, as the graph did: the same bits by construction; the mean's
 /// order is the graph's (the encoder's md5). No fast math.

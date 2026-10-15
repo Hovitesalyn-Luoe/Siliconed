@@ -63,7 +63,7 @@ extension Engine {
     public func events(_ request: Request, seeds: [UInt64]? = nil,
                            model: Model) -> AsyncThrowingStream<Event, Error> {
         let cancellation = Cancellation()
-        let (flux, continuation) = AsyncThrowingStream<Event, Error>.makeStream()
+        let (stream, continuation) = AsyncThrowingStream<Event, Error>.makeStream()
         continuation.onTermination = { _ in cancellation.cancel() }
         Engine.file.async {
             do {
@@ -74,6 +74,6 @@ extension Engine {
                 continuation.finish(throwing: EngineError(error))
             }
         }
-        return flux
+        return stream
     }
 }

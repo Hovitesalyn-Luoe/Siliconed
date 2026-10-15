@@ -10,8 +10,9 @@ plus de mémoire que son budget.**
 Siliconed est une app macOS libre et gratuite pour la **génération d'images à partir de texte et
 l'édition d'images par IA, en local**, sur les Mac Apple silicon (M1 et suivants). Elle fait tourner
 des modèles de diffusion récents —
-[Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) et
-[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) — en natif, en Swift et Metal : ni
+[Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo),
+[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) et
+[Anima Turbo](https://huggingface.co/circlestone-labs/Anima) — en natif, en Swift et Metal : ni
 Python, ni serveur, ni cloud, rien ne quitte votre Mac. Elle marche hors ligne une fois le modèle
 installé.
 
@@ -19,7 +20,7 @@ installé.
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20et%20suivants-black)
 
-![Une photo d’été faite avec Z-Image Turbo — une Irlandaise rousse qui sourit à vélo sur une petite route de l’ouest de l’Irlande — et son édition en bande dessinée, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
+![Une photo d’été faite avec Z-Image Turbo — une Irlandaise rousse qui sourit sur une plage de l’ouest de l’Irlande, sa planche de surf sous le bras, en combinaison shorty — et son édition en bande dessinée, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
 
 *Une photo de Z-Image Turbo, éditée par Qwen-Image-2.1 avec une phrase (« Convert this photo to a western
 comic book style with cel shading »), comparées sous le rideau.*
@@ -60,6 +61,7 @@ Diffusion, ni SDXL, ni Flux.1.
 |---|---|---|---|
 | [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tongyi-MAI | texte vers image, image vers image, LoRA | Apache 2.0 |
 | [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) | Qwen | texte vers image, édition par instruction avec 1 à 3 images, LoRA | Qwen Research (non commerciale) |
+| [Anima Turbo v1.1](https://huggingface.co/circlestone-labs/Anima) | CircleStone Labs × Comfy Org | texte vers image (illustration, peinture, anime ; pas de photoréalisme, par choix de l'éditeur), image vers image, LoRA | CircleStone Labs Non-Commercial ; ses images sont utilisables commercialement |
 
 Les versions Compact utilisent des poids 8 bits publiés par des tiers :
 [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF),
@@ -68,8 +70,17 @@ Les versions Compact utilisent des poids 8 bits publiés par des tiers :
 [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) ; les versions Légères, le
 GGUF Q4_K_M de [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF) et
 d'[unsloth/Qwen-Image-2.1-Turbo-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-Turbo-GGUF) avec l'encodeur de
-texte de la Compact. Chaque fichier est figé à
-une révision et vérifié par sha256 (`Sources/Siliconed/Forge/Installation.swift`).
+texte de la Compact. La Compact et la Légère d'Anima prennent le DiT en GGUF Q8_0 et Q4_K_M de
+[vanes430/Anima-Turbo-V1.1-GGUF](https://huggingface.co/vanes430/Anima-Turbo-V1.1-GGUF) et gardent
+l'encodeur de texte de l'éditeur en bf16 (aucune version 8 bits n'en est publiée). Chaque fichier est
+figé à une révision et vérifié par sha256 (`Sources/Siliconed/Forge/Installation.swift`).
+
+![La fenêtre avec une image d’Anima Turbo : dans le rack, Anima Turbo et la LoRA inCase à 0,80 ; dans le canevas, une illustration peinte, une jeune Irlandaise rousse qui lit un livre sur une chaise en bois près d’une haute fenêtre, dans une vieille bibliothèque, une lumière d’automne à travers les carreaux, des rayonnages de livres à côté d’elle](docs/images/anima.jpg)
+
+*Anima Turbo avec la LoRA inCase à 0,8 : « An oil painting of a young Irish woman with long red hair and
+freckles, sitting by a tall window in an old library and reading a book. Warm afternoon light falls
+across the wooden shelves; visible brushstrokes, muted earthy colors, painterly realism. » 1024², graine
+44, 8 pas, 49 s sur un M1 Pro (Standard).*
 
 ## L'app
 
@@ -78,15 +89,17 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 
 ### Créer
 
-- **Deux modèles.** Z-Image Turbo (Apache 2.0) et Qwen-Image-2.1 Turbo (licence Qwen Research, non
-  commerciale). Tous deux lisent le prompt avec un modèle de langage.
+- **Trois modèles.** Z-Image Turbo (Apache 2.0), Qwen-Image-2.1 Turbo (licence Qwen Research, non
+  commerciale) et Anima Turbo (licence CircleStone Labs, non commerciale ; ses images sont
+  utilisables commercialement). Tous trois lisent le prompt avec un modèle de langage.
 - **La chaîne, visible.** Le rack montre le pipeline de haut en bas (prompt, encodeurs, débruitage,
   décodeur), avec des fils typés et l'étage actif allumé ; chaque étage porte ses propres réglages.
-- **Plus de détail** : « Détail : Normal · Plus · Maximum » ajoute de la texture fine, sans temps en plus.
+- **Plus de détail** avec Z-Image et Qwen-Image-2.1 : « Détail : Normal · Plus · Maximum » ajoute
+  de la texture fine, sans temps en plus.
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
-- **Les LoRA**, et **l'image vers image** avec Z-Image.
+- **Les LoRA**, et **l'image vers image** avec Z-Image et Anima.
 
-![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1024² à droite — une Irlandaise rousse à vélo sur une petite route de campagne —, l’historique en dessous](docs/images/window.jpg)
+![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1248×832 à droite — une Irlandaise rousse sur une plage, sa planche de surf sous le bras —, l’historique en dessous](docs/images/window.jpg)
 
 ### Éditer
 
@@ -98,7 +111,13 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Un historique comme dans Photos** : flèches, ⌫ et ⌘Z, sélection multiple, comparaison côte à
   côte, export, glisser-déposer, Partager.
 
-![Une édition par Qwen-Image-2.1 : l’image 1 dans la boîte Images, l’instruction « make it a bright, joyful watercolor painting », le résultat dans le canevas](docs/images/edit.jpg)
+![Une édition par Qwen-Image-2.1 : la photo de la surfeuse en image 1 dans la boîte Images, l’instruction « Convert this photo to a western comic book style with cel shading », le résultat en cel shading dans le canevas](docs/images/edit.jpg)
+
+![Une édition par Qwen-Image-2.1 à partir de deux images, sous le rideau qui glisse : à gauche la photo Z-Image Turbo de la surfeuse rousse en shorty sur la plage ; à droite la même femme, même plage, même lumière, avec le chemisier crème et la longue jupe verte de la liseuse peinte par Anima](docs/images/outfit.gif)
+
+*Une édition qui puise dans une deuxième image : la surfeuse en image 1, la liseuse peinte par Anima en
+image 2, et « Dress the woman of image 1 in the clothes of the woman in image 2 ». 1248×832, 297 s sur
+un M1 Pro.*
 
 ### Explorer
 
@@ -109,21 +128,22 @@ prompt, ou chaque image d'une édition. Chaque case est une esquisse, arrêtée 
 taille, le panneau dit ce que la grille coûtera sur ce Mac avant de la lancer. « Finir cette image »
 rend la case choisie jusqu'au bout avec la même graine : l'image que son esquisse annonçait.
 
-![Une grille de quatre graines sur deux lumières, soleil doré du matin et lampe chaleureuse du soir, dans le canevas, les axes en étiquettes](docs/images/grid.jpg)
+![Une exploration avec Anima Turbo et la LoRA inCase dans le canevas : quatre couleurs de cheveux (roux, blond, châtain, noir de jais) sur deux graines, une femme qui lit près d’une fenêtre de bibliothèque, des esquisses après 4 évaluations, les axes en étiquettes, « Finish This Image » sous la case choisie](docs/images/grid.jpg)
 
 ### La gestion des modèles
 
 - **Rien n'est préinstallé.** Vous choisissez un modèle ; avant le premier octet téléchargé, l'app
   affiche sa licence et la place qu'il prend sur disque, et vous demande d'accepter. Chaque fichier
   est figé à une révision et vérifié par sha256.
-- **Standard, Compact ou Légère.** Z-Image et Qwen-Image-2.1 s'installent avec les poids de
-  l'éditeur (Standard, le défaut), avec des poids 8 bits publiés par des tiers pour le transformer et
-  l'encodeur de texte (Compact : 11,7 Go au lieu de 20,4 pour Z-Image, 17,3 Go au lieu de 31,2 pour
-  Qwen-Image-2.1, une image légèrement différente, à peu près aussi rapide), ou avec le transformer
-  en 4 à 6 bits tel qu'un tiers le publie (GGUF Q4_K_M) et l'encodeur de texte de la Compact
-  (Légère : 9,5 Go et 14,2 Go, le moins lu sur le disque à chaque pas ; un autre jeu de poids, une
-  image qui peut se composer autrement). La Légère est présélectionnée sur un Mac de 8 Go de
-  mémoire, la Standard ailleurs ; vous choisissez avant d'installer. Une version à la
+- **Standard, Compact ou Légère.** Chaque modèle s'installe avec les poids de l'éditeur (Standard,
+  le défaut), avec des poids 8 bits publiés par des tiers (Compact : 11,7 Go au lieu de 20,4 pour
+  Z-Image, 17,3 Go au lieu de 31,2 pour Qwen-Image-2.1, 4,10 Go au lieu de 5,65 pour Anima ; une
+  image légèrement différente, à peu près aussi rapide), ou avec le transformer en 4 à 6 bits tel
+  qu'un tiers le publie (GGUF Q4_K_M ; Légère : 9,5 Go, 14,2 Go et 3,31 Go, le moins lu sur le disque
+  à chaque pas ; un autre jeu de poids, une image qui peut se composer autrement). Pour Z-Image et
+  Qwen-Image-2.1, l'encodeur de texte de la Compact est lui aussi en 8 bits, et la Légère le reprend ;
+  celui d'Anima reste le bf16 de l'éditeur dans les trois, faute de version 8 bits publiée. La Légère est
+  présélectionnée sur un Mac de 8 Go de mémoire, la Standard ailleurs ; vous choisissez avant d'installer. Une version à la
   fois : passer à l'autre la remplace ; l'installée continue de rendre jusqu'à ce que la nouvelle
   soit complète, puis libère sa place — si le disque ne peut pas tenir les deux, l'app le dit avant
   l'acceptation (`docs/API.fr.md` §3.11).
@@ -156,16 +176,17 @@ silicon. Les temps ci-dessous ont été mesurés avec 16 Go de mémoire.
 
 Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. 1024², graine 42.
 
-| | Z-Image Turbo | Qwen-Image-2.1 Turbo |
-|---|---|---|
-| 1024², Standard | 113–119 s (8 pas ; 1024×1536 190 s) | 118 s (8 pas) ; 1024×1536 190 s ; une édition à 1 image 212 s, à 2 images 285 s |
-| 1024², Légère (4 à 6 bits) | 118–120 s | 123–130 s ; une édition à 1 image 210 s |
-| pic mémoire, Standard / Légère | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go |
-| écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) |
+| | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo |
+|---|---|---|---|
+| 1024², Standard | 113–119 s (8 pas ; 1024×1536 190 s) | 134 s (8 pas) ; 1024×1536 232 s ; une édition à 1 image 211 s, à 2 images 297 s | 43,7 s (8 pas) ; 512² 12,1 s ; 1024×1536 75,6 s |
+| 1024², Légère (4 à 6 bits) | 118–120 s | non remesuré depuis la 0.10 (tous les pas en pleine taille) | non mesuré |
+| pic mémoire, Standard / Légère | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / non mesuré |
+| écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ |
 
 Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG :
-Qwen-Image-2.1 mesuré le 13/10/2026, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est le
-`phys_footprint` de l'app, relevé toutes les 100 ms ; 0 page swappée sur la série.
+Qwen-Image-2.1 mesuré le 15/10/2026 avec la 0.10, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est le
+`phys_footprint` de l'app, relevé toutes les 100 ms ; 0 page swappée sur la série. Les temps et le
+pic d'Anima Turbo sont ceux du moteur seul, sans l'app, cache de rendu éteint (14–15/10/2026).
 Comment l'écart est mesuré : [La vérification](#la-vérification).
 
 Jusqu'à la 0.8.1, Z-Image Turbo faisait 7 des 8 évaluations du DiT que demande sa recette (« 8 pas »
@@ -178,9 +199,9 @@ publiés avant (82–85 s à 1024²) valaient pour le calendrier raccourci.
 [Draw Things](https://drawthings.ai) est la référence sur Mac ; ici, son moteur communautaire,
 [draw-things-community](https://github.com/drawthingsai/draw-things-community) à `bc3970c`, avec
 les réglages par défaut du modèle (UniPC trailing, CFG 1). La même machine, tout juste redémarrée, un
-seul moteur chargé à la fois ; Z-Image Turbo, 1024², 8 pas (8 évaluations de chaque côté), graine 42,
+seul moteur chargé à la fois ; Z-Image Turbo, 1024², 8 pas (8 évaluations de chaque côté), graine 42,
 trois rendus de chaque côté sur trois variantes du même prompt. Draw Things a été mesuré le 13/10/2026
-(une séance de 70 minutes) et rien n'a changé de son côté depuis ; Siliconed le 14/10/2026, après
+(une séance de 70 minutes) et rien n'a changé de son côté depuis ; Siliconed le 14/10/2026, après
 le correctif.
 
 | | poids | temps | pic mémoire | lu sur le disque par rendu |

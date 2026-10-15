@@ -37,7 +37,7 @@ package enum ForgeDiT {
         package let widened: [String]
         /// Tensors published in fp16 and kept in fp16.
         package let kept16bit: Int
-        /// Anima adapter tensors that came 8-bit and were written dequantized in fp32.
+        /// Anima adapter tensors that came quantized (8-bit, GGUF blocks) and were written dequantized in fp32.
         package let adapterDequantized: Int
         package let notes: [String]
         package let adapter: String?
@@ -61,7 +61,7 @@ package enum ForgeDiT {
             }
             if kept16bit > 0 { l.append("fp16 kept as published: \(kept16bit) tensors") }
             if adapterDequantized > 0 {
-                l.append("text adapter: \(adapterDequantized) 8-bit tensors written dequantized in fp32 (the conditioner reads no 8-bit)")
+                l.append("text adapter: \(adapterDequantized) quantized tensors (8-bit or GGUF blocks) written dequantized in fp32 (the conditioner reads none)")
             }
             if !widened.isEmpty {
                 l.append("kept in fp32 (a narrower type would round them): \(widened.count) — "

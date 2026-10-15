@@ -4,7 +4,7 @@ import Synchronization
 // **The preflights: what a render checks before its first computation, in this order.**
 //
 //     1. the model is installed          its maps and published files are all there (`ModelCard.missing`)
-//     2. its license is accepted         `<racine>/accepted-licenses.json`, written by the app
+//     2. its license is accepted         `<root>/accepted-licenses.json`, written by the app
 //     3. the format                      side ≥ 512, multiple of 16, area ≤ 1024×1536 (`Format.check`)
 //     4. the memory                      the request's computed floor ≤ B, this Mac's budget (`MemoryBudget`);
 //                                        a floor that cannot be computed is refused too
@@ -12,8 +12,9 @@ import Synchronization
 //
 // The first that fails throws its `EngineError`. 1, 2 and 5 need the model's library: a
 // hand-composed chain (`Model(card:chain:)`, no library) has neither registry nor lock, and its
-// files are checked by its own constructors. Then the request's own refusals follow (empty prompt,
-// steps, references, strength) in `Engine.execute`, still before any computation.
+// files are checked by its own constructors. The request's own refusals (empty prompt, steps,
+// strength, references, solver, detail) come before these, in `Engine.execute`: a request the model
+// cannot render is refused for what it is, not for its memory.
 //
 // **The memory is B, fixed by this Mac's RAM and nothing else** (`MemoryBudget.ceiling(physical:)`,
 // ¾ · RAM − 2 GiB): no reading of the kernel's state decides — the same render on the same Mac gets
@@ -99,8 +100,8 @@ extension ModelCard {
     /// **The memory a render of this model needs at `width × height`**, in bytes: its floor — the peak
     /// of the most economical plan (`MemoryNeed.Request.lean`), computed from the shapes
     /// (`MemoryNeed.of`), with what this process holds now. Above the floor the plan buys time
-    /// (`MemoryPlan.choose`); at the floor the render is slower, never another image. The two hidden
-    /// families take the marked fallback of their measured peaks (`MemoryNeed.unmodelled`). `nil` when
+    /// (`MemoryPlan.choose`); at the floor the render is slower, never another image. Krea 2,
+    /// hidden, takes the marked fallback of its measured peaks (`MemoryNeed.unmodelled`). `nil` when
     /// it cannot be computed: the model's maps are not installed, or their headers do not parse.
     public func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int? {
         memoryNeed(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))
@@ -121,7 +122,7 @@ package enum Licenses {
 }
 
 extension Library {
-    /// `<racine>/accepted-licenses.json` — `{ model identifier: license text accepted }`. The text is
+    /// `<root>/accepted-licenses.json` — `{ model identifier: license text accepted }`. The text is
     /// kept so that a license that changes asks again.
     package var acceptedLicensesFile: String { root.appendingPathComponent("accepted-licenses.json").path }
 

@@ -2,6 +2,53 @@
 
 # Siliconed — notes de version
 
+## 0.10
+
+### Un troisième modèle : Anima Turbo v1.1
+
+- **[Anima](https://huggingface.co/circlestone-labs/Anima) Turbo v1.1**, de CircleStone Labs et
+  Comfy Org, rejoint Z-Image Turbo et Qwen-Image-2.1 dans l’app, sans le mode développeur. Un DiT de
+  2 milliards de paramètres (Cosmos-Predict2) qui lit le prompt avec Qwen3-0.6B et un adaptateur, et
+  décode avec le VAE de Qwen-Image. Il fait de l’illustration, de la peinture et de l’anime ; **pas
+  de photoréalisme**, par choix de son éditeur. Il connaît les artistes par leur nom, écrit précédé
+  d’un `@` (`@nom`), comme le dit sa fiche.
+- **Sa recette** : 8 évaluations, CFG 1. Texte vers image, image vers image, LoRA (formats kohya et
+  ComfyUI), les formats rectangulaires, les quatre solveurs en mode développeur ; ni édition par
+  instruction ni Détail : sur ce modèle, il fait des blocs en mosaïque, ou rien de visible.
+- **Les temps** : sur un M1 Pro de 16 Go, Standard, graine 42, 8 évaluations, 512² en 12,1 s, 1024² en
+  43,7 s, 1024×1536 en 75,6 s.
+- **Standard, Compact ou Légère** : 5,65 Go, 4,10 Go (le DiT en GGUF Q8_0) ou 3,31 Go (le DiT en
+  GGUF Q4_K_M), les DiT tels que vanes430 les publie. L’encodeur de texte reste celui de l’éditeur,
+  en bf16, dans les trois : aucune version 8 bits n’en est publiée.
+- **Vérifié contre la référence**, étage par étage : à 1024², la sortie du débruiteur est à
+  1,43·10⁻⁵ d’un calcul fp64 de la même évaluation, la référence fp32 à 1,47·10⁻⁵ ; le VAE plus près
+  du fp64 que la référence ; une LoRA contre la fusion de ComfyUI elle-même.
+- **Licence** : CircleStone Labs Non-Commercial pour le modèle, dérivé de Cosmos-Predict2 de NVIDIA
+  (NVIDIA Open Model License). **Les images qu’il produit sont utilisables commercialement**, comme
+  le dit la fiche de son éditeur. L’app montre la licence avant le premier octet téléchargé.
+
+### Qwen-Image-2.1 : la recette telle que publiée
+
+- **Tous les pas en pleine taille.** Jusqu’ici, une génération 1024² faisait ses deux premiers pas
+  en demi-taille, un raccourci à nous : il disparaît, l’image est les 8 pas publiés de la Turbo et rien
+  d’autre. Un 1024² prend 134 s dans l’app (142 s en ligne de commande) au lieu d’environ 120 s sur un M1 Pro 16 Go ;
+  1024×1536 232 s au lieu de 190 s. Les éditions ne changent pas : elles n’ont jamais pris de pas en demi-taille.
+- **Le calendrier de ComfyUI, pour comparer** (mode développeur) : un interrupteur « ComfyUI
+  schedule » parcourt les niveaux de bruit que ComfyUI emploie pour ce modèle — ceux du modèle de
+  base, pas ceux de la Turbo —, même graine, mêmes pas. `silicontrol add --schedule comfyui` fait de même.
+
+### Corrigé
+
+- **Un artiste écrit `@nom` dans un prompt d'Anima** était refusé par `silicontrol` quand les sujets nommés
+  étaient activés (« No subject is called @nom ») : un modèle qui ne lit pas d'images garde maintenant son
+  `@` comme du texte, comme le rack le faisait déjà.
+- **Le temps de l'encodeur de texte** dans le rack pouvait afficher « ≈ 0,00 s » après un prompt relu du
+  cache de rendu ; seul un prompt vraiment encodé l'apprend désormais.
+- **Le temps restant** comptait le rendu en cours pour rien jusqu'à son premier pas complet : l'allure
+  apprise pour ce modèle et ce format prend maintenant le relais.
+- **La graine du rack** restait sur une ancienne graine fixe après un rendu de `silicontrol` à graine
+  tirée au hasard ; elle dit maintenant « Au hasard ».
+
 ## 0.9
 
 ### « Signaler ma configuration » mesure maintenant la puce

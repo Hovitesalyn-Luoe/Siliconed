@@ -5,8 +5,9 @@ import IOKit.ps
 import Metal
 
 /// **The diagnostic — a capacity map of the machine**: 14 s on the M1 Pro (a chip with half its GPU
-/// should stay under 30), voluntary, not one byte of weights, a JSON a user can share. It answers two things: what the fleet has (one report per
-/// user; `tools/aggregate_diagnostics.py` makes the table by chip), and, per machine, the figures
+/// should stay under 30), voluntary, not one byte of weights, a JSON a user can share. It answers
+/// two things: what the fleet has (one report per user; `tools/aggregate_diagnostics.py` makes the
+/// table by chip), and, per machine, the figures
 /// that decide the engine's compute branches. **A figure is in it only if it decides a branch of the
 /// engine or answers a fleet question.**
 ///
@@ -65,8 +66,9 @@ import Metal
 /// **The engine reads it in the app, and only there**: when the user measures (« Report My
 /// Configuration », never in the background), the app keeps the report in its preferences and hands it
 /// to `EngineSettings.load(from:map:)` from the next launch on, as long as its `Fingerprint` —
-/// hardware, chip, macOS build, the app's build — matches; the rules (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`,
-/// `head_split`. The command line, the checks and the close-out never designate a map: today's defaults.
+/// hardware, chip, macOS build, the app's build — matches; the rules (`CapacityRules.swift`,
+/// `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`. The command line, the checks
+/// and the close-out never designate a map: today's defaults.
 public enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same

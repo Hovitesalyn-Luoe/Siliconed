@@ -1,7 +1,7 @@
 import XCTest
 @testable import Siliconed
 
-/// **The solvers against diffusers' schedulers**, on Z-Image's and Qwen-Image-2.1's schedules and a synthetic model
+/// **The solvers against diffusers' schedulers**, on Z-Image's, Qwen-Image-2.1's and Anima's schedules and a synthetic model
 /// `m = −0.75·x + b_k`. The final samples below were printed by diffusers 0.41.0 (`oracle_solvers.py`)
 /// (torch fp32) on that model: `FlowMatchEulerDiscreteScheduler` (and its `stochastic_sampling`),
 /// `DPMSolverMultistepScheduler` and `UniPCMultistepScheduler` in `flow_prediction`.
@@ -40,8 +40,8 @@ final class SolverTests: XCTestCase {
     private func eps(_ k: Int) -> [Float] { (0..<n).map { Float((($0 * 3 + k * 11 + 2) % 13) - 6) / 4 } }
 
     /// The walk as the sampler drives it: the model sees the sample, then the solver steps.
-    private func walk(_ solver: Solver, steps: Int, start: Int) -> [Float] {
-        let walk = SolverWalk(solver: solver, schedule: steps == 0 ? qwen : FlowMatchSchedule(steps: steps).sigmas, start: start,
+    private func walk(_ solver: Solver, steps: Int, start: Int, schedule: [Float]? = nil) -> [Float] {
+        let walk = SolverWalk(solver: solver, schedule: schedule ?? (steps == 0 ? qwen : FlowMatchSchedule(steps: steps).sigmas), start: start,
                               count: n, noise: { k, e in for (i, v) in self.eps(k).enumerated() { e[i] = v } })
         var x = xInit()
         for k in 0..<(walk.sigmas.count - 1) {
@@ -60,6 +60,20 @@ final class SolverTests: XCTestCase {
             let got = walk(solver, steps: steps, start: start)
             for (i, (g, w)) in zip(got, want).enumerated() {
                 XCTAssertEqual(g, w, accuracy: 2e-6 * max(1, abs(w)), "\(name), \(steps) steps from \(start), value \(i)")
+            }
+        }
+    }
+
+    /// **Anima Turbo's schedule**: its pipeline hands `np.linspace(1, 1/N, N)` (float64) to the
+    /// published scheduler, where Z-Image's hands a torch float32 ramp — and the engine computes Anima's
+    /// in double (`AnimaDiT.sigmas`). At 8 steps diffusers' four schedulers land on the same samples as
+    /// on Z-Image's σ (`oracle_solvers.py --anima` prints the rows above for 8 steps from 0 and from 3,
+    /// to the last digit): the walk on Anima's own σ must too.
+    func testTheSolversAreDiffusersOnAnimasSchedule() {
+        for (name, steps, start, want) in oracle where steps == 8 {
+            let got = walk(Solver(rawValue: name)!, steps: steps, start: start, schedule: AnimaDiT.sigmas(steps: steps))
+            for (i, (g, w)) in zip(got, want).enumerated() {
+                XCTAssertEqual(g, w, accuracy: 2e-6 * max(1, abs(w)), "Anima, \(name), from \(start), value \(i)")
             }
         }
     }

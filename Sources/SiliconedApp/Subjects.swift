@@ -319,10 +319,12 @@ extension AppState {
     func rewrite(_ expanded: String, model: Model? = nil,
                  editImages: Int? = nil) -> Result<NamedSubjects.Rewritten, NamedSubjects.Failure>? {
         // The rack reads `@names` in its Subjects mode only; the remote control, which brings its own
-        // images, whenever the switch is on.
+        // images, whenever the switch is on — and, like the rack, only for a model that reads images:
+        // elsewhere `@` is the model's own (Anima's card writes an artist `@incase`).
         guard model == nil ? subjectsActive : subjects.enabled, !NamedSubjects.mentions(in: expanded).isEmpty else { return nil }
         let capacity = model.map { $0.chain.text.output.readsImages ? $0.chain.denoising.maxReferences : 0 }
             ?? (promptNamesImages ? maxReferences : 0)
+        guard capacity > 0 else { return nil }
         let first = (editImages ?? references.count) + 1
         return Result { () throws(NamedSubjects.Failure) in
             try NamedSubjects.rewrite(expanded, subjects: subjects.all, capacity: capacity, first: first)

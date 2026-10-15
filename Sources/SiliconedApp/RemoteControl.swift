@@ -25,203 +25,6 @@ import Observation
 import Siliconed
 import SilicontrolHelp
 
-// MARK: - The plumbing, off the main thread
-
-/// **A client**: its descriptor, and a write queue of its own — a long answer (`wait`) blocks
-/// neither the app nor the other clients.
-final class Connection: @unchecked Sendable {
-    private let fd: Int32
-    private let writings = DispatchQueue(label: "app.remote.connection")
-    private let lock = NSLock()
-    private var _broken = false
-
-    init(fd: Int32) { self.fd = fd }
-
-    /// The client is gone (Ctrl-C during `wait`): we stop writing to it.
-    var broken: Bool { lock.withLock { _broken } }
-
-    func send(_ rowLine: Data) {
-        writings.async { [self] in
-            guard !broken else { return }
-            let ok = rowLine.withUnsafeBytes { raw -> Bool in
-                var remaining = raw.count, begin = 0
-                while remaining > 0 {
-                    let n = write(fd, raw.baseAddress! + begin, remaining)
-                    if n < 0 { if errno == EINTR { continue }; return false }
-                    remaining -= n; begin += n
-                }
-                return true
-            }
-            if !ok { lock.withLock { _broken = true } }
-        }
-    }
-
-    /// Closes after the pending writes.
-    func shutDown() {
-        writings.async { [self] in
-            lock.withLock { _broken = true }
-            close(fd)
-        }
-    }
-}
-
-/// **The socket**: listen, accept, read the command line. Nothing here is isolated to the main
-/// thread — a `DispatchSource` handler that was would crash on the first client.
-enum Socket {
-    struct Failure: Error, CustomStringConvertible {
-        let description: String
-    }
-
-    /// Is an app already answering on this socket?
-    static func isAnswering(_ path: String) -> Bool {
-        guard let fd = try? connectTo(path) else { return false }
-        close(fd)
-        return true
-    }
-
-    static func address(_ path: String) throws -> sockaddr_un {
-        var a = sockaddr_un()
-        a.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        let capacity = MemoryLayout.size(ofValue: a.sun_path)
-        guard bytes.count < capacity else {
-            let n = bytes.count, max = capacity - 1
-            throw Failure(description: String(localized: "socket path too long (\(n) bytes, \(max) at most): \(path)"))
-        }
-        withUnsafeMutableBytes(of: &a.sun_path) { buffer in
-            buffer.copyBytes(from: bytes)
-            buffer[bytes.count] = 0
-        }
-        a.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
-        return a
-    }
-
-    static func connectTo(_ path: String) throws -> Int32 {
-        var a = try address(path)
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw Failure(description: String(localized: "the socket could not be opened (\(String(cString: strerror(errno))))")) }
-        let r = withUnsafePointer(to: &a) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        }
-        guard r == 0 else { close(fd); throw Failure(description: String(cString: strerror(errno))) }
-        return fd
-    }
-
-    /// Listens on `path`; each command read reaches `onReceive` (on a background queue).
-    static func startListening(_ path: String,
-                        onReceive: @escaping @Sendable (_ argv: [String], _ cwd: String, Connection) -> Void) throws -> DispatchSourceRead {
-        if FileManager.default.fileExists(atPath: path) {
-            guard !isAnswering(path) else {
-                throw Failure(description: String(localized: "another Siliconed is already listening on \(path)"))
-            }
-            unlink(path)   // left by an app that died without removing it
-        }
-        var a = try address(path)
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw Failure(description: String(localized: "the socket could not be opened (\(String(cString: strerror(errno))))")) }
-        // `bind` creates the socket file with the process's umask: 0077, so that it never exists, even
-        // for an instant, with a mode another account could open (the `chmod` below only confirms).
-        let previousMask = umask(0o077)
-        let r = withUnsafePointer(to: &a) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        }
-        umask(previousMask)
-        guard r == 0 else {
-            let message = String(cString: strerror(errno))
-            close(fd)
-            throw Failure(description: String(localized: "the socket could not be opened (\(message))"))
-        }
-        chmod(path, 0o600)
-        guard listen(fd, 16) == 0 else { close(fd); throw Failure(description: String(localized: "the socket could not be opened (\(String(cString: strerror(errno))))")) }
-        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-
-        // **A client that hangs up must not take the app down.** A write to a socket whose peer
-        // left raises SIGPIPE, which kills the process without a crash report — measured: connect,
-        // close without reading, and the app was gone. `SO_NOSIGPIPE` on each client socket did
-        // not cover it; ignoring the signal process-wide turns it into `EPIPE`, which `Connection`
-        // already handles.
-        signal(SIGPIPE, SIG_IGN)
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .userInitiated))
-        source.setEventHandler {
-            while true {
-                let client = accept(fd, nil, nil)
-                guard client >= 0 else { return }   // EAGAIN: nobody left waiting
-                // Only this account: the file mode says so, the peer's credentials prove it.
-                var uid: uid_t = 0, gid: gid_t = 0
-                guard getpeereid(client, &uid, &gid) == 0, uid == getuid() else { close(client); continue }
-                // Reading a command line holds a thread for up to 5 s: beyond `maxReading` clients
-                // still silent, a new one is told so and closed, rather than piling up threads.
-                guard reading.wait(timeout: .now()) == .success else {
-                    let line = Response.rowLine(Response.failure("busy", String(localized: "too many connections at once"),
-                                                                 help: "retry"))
-                    _ = line.withUnsafeBytes { write(client, $0.baseAddress!, $0.count) }
-                    close(client)
-                    continue
-                }
-                DispatchQueue.global(qos: .userInitiated).async { serve(client, onReceive: onReceive) }
-            }
-        }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        return source
-    }
-
-    /// Clients whose command line is still being read, at most (`reading`).
-    static let maxReading = 8
-    private static let reading = DispatchSemaphore(value: maxReading)
-
-    /// Reads the client's line (5 s at most, 1 MB at most), then hands it to `onReceive`. The slot
-    /// taken in `reading` is given back once the line is read: a long `wait` that follows holds none.
-    private static func serve(_ fd: Int32, onReceive: @Sendable ([String], String, Connection) -> Void) {
-        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
-        var enabledFlag: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabledFlag, socklen_t(MemoryLayout<Int32>.size))
-        var delay = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &delay, socklen_t(MemoryLayout<timeval>.size))
-        let connection = Connection(fd: fd)
-        var received = Data()
-        var buffer = [UInt8](repeating: 0, count: 65536)
-        while !received.contains(0x0A), received.count < 1 << 20 {
-            let n = read(fd, &buffer, buffer.count)
-            if n < 0, errno == EINTR { continue }
-            guard n > 0 else { break }
-            received.append(contentsOf: buffer[0..<n])
-        }
-        reading.signal()
-        let rowLine = received.split(separator: 0x0A, maxSplits: 1, omittingEmptySubsequences: false).first.map { Data($0) } ?? Data()
-        guard let object = try? JSONSerialization.jsonObject(with: rowLine) as? [String: Any],
-              let argv = object["argv"] as? [String] else {
-            connection.send(Response.rowLine(Response.failure("protocol",
-                String(localized: "expected: one JSON line {\"argv\": [\"command\", …], \"cwd\": \"/folder\"}"))))
-            connection.shutDown()
-            return
-        }
-        onReceive(argv, object["cwd"] as? String ?? FileManager.default.homeDirectoryForCurrentUser.path, connection)
-    }
-}
-
-/// The JSON lines: ASCII keys, sorted — stable from one call to the next, readable by `jq`.
-enum Response {
-    /// A decimal as one writes it: `0.8`, not `0.80000000000000004` (`JSONSerialization` writes a
-    /// `Double` with 17 digits).
-    static func number(_ x: Double, _ decimals: Int = 2) -> NSDecimalNumber {
-        NSDecimalNumber(string: String(format: "%.\(decimals)f", x), locale: Locale(identifier: "en_US_POSIX"))
-    }
-
-    static func rowLine(_ object: [String: Any]) -> Data {
-        var d = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]))
-            ?? Data("{\"ok\":false,\"error\":\"internal\",\"message\":\"response not serializable\"}".utf8)
-        d.append(0x0A)
-        return d
-    }
-
-    static func failure(_ code: String, _ message: String, help: String? = nil) -> [String: Any] {
-        var o: [String: Any] = ["ok": false, "error": code, "message": message]
-        if let help { o["hint"] = help }
-        return o
-    }
-}
-
 // MARK: - The commands, on the main thread
 
 @MainActor @Observable
@@ -319,6 +122,7 @@ final class RemoteControl {
             .merging(r.isVariation ? ["variation": Self.json(r.variations)] : [:]) { a, _ in a }
             .merging(r.detail == .normal ? [:] : ["detail": r.detail.rawValue]) { a, _ in a }
             .merging(r.solver == .euler ? [:] : ["solver": r.solver.rawValue]) { a, _ in a }
+            .merging(r.schedule == .official ? [:] : ["schedule": r.schedule.rawValue]) { a, _ in a }
     }
 
     /// The variation seeds in order, each with its strength — the seed stays the origin's.
@@ -343,6 +147,7 @@ final class RemoteControl {
         if r.isVariation { o["variation"] = Self.json(r.variations) }
         if r.detail != .normal { o["detail"] = r.detail.rawValue }
         if r.solver != .euler { o["solver"] = r.solver.rawValue }
+        if r.schedule != .official { o["schedule"] = r.schedule.rawValue }
         if let g = e.grid {
             // A grid's sheet: no job made it; its seconds and evaluations are its cells' sum.
             o["job"] = nil
@@ -432,10 +237,11 @@ final class RemoteControl {
 
     // ── models ──
 
-    /// The models the app shows — Z-Image and Qwen-Image-2.1, all of them in Developer Mode.
+    /// The models the app shows — Z-Image, Qwen-Image-2.1 and Anima, in the app's order; all of them in
+    /// Developer Mode.
     private func models() -> [String: Any] {
         let b = app.library
-        let list = b.cards().filter { app.isVisible($0.family) }.map { f -> [String: Any] in
+        let list = visibleCards(b).map { f -> [String: Any] in
             var o: [String: Any] = ["id": f.id, "name": f.name, "default_steps": f.defaultSteps,
                                     "formats": f.formats.map { "\($0.width)x\($0.height)" },
                                     "commercial_license": f.license.commercial,
@@ -475,6 +281,11 @@ final class RemoteControl {
         return ["ok": true, "models": list]
     }
 
+    /// The library's models the app shows, in its order (`AppState.inDisplayOrder`).
+    private func visibleCards(_ b: Library) -> [ModelCard] {
+        AppState.inDisplayOrder(b.cards().filter { app.isVisible($0.family) }, family: \.family)
+    }
+
     // ── install ──
 
     /// `install <id> [--standard|--compact|--light]`: **the app shows the model's license and the place it
@@ -501,7 +312,7 @@ final class RemoteControl {
         }
         let b = app.library
         guard let card = b.cards().first(where: { $0.id == id || $0.family.rawValue == id }), app.isVisible(card.family) else {
-            let visible = b.cards().filter { app.isVisible($0.family) }.map(\.id).joined(separator: ", ")
+            let visible = visibleCards(b).map(\.id).joined(separator: ", ")
             throw Refusal("model", String(localized: "unknown model: \"\(id)\""), help: String(localized: "models: \(visible)"))
         }
         let asked = named.first
@@ -586,8 +397,11 @@ final class RemoteControl {
         var steps: Int?
         /// `--detail more|most`: the rack's Detail choice (`Request.detail`).
         var detail = Detail.normal
-        /// `--solver NAME`: the rack's Solver (`Request.solver`), Developer Mode and Z-Image only.
+        /// `--solver NAME`: the rack's Solver (`Request.solver`), Developer Mode and `AppState.solverFamilies` only.
         var solver = Solver.euler
+        /// `--schedule official|comfyui`: the rack's ComfyUI schedule switch (`Request.schedule`), Developer
+        /// Mode and the models that offer it only.
+        var schedule = SigmaSchedule.official
         var loras: [(name: String, strength: Double)] = []
         /// The `--ref`, in their order: the first is image 1, the one edited.
         var references: [String] = []
@@ -633,6 +447,12 @@ final class RemoteControl {
                     throw Refusal("usage", String(localized: "--solver expects euler, euler-ancestral, dpmpp-2m or unipc, not \"\(v)\""))
                 }
                 d.solver = rule
+            case "--schedule":
+                let v = try value(a)
+                guard let s = SigmaSchedule(rawValue: v.lowercased()) else {
+                    throw Refusal("usage", String(localized: "--schedule expects official or comfyui, not \"\(v)\""))
+                }
+                d.schedule = s
             case "--batch":
                 let v = try value(a)
                 guard let n = Int(v), (1...8).contains(n) else { throw Refusal("usage", String(localized: "--batch expects an integer from 1 to 8, not \"\(v)\"")) }
@@ -718,7 +538,7 @@ final class RemoteControl {
         // The app renders what it shows: the other families need Developer Mode (the developer's
         // command line renders them all).
         guard card.map({ app.isVisible($0.family) }) ?? true else {
-            let visible = b.cards().filter { app.isVisible($0.family) }.map(\.id).joined(separator: ", ")
+            let visible = visibleCards(b).map(\.id).joined(separator: ", ")
             throw Refusal("model", String(localized: "model \"\(d.model)\" is shown only in Developer Mode"),
                         help: String(localized: "models: \(visible) — or turn on Developer Mode in the app's menu"))
         }
@@ -732,6 +552,22 @@ final class RemoteControl {
                 throw Refusal("solver", String(localized: "\(card?.name ?? model.name) doesn't offer the \(d.solver.rawValue) solver"),
                               help: String(localized: "Euler only, or --model z-image"))
             }
+        }
+        // ComfyUI's schedule: the rack's switch, so Developer Mode, and the models that offer it.
+        if d.schedule != .official {
+            guard app.developerMode else {
+                throw Refusal("schedule", String(localized: "--schedule \(d.schedule.rawValue) is offered only in Developer Mode"),
+                              help: String(localized: "turn on Developer Mode in the app's menu"))
+            }
+            guard model.chain.denoising.schedules.contains(d.schedule) else {
+                throw Refusal("schedule", String(localized: "\(card?.name ?? model.name) doesn't offer the ComfyUI schedule"),
+                              help: String(localized: "leave out --schedule, or --model qwen-image-2.1"))
+            }
+        }
+        // Detail: not on a model that offers none (Anima) — the rack hides it there.
+        if d.detail != .normal, !model.chain.denoising.acceptsDetail {
+            throw Refusal("detail", String(localized: "\(card?.name ?? model.name) doesn't offer Detail"),
+                          help: String(localized: "leave out --detail"))
         }
         guard let prompt = d.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Refusal("usage", String(localized: "empty prompt"))
@@ -830,7 +666,7 @@ final class RemoteControl {
         }
         let f = model.chain.denoising.space.factor
         let plan = model.chain.denoising.plan(height: height / f, width: width / f, steps: steps, start: 0,
-                                                 withLoRA: !stack.isEmpty || d.detail != .normal)
+                                                 withLoRA: !stack.isEmpty || d.detail != .normal, schedule: d.schedule)
         // One seed for the whole series, drawn once: the alternatives are compared at the same seeds.
         let firstNumber = d.seed ?? UInt64.random(in: 0...UInt64(UInt32.max))
         if grid {
@@ -856,7 +692,7 @@ final class RemoteControl {
             var settings = RenderSettings(identifier: model.identifier, modelName: card?.name ?? model.name,
                                           prompt: v.prompt, format: RecommendedFormat(width, height), steps: steps,
                                           loras: stack, references: references.count, detail: d.detail,
-                                          solver: d.solver)
+                                          solver: d.solver, schedule: d.schedule)
             let used = app.namedJob(v.prompt, settings: &settings, references: references, model: model)
             return Job(ordinal: app.nextJobNumber(), settings: settings,
                        seeds: (0..<d.batch).map { firstNumber &+ UInt64($0) },
@@ -871,7 +707,8 @@ final class RemoteControl {
         app.restoreSettings(jobs[0].settings)
         app.prompt = prompt
         app.references = references
-        if let seed = d.seed { app.fixedSeed = true; app.seed = seed }
+        // A seed drawn here is a Random render, as after a click: the rack must not keep showing an old Fixed one.
+        if let seed = d.seed { app.fixedSeed = true; app.seed = seed } else { app.fixedSeed = false }
 
         let added = zip(jobs, variants).map { job, v -> [String: Any] in
             var o = json(job)
@@ -1040,7 +877,7 @@ final class RemoteControl {
         }
         let settings = RenderSettings(identifier: model.identifier, modelName: card?.name ?? model.name, prompt: prompt,
                                       format: format, steps: steps, loras: stack, references: references.count, detail: d.detail,
-                                      solver: d.solver)
+                                      solver: d.solver, schedule: d.schedule)
         if d.sketch { app.stopExploring() }
         let (run, jobs) = app.enqueueGrid(g, settings: settings, references: references, previews: d.previews ?? app.previews,
                                           sketch: d.sketch)
@@ -1048,7 +885,7 @@ final class RemoteControl {
         app.restoreSettings(settings)
         app.prompt = prompt
         app.references = references
-        if let s = d.seed { app.fixedSeed = true; app.seed = s }
+        if let s = d.seed { app.fixedSeed = true; app.seed = s } else { app.fixedSeed = false }
         app.setGridForm(g, prompt: prompt)
 
         let added = jobs.map { job -> [String: Any] in

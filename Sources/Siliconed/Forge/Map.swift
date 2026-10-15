@@ -2,7 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// **Published safetensors, read as a single set of tensors.**
+/// **Published safetensors (or a GGUF), read as a single set of tensors.**
 ///
 /// A diffusers model comes in shards (`*.safetensors.index.json`), a Civitai checkpoint in one
 /// file; the forge only sees names. An 8-bit weight (fp8, int8 — `QuantizedLayouts`) appears under
@@ -11,13 +11,6 @@ import Foundation
 /// `read` gives it dequantized in fp32; `readQuantized`, the bytes and scales as published — what an
 /// 8-bit map keeps.
 package final class TensorSource {
-    package struct Reading {
-        package let shape: [Int]
-        package let dtype: String
-        package let read: () throws -> [Float]
-        package var number: Int { shape.reduce(1, *) }
-    }
-
     package let files: [Safetensors]
     private var index: [String: (file: Safetensors, entry: Safetensors.Entry)] = [:]
     /// In file order, then byte order.
@@ -87,8 +80,6 @@ package final class TensorSource {
         files.reduce(into: [:]) { $0.merge($1.metadata) { a, _ in a } }
     }
 
-    package func contains(_ name: String) -> Bool { index[name] != nil }
-
     package func shape(_ name: String) -> [Int]? { index[name]?.entry.shape }
 
     package func dtype(_ name: String) -> String? { index[name]?.entry.dtype }
@@ -132,11 +123,6 @@ package final class TensorSource {
     package func readQuantized(_ name: String) throws -> QuantizedTensor {
         guard let g = groups[name] else { throw Numerics.Failure(description: "\(name) is not 8-bit") }
         return try g.read()
-    }
-
-    package func reading(_ name: String) -> Reading? {
-        guard let (_, e) = index[name] else { return nil }
-        return Reading(shape: e.shape, dtype: e.dtype) { [unowned self] in try self.read(name) }
     }
 }
 
@@ -506,7 +492,6 @@ package enum MapWriter {
     }
 }
 
-
 /// **Do two maps say the same thing?** Same tensors, same shapes, same dtypes, same bytes — and
 /// the same header, apart from what describes where and when it was forged (`source`,
 /// `data_start`, the offsets). This is the verdict that allows discarding the old one.
@@ -565,11 +550,10 @@ package enum MapComparison {
             default: break
             }
         }
-        for (name, s) in x.tensors {
+        for name in x.tensors.keys {
             let dx = (x.header["tensors"] as? [String: [String: Any]])?[name]?["transposed"] as? Bool
             let dy = (y.header["tensors"] as? [String: [String: Any]])?[name]?["transposed"] as? Bool
             if dx != dy { v.differences.append("\(name) : transposed \(String(describing: dx)) versus \(String(describing: dy))") }
-            _ = s
         }
         return v
     }

@@ -224,8 +224,7 @@ package enum QwenImage21VAE {
 
     /// **`AvgDown3D` on one frame**, as membership: for output channel `o`, the `(c, i, j)` input
     /// samples of its group, `nil` for a member drawn from the zero frame the reference pads in front.
-    /// The group mean divides by **all** members, zeros included. (For the tests: the graph builds
-    /// the reference's own view / permute / mean, `avgDown`.)
+    /// The group mean divides by **all** members, zeros included.
     package static func avgDownGroups(input: Int, output: Int, temporal ft: Int, spatial s: Int)
             -> [[(c: Int, i: Int, j: Int)?]] {
         let factor = ft * s * s, g = input * factor / output
@@ -410,7 +409,7 @@ package enum QwenImage21VAE {
         return pass
     }
 
-    /// The ×2 of `x` (`nearest-exact`, `VAEBuildingBlocks.double`), a kernel of ours: `c` channels at `size`.
+    /// The ×2 of `x` (`nearest-exact`), a kernel of ours (`VAEKernels`): `c` channels at `size`.
     static func double(_ c: Int, size: (h: Int, w: Int)) -> Stage {
         Stage(["x"], "x", [1, c, 2 * size.h, 2 * size.w], inPlace: false) { memory, t, out in
             memory.dispatch(.double, [t[0], out], constants: [UInt32(size.h), UInt32(size.w)],
@@ -784,7 +783,7 @@ package final class QwenImage21VAEEncoder {
                 down.workspace = VAELayout.reformattedWeights(block.output * block.output * 9) / 4
                 stages.append(down)
             }
-            // The group mean divides by a power of two: exact, whatever the graph's `mean` multiplied or divided by.
+            // The group mean divides by a power of two: exact, whether the reference's `mean` multiplies or divides.
             let (s, ft) = (block.spatial, block.temporal), g = block.input * ft * s * s / block.output
             guard g > 0, g & (g - 1) == 0, block.input * ft * s * s == g * block.output else {
                 throw Safetensors.Failure.badHeader("VAE Qwen-Image-2.1 encoder: AvgDown3D \(block.input) → \(block.output) "

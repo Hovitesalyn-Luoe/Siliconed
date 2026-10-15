@@ -169,6 +169,90 @@
         }
       }
     },
+    "%@ doesn't offer Detail" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bietet kein Detail an"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ no ofrece Detalle"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas le Détail"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ non offre Dettaglio"
+          }
+        }
+      }
+    },
+    "%@ doesn't offer Detail." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bietet kein Detail an."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ no ofrece Detalle."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas le Détail."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ non offre Dettaglio."
+          }
+        }
+      }
+    },
+    "%@ doesn't offer Detail: Normal will be used." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bietet kein Detail an: Normal wird verwendet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ no ofrece Detalle: se usará Normal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas le Détail : Normal sera utilisé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ non offre Dettaglio: verrà usato Normale."
+          }
+        }
+      }
+    },
     "%@ doesn't offer the %@ solver" : {
       "localizations" : {
         "de" : {
@@ -233,6 +317,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ non offre il solver %2$@."
+          }
+        }
+      }
+    },
+    "%@ doesn't offer the ComfyUI schedule" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bietet den ComfyUI-Zeitplan nicht an"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ no ofrece el calendario de ComfyUI"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas le calendrier ComfyUI"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ non offre il calendario di ComfyUI"
+          }
+        }
+      }
+    },
+    "%@ doesn't offer the ComfyUI schedule." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bietet den ComfyUI-Zeitplan nicht an."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ no ofrece el calendario de ComfyUI."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas le calendrier ComfyUI."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ non offre il calendario di ComfyUI."
           }
         }
       }
@@ -2291,6 +2431,62 @@
         }
       }
     },
+    "--schedule %@ is offered only in Developer Mode" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule %@ gibt es nur im Entwicklermodus"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule %@ solo se ofrece en el Modo de desarrollador"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule %@ n’est proposé qu’en Mode développeur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule %@ è disponibile solo nella Modalità sviluppatore"
+          }
+        }
+      }
+    },
+    "--schedule expects official or comfyui, not \"%@\"" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule erwartet official oder comfyui, nicht „%@“"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule espera official o comfyui, no «%@»"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule attend official ou comfyui, pas « %@ »"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule richiede official o comfyui, non «%@»"
+          }
+        }
+      }
+    },
     "--sketch belongs to « silicontrol grid »" : {
       "localizations" : {
         "de" : {
@@ -2685,6 +2881,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "@%@ eliminato"
+          }
+        }
+      }
+    },
+    "A diagnostic is already running." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Diagnose läuft bereits."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya hay un diagnóstico en curso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un diagnostic est déjà en cours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La diagnostica è già in corso."
           }
         }
       }
@@ -3815,6 +4039,34 @@
         }
       }
     },
+    "Anima derives from NVIDIA's Cosmos-Predict2, under the NVIDIA Open Model License." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anima ist von NVIDIAs Cosmos-Predict2 abgeleitet, unter der NVIDIA Open Model License."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anima deriva de Cosmos-Predict2 de NVIDIA, bajo la NVIDIA Open Model License."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anima dérive de Cosmos-Predict2 de NVIDIA, sous la NVIDIA Open Model License."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anima deriva da Cosmos-Predict2 di NVIDIA, sotto la NVIDIA Open Model License."
+          }
+        }
+      }
+    },
     "Another image the prompt can draw from (“the dog of image 2”)." : {
       "localizations" : {
         "de" : {
@@ -4431,6 +4683,34 @@
         }
       }
     },
+    "Choose Normal." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie Normal."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige Normal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez Normal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli Normale."
+          }
+        }
+      }
+    },
     "Choose a LoRA made for this model." : {
       "localizations" : {
         "de" : {
@@ -4711,6 +4991,34 @@
         }
       }
     },
+    "CircleStone Labs Non-Commercial" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CircleStone Labs Non-Commercial"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CircleStone Labs Non-Commercial"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CircleStone Labs Non-Commercial"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CircleStone Labs Non-Commercial"
+          }
+        }
+      }
+    },
     "Cite in the Prompt" : {
       "localizations" : {
         "de" : {
@@ -4959,6 +5267,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chiudi"
+          }
+        }
+      }
+    },
+    "ComfyUI schedule" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ComfyUI-Zeitplan"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendario de ComfyUI"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendrier ComfyUI"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendario ComfyUI"
           }
         }
       }
@@ -7966,6 +8302,34 @@
         }
       }
     },
+    "Illustration, painting and anime. No photorealism: its publisher's choice." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Illustration, Malerei und Anime. Kein Fotorealismus: eine Entscheidung des Herausgebers."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ilustración, pintura y anime. Sin fotorrealismo: una decisión de su editor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Illustration, peinture et anime. Pas de photoréalisme : un choix de son éditeur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Illustrazione, pittura e anime. Niente fotorealismo: una scelta del suo editore."
+          }
+        }
+      }
+    },
     "Image" : {
       "localizations" : {
         "de" : {
@@ -9478,6 +9842,34 @@
         }
       }
     },
+    "Made with ComfyUI's schedule, offered in Developer Mode: the official one will be used." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit dem Zeitplan von ComfyUI erstellt, den es im Entwicklermodus gibt: Der offizielle wird verwendet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hecha con el calendario de ComfyUI, que se ofrece en el Modo de desarrollador: se usará el oficial."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faite avec le calendrier de ComfyUI, proposé en Mode développeur : le calendrier officiel sera utilisé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Creata con il calendario di ComfyUI, disponibile nella Modalità sviluppatore: verrà usato quello ufficiale."
+          }
+        }
+      }
+    },
     "Made with the %@ solver, offered in Developer Mode: Euler will be used." : {
       "localizations" : {
         "de" : {
@@ -10600,6 +10992,34 @@
         }
       }
     },
+    "Non-commercial model: personal and research use only. Its images may be used commercially." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht kommerzielles Modell: nur private Nutzung und Forschung. Seine Bilder dürfen kommerziell genutzt werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modelo no comercial: solo uso personal e investigación. Sus imágenes pueden usarse comercialmente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modèle non commercial, usage personnel et recherche seulement. Ses images peuvent servir commercialement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modello non commerciale: solo uso personale e ricerca. Le sue immagini possono essere usate commercialmente."
+          }
+        }
+      }
+    },
     "Non-commercial: personal and research use only" : {
       "localizations" : {
         "de" : {
@@ -10652,6 +11072,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non commerciale: solo uso personale e ricerca. Le immagini create non possono essere vendute né usate in un prodotto commerciale."
+          }
+        }
+      }
+    },
+    "Non-commercial: the model is for personal use and research only. The images it makes may be used for any purpose, commercial use included." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht kommerziell: Das Modell ist nur für private Nutzung und Forschung. Die damit erstellten Bilder dürfen für jeden Zweck genutzt werden, auch kommerziell."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No comercial: el modelo es solo para uso personal e investigación. Las imágenes que crea pueden usarse para cualquier fin, también comercial."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non commercial : le modèle est réservé à l’usage personnel et à la recherche. Les images qu’il produit peuvent servir à tout usage, commercial compris."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non commerciale: il modello è solo per uso personale e ricerca. Le immagini che crea possono essere usate per qualsiasi scopo, anche commerciale."
           }
         }
       }
@@ -13904,6 +14352,34 @@
         }
       }
     },
+    "Siliconed ships no weights. The Compact version's image model is the publisher's, republished in 8 bits by vanes430 and downloaded from there; everything else comes from the publisher. The publisher's license applies, and vanes430's model card says what it changed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed enthält keine Gewichte. Das Bildmodell der Compact-Version ist das des Herausgebers, von vanes430 in 8 Bit neu veröffentlicht und von dort geladen; alles andere stammt vom Herausgeber. Es gilt die Lizenz des Herausgebers, und die Modellkarte von vanes430 nennt, was geändert wurde."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed no incluye ningún peso. El modelo de imagen de la versión Compacta es el del editor, republicado en 8 bits por vanes430 y descargado de allí; todo lo demás viene del editor. Se aplica la licencia del editor, y la ficha del modelo de vanes430 indica qué ha cambiado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed ne livre aucun poids. Le modèle d’image de la version Compact est celui de l’éditeur, republié en 8 bits par vanes430 et téléchargé chez lui ; tout le reste vient de l’éditeur. La licence de l’éditeur s’applique, et la fiche de vanes430 dit ce qu’il a changé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed non include alcun peso. Il modello d’immagine della versione Compact è quello dell’editore, ripubblicato a 8 bit da vanes430 e scaricato da lì; tutto il resto viene dall’editore. Si applica la licenza dell’editore, e la scheda di vanes430 indica cosa ha cambiato."
+          }
+        }
+      }
+    },
     "Siliconed ships no weights. The Light version is the publisher's model republished in 4 to 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed." : {
       "localizations" : {
         "de" : {
@@ -13928,6 +14404,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Siliconed non include alcun peso. La versione Leggera è il modello dell’editore ripubblicato a 4–8 bit da terzi, e scaricato da loro; si applica la licenza dell’editore, e la scheda di ciascun terzo indica cosa ha cambiato."
+          }
+        }
+      }
+    },
+    "Siliconed ships no weights. The Light version's image model is the publisher's, republished in 4 to 6 bits by vanes430 and downloaded from there; everything else comes from the publisher. The publisher's license applies, and vanes430's model card says what it changed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed enthält keine Gewichte. Das Bildmodell der Version Leicht ist das des Herausgebers, von vanes430 in 4 bis 6 Bit neu veröffentlicht und von dort geladen; alles andere stammt vom Herausgeber. Es gilt die Lizenz des Herausgebers, und die Modellkarte von vanes430 nennt, was geändert wurde."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed no incluye ningún peso. El modelo de imagen de la versión Ligera es el del editor, republicado en 4 a 6 bits por vanes430 y descargado de allí; todo lo demás viene del editor. Se aplica la licencia del editor, y la ficha del modelo de vanes430 indica qué ha cambiado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed ne livre aucun poids. Le modèle d’image de la version Légère est celui de l’éditeur, republié en 4 à 6 bits par vanes430 et téléchargé chez lui ; tout le reste vient de l’éditeur. La licence de l’éditeur s’applique, et la fiche de vanes430 dit ce qu’il a changé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed non include alcun peso. Il modello d’immagine della versione Leggera è quello dell’editore, ripubblicato a 4–6 bit da vanes430 e scaricato da lì; tutto il resto viene dall’editore. Si applica la licenza dell’editore, e la scheda di vanes430 indica cosa ha cambiato."
           }
         }
       }
@@ -14068,6 +14572,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Piccolo e veloce: 512 sul lato corto — sotto, i modelli sono fuori dal loro dominio"
+          }
+        }
+      }
+    },
+    "Smaller on disk: the image model in 8 bits, the publisher's text encoder; images slightly different." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kleiner auf dem Volume: das Bildmodell in 8 Bit, der Text-Encoder des Herausgebers; Bilder leicht anders."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Más pequeña en el disco: el modelo de imagen en 8 bits, el codificador de texto del editor; imágenes ligeramente distintas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus petite sur le disque : le modèle d’image en 8 bits, l’encodeur de texte de l’éditeur ; images légèrement différentes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Più piccola sul disco: il modello d’immagine a 8 bit, l’encoder di testo dell’editore; immagini leggermente diverse."
           }
         }
       }
@@ -15889,6 +16421,34 @@
         }
       }
     },
+    "The image model in 4 to 6 bits, published by vanes430 (GGUF Q4_K_M). The text encoder (bf16), tokenizers and VAE are the publisher's." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Bildmodell in 4 bis 6 Bit, veröffentlicht von vanes430 (GGUF Q4_K_M). Text-Encoder (bf16), Tokenizer und VAE stammen vom Herausgeber."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modelo de imagen en 4 a 6 bits, publicado por vanes430 (GGUF Q4_K_M). El codificador de texto (bf16), los tokenizadores y el VAE son los del editor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle d’image en 4 à 6 bits, publié par vanes430 (GGUF Q4_K_M). L’encodeur de texte (bf16), les tokenizers et le VAE sont ceux de l’éditeur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il modello d’immagine a 4–6 bit, pubblicato da vanes430 (GGUF Q4_K_M). Encoder di testo (bf16), tokenizer e VAE sono quelli dell’editore."
+          }
+        }
+      }
+    },
     "The image model in 4 to 8 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from unsloth (int8 convrot). Processor and VAE are the publisher's." : {
       "localizations" : {
         "de" : {
@@ -15913,6 +16473,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il modello d’immagine a 4–8 bit, pubblicato da unsloth (GGUF Q4_K_M); l’encoder di testo a 8 bit della Compact, da unsloth (int8 convrot). Processore e VAE sono quelli dell’editore."
+          }
+        }
+      }
+    },
+    "The image model in 8 bits, published by vanes430 (GGUF Q8_0). The text encoder (bf16), tokenizers and VAE are the publisher's." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Bildmodell in 8 Bit, veröffentlicht von vanes430 (GGUF Q8_0). Text-Encoder (bf16), Tokenizer und VAE stammen vom Herausgeber."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modelo de imagen en 8 bits, publicado por vanes430 (GGUF Q8_0). El codificador de texto (bf16), los tokenizadores y el VAE son los del editor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle d’image en 8 bits, publié par vanes430 (GGUF Q8_0). L’encodeur de texte (bf16), les tokenizers et le VAE sont ceux de l’éditeur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il modello d’immagine a 8 bit, pubblicato da vanes430 (GGUF Q8_0). Encoder di testo (bf16), tokenizer e VAE sono quelli dell’editore."
           }
         }
       }
@@ -16949,6 +17537,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La più piccola sul disco, pensata per i Mac da 8 GB; un altro insieme di pesi, quindi un’immagine può venire composta diversamente."
+          }
+        }
+      }
+    },
+    "The smallest on disk: the image model in 4 to 6 bits, the publisher's text encoder; another set of weights, so an image may come out composed differently." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die kleinste auf dem Volume: das Bildmodell in 4 bis 6 Bit, der Text-Encoder des Herausgebers; ein anderer Satz Gewichte, ein Bild kann daher anders komponiert ausfallen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La más pequeña en el disco: el modelo de imagen en 4 a 6 bits, el codificador de texto del editor; otro juego de pesos, así que una imagen puede componerse de otra forma."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La plus petite sur le disque : le modèle d’image en 4 à 6 bits, l’encodeur de texte de l’éditeur ; un autre jeu de poids, donc une image qui peut se composer autrement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La più piccola sul disco: il modello d’immagine a 4–6 bit, l’encoder di testo dell’editore; un altro insieme di pesi, quindi un’immagine può venire composta diversamente."
           }
         }
       }
@@ -18323,6 +18939,34 @@
         }
       }
     },
+    "Use the official schedule." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwenden Sie den offiziellen Zeitplan."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa el calendario oficial."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez le calendrier officiel."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa il calendario ufficiale."
+          }
+        }
+      }
+    },
     "Used" : {
       "localizations" : {
         "de" : {
@@ -18627,6 +19271,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "In attesa · %lld"
+          }
+        }
+      }
+    },
+    "Walks the noise levels ComfyUI uses for this model (the base model's), instead of the Turbo's own: to compare, same seed, same steps" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchläuft die Rauschstufen, die ComfyUI für dieses Modell verwendet (die des Basismodells), statt der des Turbo: zum Vergleich, gleicher Seed, gleiche Schritte"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recorre los niveles de ruido que ComfyUI usa para este modelo (los del modelo base) en lugar de los del Turbo: para comparar, misma semilla, mismos pasos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parcourt les niveaux de bruit que ComfyUI emploie pour ce modèle (ceux du modèle de base) au lieu de ceux de la Turbo : pour comparer, même graine, mêmes pas"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Percorre i livelli di rumore che ComfyUI usa per questo modello (quelli del modello base) invece di quelli del Turbo: per confrontare, stesso seed, stessi passi"
           }
         }
       }
@@ -20461,6 +21133,62 @@
         }
       }
     },
+    "leave out --detail" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--detail weglassen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "quita --detail"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "retirez --detail"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "togli --detail"
+          }
+        }
+      }
+    },
+    "leave out --schedule, or --model qwen-image-2.1" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--schedule weglassen oder --model qwen-image-2.1"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "quita --schedule, o --model qwen-image-2.1"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "retirez --schedule, ou --model qwen-image-2.1"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "togli --schedule, o --model qwen-image-2.1"
+          }
+        }
+      }
+    },
     "leave the format out (the output follows image 1)" : {
       "localizations" : {
         "de" : {
@@ -21017,34 +21745,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "non commerciale"
-          }
-        }
-      }
-    },
-    "non-commercial (circlestone-labs)" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "nicht kommerziell (circlestone-labs)"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "no comercial (circlestone-labs)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "non commerciale (circlestone-labs)"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "non commerciale (circlestone-labs)"
           }
         }
       }

@@ -12,7 +12,8 @@
 // **Nothing comes preinstalled, and nothing is downloaded before the user has read**: « Install »
 // opens, under the model's row, its license and the place it will take; « Accept and Install » records
 // the acceptance in the library (`Library.acceptLicense`), then downloads. The families shown are the
-// visible ones (Z-Image, Qwen-Image-2.1; all six in Developer Mode) — the library itself knows them all.
+// visible ones (Z-Image, Qwen-Image-2.1, Anima, in this order; Krea 2 too in Developer Mode) — the
+// library itself knows them all.
 
 import AppKit
 import Siliconed
@@ -97,10 +98,10 @@ struct ModelManagement: View {
     // ── What the sheet lists: the visible families, and what belongs to them ──
 
     private var families: [Library.Occupancy.FamilyPart] {
-        (app.occupancy?.families ?? []).filter { app.isVisible($0.family) }
+        AppState.inDisplayOrder((app.occupancy?.families ?? []).filter { app.isVisible($0.family) }, family: \.family)
     }
     private var imported: [(card: ModelCard, bytes: Int)] {
-        (app.occupancy?.imported ?? []).filter { app.isVisible($0.card.family) }
+        AppState.inDisplayOrder((app.occupancy?.imported ?? []).filter { app.isVisible($0.card.family) }, family: \.card.family)
     }
     private var loras: [(card: LoRACard, bytes: Int)] {
         (app.occupancy?.loras ?? []).filter { Family(rawValue: $0.card.target).map(app.isVisible) ?? app.developerMode }
@@ -173,7 +174,7 @@ struct ModelManagement: View {
         if let offer = app.installOffer, offer.family == p.family { installPanel(p, offer: offer) }
     }
 
-    /// **Before the first byte**: the version (when the family has two), the license, and the place on
+    /// **Before the first byte**: the version (when the family has several), the license, and the place on
     /// disk, then the user's answer.
     private func installPanel(_ p: Library.Occupancy.FamilyPart, offer: AppState.InstallOffer) -> some View {
         let card = ModelCard.of(p.family)
@@ -241,13 +242,14 @@ struct ModelManagement: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(card.name).fontWeight(.medium)
+                        .help(Welcome.blurb(p.family) ?? "")
                     Text("\(card.defaultSteps) steps").font(.caption).foregroundStyle(.secondary)
                     // The version on disk, said where there is a choice.
                     if p.family.variants.count > 1, p.dit > 0, let v = p.variant {
                         Text(verbatim: VersionChoice.name(v)).font(.caption).foregroundStyle(.secondary)
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .overlay(Capsule().strokeBorder(Palette.hairline))
-                            .help(VersionChoice.summary(v))
+                            .help(VersionChoice.summary(v, p.family))
                     }
                     if !card.license.commercial {
                         Text("non-commercial").font(.caption).foregroundStyle(.orange)
@@ -417,7 +419,7 @@ struct VersionChoice: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
-            Text(Self.summary(variant))
+            Text(Self.summary(variant, family))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .help(Self.details(variant, family))
@@ -432,12 +434,15 @@ struct VersionChoice: View {
         }
     }
 
-    /// What the version changes, without jargon.
-    static func summary(_ v: Variant) -> String {
-        switch v {
-        case .standard: String(localized: "The publisher's weights, as published.")
-        case .compact: String(localized: "Smaller on disk; images slightly different, about as fast.")
-        case .light: String(localized: "The smallest on disk, made for Macs with 8 GB; another set of weights, so an image may come out composed differently.")
+    /// What the version changes, without jargon. Anima's three versions share one text encoder, the
+    /// publisher's: only its image model changes.
+    static func summary(_ v: Variant, _ f: Family) -> String {
+        switch (v, f) {
+        case (.standard, _): String(localized: "The publisher's weights, as published.")
+        case (.compact, .anima): String(localized: "Smaller on disk: the image model in 8 bits, the publisher's text encoder; images slightly different.")
+        case (.compact, _): String(localized: "Smaller on disk; images slightly different, about as fast.")
+        case (.light, .anima): String(localized: "The smallest on disk: the image model in 4 to 6 bits, the publisher's text encoder; another set of weights, so an image may come out composed differently.")
+        case (.light, _): String(localized: "The smallest on disk, made for Macs with 8 GB; another set of weights, so an image may come out composed differently.")
         }
     }
 
@@ -452,6 +457,10 @@ struct VersionChoice: View {
             String(localized: "The image model in 4 to 6 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from Disty0 (SDNQ int8). Tokenizer and VAE are the publisher's.")
         case (.light, .qwenImage21):
             String(localized: "The image model in 4 to 8 bits, published by unsloth (GGUF Q4_K_M); the Compact's 8-bit text encoder, from unsloth (int8 convrot). Processor and VAE are the publisher's.")
+        case (.compact, .anima):
+            String(localized: "The image model in 8 bits, published by vanes430 (GGUF Q8_0). The text encoder (bf16), tokenizers and VAE are the publisher's.")
+        case (.light, .anima):
+            String(localized: "The image model in 4 to 6 bits, published by vanes430 (GGUF Q4_K_M). The text encoder (bf16), tokenizers and VAE are the publisher's.")
         default:
             String(localized: "The image model and the text encoder in the publisher's precision (bf16).")
         }

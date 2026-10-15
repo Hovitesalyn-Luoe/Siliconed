@@ -3,7 +3,8 @@ import Foundation
 
 /// The operations that are not GEMMs, on the CPU: they weigh little in FLOPs, they carry all
 /// the porting risk, and on the CPU they can be debugged. Those that measured faster on the GPU
-/// moved there one by one (`ElementwiseGPU`: SwiGLU, gated residuals, GELU); the rest stays here.
+/// moved there one by one (`ElementwiseGPU`: SwiGLU, sigmoid gate, gated residuals; `AnimaGELU`);
+/// the rest stays here.
 ///
 /// Layout convention, everywhere: row-major, batch of one, hence `[S, …]`.
 package enum Ops {
@@ -151,8 +152,6 @@ package enum Ops {
             }
         }
     }
-
-
 
     /// `y = W·x + b` with `W` as `[output, input]` and `x` a single vector — the adaLN, whose
     /// `M = 1` does not deserve the GPU.

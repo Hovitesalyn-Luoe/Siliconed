@@ -3,14 +3,14 @@ import Foundation
 /// **The product, as a library: a prompt goes in, pixels come out.**
 ///
 /// This file holds the engine and what it renders; the chain itself — modules, wires, `render` —
-/// is in `Chain.swift` and `Modules.swift`. It first pulled the chain out of the CLI's
+/// is in `Chain.swift`, `EngineRender.swift` and `Modules.swift`. It first pulled the chain out of the CLI's
 /// `renderCommand`, where it lived mixed in with `print` calls, to make it an object any caller can
 /// hold: the CLI, the app (`SiliconedApp`), a server if one is ever needed.
 ///
 /// Three rules govern it, and each answers a flaw the CLI path had by nature.
 ///
 /// 1. **The engine prints nothing and writes nothing.** It renders pixels and a trace; the PNG,
-///    `out/INDEX.md` and the on-screen timings remain the caller's business. A library that
+///    an index of the outputs and the on-screen timings remain the caller's business. A library that
 ///    imposes a working directory cannot be embedded.
 /// 2. **Everything that varies from one request to the next is in `Request`**, or on the module it
 ///    concerns. `EngineSettings.effective` stays what the *machine* can do (co-execution, decoder slices);
@@ -90,6 +90,8 @@ public final class Engine: Sendable {
         public var detail: Detail = .normal
         /// **The update rule** (`Request.solver`); `euler` writes nothing in the metadata.
         public var solver: Solver = .euler
+        /// **Whose σ** (`Request.schedule`); `official` writes nothing in the metadata.
+        public var schedule: SigmaSchedule = .official
         /// **The variations its noise was turned by** (`Request.variations`), those of null
         /// strength left out; empty for an ordinary render.
         public var variations: [Variation] = []
@@ -126,6 +128,7 @@ public final class Engine: Sendable {
             if let sketch { m["sketch"] = "\(sketch)" }
             if detail != .normal { m["detail"] = detail.rawValue }
             if solver != .euler { m["solver"] = solver.rawValue }
+            if schedule != .official { m["schedule"] = schedule.rawValue }
             // `seed` stays the origin's: the variations turn its noise, in order (`Variation.text`).
             if !variations.isEmpty { m["variation"] = Variation.text(variations) }
             if !loras.isEmpty {
@@ -194,6 +197,8 @@ public final class Engine: Sendable {
             public var detail: Detail = .normal
             /// `Request.solver`; `euler` when the key is absent (every render before it).
             public var solver: Solver = .euler
+            /// `Request.schedule`; `official` when the key is absent (every render before it).
+            public var schedule: SigmaSchedule = .official
             /// The variations its noise was turned by, in order (`Request.variations`); empty for an
             /// ordinary render.
             public var variations: [Variation] = []
@@ -223,6 +228,7 @@ public final class Engine: Sendable {
                 reproducible = read("reproducible") { Bool($0) }
                 detail = read("detail") { Detail(rawValue: $0) } ?? .normal
                 solver = read("solver") { Solver(rawValue: $0) } ?? .euler
+                schedule = read("schedule") { SigmaSchedule(rawValue: $0) } ?? .official
                 variations = read("variation") { Variation.parse($0) } ?? []
                 if let raw = m["lora"] {
                     // `name:0.80,…`, split at the LAST colon: the strength is always written.
@@ -271,7 +277,9 @@ public final class Engine: Sendable {
         /// encoder and the decoder. `image`: the index in the batch (0 for the text and the input
         /// image, which run only once).
         case stage(Stage, image: Int)
-        case text(tokens: Int, tokenizer: Double, encoder: Double)
+        /// `cached`: the conditioning was read back from `RenderCache` — its seconds are the cache's, not
+        /// the encoder's, and say nothing of the next prompt.
+        case text(tokens: Int, tokenizer: Double, encoder: Double, cached: Bool = false)
         /// The img2img image is encoded and mixed with the noise.
         case encoding(seconds: Double)
         /// **One denoiser evaluation**, numbered the same way for every model: `index` from
@@ -299,8 +307,8 @@ public final class Engine: Sendable {
     ///
     /// The time remaining comes **from the steps already done**, never from a constant: the speed
     /// depends on the machine, the heat and the page cache. Two speeds, because two kinds of step:
-    /// the half-size evaluations of the spectral schedule (the first ones, ~0.35 of a full step
-    /// on Z-Image 1024²) and the full ones. A common average, drawn from the reduced steps,
+    /// the half-size evaluations of the spectral schedule (the first ones; ~0.35 of a full step on
+    /// Z-Image 1024² when Z-Image still had them) and the full ones. A common average, drawn from the reduced steps,
     /// promised a render twice too short, then went backwards at every step. The time remaining
     /// therefore exists only **after the first full step**; decoding counts what it cost in this
     /// render, or 0.2 of a full step before the first.
@@ -381,7 +389,6 @@ public final class Engine: Sendable {
     static let file = DispatchQueue(label: "siliconed.engine", qos: .userInitiated)
 
     public init() {}
-
 }
 
 // ── the spectral schedule, which is a product rule ────────────────────────────────────

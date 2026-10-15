@@ -7,8 +7,8 @@ import Foundation
 ///
 /// A **GGUF** file (`"GGUF"` magic) opens through the same door (`GGUF.parse`): its
 /// tensors become entries under their published names, in torch shape (`ne` reversed), dtype
-/// `F32`, `F16`, `BF16` or `Q8_0` (interleaved blocks, which `QuantizedLayouts` reads); its
-/// key/values become `metadata`. The forge and an import see one more checkpoint format, not a
+/// `F32`, `F16`, `BF16`, `Q8_0` (interleaved blocks, which `QuantizedLayouts` reads) or one of the
+/// packed 4- to 6-bit types (`Q4_0`…`Q6_K`, kept whole); its key/values become `metadata`. The forge and an import see one more checkpoint format, not a
 /// second reader.
 package final class Safetensors {
     package struct Entry {
@@ -205,18 +205,27 @@ package final class Safetensors {
     /// Materializes a tensor as fp32, whatever its dtype on disk. The VAE is published in
     /// bf16: reading it as fp32 would give finite and wrong numbers (the step 2 mistake).
     package func materialize(_ name: String) -> [Float]? {
-        guard let e = entries[name], let p = pointer(name) else { return nil }
+        guard let e = entries[name] else { return nil }
         var out = [Float](repeating: 0, count: e.count)
+        guard e.count == 0 || out.withUnsafeMutableBufferPointer({
+            materialize(name, into: $0.baseAddress!, capacity: e.count) }) != nil else { return nil }
+        return out
+    }
+
+    /// **`materialize` into a caller's buffer** of `capacity` floats — the same widenings, written in
+    /// place (an arena slice: `AnimaConditioner`). Returns the count written; `nil` for a tensor that
+    /// is missing, of another dtype, or larger than `capacity` (refused before a value is written).
+    package func materialize(_ name: String, into out: UnsafeMutablePointer<Float>, capacity: Int) -> Int? {
+        guard let e = entries[name], let p = pointer(name), e.count <= capacity else { return nil }
         switch e.dtype {
-        case "F32": out.withUnsafeMutableBytes { $0.copyMemory(from: UnsafeRawBufferPointer(start: p, count: e.bytes)) }
-        case "BF16": out.withUnsafeMutableBytes {
-            Widen.bfloat16ToFloat32(source: p, destination: $0.baseAddress!, count: e.count) }
+        case "F32": UnsafeMutableRawPointer(out).copyMemory(from: p, byteCount: e.bytes)
+        case "BF16": Widen.bfloat16ToFloat32(source: p, destination: UnsafeMutableRawPointer(out), count: e.count)
         case "F16":
             let half = p.assumingMemoryBound(to: Float16.self)
             for i in 0..<e.count { out[i] = Float(half[i]) }
         default: return nil
         }
-        return out
+        return e.count
     }
 
     /// The integers of a golden, without conversion. `input_ids` and `attention_mask` are published as

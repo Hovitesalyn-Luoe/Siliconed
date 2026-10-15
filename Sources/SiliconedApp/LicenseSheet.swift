@@ -35,14 +35,26 @@ struct LicenseTerms: View {
             VStack(alignment: .leading, spacing: 4) {
                 if card.license.commercial {
                     Text("Commercial use is allowed, under the license's terms.")
+                } else if card.imagesCommercial {
+                    // The model is non-commercial, its images are not (Anima: CircleStone's § 2.e).
+                    Text("Non-commercial: the model is for personal use and research only. The images it makes may be used for any purpose, commercial use included.")
                 } else {
                     Text("Non-commercial: personal use and research only. Images made with it can't be sold or used in a commercial product.")
+                }
+                if card.family == .anima {
+                    Text("Anima derives from NVIDIA's Cosmos-Predict2, under the NVIDIA Open Model License.")
                 }
                 if card.license.requiredFilter {
                     Text("The license requires a content filter wherever the model is deployed.")
                 }
                 Group {
-                    if variant == .compact && !card.isImported {
+                    // Anima's Compact and Light: one third party, the image model alone (its encoder
+                    // is the publisher's in all three versions).
+                    if variant == .compact && card.family == .anima && !card.isImported {
+                        Text("Siliconed ships no weights. The Compact version's image model is the publisher's, republished in 8 bits by vanes430 and downloaded from there; everything else comes from the publisher. The publisher's license applies, and vanes430's model card says what it changed.")
+                    } else if variant == .light && card.family == .anima && !card.isImported {
+                        Text("Siliconed ships no weights. The Light version's image model is the publisher's, republished in 4 to 6 bits by vanes430 and downloaded from there; everything else comes from the publisher. The publisher's license applies, and vanes430's model card says what it changed.")
+                    } else if variant == .compact && !card.isImported {
                         Text("Siliconed ships no weights. The Compact version is the publisher's model republished in 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
                     } else if variant == .light && !card.isImported {
                         Text("Siliconed ships no weights. The Light version is the publisher's model republished in 4 to 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")

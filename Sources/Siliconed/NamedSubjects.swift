@@ -17,7 +17,7 @@ import Foundation
 ///
 /// The engine does not change: the images are `Request.references`, which
 /// Qwen-Image-2.1's encoder reads as `<image1>`, `<image2>`… in front of the prompt
-/// (`Qwen3VLTemplate.template`), and the render starts from fresh noise at the chosen format. What
+/// (`Qwen3VLPrompt.template`), and the render starts from fresh noise at the chosen format. What
 /// this file does is only words: **the text designates, the image describes**. The kind's noun and its
 /// retention instruction come from the kind, the number from the order; the name is the user's alone.
 ///

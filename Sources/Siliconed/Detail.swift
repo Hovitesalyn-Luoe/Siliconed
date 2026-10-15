@@ -32,9 +32,8 @@ import Foundation
 ///     (Qwen-Image-2.1) the node's default lands where the composition is decided, and changes the picture instead of
 ///     its texture. Hence one bell per family (`Bell`), hidden like the rest.
 ///
-/// Every denoiser honours it — Z-Image through `Sampler`, Anima and Krea 2
-/// through `euler` (their modulation tables tabulated at σ'), Qwen-Image-2.1 through its own
-/// sampler (late bell). The preview, the spectral schedule and img2img's start read the true σ.
+/// Z-Image honours it through `Sampler`, Krea 2 through `euler` (its modulation table tabulated at
+/// σ'), Qwen-Image-2.1 through its own sampler (late bell); Anima refuses it (below). The preview, the spectral schedule and img2img's start read the true σ.
 ///
 /// **`normal` is the identity, to the bit**: `modelSigmas` returns its argument, and every sampler
 /// passes the same σ it passed before. Judged on the products' md5.
@@ -59,8 +58,8 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     /// **Where a denoiser's bell sits.** The node lays it over step *indices*, so where it falls in
     /// σ depends on the schedule — and one shape fits no two families:
     ///
-    ///   - `standard`, the node's defaults (start 0.2, end 0.8, bias 0.5), for the two hidden
-    ///     families, unjudged. It was Z-Image's while Z-Image ran 7 evaluations (σ 1, 0.947, 0.882,
+    ///   - `standard`, the node's defaults (start 0.2, end 0.8, bias 0.5), for the hidden
+    ///     family (Krea 2), unjudged. It was Z-Image's while Z-Image ran 7 evaluations (σ 1, 0.947, 0.882,
     ///     0.8, 0.692, 0.545, 0.333): peak at σ 0.69, clean up to amount 2. On the 8 of the
     ///     official recipe (0.8.2) the same indices fall on σ 0.9 ×¼, 0.833 ×¾, 0.75 ×1, 0.643 ×½,
     ///     and More already moved the pose; at 1.5, the framing.
@@ -77,12 +76,19 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     finer texture; up to 1.3 clean, at 1.6 white crackle lines. On the Turbo's 8 fixed steps
     ///     (1, 0.978, 0.954, 0.927, 0.895, 0.845, 0.705, 0.415) the same bell weighs ½ on the 6th
     ///     (σ 0.845) and 1 on the 7th (σ 0.705): not judged by eye yet.
+    ///
+    /// **Anima has none** (`AnimaDenoisingModule.acceptsDetail`): it does not answer a lie with
+    /// finer texture but with **mosaic blocks** — flat squares of one colour, 16 to 32 pixels, on the
+    /// shelves first, then the clothes (the standard bell's More already moved seed 42's pose; Z-Image's
+    /// bell at 1.5 still tiled seed 7's shelves). At Z-Image's place and amounts 0.5 and 1 the three
+    /// seeds stay clean, with no measurable gain of |Laplacian| (−2 to +1 %): a choice that changes
+    /// nothing visible is not offered.
     package enum Bell: Sendable { case standard, zImage, late }
 
-    /// **The calibrated settings**, by eye at 512², the library prompt, on the two visible families
+    /// **The calibrated settings**, by eye at 512², the library prompt, on the three visible families
     /// at their default steps. `more` ≈ +10 % of high-frequency energy (mean |Laplacian| of the
     /// luminance) and the same picture; `most` the strongest that stays clean, a step short of where
-    /// artifacts begin. The two hidden families take the standard bell, unjudged.
+    /// artifacts begin. The hidden family takes the standard bell, unjudged.
     ///
     ///   - Z-Image (8 evaluations, seeds 42, 7, 0): More 2 → +9 / +8 / +11 %, same pose;
     ///     Most 2.5 → +11 / +10 / +15 %, clean (seed 42's hand goes to the hip, as Most's did on

@@ -101,16 +101,17 @@ final class PureFunctionsTests: XCTestCase {
         XCTAssertFalse(Spectral.divisible(height: 32, width: 32, by: 2, floor: 32))
     }
 
-    /// **Qwen-Image-2.1's plan**: two half-size steps for a generation whose half grid stays at
-    /// 512 px, none under a LoRA or Detail (`withLoRA`), from a start past 0, or at 512².
+    /// **Qwen-Image-2.1's plan**: no half-size step since 0.10 — the published recipe at full size,
+    /// even where the half grid would stay at 512 px (1024², 1024×1536); `SILICONED_SPECTRAL` alone
+    /// brings the path back.
     func testQwenSpectralPlan() throws {
         try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
         let module = QwenImage21DenoisingModule(map: "", scheduler: .init())
         let full = module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false)
-        XCTAssertEqual(full.reduced, 2)
-        XCTAssertEqual([full.reducedHeight, full.reducedWidth], [32, 32])
-        XCTAssertEqual(full.unreduced.reduced, 0)
-        XCTAssertEqual(module.plan(height: 96, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 2)
+        XCTAssertEqual(full.reduced, 0)
+        XCTAssertEqual([full.reducedHeight, full.reducedWidth], [64, 64])
+        XCTAssertEqual(full.evaluations, 8)
+        XCTAssertEqual(module.plan(height: 96, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
         XCTAssertEqual(module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: true).reduced, 0)
         XCTAssertEqual(module.plan(height: 64, width: 64, steps: 8, start: 1, withLoRA: false).reduced, 0)
         XCTAssertEqual(module.plan(height: 32, width: 32, steps: 8, start: 0, withLoRA: false).reduced, 0)

@@ -3,7 +3,7 @@ import MetalPerformanceShaders
 import MetalPerformanceShadersGraph
 import Foundation
 
-/// The Flux VAE decoder, in fp32, via `MPSGraph` — so without a line of MSL.
+/// The Flux VAE decoder, in fp32: `MPSGraph` passes of one kernel each, plus a few copy kernels of ours (`VAEKernels`).
 ///
 ///     latent [16, h, w] ─ ÷0.3611 then +0.1159 ─ conv_in ─ mid(resnet, attention, resnet)
 ///       ─ up×4 (3 resnets, ×2 except the last) ─ GroupNorm ─ SiLU ─ conv_out ─ image [3, 8h, 8w]

@@ -13,7 +13,6 @@ import Synchronization
 /// the text padding tokens are **semantic and visible** (pitfall 3.8, verified — the reference's
 /// mask has an L2 of √S, so it is all ones). The caller must confirm this.
 package final class Attention {
-    private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let graph: MPSGraph
     private let q: MPSGraphTensor
@@ -27,17 +26,17 @@ package final class Attention {
 
     package let heads: Int
     /// The heads of `k`/`v`: `heads` without GQA, fewer with it (Krea 2: 48 `q` heads for 12).
-    package let kvHeads: Int
+    private let kvHeads: Int
     /// Is the graph split into several SDPAs (GQA beyond `maxMatrix`)?
     private let isSplit: Bool
     package let sequence: Int
     /// The length of the keys and values. Equal to `sequence` for a self-attention; different
     /// for a **cross**-attention — Anima's, where 4,096 image tokens query the
     /// 512 text tokens.
-    package let keySequence: Int
+    private let keySequence: Int
     package let headDim: Int
     /// The split into query blocks, `0` for the original graph.
-    package let queryChunk: Int
+    private let queryChunk: Int
 
     /// Half precision is a **trade**, not a gain, and it is therefore optional.
     ///
@@ -144,7 +143,6 @@ package final class Attention {
         let graph = MPSGraph()
         self.graph = graph
         self.precision = precision
-        self.device = device
         self.queue = queue
         self.heads = heads
         self.kvHeads = kvHeads
@@ -346,7 +344,7 @@ package final class Attention {
         if isNew { Warnings.emit("✗ \(message)") }
     }
 
-    /// **The count, read at the end of a render** (`Engine.execute`, `Diagnostic`): the causes are said
+    /// **The count, read at the end of a render** (`Engine.execute`, in `EngineRender.swift`): the causes are said
     /// once per process, so a second render failing the same way would otherwise say nothing. Here
     /// every render that saw a failure ends on one line in its journal; `nil` when none failed.
     @discardableResult

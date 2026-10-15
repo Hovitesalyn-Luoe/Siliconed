@@ -1,19 +1,19 @@
 // **Siliconed.app — the product, and the compiled reference example of `docs/API.md`.**
 //
 // Two roles, one code. **The product**: what a user of Draw Things or ComfyUI downloads
-// — Z-Image Turbo and Qwen-Image-2.1 in front, nothing preinstalled, each license accepted
-// before its first byte, a diagnostic that reports the machine. **The example**: a pure client of the
+// — Z-Image Turbo, Qwen-Image-2.1 and Anima in front, nothing preinstalled, each license accepted
+// before its first byte, a measure of the machine that it can report. **The example**: a pure client of the
 // `Siliconed` library (`import`, never `@testable`), compiled by the package (executable target
 // `SiliconedApp`, `swift build`), so the API cannot drift from its doc without breaking the build —
 // and therefore the close-out. Everything it calls is public, exactly what another macOS 15 app
 // would see.
 //
-// The files: `App.swift` (the app, its menus, its window), `AppState.swift` (the state and the
+// The files: `App.swift` (the app, its menus, its window), `AppState.swift` and `AppState+….swift` (the state and the
 // calls to the library), `MainView.swift` (the window's view and the canvas), `Sidebar.swift` (the
 // left column), `Rack.swift` (the chain, each module with its settings), `ModelsSheet.swift` (install,
 // import, remove), `LicenseSheet.swift` (a license to accept),
 // `DiagnosticSheet.swift` (« Report My Configuration »), `Problems.swift` (each `EngineError`, in the
-// user's language), `Statistics.swift` (the floating statistics palette), `RemoteControl.swift` (the
+// user's language), `Statistics.swift` (the floating statistics palette), `RemoteControl.swift` and `RemoteControlSocket.swift` (the
 // socket that `silicontrol …` drives, `docs/REMOTE-CONTROL.md`; its `help` text is the module
 // `SilicontrolHelp`, shared with `silicontrol`); the phrases are in `Localizable.xcstrings` (English source, fr de es it). To launch it:
 // `tools/app.sh` (builds `Siliconed.app` at the repository root, translations included, and opens
@@ -234,7 +234,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         watchKeys()
         NSApp.activate()
         f.makeKeyAndOrderFront(nil)
-        // First launch (nothing comes preinstalled): the canvas welcomes and offers the two models
+        // First launch (nothing comes preinstalled): the canvas welcomes and offers the three models
         // (`Welcome`, MainView.swift) — no sheet thrown at the user before they have seen the window.
     }
 

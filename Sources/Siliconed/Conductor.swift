@@ -18,8 +18,8 @@ import MetalPerformanceShaders
 ///
 /// ## What this file adds to the second measurement
 ///
-/// The second measurement **froze** `T` at the ratio of the measured throughputs (0.631). That was enough to judge the cut,
-/// not to absorb the thermal drift of a two-minute render — a series recorded **13.2 %** between
+/// The second measurement **froze** `T` at the ratio of the measured throughputs (0.631). That was
+/// enough to judge the cut, not to absorb the thermal drift of a two-minute render — a series recorded **13.2 %** between
 /// the first render and the fourth. A frozen `T` on a machine that slows down makes the fast
 /// engine wait, and the wait is wall-clock time that neither of them counts as its own.
 /// The conductor therefore servo-controls it, shape by shape, on the times actually observed.
@@ -35,8 +35,8 @@ import MetalPerformanceShaders
 ///    bandwidth, not optimistic.
 ///
 /// **`@unchecked Sendable`**: the AMX thread reads `self` while the calling thread works
-/// on the GPU, and that is intended. Their baton pass is made of two semaphores (`ready`, `done`)
-/// : the calling thread only writes the `Job` before `ready.signal()` and only reads the result after
+/// on the GPU, and that is intended. Their baton pass is made of two semaphores (`ready`, `done`):
+/// the calling thread only writes the `Job` before `ready.signal()` and only reads the result after
 /// `done.wait()`. Each writes its own slice of the output's rows (point 2 above).
 package final class Conductor: @unchecked Sendable {
     /// A task entrusted to the AMX engine. Written by the main thread, read by the worker thread,

@@ -1,6 +1,6 @@
 import Foundation
 
-/// **Importing what a user brings**: a `.safetensors`, LoRA or model, without VAE or encoder —
+/// **Importing what a user brings**: a `.safetensors` or a `.gguf`, LoRA or model, without VAE or encoder —
 /// this is how Civitai publishes. We recognize what it is and for which family, install what is
 /// missing from the family (tokenizers, encoder, VAE, from the vendor), and forge. The file
 /// brought can then be thrown away: the render only reads `store/`.
@@ -26,7 +26,7 @@ public enum ModelImport {
     }
 
     /// What the file is, without forging anything.
-    public static func recognize(_ file: String) throws(EngineError) -> (Kind, Family?) {
+    package static func recognize(_ file: String) throws(EngineError) -> (Kind, Family?) {
         try refusingAs(file) {
             let s = try TensorSource(paths: [file])
             if ForgeLoRA.isLoRA(s.names) { return (.lora, nil) }
@@ -47,7 +47,7 @@ public enum ModelImport {
     }
 
     /// `My Model v2.safetensors` → `my-model-v2`.
-    public static func slug(_ name: String) -> String {
+    package static func slug(_ name: String) -> String {
         let simple = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
         let pieces = simple.split { !($0.isLetter || $0.isNumber) || !$0.isASCII }
         return pieces.joined(separator: "-").prefix(80).description
@@ -65,7 +65,7 @@ public enum ModelImport {
         return candidate
     }
 
-    /// **Imports** a `.safetensors`. `name`: a model's displayed name (by default, the file).
+    /// **Imports** a `.safetensors` or a `.gguf`. `name`: a model's displayed name (by default, the file).
     /// `journal` receives the progress — a family installation downloads several GB;
     /// `cancellation` stops it during these downloads.
     public static func importFile(_ file: String, name: String? = nil, in b: Library,
@@ -163,7 +163,7 @@ extension Library {
     }
 
     /// **Installs a family** from the vendor (downloads, forges, throws away the sources).
-    /// `variant`: Standard or Compact (`Family.variants`); `nil`, the version already there, Standard
+    /// `variant`: Standard, Compact or Light (`Family.variants`); `nil`, the version already there, Standard
     /// if none. Installing the other version **replaces** the one there once the new one is complete
     /// (before, only if the disk cannot hold both: `installPlan(_:variant:baseDiT:)` says so).
     /// `baseDiT`: also the vendor's DiT — useless if one only renders with an imported model; without

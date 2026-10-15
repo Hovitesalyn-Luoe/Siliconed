@@ -26,8 +26,9 @@ import Synchronization
 ///    on the defaults, so their bits and the md5 judges do not depend on a measurement of the day.
 ///
 /// The profile carries the fingerprint of the machine that produced it, the map a finer one
-/// (`Diagnostic.Fingerprint`). **Each is refused if it does not match** — a profile measured on an M4 Pro applied here would pass its constants
-/// off as ours, and that is exactly the confusion this file exists to prevent.
+/// (`Diagnostic.Fingerprint`). **Each is refused if it does not match** — a profile measured on an
+/// M4 Pro applied here would pass its constants off as ours, and that is exactly the confusion this
+/// file exists to prevent.
 public struct EngineSettings: Sendable {
 
     // ── what is tunable ────────────────────────────────────────────────────────────────────
@@ -156,7 +157,7 @@ public struct EngineSettings: Sendable {
 
     /// **The render cache** (`RenderCache`, `SILICONED_CACHE`): what does not depend on the seed — the
     /// text stage's output, the image encoder's latents, Qwen-Image-2.1's K/V of the last edit — kept
-    /// under `<racine>/cache/` and read back, bit for bit, by the next render that needs it. A setting
+    /// under `<root>/cache/` and read back, bit for bit, by the next render that needs it. A setting
     /// of time and disk, never of the image: a profile may write it.
     public var cache = true
 

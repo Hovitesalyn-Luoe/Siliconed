@@ -23,7 +23,7 @@ package final class Prefetcher {
     /// 64 MiB. At 256 the measurement falls back to 1.60 GB/s: a slice that is too large drowns the kernel's
     /// read-ahead queue and the touch catches up with the read instead of following it.
     package static let span = 64 << 20
-    package static let defaultThreads = 4
+    private static let defaultThreads = 4
 
     private let artifact: Artifact
     private let threads: Int
@@ -143,12 +143,6 @@ package final class TailStream {
     package let slotBytes: Int
     /// The staging buffers allocated.
     package var slotCount: Int { slots.count }
-    /// Measurement: seconds the engine waited for a staged block, bytes `pread`, seconds of reads (summed over lanes).
-    package private(set) var waited = 0.0
-    package final class Counters: Sendable {
-        package let bytes = Atomic<Int>(0), nanoseconds = Atomic<Int>(0)
-    }
-    package let counters = Counters()
 
     private struct Staged { let slot: Int; let group: DispatchGroup }
     private let descriptor: Int32
@@ -235,13 +229,7 @@ package final class TailStream {
         var first = start
         while first < end {
             let last = min(first + lane, end), from = first
-            let counters = self.counters
             queue.async(group: group) {
-                let t0 = DispatchTime.now().uptimeNanoseconds
-                defer {
-                    counters.bytes.wrappingAdd(last - from, ordering: .relaxed)
-                    counters.nanoseconds.wrappingAdd(Int(DispatchTime.now().uptimeNanoseconds - t0), ordering: .relaxed)
-                }
                 var offset = from
                 while offset < last {
                     let length = min(Self.piece, last - offset)
@@ -279,9 +267,7 @@ package final class TailStream {
         let entry = staged[name]
         lock.unlock()
         guard let entry else { return nil }
-        let t0 = Date()
         entry.group.wait()
-        waited += Date().timeIntervalSince(t0)
         return UnsafeRawPointer(slots[entry.slot]) + (offset - spans[b].start)
     }
 

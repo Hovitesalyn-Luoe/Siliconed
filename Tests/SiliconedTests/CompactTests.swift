@@ -17,10 +17,70 @@ final class CompactTests: XCTestCase {
         Installer.dit(f, .compact) + Installer.encoder(f, .compact).dropFirst()
     }
 
-    func testOnlyZImageAndQwenHaveACompactAndALight() {
+    func testEveryFamilyButKrea2HasACompactAndALight() {
         for f in Family.allCases {
-            XCTAssertEqual(f.variants, Self.compactFamilies.contains(f) ? [.standard, .compact, .light] : [.standard], f.name)
+            XCTAssertEqual(f.variants, f == .krea2 ? [.standard] : [.standard, .compact, .light], f.name)
         }
+    }
+
+    /// **Anima's Compact and Light**: vanes430's GGUF Q8_0 and Q4_K_M of Turbo v1.1, pinned (revision,
+    /// sha256), the very files judged (their fixtures); the Q8_0 all Q8_0, the Q4_K_M nothing under 4
+    /// bits; both read the Standard's encoder and components; their license links the publisher's
+    /// files, then vanes430's card. **Their size is the file's plus the text adapter widened**: the
+    /// adapter's quantized tensors are written in fp32 (`ForgeDiT.writeAdapter`), counted here from the
+    /// published header alone — within 2 % of `installedSize`.
+    func testAnimaCompactAndLightAreTheJudgedGGUFs() throws {
+        let hex = try NSRegularExpression(pattern: "^[0-9a-f]+$")
+        func isHex(_ s: String) -> Bool { hex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
+        let blocks: [String: (values: Int, bytes: Int)] = ["Q8_0": (32, 34), "Q4_K": (256, 144), "Q5_K": (256, 176), "Q6_K": (256, 210)]
+        let floor: Set<String> = ["F32", "F16", "BF16", "Q8_0", "Q6_K", "Q5_K", "Q4_K"]
+        let standard = Family.anima.installedSize(.standard)
+        var sizes: [Variant: Int] = [:]
+        for (v, suffix) in [(Variant.compact, "Q8_0.gguf"), (.light, "Q4_K_M.gguf")] {
+            let dit = Installer.dit(.anima, v)
+            XCTAssertEqual(dit.count, 1)
+            let x = dit[0]
+            XCTAssertTrue(x.path.hasSuffix(suffix), x.path)
+            XCTAssertEqual(x.repository.name, "vanes430/Anima-Turbo-V1.1-GGUF")
+            XCTAssertTrue(x.repository.revision.count == 40 && isHex(x.repository.revision))
+            let sha = try XCTUnwrap(x.sha256)
+            XCTAssertTrue(sha.count == 64 && isHex(sha))
+            let d = try fixture(x)
+            XCTAssertEqual(d.manifest["family"] as? String, "anima")
+            XCTAssertEqual(d.manifest["format"] as? String, "gguf")
+            let header = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: d.folder + "/header.json"))) as? [String: Any])
+            let tensors = try XCTUnwrap(header["tensors"] as? [String: [String: Any]])
+            XCTAssertEqual(tensors.count, 685)
+            let types = Set(tensors.values.compactMap { $0["type"] as? String })
+            XCTAssertTrue(types.isSubset(of: floor), "\(types.subtracting(floor)) under the floor")
+            XCTAssertTrue(types.contains(v == .compact ? "Q8_0" : "Q4_K"))
+            if v == .compact { XCTAssertFalse(types.contains("Q4_K") || types.contains("Q6_K")) }
+
+            XCTAssertEqual(Installer.encoder(.anima, v).map(\.path), Installer.encoder(.anima).map(\.path))
+            XCTAssertEqual(Installer.encoder(.anima, v).map(\.repository.name), Installer.encoder(.anima).map(\.repository.name))
+            XCTAssertEqual(Family.anima.encoderMap(v), Family.anima.encoderMap)
+            let licenses = Installer.licenseFiles(.anima, v), publisher = Installer.licenseFiles(.anima)
+            XCTAssertEqual(licenses.prefix(publisher.count).map(\.repository.name), publisher.map(\.repository.name))
+            XCTAssertEqual(licenses.dropFirst(publisher.count).map(\.repository.name), [x.repository.name])
+            XCTAssertEqual(licenses.dropFirst(publisher.count).map(\.path), ["README.md"])
+
+            // The adapter's quantized tensors, fp32 in place of their blocks.
+            var widened = 0
+            for (name, t) in tensors where name.hasPrefix("llm_adapter.") {
+                guard let type = t["type"] as? String, let b = blocks[type], let ne = t["ne"] as? [Int] else { continue }
+                let n = ne.reduce(1, *)
+                widened += 4 * n - n / b.values * b.bytes
+            }
+            XCTAssertGreaterThan(widened, 0)
+            let size = Family.anima.installedSize(v)
+            let bytes = try XCTUnwrap(d.manifest["file_bytes"] as? Int)
+            XCTAssertEqual(Double(size.dit), Double(bytes + widened), accuracy: 0.02 * Double(bytes + widened), v.rawValue)
+            XCTAssertEqual(size.encoder, standard.encoder)
+            XCTAssertEqual(size.components, standard.components)
+            sizes[v] = size.dit
+        }
+        XCTAssertLessThan(try XCTUnwrap(sizes[.light]), try XCTUnwrap(sizes[.compact]))
+        XCTAssertLessThan(try XCTUnwrap(sizes[.compact]), standard.dit)
     }
 
     /// **The Light**: one DiT file, a third party's, pinned (revision, sha256), the

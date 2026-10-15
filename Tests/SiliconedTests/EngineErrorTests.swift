@@ -13,7 +13,7 @@ final class EngineErrorTests: XCTestCase {
     func testEveryCaseHasAUniqueCodeAndASentence() {
         let codes = EngineError.samples.map(\.code)
         XCTAssertEqual(Set(codes).count, codes.count, "two cases share a code: \(codes)")
-        XCTAssertEqual(codes.count, 40, "a case was added: give it a sample, a code, a sentence")
+        XCTAssertEqual(codes.count, 42, "a case was added: give it a sample, a code, a sentence")
         for e in EngineError.samples {
             XCTAssertTrue(e.code.allSatisfy { $0.isLowercase || $0 == "_" }, e.code)
             let sentence = e.errorDescription ?? ""
@@ -90,6 +90,7 @@ final class EngineErrorTests: XCTestCase {
         r.threads = 6
         r.zImageMaps = MemoryFixtures.zImageMaps()
         r.qwenMaps = MemoryFixtures.qwenMaps()
+        r.animaMaps = MemoryFixtures.animaMaps()
         return r
     }
 
@@ -122,21 +123,21 @@ final class EngineErrorTests: XCTestCase {
     }
 
     /// **The memory refused is the floor, computed from the request**: on a 16 GB Mac (B = 10 GiB)
-    /// every model fits at 1024×1536 (Krea 2's 7.8 GB, the hidden families' measured fallback, is the
-    /// largest); with B = 2 GiB none does at 1024². On the fixtures' maps and 6 P cores: the figures do
+    /// every model fits at 1024×1536 (Krea 2's 7.8 GB, the hidden family's measured fallback, is the
+    /// largest); with B = 1 GiB none does at 1024² (Anima, computed, needs 1.35 GB there). On the fixtures' maps and 6 P cores: the figures do
     /// not depend on the Mac (the CI's runner, with fewer P cores, once found a generation above an
     /// edit — true there, and no property: no test compares them any more).
     func testTheMemoryNeedIsComputed() {
         for card in ModelCard.allCards {
             let needs = [(512, 512), (832, 1216), (1024, 1024), (1024, 1536)].map { need(card, $0, $1) }
             XCTAssertNoThrow(try preflight(card, 1024, 1536, memory: sixteen), card.id)
-            XCTAssertThrowsError(try preflight(card, 1024, 1024, memory: 2 << 30), card.id)
+            XCTAssertThrowsError(try preflight(card, 1024, 1024, memory: 1 << 30), card.id)
             // Never decreases with the area.
             XCTAssertEqual(needs, needs.sorted(), card.id)
         }
-        // Anima's 832×1216 peaks above its 1024²: the 1024² takes the larger (fallback).
-        XCTAssertEqual(ModelCard.anima.memoryNeed(ModelCard.anima.memoryRequest(width: 1024, height: 1024, base: 0)), 5_300_000_000)
-        // Never measured at 1024×1536: the largest peak any hidden family measured there.
+        // Anima is computed (`MemoryNeed.anima`), no longer the measured fallback.
+        XCTAssertFalse(MemoryNeed.of(request(.anima, 1024, 1024))!.isFallback)
+        // Krea 2's largest measured peak.
         XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1536, base: 0)), 7_800_000_000)
         // An edit is charged its references: more references, never less.
         XCTAssertLessThan(need(.qwenImage21, 1024, 1024, references: 1), need(.qwenImage21, 1024, 1024, references: 3))

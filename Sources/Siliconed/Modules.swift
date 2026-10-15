@@ -186,8 +186,12 @@ public struct AnimaTextModule: TextModule {
         encoder.cancellation = context.cancellation
         let hidden = try encoder.encode(ids: qwenIds, realTokens: qwenIds.count)
         context.footprints.encoder = Arena.processFootprint()
-        let values = try AnimaConditioner(path: adapter)
-            .condition(t5: t5Ids, qwen: hidden, qwenRows: qwenIds.count)
+        // `hidden` points into the encoder's arena: the encoder must outlive the conditioner's read
+        // of it, which ARC does not see through an unsafe pointer. So both arenas are alive at once —
+        // what the memory need charges in the text phase (`MemoryNeed.anima`).
+        let values = try withExtendedLifetime(encoder) {
+            try AnimaConditioner(path: adapter).condition(t5: t5Ids, qwen: hidden, qwenRows: qwenIds.count)
+        }
         return Conditioning(format: .anima, rows: values.count / 1024, width: 1024,
                                values: values, tokens: qwenIds.count)
     }
@@ -204,6 +208,11 @@ public struct AnimaDenoisingModule: DenoisingModule {
 
     public init(map: String) { self.map = map }
 
+    /// Every `Solver`: `euler` walks them on Anima's own σ, judged against diffusers' schedulers.
+    public var solvers: [Solver] { Solver.allCases }
+    /// No Detail: the lie about σ makes mosaic blocks or nothing visible (`Detail`).
+    public var acceptsDetail: Bool { false }
+
     public func sigmas(steps: Int) -> [Float] { AnimaDiT.sigmas(steps: steps) }
 
     public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
@@ -217,7 +226,10 @@ public struct AnimaDenoisingModule: DenoisingModule {
                                latentWidth: latent.width,
                                textLength: text.rows, freezeCut: context.reproducible, lora: lora)
         dit.cancellation = context.cancellation
-        try euler(&latent, sigmas: sigmas(steps: steps), start: start, context: context) { x, sigma in
+        // Every σ the DiT will be told (`euler` tells it `context.told`), its modulations computed at once.
+        let schedule = sigmas(steps: steps)
+        try dit.tabulate(sigmas: Array(context.told(schedule, start: start)[start..<(schedule.count - 1)]))
+        try euler(&latent, sigmas: schedule, start: start, context: context) { x, sigma in
             try text.values.withUnsafeBufferPointer {
                 try dit.forward(latent: x, context: $0.baseAddress!, sigma: sigma)
             }
@@ -258,25 +270,43 @@ public struct QwenImageDecodingModule: DecodingModule {
 /// `start`: the first step executed of the full schedule (img2img). `v` is
 /// `dx/dσ` as is, hence x̂₀ = x − σ·v for the preview. Cancellation is checked before each step,
 /// and between layers in the DiT.
-func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0, context: Context,
-           speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
+///
+/// **Another `Solver`** (`context.solver`, Anima's since 0.10; Krea 2 declares Euler alone) walks the
+/// same σ through `SolverWalk` — `v` is already its `m = dx/dσ`, no negation — and the preview and a
+/// sketch read the walk's own x̂₀ with σₓ = 0, as in `Sampler`. Euler keeps the loop below: its two
+/// roundings (`dt` in float, then `x + dt·v`) are the reference's `scheduler.step`, to the bit.
+func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
+           context: Context, speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
     context.beginDenoising(evaluations: sigmas.count - 1 - start)
-    // What the DiT is told (`Detail`); the step below keeps the true σ.
+    // What the DiT is told (`Detail`, the standard bell: Krea 2's; Anima refuses Detail); the step
+    // below keeps the true σ.
     let told = context.told(sigmas, start: start)
+    let count = latent.values.count
+    var stream = Noise(seed: context.solverSeed ^ 0x5EED_A9CE_57A1_0000)
+    let walk = context.solver == .euler ? nil
+        : SolverWalk(solver: context.solver, schedule: sigmas, start: start, count: count,
+                     noise: context.solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
     for i in start..<(sigmas.count - 1) {
         try context.check()
         let tick = Date()
         let v = try latent.values.withUnsafeBufferPointer { try speed($0.baseAddress!, told[i]) }
-        let dt = sigmas[i + 1] - sigmas[i]
-        latent.values.withUnsafeMutableBufferPointer { x in
-            for j in 0..<x.count { x[j] += dt * v[j] }
+        if let walk {
+            latent.values.withUnsafeMutableBufferPointer { x in
+                v.withUnsafeBufferPointer { walk.step(latent: x.baseAddress!, derivative: $0.baseAddress!) }
+            }
+        } else {
+            let dt = sigmas[i + 1] - sigmas[i]
+            latent.values.withUnsafeMutableBufferPointer { x in
+                for j in 0..<x.count { x[j] += dt * v[j] }
+            }
         }
         let seconds = Date().timeIntervalSince(tick)
         try latent.values.withUnsafeBufferPointer { x in
             try v.withUnsafeBufferPointer { v in
                 try context.stepDone(sigma: sigmas[i], seconds: seconds, evaluatedHeight: latent.height,
-                                     evaluatedWidth: latent.width, space: latent.space, x: x.baseAddress!,
-                                     v: v.baseAddress!, nextSigma: sigmas[i + 1],
+                                     evaluatedWidth: latent.width, space: latent.space,
+                                     x: walk?.estimate ?? x.baseAddress!,
+                                     v: v.baseAddress!, nextSigma: walk == nil ? sigmas[i + 1] : 0,
                                      fullHeight: latent.height, fullWidth: latent.width)
             }
         }
@@ -447,6 +477,20 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     /// `check(steps:)` has refused that count before.
     public func sigmas(steps: Int) -> [Float] { scheduler.sigmas }
 
+    /// The official σ, or ComfyUI's for this architecture (`SigmaSchedule`) — a comparison.
+    public var schedules: [SigmaSchedule] { SigmaSchedule.allCases }
+    public func sigmas(steps: Int, schedule: SigmaSchedule) -> [Float] {
+        switch schedule {
+        case .official: return sigmas(steps: steps)
+        case .comfyUI: return QwenImage21Pipeline.comfySigmas(steps: steps)
+        }
+    }
+
+    /// **The product's `k` is 0** (15/10/2026): every evaluation at full size, the published
+    /// recipe as it stands — a half-size phase changes the image, and a recipe compared with another
+    /// (ComfyUI's, `SigmaSchedule`) must be the recipe itself. The path stays, `SILICONED_SPECTRAL`
+    /// forces it (a measurement). What follows is the rule it ran under until then.
+    ///
     /// The Turbo's spectral schedule: **its first two evaluations at half size** (`spectralSteps`, the
     /// half-size phase of `QwenImage21Sampler`), judged clean by eye on two prompts × three seeds. A
     /// fixed `k`, not a threshold on the band the first σs carry (`f* = (1 − σ)/σ ≤ 0.10`): that rule
@@ -472,8 +516,8 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
                              reducedHeight: k > 0 ? height / 2 : height, reducedWidth: k > 0 ? width / 2 : width)
     }
 
-    /// The half-size evaluations of a generation (`plan`).
-    package static let spectralSteps = 2
+    /// The half-size evaluations of a generation (`plan`): none since 0.10 — 2 before.
+    package static let spectralSteps = 0
 
     /// **Whether a batch's next image may reuse this one's DiT** (`Context.keptDenoiser`): only when its
     /// denoising builds no half-size DiT first (`reduced` 0) — kept beside the half-size one, the full
@@ -525,10 +569,10 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
         sampler.solver = context.solver
         sampler.solverSeed = context.solverSeed
         let (height, width) = (latent.height, latent.width)
-        // Detail, like a LoRA, turns it off (`plan`); an edit has none.
+        // Detail, like a LoRA, turns it off (`plan`), and so does another schedule; an edit has none.
         let reduced = references.isEmpty
             ? plan(height: height, width: width, steps: steps, start: start,
-                   withLoRA: lora != nil || context.detail != .normal).reduced : 0
+                   withLoRA: lora != nil || context.detail != .normal, schedule: context.schedule).reduced : 0
         // **The previous image's DiT is reused only when no half-size DiT comes first**
         // (`keepsDenoiser`): the memory need charges one DiT at a time — the half-size one is built and
         // released before the full one —, and the full DiT of image n kept beside the half-size one of
@@ -549,7 +593,7 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
                 sampler.keptReserve = cache.keptReserve
             }
         }
-        let σ = sigmas(steps: steps)
+        let σ = sigmas(steps: steps, schedule: context.schedule)
         context.beginDenoising(evaluations: steps)
         try sampler.run(latent: &latent.values, height: height, width: width, hidden: text.values,
                         slots: text.imageSlots, references: references, sigmas: σ,
@@ -599,7 +643,7 @@ extension QwenImage21DenoisingModule {
 /// and checked at construction: a missing file throws here, before a minute of computation, with
 /// its full path.
 ///
-/// The three constructors and `named` take the library under the same label, `in:` — that of
+/// The constructors and `named` take the library under the same label, `in:` — that of
 /// `ModelCard.missing(in:)`. A custom chain becomes a model through
 /// `Model(card:chain:)`: it is the only thing `render`, `renderBatch` and `events` take.
 public struct Model: Sendable {
@@ -617,8 +661,8 @@ public struct Model: Sendable {
         self.card = card; self.chain = chain; self.library = library
     }
 
-    /// `z-image`, `anima`, `krea2` — what `--model` accepts; an imported model is called
-    /// `<family>/<nom>` (`z-image/mon-modele`).
+    /// `z-image`, `anima`, `krea2`, `qwen-image-2.1` — what `--model` accepts; an imported model is
+    /// called `<family>/<name>` (`z-image/my-model`).
     public var identifier: String { card.id }
     public var name: String { card.name }
     /// The architecture — the target a LoRA declares.
@@ -673,7 +717,7 @@ public struct Model: Sendable {
         }
     }
 
-    /// The library's `store/<nom>` map, if it is there (`MissingFile` otherwise, folded into
+    /// The library's `store/<name>` map, if it is there (`MissingFile` otherwise, folded into
     /// `modelNotInstalled` by `building`).
     static func map(_ name: String, _ b: Library) throws -> String {
         let path = name.hasPrefix("/") ? name : b.map(name)

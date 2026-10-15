@@ -301,7 +301,7 @@ struct QuantizedGroup {
 ///     per row, `<l>.weight_scale` F32 `[N, 1]`. Kept as published with its group
 ///     (`QuantizedTensor.rotation`); the map says `"rotation"`.
 ///
-/// Refused, the whole file with it: anything 4-bit (packed `U8`, `weight_scale_2`, an nvfp4/mxfp4
+/// Refused, the whole file with it: anything 4-bit outside GGUF's blocks (packed `U8`, `weight_scale_2`, an nvfp4/mxfp4
 /// format), mxfp8 (E8M0 exponents), fp8 by 128×128 blocks (`weight_scale_inv`), fp8 E5M2, a `convrot` on anything but a per-row int8 or with a
 /// group that is not a power of 4 up to 256 dividing K, an int8 with a nonzero zero point, an SDNQ
 /// with SVD factors, a scale of any other shape.
@@ -594,7 +594,7 @@ enum QuantizedLayouts {
             else if name.hasSuffix(".input_scale") || name.hasSuffix(".scale_input") {
                 inputScales += 1
                 r.consumed.insert(name)
-            } else if (name.hasSuffix(".weight_scale") || name.hasSuffix(".scale_weight")) {
+            } else if name.hasSuffix(".weight_scale") || name.hasSuffix(".scale_weight") {
                 // A scale whose weight is not 8-bit: nothing to multiply (as before the 8-bit maps).
                 r.consumed.insert(name)
                 r.notes.append("\(name): a scale without an 8-bit weight — ignored")

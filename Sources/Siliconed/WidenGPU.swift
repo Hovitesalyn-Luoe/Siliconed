@@ -388,5 +388,4 @@ package final class WidenGPU {
     }
 
     package func countFallback(_ count: Int) { fellBack += count }
-
 }

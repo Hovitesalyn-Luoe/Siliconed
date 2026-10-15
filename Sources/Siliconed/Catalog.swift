@@ -62,7 +62,8 @@ public struct RecommendedFormat: Sendable, Hashable, CustomStringConvertible {
 /// **What is known of a model without opening it** — name, license, steps, formats.
 /// `Hashable`: a sheet serves as is as a `Picker`'s `tag`.
 public struct ModelCard: Sendable, Identifiable, Hashable {
-    /// `z-image`, `anima`, `krea2` — `Model.identifier`; `<famille>/<nom>` for an imported one.
+    /// `z-image`, `anima`, `krea2`, `qwen-image-2.1` — `Model.identifier`; `<family>/<name>` for an
+    /// imported one.
     public let id: String
     public let name: String
     /// The architecture: the target a LoRA declares, and where tokenizers, encoder, VAE come from.
@@ -93,10 +94,12 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
         id: "z-image", name: "Z-Image Turbo", family: .zImage, map: nil,
         license: License(text: "Apache 2.0", commercial: true, requiredFilter: false, urls: Installer.licenseURLs(.zImage)),
         defaultSteps: 8, space: .flux, formats: recommendedFormats)
-    /// ⚠️ Non-commercial: never the default of a product that is sold.
+    /// ⚠️ Non-commercial (CircleStone Labs Non-Commercial License; the model derives from NVIDIA's
+    /// Cosmos-Predict2, NVIDIA Open Model License): never the default of a product that is sold. Its
+    /// images, the license's « Outputs », may be used commercially (§ 2.e).
     public static let anima = ModelCard(
         id: "anima", name: "Anima Turbo", family: .anima, map: nil,
-        license: License(text: "non-commercial (circlestone-labs)", commercial: false, requiredFilter: false,
+        license: License(text: "CircleStone Labs Non-Commercial", commercial: false, requiredFilter: false,
                          urls: Installer.licenseURLs(.anima)),
         defaultSteps: 8, space: .qwenImage, formats: recommendedFormats)
     /// ⚖️ Commercial under $1M annual revenue, mandatory content filter at deployment, "Krea" at
@@ -135,7 +138,6 @@ public struct ModelCard: Sendable, Identifiable, Hashable {
         case .qwenImage21: return qwenImage21
         }
     }
-
 
     public static func withID(_ id: String) -> ModelCard? { allCards.first { $0.id == id } }
 
