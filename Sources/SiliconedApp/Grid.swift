@@ -78,9 +78,12 @@ struct GridAxisForm: Equatable {
     }
 
     /// **Decimals in the user's language**: `0.4, 0.8` in English, `0,4 ; 0,8` (or `0,4 0,8`) in French —
-    /// where the comma is the decimal separator, it separates nothing.
+    /// where the comma is the decimal separator, it separates nothing — unless a point is typed: then
+    /// the point is the decimal one and the comma separates (`0.4, 0.8` reads in French too). A
+    /// typographic minus (−) is a minus.
     static func decimals(_ text: String) -> [Double]? {
-        let comma = Locale.current.decimalSeparator == ","
+        let text = text.replacingOccurrences(of: "−", with: "-")
+        let comma = Locale.current.decimalSeparator == "," && !text.contains(".")
         let tokens = text.components(separatedBy: CharacterSet(charactersIn: comma ? "; \t\n" : ",; \t\n")).filter { !$0.isEmpty }
         let values = tokens.compactMap { Double(comma ? $0.replacingOccurrences(of: ",", with: ".") : $0) }
         return values.count == tokens.count ? values : nil
