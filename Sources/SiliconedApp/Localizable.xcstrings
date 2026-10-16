@@ -10486,34 +10486,6 @@
         }
       }
     },
-    "Measure this Mac, then copy the report as JSON or open it as a GitHub issue" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diesen Mac messen, dann den Bericht als JSON kopieren oder als GitHub-Issue öffnen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Medir este Mac y luego copiar el informe como JSON o abrirlo como incidencia de GitHub"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mesurer ce Mac, puis copier le rapport en JSON ou l’ouvrir en signalement GitHub"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Misura questo Mac, poi copia il rapporto in JSON o aprilo come segnalazione su GitHub"
-          }
-        }
-      }
-    },
     "Measures what this Mac computes, then opens a prefilled GitHub issue" : {
       "localizations" : {
         "de" : {

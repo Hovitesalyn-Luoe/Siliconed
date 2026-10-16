@@ -44,10 +44,6 @@ struct MainView: View {
                     Label("Statistics", systemImage: "gauge.with.dots.needle.33percent")
                 }
                 .help("Render statistics (⌥⌘I)")
-                Button { app.openDiagnostic() } label: {
-                    Label("Report My Configuration…", systemImage: "stethoscope")
-                }
-                .help("Measure this Mac, then copy the report as JSON or open it as a GitHub issue")
             }
         }
         .sheet(isPresented: $app.managementOpen) { ModelManagement(app: app) }
@@ -833,6 +829,17 @@ private struct LiveTile: View {
             .padding(3)
         }
         .frame(width: side * min(1, l / h), height: side * min(1, h / l))
+        // A batch is one job and its bar counts the whole batch: the image it is at, said on the tile.
+        .overlay(alignment: .topTrailing) {
+            if app.batchSize > 1 {
+                Text(verbatim: "\(app.batchImage + 1)/\(app.batchSize)")
+                    .font(.caption2.weight(.semibold)).monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.black.opacity(0.6)))
+                    .padding(4)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(following ? Palette.live : Color.white.opacity(0.12), lineWidth: following ? 2.5 : 1))
         .frame(height: side + 4)

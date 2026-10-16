@@ -8,9 +8,9 @@
 // between two steps: what is set is taken whole at the click (`Job`), and changing it afterwards
 // prepares the next render.
 //
-// **The XY grid sits here, above « Generate »** (`Grid.swift`), not in a box of the rack: it is no
-// stage of the chain and sets nothing a stage reads — it says how many renders the click makes and
-// what differs between them, which is what this footer counts (memory, renders, time).
+// **The exploration opens from the rack's header** (`Exploration.swift`), not from this footer: it
+// sweeps the chain's settings in its own panel, and this footer counts only what « Generate » makes.
+// The queue scrolls past a few rows, so that the footer never pushes the rack out of the column.
 
 import AppKit
 import Siliconed
@@ -160,12 +160,6 @@ private struct Footer: View {
         let memory = refusal?.text
         let blocker = form ?? memory
         VStack(alignment: .leading, spacing: 10) {
-            Button { MainWindow.shared.showExploration() } label: {
-                Label("Explore…", systemImage: "square.grid.3x3")
-            }
-            .buttonStyle(.borderless)
-            .help("Sweep seeds, a LoRA's strength, words of the prompt, models or the images to edit — small sketches, fast (⌥⌘G)")
-            Divider()
             cost
             Button { app.render() } label: {
                 Text(label).fontWeight(.semibold).frame(maxWidth: .infinity)
@@ -191,7 +185,7 @@ private struct Footer: View {
             } else if app.diagnosticRunning {
                 Text("The diagnostic is running: renders wait for it.").font(.caption).foregroundStyle(.secondary)
             }
-            if !app.file.isEmpty { queue }
+            if app.busy { queue }
             if let title = app.forgeInProgress {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -272,8 +266,44 @@ private struct Footer: View {
         return images > 1 ? String(localized: "Generate \(images) Images") : String(localized: "Generate")
     }
 
-    /// The renders that wait, in order; each can be removed, or everything stops.
+    /// **What remains to be done**: the running render first — a batch is one job, its images rendered
+    /// one after the other, so an empty wait list said nothing of the images still to come —,
+    /// then the renders that wait, in order; each can be removed, or everything stops.
     private var queue: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let job = app.currentJob { running(job) }
+            if !app.file.isEmpty { waiting }
+        }
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+    }
+
+    /// The running render: where its batch is, the time left, and a stop that leaves the queue going.
+    private func running(_ job: Job) -> some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.mini).frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(job.settings.prompt).font(.caption).lineLimit(1).truncationMode(.tail)
+                Text(app.batchSize > 1
+                     ? job.legend + " · " + String(localized: "image \(app.batchImage + 1)/\(app.batchSize)")
+                     : job.legend)
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            if app.remaining(at: .now) != nil {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(verbatim: "≈ " + Figures.duration(app.remaining(at: context.date) ?? 0))
+                        .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                }
+            }
+            Button { app.cancel() } label: { Image(systemName: "stop.circle.fill").foregroundStyle(.secondary) }
+                .buttonStyle(.borderless)
+                .help("Stop (⌘.)")
+        }
+        .frame(height: Self.rowHeight)
+    }
+
+    private var waiting: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Waiting · \(app.file.count)")
@@ -283,12 +313,30 @@ private struct Footer: View {
                     .buttonStyle(.link).font(.caption)
                     .help("Clear the queue and stop the current render")
             }
+            // **The queue scrolls past a few rows**: grown with each job, it pushed the footer above the
+            // window's height and the rack's scroll view, squeezed to nothing, could not be scrolled back.
+            // A fixed height, not one measured: a scroll view in this footer takes what it is offered.
+            if app.file.count > Self.visibleRows {
+                ScrollView(.vertical) { rows }
+                    .frame(height: (CGFloat(Self.visibleRows) + 0.5) * (Self.rowHeight + Self.rowSpacing))
+            } else {
+                rows
+            }
+        }
+    }
+
+    private static let visibleRows = 4
+    private static let rowHeight: CGFloat = 30
+    private static let rowSpacing: CGFloat = 6
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: Self.rowSpacing) {
             ForEach(Array(app.file.enumerated()), id: \.element.id) { n, job in
                 HStack(spacing: 8) {
                     Text(verbatim: "\(n + 1)").font(.caption2).monospacedDigit().foregroundStyle(.tertiary).frame(width: 14)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(job.settings.prompt).font(.caption).lineLimit(1).truncationMode(.tail)
-                        Text(job.legend).font(.caption2).foregroundStyle(.secondary)
+                        Text(job.legend).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
                     if let e = app.estimation(job) {
@@ -298,10 +346,9 @@ private struct Footer: View {
                         .buttonStyle(.borderless)
                         .help("Remove from the queue")
                 }
+                .frame(height: Self.rowHeight)
             }
         }
-        .padding(9)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
     }
 }
 
