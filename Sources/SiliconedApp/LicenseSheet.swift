@@ -58,6 +58,10 @@ struct LicenseTerms: View {
                         Text("Siliconed ships no weights. The Compact version is the publisher's model republished in 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
                     } else if variant == .light && !card.isImported {
                         Text("Siliconed ships no weights. The Light version is the publisher's model republished in 4 to 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
+                    } else if card.family == .krea2 && !card.isImported {
+                        // Krea's repository is gated (a Hugging Face account, its form): its files come
+                        // from ungated copies, each proven equal to Krea's (`Installer.krea2Comfy`).
+                        Text("Siliconed ships no weights. The publisher's repository asks for a Hugging Face account, so its files are downloaded from copies proven identical: the image model and the text encoder from Comfy-Org, the VAE and the tokenizer from Qwen. The publisher's license applies, and each model card says whose files they are.")
                     } else {
                         Text("Siliconed ships no weights: the model is downloaded from its publisher, under the publisher's license.")
                     }

@@ -112,6 +112,7 @@ final class VariationTests: XCTestCase {
             for a in Variation.Amount.allCases { XCTAssertEqual(Variation.Amount.named(a.strength(for: f)), a) }
         }
         XCTAssertEqual(Variation.Amount.subtle.strength(for: .qwenImage21), 0.05)
+        XCTAssertEqual(Variation.Amount.subtle.strength(for: .krea2), 0.05)
         XCTAssertNil(Variation.Amount.named(0.3))
     }
 }

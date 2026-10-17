@@ -165,8 +165,8 @@ public enum RemoteControlHelp {
         "models": """
         silicontrol models
 
-        The models the app shows, installed or not: Z-Image Turbo, Qwen-Image-2.1 Turbo and Anima
-        Turbo, plus the models you imported (« add » refuses a model the app does not show). Read it
+        The models the app shows, installed or not: Z-Image Turbo, Qwen-Image-2.1 Turbo, Anima Turbo
+        and Krea 2 Turbo, plus the models you imported (« add » refuses a model the app does not show). Read it
         before « add »: the ids, the LoRAs and the formats come from here.
 
         Answer:
@@ -189,15 +189,15 @@ public enum RemoteControlHelp {
                       published by third parties: smaller on disk, an image slightly different) and
                       "light" (the image model in 4 to 6 bits as a third party publishes it: the
                       smallest; another set of weights, an image that may compose differently).
-                      Z-Image's and Qwen-Image-2.1's Compact and Light read an 8-bit text encoder;
-                      Anima's three versions read the publisher's (bf16), only the image model
-                      changes. Absent for an imported model
+                      Z-Image's, Qwen-Image-2.1's and Krea 2's Compact and Light read an 8-bit text
+                      encoder; Anima's three versions read the publisher's (bf16), only the image
+                      model changes. Absent for an imported model
         variant     → the version on disk; null while the model is not installed (and for an
                       imported model, which has its own weights)
         loras.lora  → --lora of « add » (only the LoRAs of THIS model)
         edit        → the model accepts --ref (editing an image with a prompt); null while it is
                       not installed
-        max_references → how many --ref it reads at most (Qwen-Image-2.1 3, Z-Image and Anima 0);
+        max_references → how many --ref it reads at most (Qwen-Image-2.1 3, the others 0);
                       null while it is not installed
         formats     → the suggested formats; any valid WxH is accepted (help add)
         license_urls → the license file(s) on Hugging Face, at the revision the installation takes:
@@ -206,7 +206,9 @@ public enum RemoteControlHelp {
                       declares Apache 2.0.
         commercial_license → false: the model is for non-commercial use (Qwen-Image-2.1: Qwen
                       Research; Anima: CircleStone Labs Non-Commercial — its images may still be
-                      used commercially, the license says so)
+                      used commercially, the license says so). Krea 2 Community is true with
+                      conditions: under $1M of annual revenue, a content filter wherever the model
+                      is deployed
         license_accepted → false: the first render of this model waits until the user accepts its
                       license in the app (a sheet shows it); declined, the job ends in "error"
                       with "code": "license_not_accepted"
@@ -229,7 +231,7 @@ public enum RemoteControlHelp {
         of 8 GB — preselected, the user sees all three): a command that names no version never
         switches it.
         --standard  preselects the Standard version (the publisher's weights);
-        --compact   the Compact version, --light the Light version (Z-Image, Qwen-Image-2.1, Anima —
+        --compact   the Compact version, --light the Light version (every model of the app —
                     the "variants" of « models »).
                     One version of a model is installed at a time: asking for another one of an
                     installed model offers to replace it, and the user still accepts in the app. The
@@ -299,8 +301,8 @@ public enum RemoteControlHelp {
                               only).
           --detail more|most  the rack's Detail: finer texture and small details, same time;
                               most can over-sharpen. Default: normal (the image as the model
-                              makes it). Not on Anima. Jobs and images say "detail" when it is
-                              not normal.
+                              makes it). Not on Anima nor Krea 2. Jobs and images say
+                              "detail" when it is not normal.
           --solver NAME       the rack's Solver, in Developer Mode only: euler (default, the one
                               the model was distilled for), euler-ancestral, dpmpp-2m or unipc.
                               Same steps, same time, another image. Jobs and images say "solver"
@@ -666,7 +668,7 @@ public enum RemoteControlHelp {
                                                                            → leave it out
           schedule             --schedule comfyui outside Developer Mode, or on a model other than
                                Qwen-Image-2.1                              → leave it out
-          detail               --detail more|most on a model without Detail (Anima)
+          detail               --detail more|most on a model without Detail (Anima, Krea 2)
                                                                            → leave it out
           subject              a named subject: unknown, a name taken, too many images, a model
                                that reads none, a grid citing one          → help subjects
@@ -821,8 +823,8 @@ public enum RemoteControlHelp {
         "models": """
         silicontrol models
 
-        Les modèles que l'app montre, installés ou non : Z-Image Turbo, Qwen-Image-2.1 Turbo et Anima
-        Turbo, plus les modèles que vous avez importés (« add » refuse un modèle que l'app ne montre
+        Les modèles que l'app montre, installés ou non : Z-Image Turbo, Qwen-Image-2.1 Turbo, Anima
+        Turbo et Krea 2 Turbo, plus les modèles que vous avez importés (« add » refuse un modèle que l'app ne montre
         pas). À lire avant « add » : les ids, les LoRA et les formats viennent d'ici.
 
         Réponse :
@@ -845,15 +847,15 @@ public enum RemoteControlHelp {
                       8 bits publiés par des tiers : plus léger sur le disque, une image légèrement
                       différente) et "light" (le modèle d'image en 4 à 6 bits tel qu'un tiers le
                       publie : la plus petite ; un autre jeu de poids, une image qui peut se composer
-                      autrement). Les Compact et Légère de Z-Image et de Qwen-Image-2.1 lisent un
-                      encodeur de texte 8 bits ; les trois versions d'Anima lisent celui de l'éditeur
-                      (bf16), seul le modèle d'image change. Absent pour un modèle importé
+                      autrement). Les Compact et Légère de Z-Image, de Qwen-Image-2.1 et de Krea 2
+                      lisent un encodeur de texte 8 bits ; les trois versions d'Anima lisent celui de
+                      l'éditeur (bf16), seul le modèle d'image change. Absent pour un modèle importé
         variant     → la version sur le disque ; null tant que le modèle n'est pas installé (et pour
                       un modèle importé, qui a ses propres poids)
         loras.lora  → --lora de « add » (seulement les LoRA de CE modèle)
         edit        → le modèle accepte --ref (édition d'une image par un prompt) ; null tant
                       qu'il n'est pas installé
-        max_references → combien de --ref il lit au plus (Qwen-Image-2.1 3, Z-Image et Anima 0) ;
+        max_references → combien de --ref il lit au plus (Qwen-Image-2.1 3, les autres 0) ;
                       null tant qu'il n'est pas installé
         formats     → les formats conseillés ; tout WxH valide est accepté (help add)
         license_urls → le(s) fichier(s) de licence sur Hugging Face, à la révision que l'installation
@@ -862,7 +864,9 @@ public enum RemoteControlHelp {
                       fiche, qui déclare Apache 2.0.
         commercial_license → false : le modèle est d'usage non commercial (Qwen-Image-2.1 : Qwen
                       Research ; Anima : CircleStone Labs Non-Commercial — ses images restent
-                      utilisables commercialement, la licence le dit)
+                      utilisables commercialement, la licence le dit). Krea 2 Community est true
+                      sous conditions : moins d'un million de dollars de chiffre d'affaires annuel,
+                      un filtre de contenu partout où le modèle est déployé
         license_accepted → false : le premier rendu de ce modèle attend que l'utilisateur accepte
                       sa licence dans l'app (une feuille la montre) ; refusée, le travail finit en
                       "error" avec "code": "license_not_accepted"
@@ -885,7 +889,7 @@ public enum RemoteControlHelp {
         un Mac de 8 Go — présélectionnée, l'utilisateur voit les trois) : une commande qui ne nomme
         pas de version n'en change jamais.
         --standard  présélectionne la version Standard (les poids de l'éditeur) ;
-        --compact   la version Compact, --light la version Légère (Z-Image, Qwen-Image-2.1, Anima —
+        --compact   la version Compact, --light la version Légère (tous les modèles de l'app —
                     les "variants" de « models »).
                     Une seule version d'un modèle est installée à la fois : en demander une autre d'un
                     modèle installé propose de la remplacer, et l'utilisateur accepte toujours dans
@@ -955,8 +959,8 @@ public enum RemoteControlHelp {
                               8 seulement).
           --detail more|most  le Détail du rack : texture fine et petits détails, même durée ;
                               most peut trop accentuer. Défaut : normal (l'image telle que le
-                              modèle la fait). Pas sur Anima. Travaux et images disent "detail"
-                              s'il n'est pas normal.
+                              modèle la fait). Ni sur Anima ni sur Krea 2. Travaux et images
+                              disent "detail" s'il n'est pas normal.
           --solver NOM        le Solveur du rack, en mode développeur seulement : euler (défaut,
                               celui pour lequel le modèle a été distillé), euler-ancestral,
                               dpmpp-2m ou unipc. Mêmes pas, même durée, une autre image. Travaux
@@ -1330,7 +1334,7 @@ public enum RemoteControlHelp {
                                qu'Euler                                    → le retirer
           schedule             --schedule comfyui hors du mode développeur, ou sur un autre modèle
                                que Qwen-Image-2.1                          → le retirer
-          detail               --detail more|most sur un modèle sans Détail (Anima)
+          detail               --detail more|most sur un modèle sans Détail (Anima, Krea 2)
                                                                            → le retirer
           subject              un sujet nommé : inconnu, nom déjà pris, trop d'images, modèle qui
                                n'en lit pas, une grille qui en cite un     → help subjects

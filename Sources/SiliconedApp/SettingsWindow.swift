@@ -2,7 +2,7 @@
 //
 //     Siliconed ▸ Settings… (⌘,)
 //     ┌───────────────────────────────────────────────────────────────┐
-//     │ Developer Mode     for comparing and testing: Krea 2, solvers, │
+//     │ Developer Mode     for comparing and testing: solvers,         │
 //     │                    ComfyUI's schedule                          │
 //     │ Experimental       unfinished, off by default: Named Subjects, │
 //     │                    Negative LoRA Strengths                     │
@@ -66,8 +66,7 @@ struct SettingsView: View {
                     Toggle(isOn: $app.developerMode) {
                         titled("Developer Mode", "For comparing and testing, not for everyday renders. It shows:")
                     }
-                    bullets(["Krea 2 in the list of models",
-                             "the solvers Euler a, DPM++ 2M and UniPC beside Euler, in the panel and as an axis of the exploration",
+                    bullets(["the solvers Euler a, DPM++ 2M and UniPC beside Euler, in the panel and as an axis of the exploration",
                              "ComfyUI's schedule on Qwen-Image-2.1, to compare with the official one"])
                 }
                 Section {

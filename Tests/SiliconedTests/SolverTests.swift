@@ -1,7 +1,7 @@
 import XCTest
 @testable import Siliconed
 
-/// **The solvers against diffusers' schedulers**, on Z-Image's, Qwen-Image-2.1's and Anima's schedules and a synthetic model
+/// **The solvers against diffusers' schedulers**, on Z-Image's, Qwen-Image-2.1's, Anima's and Krea 2's schedules and a synthetic model
 /// `m = −0.75·x + b_k`. The final samples below were printed by diffusers 0.41.0 (`oracle_solvers.py`)
 /// (torch fp32) on that model: `FlowMatchEulerDiscreteScheduler` (and its `stochastic_sampling`),
 /// `DPMSolverMultistepScheduler` and `UniPCMultistepScheduler` in `flow_prediction`.
@@ -74,6 +74,30 @@ final class SolverTests: XCTestCase {
             let got = walk(Solver(rawValue: name)!, steps: steps, start: start, schedule: AnimaDiT.sigmas(steps: steps))
             for (i, (g, w)) in zip(got, want).enumerated() {
                 XCTAssertEqual(g, w, accuracy: 2e-6 * max(1, abs(w)), "Anima, \(name), from \(start), value \(i)")
+            }
+        }
+    }
+
+    /// **Krea 2 Turbo's schedule**: `linspace(1, 1/N, N)` through Krea's published scheduler, the
+    /// exponential shift at the distilled `mu = 1.15` — another curve than the static shift 3, so other
+    /// samples (`oracle_solvers.py --krea2`, diffusers 0.41.0). The engine's σ are computed in double
+    /// (`Krea2DiT.sigmas`); the walk on them must land where diffusers' schedulers do.
+    private let krea2Oracle: [(String, Int, Int, [Float])] = [
+        ("euler", 8, 0, [-1.111696720123291, 1.6342649459838867, -1.6367683410644531, 0.8652126789093018, -1.6315077543258667, 0.23391211032867432, -2.5779964923858643, 0.0591563954949379]),
+        ("euler", 8, 3, [-0.6572859883308411, 1.4371005296707153, -1.6597223281860352, 0.9587817192077637, -1.710408329963684, 0.5577795505523682, -2.290286064147949, 0.21600812673568726]),
+        ("euler-ancestral", 8, 0, [-0.18864445388317108, 1.3944568634033203, -0.4186874032020569, -0.8052156567573547, 0.05443991720676422, 0.18304318189620972, 1.1168577671051025, -1.035529613494873]),
+        ("euler-ancestral", 8, 3, [-0.07792258262634277, -0.3744056224822998, -0.8030372858047485, 0.9239850640296936, 1.3949041366577148, -1.1337108612060547, -1.2146718502044678, 0.7629859447479248]),
+        ("dpmpp-2m", 8, 0, [-1.193876028060913, 1.8004076480865479, -1.6281157732009888, 0.6997604370117188, -1.6132315397262573, 0.17418678104877472, -2.4952540397644043, 0.005625583231449127]),
+        ("dpmpp-2m", 8, 3, [-0.6785050630569458, 1.3229246139526367, -1.4744012355804443, 0.8631650805473328, -1.5174074172973633, 0.5544805526733398, -2.471022129058838, 0.4192492961883545]),
+        ("unipc", 8, 0, [-1.27956223487854, 1.8659559488296509, -1.568372368812561, 0.6459725499153137, -1.551832675933838, 0.09236440062522888, -2.444056987762451, 0.007956631481647491]),
+        ("unipc", 8, 3, [-0.6475751399993896, 1.2799315452575684, -1.4491088390350342, 0.843713641166687, -1.4909093379974365, 0.5882243514060974, -2.5244669914245605, 0.44735559821128845]),
+    ]
+
+    func testTheSolversAreDiffusersOnKrea2sSchedule() {
+        for (name, steps, start, want) in krea2Oracle {
+            let got = walk(Solver(rawValue: name)!, steps: steps, start: start, schedule: Krea2DiT.sigmas(steps: steps))
+            for (i, (g, w)) in zip(got, want).enumerated() {
+                XCTAssertEqual(g, w, accuracy: 2e-6 * max(1, abs(w)), "Krea 2, \(name), from \(start), value \(i)")
             }
         }
     }

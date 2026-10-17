@@ -88,7 +88,7 @@ public struct Request: Sendable, Equatable {
     /// **More detail** (`Detail`): the denoiser is told, mid-trajectory, that a little less noise
     /// remains than really does, and leaves finer texture. Same evaluations, same cost; `normal` is
     /// the render without it, to the bit. The models whose `DenoisingModule.acceptsDetail` says so
-    /// honour it — all but Anima.
+    /// honour it — Z-Image and Qwen-Image-2.1, not Anima nor Krea 2.
     public var detail: Detail = .normal
     /// **The update rule of each step** (`Solver`): Euler, the one the Turbo models were distilled
     /// for, unless another is asked — the same steps, the same σ, another walk between them. Only the

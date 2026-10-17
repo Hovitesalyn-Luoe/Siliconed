@@ -239,8 +239,8 @@ final class RemoteControl {
 
     // ── models ──
 
-    /// The models the app shows — Z-Image, Qwen-Image-2.1 and Anima, in the app's order; all of them in
-    /// Developer Mode.
+    /// The models the app shows — Z-Image, Qwen-Image-2.1, Anima and Krea 2, in the app's order
+    /// (`AppState.frontFamilies`).
     private func models() -> [String: Any] {
         let b = app.library
         let list = visibleCards(b).map { f -> [String: Any] in
@@ -566,7 +566,7 @@ final class RemoteControl {
                               help: String(localized: "leave out --schedule, or --model qwen-image-2.1"))
             }
         }
-        // Detail: not on a model that offers none (Anima) — the rack hides it there.
+        // Detail: not on a model that offers none (Anima, Krea 2) — the rack hides it there.
         if d.detail != .normal, !model.chain.denoising.acceptsDetail {
             throw Refusal("detail", String(localized: "\(card?.name ?? model.name) doesn't offer Detail"),
                           help: String(localized: "leave out --detail"))

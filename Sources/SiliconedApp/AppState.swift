@@ -11,12 +11,12 @@
 // engine refuses a render without them. The named subjects (`Subjects.swift`) live in memory, like
 // the history.
 //
-// **Three models in front**, in this order: Z-Image Turbo, Qwen-Image-2.1 Turbo, Anima Turbo
-// (`frontFamilies`). The other family (Krea 2) exists and renders, but the list, the
-// Models sheet and `silicontrol models` show it only in Developer Mode. The filter
-// is here, in the app: the library is the same. Developer Mode also offers the solvers
-// on the three models in front (`offeredSolvers`): Euler, the distillation's own, is every other
-// render's.
+// **Four models in front**, in this order: Z-Image Turbo, Qwen-Image-2.1 Turbo, Anima Turbo, Krea 2
+// Turbo (`frontFamilies`) — every family the library knows since Krea 2 joined them. The filter
+// stays here, in the app (the library is the same): a family left out of `frontFamilies` would show
+// in the list, the Models sheet and `silicontrol models` only in Developer Mode. Developer Mode offers
+// the solvers on the models in front (`offeredSolvers`): Euler, the distillation's own, is every
+// other render's.
 //
 // **The main thread does no computing**: the engine runs on its queue, and what the app does with
 // the pixels — decoding the reference image, encoding the PNG, reducing the thumbnail — goes to a
@@ -48,12 +48,13 @@ final class AppState {
     var readySet: Set<String> = []
 
     // ── What the app shows ──
-    /// **The families in front**: the three the product is, **in the order every list shows them**
+    /// **The families in front**: the four the product is, **in the order every list shows them**
     /// (the rack's picker, the Models sheet, the welcome, `silicontrol models`) — not the engine's
     /// `Family.allCases`. The others need Developer Mode, and come after them.
-    static let frontFamilies: [Family] = [.zImage, .qwenImage21, .anima]
+    static let frontFamilies: [Family] = [.zImage, .qwenImage21, .anima, .krea2]
     private static let developerModeKey = "developerMode"
-    /// **Developer Mode**: the other family (Krea 2), and the solvers (`offeredSolvers`).
+    /// **Developer Mode**: the solvers (`offeredSolvers`), ComfyUI's schedule — and a family not in
+    /// front, were there one (none since Krea 2 joined them).
     /// One of the app's preferences (with `Curtain.preferred`, the named subjects' switch and the capacity
     /// map) — written without a render gesture, because the user switched it.
     var developerMode = UserDefaults.standard.bool(forKey: AppState.developerModeKey) {
@@ -151,7 +152,7 @@ final class AppState {
     @ObservationIgnored private var stashedReferences: [ReferenceImage] = []
     var steps = 8
     /// **More detail** (`Detail`): Normal is the render as the model makes it. What a render takes is
-    /// `effectiveDetail`: on a model that offers none (Anima, `DenoisingModule.acceptsDetail`), Normal.
+    /// `effectiveDetail`: on a model that offers none (Anima, Krea 2: `DenoisingModule.acceptsDetail`), Normal.
     var detail = Detail.normal
     /// Whether the form's model offers Detail — the rack hides the choice otherwise.
     var offersDetail: Bool { model(identifier)?.chain.denoising.acceptsDetail ?? true }
@@ -161,8 +162,8 @@ final class AppState {
     /// not offer is Euler.
     var solver = Solver.euler
     /// The families whose samplers walk every solver (`DenoisingModule.solvers`: Z-Image's,
-    /// Qwen-Image-2.1's and Anima's since 0.10) — Krea 2 walks Euler only.
-    static let solverFamilies: Set<Family> = [.zImage, .qwenImage21, .anima]
+    /// Qwen-Image-2.1's, Anima's since 0.10, Krea 2's since it is in front).
+    static let solverFamilies: Set<Family> = [.zImage, .qwenImage21, .anima, .krea2]
     /// The solvers the rack offers: all four in Developer Mode on those families, Euler alone otherwise.
     var offeredSolvers: [Solver] {
         developerMode && card.map({ Self.solverFamilies.contains($0.family) }) == true ? Solver.allCases : [.euler]
@@ -653,7 +654,7 @@ final class AppState {
                                          loraStrengths: stack.map(\.strength), images: references.count),
                                    x: x, y: try gridY.axis(stack: stack))
             guard !refusesNegativeStrength(g) else { throw .gridRefused(reason: .invalidValue) }
-            // A solver the form's model does not offer (Developer Mode off, Krea 2) renders nothing new.
+            // A solver the form's model does not offer (Developer Mode off) renders nothing new.
             guard g.cells.allSatisfy({ $0.solver.map(offeredSolvers.contains) ?? true }) else { throw .gridRefused(reason: .invalidValue) }
             return g
         }

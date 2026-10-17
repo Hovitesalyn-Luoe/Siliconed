@@ -58,8 +58,10 @@ package enum Infotext {
     /// Turbo" 3400828 (`8b74237a7f50…`, `qwen_image_2.1_turbo_bf16`; its int8 file `8144a0182964…`
     /// is the Compact's DiT), Anima "turbo-v1.1" 3263843 on circlestone_labs' own page
     /// (`fba11953276b…`, `anima-turbo-v1.1` of `circlestone-labs/Anima`, the Standard's DiT; the
-    /// Compact and Light are vanes430's GGUFs of it — checked 15/10/2026). The hidden families: none
-    /// checked, none claimed.
+    /// Compact and Light are vanes430's GGUFs of it — checked 15/10/2026). **Krea 2: none** (checked
+    /// 17/10/2026): CivitaiOfficial's « Krea 2 » page is Krea's hosted API, no file; Krea has no page;
+    /// the files equal to ours (`78bbf8f4…`, `8e4eeda7…`) sit on a user's re-upload of Comfy-Org's
+    /// repository, which is not the publisher's model to credit.
     package static func civitaiModelVersion(model: String) -> Int? {
         switch model {
         case "z-image": return 2_442_439

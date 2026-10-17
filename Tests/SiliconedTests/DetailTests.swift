@@ -147,12 +147,13 @@ final class DetailTests: XCTestCase {
         XCTAssertEqual(recipe.unreadable, ["detail"])
     }
 
-    /// **Anima offers no Detail** (mosaic blocks or nothing visible); the others do, and the
-    /// chain refuses More and Most on Anima before any computation (`Request.Failure.detail`).
-    func testOnlyAnimaRefusesDetail() {
+    /// **Anima and Krea 2 offer no Detail** (Anima: mosaic blocks or nothing visible; Krea 2: another
+    /// pose and face, no texture); the others do, and the chain refuses More and Most on them before
+    /// any computation (`Request.Failure.detail`).
+    func testAnimaAndKrea2RefuseDetail() {
         XCTAssertFalse(AnimaDenoisingModule(map: "").acceptsDetail)
+        XCTAssertFalse(Krea2DenoisingModule(map: "").acceptsDetail)
         XCTAssertTrue(ZImageDenoisingModule(map: "").acceptsDetail)
-        XCTAssertTrue(Krea2DenoisingModule(map: "").acceptsDetail)
         XCTAssertEqual(EngineError(Request.Failure.detail(model: "anima")), .detailUnsupported(model: "anima"))
     }
 }

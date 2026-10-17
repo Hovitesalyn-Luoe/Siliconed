@@ -2829,6 +2829,34 @@
         }
       }
     },
+    "8-bit weights published by Comfy-Org: the image model and the text encoder (int8 convrot). VAE and tokenizer as in the Standard version." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "8-Bit-Gewichte, von Comfy-Org veröffentlicht: Bildmodell und Text-Encoder (int8 convrot). VAE und Tokenizer wie in der Standard-Version."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pesos de 8 bits publicados por Comfy-Org: el modelo de imagen y el codificador de texto (int8 convrot). El VAE y el tokenizador, como en la versión Estándar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poids 8 bits publiés par Comfy-Org : le modèle d’image et l’encodeur de texte (int8 convrot). VAE et tokenizer comme dans la version Standard."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pesi a 8 bit pubblicati da Comfy-Org: il modello d’immagine e l’encoder di testo (int8 convrot). VAE e tokenizer come nella versione Standard."
+          }
+        }
+      }
+    },
     "8-bit weights published by third parties: the image model from Comfy-Org (int8 convrot), the text encoder from unsloth (int8 convrot). Processor and VAE are the publisher's." : {
       "localizations" : {
         "de" : {
@@ -3867,6 +3895,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aggiunge texture fine e piccoli dettagli; Massimo può accentuare troppo la nitidezza"
+          }
+        }
+      }
+    },
+    "Aesthetic images, from photography to painting. The largest model, and the slowest." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ästhetische Bilder, von Fotografie bis Malerei. Das größte Modell, und das langsamste."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imágenes estéticas, de la fotografía a la pintura. El modelo más grande, y el más lento."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Des images soignées, de la photographie à la peinture. Le plus gros modèle, et le plus lent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagini estetiche, dalla fotografia alla pittura. Il modello più grande, e il più lento."
           }
         }
       }
@@ -9932,34 +9988,6 @@
         }
       }
     },
-    "Krea 2 in the list of models" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Krea 2 in der Liste der Modelle"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Krea 2 en la lista de modelos"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Krea 2 dans la liste des modèles"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Krea 2 nell’elenco dei modelli"
-          }
-        }
-      }
-    },
     "Landscape" : {
       "localizations" : {
         "de" : {
@@ -15394,6 +15422,34 @@
         }
       }
     },
+    "Siliconed ships no weights. The publisher's repository asks for a Hugging Face account, so its files are downloaded from copies proven identical: the image model and the text encoder from Comfy-Org, the VAE and the tokenizer from Qwen. The publisher's license applies, and each model card says whose files they are." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed enthält keine Gewichte. Das Repository des Herausgebers verlangt ein Hugging-Face-Konto, daher werden seine Dateien von nachweislich identischen Kopien geladen: Bildmodell und Text-Encoder von Comfy-Org, VAE und Tokenizer von Qwen. Es gilt die Lizenz des Herausgebers, und jede Modellkarte nennt, wem die Dateien gehören."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed no incluye ningún peso. El repositorio del editor pide una cuenta de Hugging Face, así que sus archivos se descargan de copias probadamente idénticas: el modelo de imagen y el codificador de texto, de Comfy-Org; el VAE y el tokenizador, de Qwen. Se aplica la licencia del editor, y cada ficha del modelo indica de quién son los archivos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed ne livre aucun poids. Le dépôt de l’éditeur demande un compte Hugging Face : ses fichiers sont donc téléchargés depuis des copies prouvées identiques, le modèle d’image et l’encodeur de texte chez Comfy-Org, le VAE et le tokenizer chez Qwen. La licence de l’éditeur s’applique, et chaque fiche dit à qui sont les fichiers."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed non include alcun peso. Il repository dell’editore richiede un account Hugging Face, quindi i suoi file sono scaricati da copie dimostrate identiche: il modello d’immagine e l’encoder di testo da Comfy-Org, il VAE e il tokenizer da Qwen. Si applica la licenza dell’editore, e ogni scheda del modello indica di chi sono i file."
+          }
+        }
+      }
+    },
     "Siliconed ships no weights: the model is downloaded from its publisher, under the publisher's license." : {
       "localizations" : {
         "de" : {
@@ -17379,6 +17435,34 @@
         }
       }
     },
+    "The image model and the text encoder in the publisher's precision (bf16), downloaded from Comfy-Org's copy; the VAE and the tokenizer from Qwen's. Each is the publisher's file, value for value." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildmodell und Text-Encoder in der Genauigkeit des Herausgebers (bf16), aus der Kopie von Comfy-Org geladen; VAE und Tokenizer aus der von Qwen. Jede Datei ist die des Herausgebers, Wert für Wert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modelo de imagen y el codificador de texto en la precisión del editor (bf16), descargados de la copia de Comfy-Org; el VAE y el tokenizador, de la de Qwen. Cada uno es el archivo del editor, valor por valor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle d’image et l’encodeur de texte dans la précision de l’éditeur (bf16), téléchargés depuis la copie de Comfy-Org ; le VAE et le tokenizer depuis celle de Qwen. Chacun est le fichier de l’éditeur, valeur pour valeur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il modello d’immagine e l’encoder di testo nella precisione dell’editore (bf16), scaricati dalla copia di Comfy-Org; il VAE e il tokenizer da quella di Qwen. Ciascuno è il file dell’editore, valore per valore."
+          }
+        }
+      }
+    },
     "The image model and the text encoder in the publisher's precision (bf16)." : {
       "localizations" : {
         "de" : {
@@ -17403,6 +17487,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il modello d’immagine e l’encoder di testo nella precisione dell’editore (bf16)."
+          }
+        }
+      }
+    },
+    "The image model in 4 to 5 bits, published by vantagewithai (GGUF Q4_K_M); the Compact's 8-bit text encoder, from Comfy-Org (int8 convrot). VAE and tokenizer as in the Standard version." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Bildmodell in 4 bis 5 Bit, veröffentlicht von vantagewithai (GGUF Q4_K_M); der 8-Bit-Text-Encoder der Compact, von Comfy-Org (int8 convrot). VAE und Tokenizer wie in der Standard-Version."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modelo de imagen en 4 a 5 bits, publicado por vantagewithai (GGUF Q4_K_M); el codificador de texto de 8 bits de la Compacta, de Comfy-Org (int8 convrot). El VAE y el tokenizador, como en la versión Estándar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle d’image en 4 à 5 bits, publié par vantagewithai (GGUF Q4_K_M) ; l’encodeur de texte 8 bits de la Compact, de Comfy-Org (int8 convrot). VAE et tokenizer comme dans la version Standard."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il modello d’immagine a 4–5 bit, pubblicato da vantagewithai (GGUF Q4_K_M); l’encoder di testo a 8 bit della Compact, da Comfy-Org (int8 convrot). VAE e tokenizer come nella versione Standard."
           }
         }
       }

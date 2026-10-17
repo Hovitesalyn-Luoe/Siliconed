@@ -115,9 +115,10 @@ package struct Installer {
     ///   VAE and tokenizers from the Diffusers repository, which carries its own file (v1.0).
     /// - Krea 2's `LICENSE.pdf` is read from Comfy-Org's repository, which carries Krea's own (the
     ///   same LFS object, `b82a2805`): Krea's is gated, it answers 401 until the Hub's gate is accepted.
-    ///   Comfy-Org's card follows (the repackaging of the DiT and the encoder). The VAE's and the
-    ///   tokenizer's repositories (Qwen-Image, Qwen-Image-2.1-Turbo) are not listed: what is taken from
-    ///   them is Krea's own VAE and tokenizer (proven equal), which `LICENSE.pdf` covers.
+    ///   Comfy-Org's card follows (the repackaging of the DiT and the encoder), then the cards of the
+    ///   two Qwen repositories the VAE and the tokenizer are downloaded from (Qwen-Image,
+    ///   Qwen-Image-2.1-Turbo): the bytes are Krea's own VAE and tokenizer (proven equal), under Krea's
+    ///   license — as for the third parties, the license is the publisher's, the cards say whose bytes.
     /// - Qwen-Image-2.1-Turbo carries the base model's Qwen Research text (same git blob): one file.
     /// - **A Compact also downloads from third parties**, which publish no license file: their model
     ///   card (`README.md`) declares it — Apache 2.0 for unsloth's and Disty0's Z-Image, Qwen
@@ -155,7 +156,9 @@ package struct Installer {
         case .anima: return [File(repository: anima, path: "LICENSE.md", destination: nil),
                              File(repository: animaBase, path: "LICENSE.md", destination: nil)]
         case .krea2: return [File(repository: krea2Comfy, path: "LICENSE.pdf", destination: nil),
-                             File(repository: krea2Comfy, path: "README.md", destination: nil)]
+                             File(repository: krea2Comfy, path: "README.md", destination: nil),
+                             File(repository: qwenImage, path: "README.md", destination: nil),
+                             File(repository: qwenImage21Turbo, path: "README.md", destination: nil)]
         case .qwenImage21: return [File(repository: qwenImage21Turbo, path: "LICENSE", destination: nil)]
         }
     }

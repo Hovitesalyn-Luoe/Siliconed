@@ -12,7 +12,7 @@
 // **Nothing comes preinstalled, and nothing is downloaded before the user has read**: « Install »
 // opens, under the model's row, its license and the place it will take; « Accept and Install » records
 // the acceptance in the library (`Library.acceptLicense`), then downloads. The families shown are the
-// visible ones (Z-Image, Qwen-Image-2.1, Anima, in this order; Krea 2 too in Developer Mode) — the
+// visible ones (Z-Image, Qwen-Image-2.1, Anima, Krea 2, in this order: `AppState.frontFamilies`) — the
 // library itself knows them all.
 
 import AppKit
@@ -242,7 +242,7 @@ struct ModelManagement: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(card.name).fontWeight(.medium)
-                        .help(Welcome.blurb(p.family) ?? "")
+                        .help(Welcome.blurb(p.family))
                     Text("\(card.defaultSteps) steps").font(.caption).foregroundStyle(.secondary)
                     // The version on disk, said where there is a choice.
                     if p.family.variants.count > 1, p.dit > 0, let v = p.variant {
@@ -461,6 +461,13 @@ struct VersionChoice: View {
             String(localized: "The image model in 8 bits, published by vanes430 (GGUF Q8_0). The text encoder (bf16), tokenizers and VAE are the publisher's.")
         case (.light, .anima):
             String(localized: "The image model in 4 to 6 bits, published by vanes430 (GGUF Q4_K_M). The text encoder (bf16), tokenizers and VAE are the publisher's.")
+        // Krea's own repository is gated: every byte comes from copies proven equal to its files.
+        case (.standard, .krea2):
+            String(localized: "The image model and the text encoder in the publisher's precision (bf16), downloaded from Comfy-Org's copy; the VAE and the tokenizer from Qwen's. Each is the publisher's file, value for value.")
+        case (.compact, .krea2):
+            String(localized: "8-bit weights published by Comfy-Org: the image model and the text encoder (int8 convrot). VAE and tokenizer as in the Standard version.")
+        case (.light, .krea2):
+            String(localized: "The image model in 4 to 5 bits, published by vantagewithai (GGUF Q4_K_M); the Compact's 8-bit text encoder, from Comfy-Org (int8 convrot). VAE and tokenizer as in the Standard version.")
         default:
             String(localized: "The image model and the text encoder in the publisher's precision (bf16).")
         }

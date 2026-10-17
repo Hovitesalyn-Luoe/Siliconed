@@ -469,7 +469,7 @@ struct Welcome: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: 460)
             }
-            // Side by side when the canvas holds them, else two then one.
+            // Side by side when the canvas holds them, else two by two.
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 16) { ForEach(AppState.frontFamilies, id: \.self) { card($0) } }
                 VStack(spacing: 16) {
@@ -502,7 +502,7 @@ struct Welcome: View {
                     .lineLimit(1).truncationMode(.tail)
             }
             Text(verbatim: model.name).font(.title3.weight(.semibold))
-            Text(Self.blurb(family) ?? "")
+            Text(Self.blurb(family))
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -535,20 +535,21 @@ struct Welcome: View {
         switch family {
         case .qwenImage21: "wand.and.stars"
         case .anima: "paintbrush"
+        case .krea2: "camera.aperture"
         default: "sparkles"
         }
     }
 
     /// **What the model does, in one sentence** — said, not sold. Also the tooltip of its row in the
     /// Models sheet.
-    /// Krea 2, behind Developer Mode, has none.
-    static func blurb(_ family: Family) -> String? {
+    static func blurb(_ family: Family) -> String {
         switch family {
         case .zImage: String(localized: "Fast and photographic. The one to start with.")
         case .qwenImage21: String(localized: "Generates, and edits a photo by instruction: “change her jacket to red”.")
         // Its publisher trained it for illustration and keeps it there: no photorealism, by choice.
         case .anima: String(localized: "Illustration, painting and anime. No photorealism: its publisher's choice.")
-        case .krea2: nil
+        // The largest DiT of the four (12.8 B), and the slowest render.
+        case .krea2: String(localized: "Aesthetic images, from photography to painting. The largest model, and the slowest.")
         }
     }
 }

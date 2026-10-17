@@ -271,14 +271,14 @@ public struct QwenImageDecodingModule: DecodingModule {
 /// `dx/dσ` as is, hence x̂₀ = x − σ·v for the preview. Cancellation is checked before each step,
 /// and between layers in the DiT.
 ///
-/// **Another `Solver`** (`context.solver`, Anima's since 0.10; Krea 2 declares Euler alone) walks the
+/// **Another `Solver`** (`context.solver`, Anima's since 0.10, and Krea 2's) walks the
 /// same σ through `SolverWalk` — `v` is already its `m = dx/dσ`, no negation — and the preview and a
 /// sketch read the walk's own x̂₀ with σₓ = 0, as in `Sampler`. Euler keeps the loop below: its two
 /// roundings (`dt` in float, then `x + dt·v`) are the reference's `scheduler.step`, to the bit.
 func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
            context: Context, speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
     context.beginDenoising(evaluations: sigmas.count - 1 - start)
-    // What the DiT is told (`Detail`, the standard bell: Krea 2's; Anima refuses Detail); the step
+    // What the DiT is told (`Detail`: Anima and Krea 2 refuse it, so their σ themselves); the step
     // below keeps the true σ.
     let told = context.told(sigmas, start: start)
     let count = latent.values.count
@@ -355,6 +355,12 @@ public struct Krea2DenoisingModule: DenoisingModule {
     public var defaultSteps: Int { 8 }
 
     public init(map: String) { self.map = map }
+
+    /// Every `Solver`: `euler` walks them on Krea 2's own σ (the exponential shift), judged against
+    /// diffusers' schedulers (`SolverTests`).
+    public var solvers: [Solver] { Solver.allCases }
+    /// No Detail: the node's bell changes the pose and the face, not the texture (`Detail`).
+    public var acceptsDetail: Bool { false }
 
     public func sigmas(steps: Int) -> [Float] { Krea2DiT.sigmas(steps: steps) }
 

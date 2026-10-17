@@ -18,7 +18,7 @@ public struct License: Sendable, Hashable, CustomStringConvertible {
     /// downloads (`https://huggingface.co/<repo>/blob/<sha>/<file>`) — the model's first, then each
     /// component under a license of its own (Anima: its DiT's repository, then its Diffusers one).
     /// Z-Image publishes no license file: its model card (`README.md`), which declares Apache 2.0.
-    /// Krea 2's repository is gated: its file opens once the Hub's gate is accepted.
+    /// Krea 2's `LICENSE.pdf` is read from Comfy-Org's copy (Krea's repository is gated).
     /// An imported model: its family's, the architecture it derives from.
     public let urls: [URL]
     public var description: String { text }

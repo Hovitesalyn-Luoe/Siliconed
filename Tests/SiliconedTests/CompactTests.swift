@@ -31,7 +31,8 @@ final class CompactTests: XCTestCase {
     /// `config.json` is downloaded (`Krea2Published`). The Compact's and the Light's files are the
     /// judged ones (their fixtures); the Light carries nothing under 4 bits, and two tensors outside
     /// the model, Krea's easter egg, which the recipe sets aside. Its license: Krea's `LICENSE.pdf` (from
-    /// Comfy-Org's copy) and Comfy-Org's card, then the GGUF's card for the Light.
+    /// Comfy-Org's copy) and Comfy-Org's card, the cards of the two Qwen repositories its VAE and its
+    /// tokenizer come from, then the GGUF's card for the Light.
     func testKrea2VersionsReadNoGatedFileAndAreTheJudgedOnes() throws {
         let hex = try NSRegularExpression(pattern: "^[0-9a-f]+$")
         func isHex(_ s: String) -> Bool { hex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
@@ -48,7 +49,12 @@ final class CompactTests: XCTestCase {
             XCTAssertEqual(Installer.licenseFiles(.krea2, v).prefix(2).map(\.path), ["LICENSE.pdf", "README.md"])
         }
         XCTAssertNotNil(Installer.publishedEncoderConfig(.krea2))
-        XCTAssertEqual(Installer.licenseFiles(.krea2, .compact).count, 2, "Comfy-Org's card is the Standard's")
+        XCTAssertEqual(Installer.licenseFiles(.krea2, .compact).count, 4, "Comfy-Org's card is the Standard's")
+        // Every repository a byte is downloaded from has its card listed (Krea's three small files are in the code).
+        let downloaded = Set((Installer.components(.krea2) + Installer.encoder(.krea2, .standard) + Installer.dit(.krea2, .standard))
+            .map(\.repository.name))
+        XCTAssertEqual(Set(Installer.licenseFiles(.krea2).map(\.repository.name)), downloaded)
+        XCTAssertEqual(Installer.licenseFiles(.krea2).dropFirst().map(\.path), ["README.md", "README.md", "README.md"])
         XCTAssertEqual(Installer.licenseFiles(.krea2, .light).last?.repository.name, Installer.dit(.krea2, .light)[0].repository.name)
         XCTAssertEqual(Installer.encoder(.krea2, .light).map(\.sha256), Installer.encoder(.krea2, .compact).map(\.sha256))
         XCTAssertEqual(Family.krea2.encoderMap(.light), Family.krea2.encoderMap(.compact))

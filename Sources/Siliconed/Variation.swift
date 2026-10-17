@@ -45,18 +45,22 @@ public struct Variation: Sendable, Hashable {
     ///     at 0.2 another outfit, while 0.03 · 0.05 · 0.07 kept the same person on eight seeds out of
     ///     eight (PSNR to the original 23–25 · 21–23.5 · 20–22 dB). Qwen takes 0.05, with that margin
     ///     on both sides; Z-Image keeps 0.1 (at 0.05 it already moves a hand: no strength keeps every
-    ///     detail). The other families, never calibrated, take Z-Image's. ⚠️ Qwen's figures were read
+    ///     detail). **Krea 2 takes 0.05 too**: its 8 steps open on σ 1 · 0.957 · 0.905, and at 0.1
+    ///     seed 42 turned by seed 7 gave another woman (face, hair) in the same pose and blouse, PSNR
+    ///     to the original 15.3 dB; at 0.05 the same woman, her smile and a ring changed (25.9 dB) —
+    ///     one pair of seeds, at 512². Anima, never calibrated, takes Z-Image's. ⚠️ Qwen's figures were read
     ///     on the third-party turbo LoRA the family carried before the official Turbo; the Turbo's fixed
     ///     schedule lingers near σ = 1 longer still (1 · 0.978 · 0.954 · 0.927): not re-judged.
     ///   - `strong` 0.5: the same idea (a woman in a library, the same kind of shot) with the pose,
     ///     the clothes and the framing that move. Z-Image keeps its framing longer (its seeds vary
-    ///     little), at 0.7 it starts to change shot; Qwen at 0.7 is nearly another image.
+    ///     little), at 0.7 it starts to change shot; Qwen at 0.7 is nearly another image. Krea 2 at 0.5:
+    ///     another woman in the same blouse and pose, other shelves — the same kind of shot.
     public enum Amount: String, CaseIterable, Sendable {
         case subtle, strong
 
         public func strength(for family: Family) -> Double {
             switch (self, family) {
-            case (.subtle, .qwenImage21): 0.05
+            case (.subtle, .qwenImage21), (.subtle, .krea2): 0.05
             case (.subtle, _): 0.1
             case (.strong, _): 0.5
             }

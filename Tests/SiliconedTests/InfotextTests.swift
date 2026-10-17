@@ -38,7 +38,7 @@ final class InfotextTests: XCTestCase {
         XCTAssertTrue(render(model: "anima", name: "Anima Turbo").parameters(version: nil).contains(
             #"Civitai resources: [{"type":"checkpoint","modelVersionId":3263843}]"#))
         XCTAssertEqual(Solver.allCases.map(Infotext.sampler), ["Euler", "Euler a", "DPM++ 2M", "UniPC"])
-        // A hidden family claims no page.
+        // Krea 2 has no publisher page on Civitai (17/10/2026): it claims none.
         XCTAssertFalse(render(model: "krea2", name: "Krea 2 Turbo").parameters(version: nil).contains("Civitai resources"))
     }
 
