@@ -43,10 +43,11 @@ final class Curtain {
         withAnimation(.easeOut(duration: 0.12)) { position = min(max(position + direction / 20, 0), 1) }
     }
 
-    /// The two images compared, when the curtain can show them: exactly two, of the same size.
+    /// The two images compared, when the curtain can show them: exactly two, of the same proportions —
+    /// an enlargement and its original are one picture at two sizes, each layer is fitted to the frame.
     static func pair(_ app: AppState) -> (a: (entry: Entry, image: CGImage), b: (entry: Entry, image: CGImage))? {
         let c = app.compared
-        guard c.count == 2, c[0].entry.width == c[1].entry.width, c[0].entry.height == c[1].entry.height else { return nil }
+        guard c.count == 2, c[0].entry.width * c[1].entry.height == c[1].entry.width * c[0].entry.height else { return nil }
         return (c[0], c[1])
     }
 
@@ -57,6 +58,9 @@ final class Curtain {
     /// the steps, the LoRAs, an edit's references, the prompt. Nothing differs (a redo): their names.
     static func tags(_ a: Entry, _ b: Entry) -> (String, String) {
         var parts: [(String, String)] = []
+        if a.width != b.width {
+            parts.append(("\(a.width)×\(a.height)", "\(b.width)×\(b.height)"))
+        }
         if a.seed != b.seed {
             parts.append((String(localized: "Seed \(String(a.seed))"), String(localized: "Seed \(String(b.seed))")))
         }

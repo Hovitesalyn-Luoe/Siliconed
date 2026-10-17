@@ -170,8 +170,10 @@ private struct SceneView: View {
             } else if !app.compared.isEmpty, let entry = app.selectedEntry {
                 VStack(spacing: 14) {
                     if let pair = Curtain.pair(app), Curtain.shared.preferred {
-                        CurtainView(app: app, a: pair.a.image, b: pair.b.image, width: pair.a.entry.width,
-                                    height: pair.a.entry.height, tags: Curtain.tags(pair.a.entry, pair.b.entry))
+                        // The larger's size: the smaller is stretched to it, as the curtain of an enlargement shows it.
+                        let big = pair.a.entry.width >= pair.b.entry.width ? pair.a.entry : pair.b.entry
+                        CurtainView(app: app, a: pair.a.image, b: pair.b.image, width: big.width,
+                                    height: big.height, tags: Curtain.tags(pair.a.entry, pair.b.entry))
                     } else {
                         Comparison(app: app)
                     }
