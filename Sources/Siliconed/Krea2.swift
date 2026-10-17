@@ -119,32 +119,37 @@ package final class Krea2DiT {
         imageTokens = (latentHeight / 2) * (latentWidth / 2)
         maxRows = imageTokens + maxText
 
-        let n = maxRows, d = config.dim, h = config.hidden, kv = config.kvWidth
         let r = lora?.maxRank ?? 0
-        let floats = 6 * n * d + 2 * n * kv + 2 * n * h + d * h + 6 * d
-            + imageTokens * config.channels * 2 + n * config.headDim + n * r
-        let arena = try Arena(capacity: floats * 4 + 32 * Arena.alignment + (8 << 20))
+        // The arena is its slices (`Krea2DiT.slices`), each on its page: the function the memory need
+        // charges (`MemoryNeed.krea2`), so the two are one number.
+        let sizes = Krea2DiT.slices(config: config, imageTokens: imageTokens, maxText: maxText, rank: r)
+        let arena = try Arena(capacity: Arena.capacity(slices: sizes.map { $0.count * 4 }))
         self.arena = arena
-        func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
-            try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
+        var slots: [String: UnsafeMutablePointer<Float>] = [:]
+        for (name, count) in sizes {
+            slots[name] = try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
         }
-        x = try slot("x", n * d); normed = try slot("normed", n * d)
-        q = try slot("q", n * d); k = try slot("k", n * kv); v = try slot("v", n * kv)
-        gate = try slot("gate", n * d); merged = try slot("merged", n * d); o = try slot("o", n * d)
-        h1 = try slot("h1", n * h); h2 = try slot("h2", n * h)
-        modulationSlot = try slot("modulation", 6 * d)
-        reserve = try slot("reserve", d * h)
-        tokens = try slot("tokens", imageTokens * config.channels)
-        projected = try slot("projected", imageTokens * config.channels)
-        freqs = try slot("freqs", n * config.headDim)
+        func slot(_ name: String) -> UnsafeMutablePointer<Float> { slots[name]! }
+        x = slot("x"); normed = slot("normed")
+        q = slot("q"); k = slot("k"); v = slot("v")
+        gate = slot("gate"); merged = slot("merged"); o = slot("o")
+        h1 = slot("h1"); h2 = slot("h2")
+        modulationSlot = slot("modulation")
+        reserve = slot("reserve")
+        tokens = slot("tokens")
+        projected = slot("projected")
+        freqs = slot("freqs")
         self.lora = r > 0 ? lora : nil
         if let lora, r > 0 {
-            loraMid = try slot("loraMid", n * r)
+            loraMid = slot("loraMid")
             cacheLoRA = try CacheLoRA(lora: lora, retain: { $0.hasPrefix("transformer_blocks.") || $0.hasPrefix("final_layer.") })
         } else {
             loraMid = nil; cacheLoRA = nil
         }
     }
+
+    /// The arena this DiT mapped — what the tests compare with `arenaBytes`.
+    package var arenaCapacity: Int { arena.capacity }
 
     private func record(_ name: String, _ p: UnsafePointer<Float>, _ n: Int) {
         guard recordBoundaries else { return }
@@ -175,7 +180,15 @@ package final class Krea2DiT {
                                 "time_mod_proj.weight", "time_mod_proj.bias"])
         }
         prefetcher.request(["img_in.weight", "img_in.bias"])
-        prefetcher.request(prefetcher.namesOfBlock(prefix: "transformer_blocks.0."))
+        // The blocks are read beside the page cache, the whole map (`Krea2DiT.generationTail`), through
+        // the staging blocks the plan chosen in B gives (`MemoryPlan.ditTail`) — unless B holds the map
+        // whole. Decided before the first block is requested: requested before its stream exists, a
+        // block would be paged in through the cache, then read a second time.
+        let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: Krea2DiT.layerPrefix($0)) }
+        let (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
+                                                   fraction: Krea2DiT.generationTail)
+        try artifact.streamTail(blocks: slots == 0 ? [] : Array(layerBlocks[released...]), slots: slots)
+        prefetcher.request(layerBlocks[0])
 
         // ── the timestep: temb [d], then the shared modulation temb_mod [6d] ─────────────────
         let (temb, tembMod) = try tabulated ?? timed("modulation") { try modulation(sigmas: [sigma])[0] }
@@ -207,6 +220,8 @@ package final class Krea2DiT {
             try tembMod.withUnsafeBufferPointer {
                 try block(layer, rows: n, tembMod: $0.baseAddress!)
             }
+            // A streamed layer gives its staging block back.
+            if layer >= released { artifact.dropFromCache(layerBlocks[layer]) }
             if [0, 1, 13, 27].contains(layer) { record("block\(layer)_out", x, n * d) }
         }
 
@@ -421,7 +436,7 @@ package final class Krea2DiT {
 /// modulation, with 20 heads of 128 without GQA, and with the same sigmoid gate as the DiT. Their
 /// attentions are small (12 × 12 per token, T × T at most 512²): they run on the CPU.
 package final class Krea2TextFusion {
-    package let dim = 2560, heads = 20, headDim = 128, hidden = 6912, layers = 12
+    package let dim = Shape.dim, heads = Shape.heads, headDim = Shape.headDim, hidden = Shape.hidden, layers = Shape.layers
     package let outDim: Int
     package private(set) var boundaries: [String: [Float]] = [:]
     package var recordBoundaries = false
@@ -456,34 +471,39 @@ package final class Krea2TextFusion {
         self.outDim = config.dim
         self.eps = Float(config.eps)
         self.gemm = try GEMM(freezeCut: freezeCut)
-        let r = maxTokens * 12
-        self.rows = r
-        let d = 2560, h = 6912, widest = max(config.dim * config.dim, d * config.dim, d * h)
+        self.rows = maxTokens * Shape.layers
         let rank = lora?.maxRank ?? 0
-        let floats = 7 * r * d + 3 * r * h + widest + r * config.dim * 2 + (rank > 0 ? 2 * h * rank + r * rank : 0)
-        let arena = try Arena(capacity: floats * 4 + 16 * Arena.alignment + (8 << 20))
+        // The arena is its slices (`Krea2TextFusion.slices`), each on its page: the function the memory
+        // need charges. The former sum counted `normed`, `merged`, `o` at 2560 + 2 × 6144 for their three
+        // 6144-wide slices, and its 8 MB of margin covered the difference up to ~170 tokens only.
+        let list = Krea2TextFusion.slices(outDim: config.dim, maxTokens: maxTokens, rank: rank)
+        let arena = try Arena(capacity: Arena.capacity(slices: list.map { $0.count * 4 }))
         self.arena = arena
-        var sizes: [UnsafeMutablePointer<Float>: Int] = [:]
-        func slot(_ name: String, _ count: Int) throws -> UnsafeMutablePointer<Float> {
+        var sizes: [UnsafeMutablePointer<Float>: Int] = [:], named: [String: UnsafeMutablePointer<Float>] = [:]
+        for (name, count) in list {
             let p = try arena.reserve(name, bytes: count * 4).assumingMemoryBound(to: Float.self)
             sizes[p] = count * 4
-            return p
+            named[name] = p
         }
-        x = try slot("x", r * d); normed = try slot("normed", r * max(d, config.dim))
-        q = try slot("q", r * d); k = try slot("k", r * d); v = try slot("v", r * d)
-        gate = try slot("gate", r * d); merged = try slot("merged", r * max(d, config.dim))
-        o = try slot("o", r * max(d, config.dim))
-        h1 = try slot("h1", r * h); h2 = try slot("h2", r * h); scratch = try slot("scratch", r * h)
-        reserve = try slot("reserve", widest)
+        func slot(_ name: String) -> UnsafeMutablePointer<Float> { named[name]! }
+        x = slot("x"); normed = slot("normed")
+        q = slot("q"); k = slot("k"); v = slot("v")
+        gate = slot("gate"); merged = slot("merged")
+        o = slot("o")
+        h1 = slot("h1"); h2 = slot("h2"); scratch = slot("scratch")
+        reserve = slot("reserve")
         self.lora = rank > 0 ? lora : nil
         if rank > 0 {
-            loraDown = try slot("loraBas", h * rank); loraUp = try slot("loraHaut", rank * h)
-            loraMid = try slot("loraMid", r * rank)
+            loraDown = slot("loraBas"); loraUp = slot("loraHaut")
+            loraMid = slot("loraMid")
         } else {
             loraDown = nil; loraUp = nil; loraMid = nil
         }
         reserved = sizes
     }
+
+    /// The arena this fusion mapped — what the tests compare with `arenaBytes`.
+    package var arenaCapacity: Int { arena.capacity }
 
     private func record(_ name: String, _ p: UnsafePointer<Float>, _ n: Int) {
         guard recordBoundaries else { return }

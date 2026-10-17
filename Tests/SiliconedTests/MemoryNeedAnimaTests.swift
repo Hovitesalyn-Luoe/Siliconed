@@ -135,7 +135,6 @@ final class MemoryNeedAnimaTests: XCTestCase {
         var peaks: [Int] = []
         for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
             let n = need(w, h)
-            XCTAssertFalse(n.isFallback)
             XCTAssertEqual(n.phases.map(\.kind), [.text, .denoising, .decoding])
             XCTAssertEqual(n.phases[1].bytes("DiT arena"),
                            AnimaDiT.arenaBytes(config: maps.dit, latentHeight: h / 8, latentWidth: w / 8, textLength: 512, lora: nil))
@@ -148,7 +147,6 @@ final class MemoryNeedAnimaTests: XCTestCase {
             peaks.append(n.peak)
         }
         XCTAssertEqual(peaks, peaks.sorted()); XCTAssertEqual(Set(peaks).count, 3)
-        XCTAssertFalse(MemoryNeed.of(MemoryFixtures.animaRequest(1024, 1024))!.isFallback)
     }
 
     /// **Standard, Compact, Light: one denoising need.** The DiT's map is read through the page cache
@@ -221,7 +219,6 @@ final class MemoryNeedAnimaTests: XCTestCase {
         let marks = [("start", 0), ("text", n.need(of: .text)!), ("image", n.need(of: .references)!),
                      ("denoising", n.need(of: .denoising)! + 1), ("denoiser released", 0), ("decoding", n.need(of: .decoding)!)]
         let check = MemoryCheck(need: n, marks: marks, peakMethod: .kernelInterval)
-        XCTAssertFalse(check.fallback)
         XCTAssertEqual(check.phases.filter { $0.needBytes != nil }.map(\.name), ["text", "image", "denoising", "denoiser released", "decoding"])
         XCTAssertEqual(check.exceeded.map(\.name), ["denoising"])
     }

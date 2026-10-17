@@ -505,7 +505,7 @@ final class AppState {
     }
 
     /// **The memory this render needs**: its floor computed from the request's shapes, with what the
-    /// app already holds (`ModelCard.memoryNeed`; Krea 2: its measured peaks, a marked fallback) — what the engine's preflight compares to B. `nil` when it cannot be computed.
+    /// app already holds (`ModelCard.memoryNeed`) — what the engine's preflight compares to B. `nil` when it cannot be computed.
     var memoryNeed: Int? {
         let f = outputFormat
         return card.flatMap { $0.memoryNeed(width: f.width, height: f.height, references: references.count + subjectImageCount) }

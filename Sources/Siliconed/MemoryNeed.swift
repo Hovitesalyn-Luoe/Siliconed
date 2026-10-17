@@ -75,6 +75,7 @@ package struct MemoryNeed: Sendable, Equatable {
         package var zImageMaps: ZImageMaps? = nil
         package var qwenMaps: QwenImage21Maps? = nil
         package var animaMaps: AnimaMaps? = nil
+        package var krea2Maps: Krea2Maps? = nil
 
         package init(card: ModelCard, width: Int, height: Int, references: [(width: Int, height: Int)] = [],
                      promptTokens: Int, loraRanks: [Int] = [], tail: MemoryPlan.Tail = .init(fraction: 0.5, slots: 2)) {
@@ -94,7 +95,8 @@ package struct MemoryNeed: Sendable, Equatable {
         /// at least one UTF-8 byte, so the bytes of the template and the prompt bound the tokens, cut where
         /// the encoder cuts (512). Z-Image: the chat template around the prompt; Qwen-Image-2.1: the
         /// system turn, the user header, each reference's tags and the closing turn (`QwenImage21Need`);
-        /// Anima: the prompt alone (`AnimaTextModule` encodes it without a template, cut at 512).
+        /// Anima: the prompt alone (`AnimaTextModule` encodes it without a template, cut at 512); Krea 2:
+        /// its 34 template tokens, the prompt cut where `Krea2Text.identifiers` cuts, the 5 of the suffix.
         package static func promptTokens(_ prompt: String, family: Family, references: Int = 0) -> Int {
             promptTokens(text: prompt.utf8.count, family: family, references: references)
         }
@@ -107,7 +109,10 @@ package struct MemoryNeed: Sendable, Equatable {
                     + 5 + min(text, Qwen3VLPrompt.maxPromptTokens)
             case .anima:
                 return min(max(1, text), 512)
-            default:
+            case .krea2:
+                return min(Krea2Text.templateTokens + text, Krea2Text.maximumIdentifiers - Krea2Text.suffixTokens)
+                    + Krea2Text.suffixTokens
+            case .zImage:
                 return min(Tokenizer.chatPrefix.utf8.count + text + Tokenizer.chatSuffix.utf8.count, 512)
             }
         }
@@ -148,9 +153,6 @@ package struct MemoryNeed: Sendable, Equatable {
     package var crossing: Int
     /// The process's footprint when the render starts (`Request.base`).
     package var base: Int
-    /// **No formula for this family yet**: the need is the fallback of measured peaks
-    /// (`MemoryNeed.unmodelled`), not a computation.
-    package var isFallback = false
 
     /// **The peak**: the largest phase plus what crosses them, plus the base.
     package var peak: Int { (phases.map(\.bytes).max() ?? 0) + crossing + base }
@@ -161,16 +163,15 @@ package struct MemoryNeed: Sendable, Equatable {
         phases.filter { $0.kind == kind }.map(\.bytes).max().map { $0 + crossing + base }
     }
 
-    /// **The need of a request.** Z-Image, Qwen-Image-2.1 and Anima are computed; Krea 2, hidden, has no
-    /// shape functions for its DiT yet and takes the marked fallback (`unmodelled`). `nil` when the
-    /// maps' headers cannot be read — **the render is then refused** (`EngineError.memoryNeedUnknown`),
-    /// never planned nor accepted on a need of 0.
+    /// **The need of a request**, every family computed from its shapes. `nil` when the maps' headers
+    /// cannot be read — **the render is then refused** (`EngineError.memoryNeedUnknown`), never planned
+    /// nor accepted on a need of 0.
     package static func of(_ request: Request) -> MemoryNeed? {
         switch request.card.family {
         case .zImage: zImage(request)
         case .qwenImage21: qwenImage21(request)
         case .anima: anima(request)
-        default: unmodelled(request)
+        case .krea2: krea2(request)
         }
     }
 
@@ -237,42 +238,6 @@ package struct MemoryNeed: Sendable, Equatable {
     package static func batchImages(_ request: Request) -> Term {
         Term("earlier images of the batch", max(0, request.batch - 1) * 3 * request.width * request.height * 4)
     }
-
-    // ── the families without a formula ────────────────────────────────────────────────────────
-
-    /// **⚠ FALLBACK — not a computation.** Krea 2 has no shape functions for its DiT and encoder yet
-    /// (its constructors size their buffers inline): its need is still the whole-render peak measured
-    /// on the M1 Pro. A format falls in the smallest measured area that holds it and takes the largest
-    /// figure up to it; beyond the measurements, the largest figure measured. The references are not
-    /// modelled (it was measured without). A hidden family: to be replaced by its formula when its
-    /// constructors expose their sizes, as Anima's were (`MemoryNeed.anima`).
-    package static func unmodelled(_ request: Request) -> MemoryNeed? {
-        let area = request.width * request.height
-        func table(_ family: Family) -> [(area: Int, bytes: Int, source: String)] {
-            func p(_ w: Int, _ h: Int, _ gb: Double, _ s: String) -> (Int, Int, String) { (w * h, Int((gb * 1e9).rounded()), s) }
-            switch family {
-            case .krea2: return [p(512, 512, 0.984, "M1 Pro"), p(832, 1216, 5.2, "M1 Pro"), p(1024, 1024, 5.1, "M1 Pro"),
-                                 p(1024, 1536, 7.8, "M1 Pro")]
-            default: return []
-            }
-        }
-        let own = table(request.card.family)
-        guard !own.isEmpty else { return nil }
-        let figure: (bytes: Int, source: String)
-        if let tier = own.map(\.area).filter({ $0 >= area }).min() {
-            let best = own.filter { $0.area <= tier }.max { $0.bytes < $1.bytes }!
-            figure = (best.bytes, best.source)
-        } else {
-            let beyond = table(.krea2).filter { $0.area >= area }
-            let best = (beyond + own).max { $0.bytes < $1.bytes }!
-            figure = (best.bytes, best.source)
-        }
-        // The base on top: the figures are a command line's whole peaks (its ~13 MB inside), an app holds
-        // more — counted twice for the command line, never missed for the app.
-        return MemoryNeed(phases: [Phase(kind: .denoising,
-                                         terms: [Term("measured peak (fallback, \(figure.source))", figure.bytes, outside: true)])],
-                          crossing: 0, base: request.base, isFallback: true)
-    }
 }
 
 // ── the product's own verification ───────────────────────────────────────────────────────────
@@ -319,8 +284,6 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
     /// The render's own peak: the largest phase's.
     public var measuredBytes: Int
     public var phases: [Phase]
-    /// The need came from the hidden families' measured fallback, not from a formula.
-    public var fallback: Bool
     /// Measured minus need, over the whole render.
     public var gapBytes: Int
     /// How the phases' peaks were read (`FootprintInterval`): exact, or sampled every 10 ms.
@@ -329,9 +292,9 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
     /// need above: the peaks are the process's, the app's interface and history or the command line's
     /// runtime included, and so are the needs. `nil` in a report written before it was carried.
     public var baseBytes: Int?
-    public init(needBytes: Int, measuredBytes: Int, phases: [Phase], fallback: Bool,
+    public init(needBytes: Int, measuredBytes: Int, phases: [Phase],
                 peakMethod: PeakMethod = .kernelInterval, baseBytes: Int? = nil) {
-        self.needBytes = needBytes; self.measuredBytes = measuredBytes; self.phases = phases; self.fallback = fallback
+        self.needBytes = needBytes; self.measuredBytes = measuredBytes; self.phases = phases
         self.peakMethod = peakMethod; self.baseBytes = baseBytes
         gapBytes = measuredBytes - needBytes
     }
@@ -365,15 +328,15 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
                   measuredBytes: mark.peak)
         }
         self.init(needBytes: need.peak, measuredBytes: marks.map(\.peak).max() ?? 0, phases: phases,
-                  fallback: need.isFallback, peakMethod: peakMethod, baseBytes: need.base)
+                  peakMethod: peakMethod, baseBytes: need.base)
     }
 
     /// One line per defect, for the log and the CLI.
     public var defects: [String] {
         exceeded.map {
-            String(format: "memory defect: %@ peaked at %.0f MB, its need is %.0f MB (+%.0f MB)%@", $0.name as NSString,
+            String(format: "memory defect: %@ peaked at %.0f MB, its need is %.0f MB (+%.0f MB)", $0.name as NSString,
                    Double($0.measuredBytes) / 1e6, Double($0.needBytes ?? needBytes) / 1e6,
-                   Double($0.gapBytes ?? gapBytes) / 1e6, fallback ? " — need from the measured fallback" : "")
+                   Double($0.gapBytes ?? gapBytes) / 1e6)
         }
     }
 

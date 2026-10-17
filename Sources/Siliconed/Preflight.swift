@@ -100,9 +100,8 @@ extension ModelCard {
     /// **The memory a render of this model needs at `width × height`**, in bytes: its floor — the peak
     /// of the most economical plan (`MemoryNeed.Request.lean`), computed from the shapes
     /// (`MemoryNeed.of`), with what this process holds now. Above the floor the plan buys time
-    /// (`MemoryPlan.choose`); at the floor the render is slower, never another image. Krea 2,
-    /// hidden, takes the marked fallback of its measured peaks (`MemoryNeed.unmodelled`). `nil` when
-    /// it cannot be computed: the model's maps are not installed, or their headers do not parse.
+    /// (`MemoryPlan.choose`); at the floor the render is slower, never another image. `nil` when it
+    /// cannot be computed: the model's maps are not installed, or their headers do not parse.
     public func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int? {
         memoryNeed(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))
     }

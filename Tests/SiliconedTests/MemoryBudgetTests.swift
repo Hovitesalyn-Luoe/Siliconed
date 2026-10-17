@@ -35,9 +35,6 @@ final class MemoryBudgetTests: XCTestCase {
         XCTAssertLessThanOrEqual(floor(1024, 1024), MemoryNeed.of(request(1024, 1024))!.peak)
         XCTAssertLessThan(floor(512, 512), floor(1024, 1024))
         XCTAssertLessThan(floor(1024, 1024), floor(1024, 1536))
-        // A family measured without references keeps its one figure (the marked fallback).
-        XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1024, references: [(1024, 1024), (1024, 1024)], base: 0)),
-                       ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1024, base: 0)))
     }
 
     /// **The process's base is in the need**: B covers the whole process — what the app or the
@@ -254,9 +251,5 @@ final class MemoryBudgetTests: XCTestCase {
             XCTAssertLessThan(floor(w, h, references: 3), comfort(w, h, references: 3))
         }
         XCTAssertEqual(floor(832, 1216), floor(1216, 832))
-        // Krea 2's marked fallback: its measured peaks, the larger format's above a smaller one.
-        XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1024, base: 0)), 5_200_000_000)
-        XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1536, base: 0)), 7_800_000_000)
-        XCTAssertTrue(MemoryNeed.of(ModelCard.krea2.memoryRequest(width: 1024, height: 1024))!.isFallback)
     }
 }

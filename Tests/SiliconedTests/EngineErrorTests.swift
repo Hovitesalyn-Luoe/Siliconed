@@ -91,6 +91,7 @@ final class EngineErrorTests: XCTestCase {
         r.zImageMaps = MemoryFixtures.zImageMaps()
         r.qwenMaps = MemoryFixtures.qwenMaps()
         r.animaMaps = MemoryFixtures.animaMaps()
+        r.krea2Maps = MemoryFixtures.krea2Maps()
         return r
     }
 
@@ -123,8 +124,8 @@ final class EngineErrorTests: XCTestCase {
     }
 
     /// **The memory refused is the floor, computed from the request**: on a 16 GB Mac (B = 10 GiB)
-    /// every model fits at 1024×1536 (Krea 2's 7.8 GB, the hidden family's measured fallback, is the
-    /// largest); with B = 1 GiB none does at 1024² (Anima, computed, needs 1.35 GB there). On the fixtures' maps and 6 P cores: the figures do
+    /// every model fits at 1024×1536, every one computed (Krea 2 too: `MemoryNeed.krea2`); with
+    /// B = 1 GiB none does at 1024² (Anima needs 1.35 GB there). On the fixtures' maps and 6 P cores: the figures do
     /// not depend on the Mac (the CI's runner, with fewer P cores, once found a generation above an
     /// edit — true there, and no property: no test compares them any more).
     func testTheMemoryNeedIsComputed() {
@@ -135,10 +136,6 @@ final class EngineErrorTests: XCTestCase {
             // Never decreases with the area.
             XCTAssertEqual(needs, needs.sorted(), card.id)
         }
-        // Anima is computed (`MemoryNeed.anima`), no longer the measured fallback.
-        XCTAssertFalse(MemoryNeed.of(request(.anima, 1024, 1024))!.isFallback)
-        // Krea 2's largest measured peak.
-        XCTAssertEqual(ModelCard.krea2.memoryNeed(ModelCard.krea2.memoryRequest(width: 1024, height: 1536, base: 0)), 7_800_000_000)
         // An edit is charged its references: more references, never less.
         XCTAssertLessThan(need(.qwenImage21, 1024, 1024, references: 1), need(.qwenImage21, 1024, 1024, references: 3))
     }

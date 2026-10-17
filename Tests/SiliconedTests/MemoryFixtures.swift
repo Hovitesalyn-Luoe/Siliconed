@@ -111,6 +111,80 @@ enum MemoryFixtures {
         return request
     }
 
+    /// **Krea 2's maps**: the DiT's 28 single-stream blocks with the published shapes (`d` 6144, 48
+    /// heads for 12 `k`/`v`, `h` 16384, the published config) — the norms, QK-norms and modulation
+    /// tables in fp32 whatever the type, as the forge keeps them —, the timestep weights (`time_mod_proj`
+    /// and the two `time_embed` Linears fp32, as published and kept), and Qwen3-VL-4B's text layers (`last_layer`
+    /// 34: the taps stop at the input of layer 35). `ditBytesPerValue` is the DiT's Linears' type — 2
+    /// (Standard, bf16), 1 (Compact, int8 and a float scale per output column), 0 for a 4-bit table
+    /// (Light, Q4_K_M: a quarter of bf16's bytes) —, `encoderBytesPerValue` the encoder's.
+    static func krea2Maps(ditBytesPerValue: Int = 2, encoderBytesPerValue: Int = 2) -> MemoryNeed.Krea2Maps {
+        let (d, h, kv, page) = (6144, 16_384, 1536, 16384)
+        let linears: [(String, [Int])] = [
+            ("attn.to_q.weight", [d, d]), ("attn.to_k.weight", [d, kv]), ("attn.to_v.weight", [d, kv]),
+            ("attn.to_gate.weight", [d, d]), ("attn.to_out.0.weight", [d, d]),
+            ("ff.gate.weight", [d, h]), ("ff.up.weight", [d, h]), ("ff.down.weight", [h, d]),
+        ]
+        let floats: [(String, [Int])] = [("norm1.weight", [d]), ("norm2.weight", [d]), ("attn.norm_q.weight", [128]),
+                                          ("attn.norm_k.weight", [128]), ("scale_shift_table", [6, d])]
+        func bytes(_ shape: [Int], linear: Bool) -> Int {
+            let count = shape.reduce(1, *)
+            guard linear else { return 4 * count }
+            switch ditBytesPerValue {
+            case 0: return count / 2
+            case 1: return count + 4 * shape[1]
+            default: return count * ditBytesPerValue
+            }
+        }
+        var table: [String: Any] = [:], order: [String] = [], offset = page
+        func add(_ name: String, _ shape: [Int], linear: Bool, dtype: String? = nil) {
+            let size = bytes(shape, linear: linear)
+            var entry: [String: Any] = ["offset": offset, "bytes": size, "shape": shape]
+            if let dtype { entry["dtype"] = dtype }
+            table[name] = entry
+            order.append(name)
+            offset += (size + page - 1) / page * page
+        }
+        let linearType = ["q4_k", "int8", "bfloat16"][min(ditBytesPerValue, 2)]
+        add("time_embed.linear_1.weight", [256, d], linear: false, dtype: "float32")
+        add("time_embed.linear_2.weight", [d, d], linear: false, dtype: "float32")
+        add("time_mod_proj.weight", [d, 6 * d], linear: false, dtype: "float32")
+        for layer in 0..<28 {
+            for (suffix, shape) in floats { add(Krea2DiT.layerPrefix(layer) + suffix, shape, linear: false, dtype: "float32") }
+            for (suffix, shape) in linears { add(Krea2DiT.layerPrefix(layer) + suffix, shape, linear: true, dtype: linearType) }
+        }
+        var dit: [String: Any] = ["page": page, "tensors": table, "order": order]
+        dit["kind"] = "krea2-turbo-dit"; dit["rope_layout"] = "interleaved"
+        dit["config"] = ["num_attention_heads": 48, "num_key_value_heads": 12, "attention_head_dim": 128,
+                         "intermediate_size": h, "num_layers": 28, "in_channels": 64, "timestep_embed_dim": 256,
+                         "axes_dims_rope": [32, 48, 48]] as [String: Any]
+        let (e, i) = (2560, 9728)
+        let layer: [(String, [Int])] = [
+            ("input_layernorm.weight", [e]), ("mlp.down_proj.weight", [i, e]), ("mlp.gate_proj.weight", [e, i]),
+            ("mlp.up_proj.weight", [e, i]), ("post_attention_layernorm.weight", [e]), ("self_attn.k_norm.weight", [128]),
+            ("self_attn.k_proj.weight", [e, 1024]), ("self_attn.o_proj.weight", [4096, e]),
+            ("self_attn.q_norm.weight", [128]), ("self_attn.q_proj.weight", [e, 4096]), ("self_attn.v_proj.weight", [e, 1024]),
+        ]
+        var encoder = self.table(layers: 35, prefix: { "layers.\($0)." }, tensors: layer, bytesPerValue: encoderBytesPerValue)
+        encoder["last_layer"] = 34
+        encoder["config"] = ["hidden_size": e, "num_attention_heads": 32, "num_key_value_heads": 8, "head_dim": 128,
+                             "intermediate_size": i, "rope_parameters": ["rope_theta": 5_000_000.0, "rope_type": "default"]]
+            as [String: Any]
+        return MemoryNeed.Krea2Maps(dit: dit, encoder: encoder)!
+    }
+
+    /// A Krea 2 request on the fixture's maps, `threads` P cores, no process base. `tokens`: the
+    /// encoder's rows (the template's 34 and the suffix's 5 included).
+    static func krea2Request(_ width: Int, _ height: Int, tokens: Int = 59, ranks: [Int] = [],
+                             references: [(width: Int, height: Int)] = [], threads: Int = 6,
+                             maps: MemoryNeed.Krea2Maps = krea2Maps()) -> MemoryNeed.Request {
+        var request = MemoryNeed.Request(card: .krea2, width: width, height: height, references: references,
+                                         promptTokens: tokens, loraRanks: ranks)
+        request.threads = threads
+        request.krea2Maps = maps
+        return request
+    }
+
     /// The published tokenizer's tables (`Tokenizer.tableBytes(file:)` on it).
     static let qwenTokenizerTables = ByteTableFigures.mapped(entries: 151_643, keyBytes: 3_989_982)
         + ByteTableFigures.mapped(entries: 151_387, keyBytes: 7_426_578)

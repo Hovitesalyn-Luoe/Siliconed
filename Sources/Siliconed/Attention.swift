@@ -199,8 +199,7 @@ package final class Attention {
             // The query rows per SDPA: all of them, as long as the attention matrix fits under
             // `maxMatrix`; otherwise equal slices that fit.
             let rows = sequence
-            let slices = Int((Double(heads * rows * keys) * 4 / Double(Attention.maxMatrix))
-                .rounded(.up))
+            let slices = Attention.groupedSlices(heads: heads, rows: rows, keys: keys)
             var pieceTensors: [MPSGraphTensor] = []
             var begin = 0
             let length = (rows + slices - 1) / max(1, slices)
@@ -258,6 +257,13 @@ package final class Attention {
     /// up to reassociation (measured: 9.4·10⁻⁸), and are only used beyond: below this threshold, the
     /// graph is that of a single SDPA, bits included.
     package static let maxMatrix = 3_300_000_000
+
+    /// **The query slices a GQA graph runs in**: as few as keep each attention matrix under
+    /// `maxMatrix` — 1 up to Krea 2's 1024², 3 at its 1024×1536. The memory need reads it too
+    /// (`MemoryNeed.krea2`: past one slice, MPSGraph concatenates them).
+    package static func groupedSlices(heads: Int, rows: Int, keys: Int) -> Int {
+        Int((Double(heads * rows * keys) * 4 / Double(maxMatrix)).rounded(.up))
+    }
 
     /// **The causal mask a causal instance holds** for its graph's life: `[S, K]` fp32 in `Pages`.
     package static func maskBytes(sequence: Int, keys: Int) -> Int {
