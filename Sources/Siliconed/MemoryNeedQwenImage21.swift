@@ -81,6 +81,9 @@ package struct QwenImage21Maps: Sendable {
     package let encoderLayerStaging: Int
     /// What the tokenizer's two tables map (`Tokenizer.tableBytes`).
     package let tokenizerTables: Int
+    /// What widening the largest rotated (int8 convrot) weight allocates beside the arenas
+    /// (`Widen.rotationScratchBytes`): the Compact's DiT and encoder, the Light's encoder; 0 otherwise.
+    package let encoderRotationScratch: Int, ditRotationScratch: Int
 
     /// From the headers and the tokenizer's count — pure: the tests hand it headers written in memory.
     /// `nil` when a config does not parse or a map has no tensor table.
@@ -96,6 +99,8 @@ package struct QwenImage21Maps: Sendable {
         guard ditStaging > 0, encoderStaging > 0 else { return nil }
         self.dit = ditConfig; self.encoder = encoderConfig; self.vision = vision
         ditLayerStaging = ditStaging; encoderLayerStaging = encoderStaging; self.tokenizerTables = tokenizerTables
+        encoderRotationScratch = Widen.rotationScratchBytes(header: encoder)
+        ditRotationScratch = Widen.rotationScratchBytes(header: dit, prefixes: (0..<ditConfig.layers).map(QwenImage21DiT.layerPrefix))
     }
 
     /// The maps this card renders with: its own DiT (an imported one) or the library's installed
@@ -222,6 +227,7 @@ package struct QwenImage21Need {
             Term("vision arena", Qwen3VLVision.arenaBytes(config: vision, patches: largest)),
             Term("pixel_values", pixelValues), Term("vision features", features),
             Term("tokenizer tables", maps.tokenizerTables),
+            Term("encoder rotation scratch", maps.encoderRotationScratch),
         ] + MemoryNeed.attention("vision", heads: vision.heads, rows: largest, keys: largest, headDim: vision.headDim,
                                  causal: false, split: false, threads: threads)
           + MemoryNeed.gemm("vision", products: [(largest, vision.patchValues, d), (largest, d, 3 * d), (largest, d, d),
@@ -237,6 +243,7 @@ package struct QwenImage21Need {
             Term("encoder staging", TextEncoder.stagingSlots(granted: request.encoderSlots) * maps.encoderLayerStaging),
             Term("pixel_values", pixelValues), Term("vision features", features),
             Term("tokenizer tables", maps.tokenizerTables),
+            Term("encoder rotation scratch", maps.encoderRotationScratch),
         ] + MemoryNeed.attention("encoder", heads: e.heads, rows: s, keys: s, headDim: e.headDim, causal: true,
                                  split: false, threads: threads)
           + MemoryNeed.gemm("encoder", bounded: [(s, h, a), (s, h, kv), (s, a, h), (s, h, i), (s, i, h)]))
@@ -301,6 +308,7 @@ package struct QwenImage21Need {
             // The map's staging blocks: only with the K/V in memory (`QwenImage21DiT.body`).
             Term("map staging", storage == .memory && request.tail.fraction > 0
                 ? request.tail.slots * maps.ditLayerStaging : 0),
+            Term("DiT rotation scratch", maps.ditRotationScratch),
         ]
         // Two slots of the user's stack, on the 7 Linears of a block (`StreamedLoRA`), and, with more
         // than one LoRA, the `down` staging of the module a slot fills (`LoRA.downBytes`).

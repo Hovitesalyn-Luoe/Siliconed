@@ -70,6 +70,9 @@ extension MemoryNeed {
         /// The largest timestep weight the tabulation widens (`Krea2Exact.linears`: a weight not
         /// published in fp32); 0 when the three are fp32.
         package let timestepWidening: Int
+        /// What widening the largest rotated (int8 convrot) weight allocates beside the arenas
+        /// (`Widen.rotationScratchBytes`): the Compact's encoder and DiT, the Light's encoder; 0 otherwise.
+        package let encoderRotationScratch: Int, ditRotationScratch: Int
 
         /// From the headers — pure: the tests hand it headers written in memory. `nil` when the
         /// encoder's config does not parse or a map has no tensor table.
@@ -84,6 +87,8 @@ extension MemoryNeed {
             self.dit = config; self.encoder = encoderConfig
             ditLayerStaging = ditStaging; encoderLayerStaging = encoderStaging
             timestepWidening = Krea2DiT.timestepWidening(header: dit, config: config)
+            encoderRotationScratch = Widen.rotationScratchBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig))
+            ditRotationScratch = Widen.rotationScratchBytes(header: dit, prefixes: (0..<config.layers).map(Krea2DiT.layerPrefix))
         }
 
         /// The maps this card renders with: its own DiT (an imported one) or the library's installed
@@ -146,6 +151,7 @@ extension MemoryNeed {
             Term("encoder arena", TextEncoder.arenaBytes(config: encoder, sequence: sequence)),
             Term("encoder staging", TextEncoder.stagingSlots(granted: request.encoderSlots) * maps.encoderLayerStaging),
             Term("taps stack", Arena.capacity(for: sequence * taps * h * f)),
+            Term("encoder rotation scratch", maps.encoderRotationScratch),
         ] + attention("encoder", heads: encoder.heads, rows: sequence, keys: sequence, headDim: encoder.headDim,
                       causal: true, split: false, threads: request.threads)
           + gemm("encoder", bounded: [(sequence, h, a), (sequence, h, kvE), (sequence, a, h), (sequence, h, i),
@@ -184,6 +190,7 @@ extension MemoryNeed {
                 ? LoRA.downBytes(k: modules.map(\.k).max() ?? 0, rank: request.loraRanks.max() ?? 0) : 0),
             // The velocity `forward` returns (`[16, h, w]`); Euler keeps no history.
             Term("sampler", latent + request.solver.historyBytes(count: latent / f)),
+            Term("DiT rotation scratch", maps.ditRotationScratch),
         ]
         let slices = Attention.groupedSlices(heads: dit.heads, rows: n, keys: n)
         let running = [Term("DiT SDPA queries", OperatorFootprint.sdpaQueries(rows: n, heads: dit.heads, headDim: dit.headDim),

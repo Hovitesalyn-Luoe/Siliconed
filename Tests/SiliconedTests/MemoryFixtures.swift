@@ -118,7 +118,8 @@ enum MemoryFixtures {
     /// 34: the taps stop at the input of layer 35). `ditBytesPerValue` is the DiT's Linears' type — 2
     /// (Standard, bf16), 1 (Compact, int8 and a float scale per output column), 0 for a 4-bit table
     /// (Light, Q4_K_M: a quarter of bf16's bytes) —, `encoderBytesPerValue` the encoder's.
-    static func krea2Maps(ditBytesPerValue: Int = 2, encoderBytesPerValue: Int = 2) -> MemoryNeed.Krea2Maps {
+    /// `rotated`: the 8-bit linears published rotated (Comfy-Org's int8 convrot, group 256).
+    static func krea2Maps(ditBytesPerValue: Int = 2, encoderBytesPerValue: Int = 2, rotated: Bool = false) -> MemoryNeed.Krea2Maps {
         let (d, h, kv, page) = (6144, 16_384, 1536, 16384)
         let linears: [(String, [Int])] = [
             ("attn.to_q.weight", [d, d]), ("attn.to_k.weight", [d, kv]), ("attn.to_v.weight", [d, kv]),
@@ -141,6 +142,7 @@ enum MemoryFixtures {
             let size = bytes(shape, linear: linear)
             var entry: [String: Any] = ["offset": offset, "bytes": size, "shape": shape]
             if let dtype { entry["dtype"] = dtype }
+            if rotated, linear, dtype == "int8" { entry["rotation"] = ["kind": "convrot", "group": 256] }
             table[name] = entry
             order.append(name)
             offset += (size + page - 1) / page * page
@@ -166,6 +168,10 @@ enum MemoryFixtures {
             ("self_attn.q_norm.weight", [128]), ("self_attn.q_proj.weight", [e, 4096]), ("self_attn.v_proj.weight", [e, 1024]),
         ]
         var encoder = self.table(layers: 35, prefix: { "layers.\($0)." }, tensors: layer, bytesPerValue: encoderBytesPerValue)
+        if rotated, encoderBytesPerValue == 1, var t = encoder["tensors"] as? [String: [String: Any]] {
+            for (name, entry) in t where (entry["shape"] as? [Int])?.count == 2 { t[name]?["rotation"] = ["kind": "convrot", "group": 256] }
+            encoder["tensors"] = t
+        }
         encoder["last_layer"] = 34
         encoder["config"] = ["hidden_size": e, "num_attention_heads": 32, "num_key_value_heads": 8, "head_dim": 128,
                              "intermediate_size": i, "rope_parameters": ["rope_theta": 5_000_000.0, "rope_type": "default"]]

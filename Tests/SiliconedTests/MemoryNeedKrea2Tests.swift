@@ -174,6 +174,34 @@ final class MemoryNeedKrea2Tests: XCTestCase {
         XCTAssertEqual(lean.phases[1...], standard.phases[1...])
     }
 
+    /// **A rotated weight widens through a scratch outside the arenas** (`Widen.dequantizeRotated`):
+    /// each job alive at once holds its tile's integers, `G × w` `Int16` (2 MB at G = 256, w = 4096),
+    /// and the call its `n` factors. The Compact's encoder and DiT are Comfy-Org's int8 convrot: the
+    /// text phase charges the encoder's largest (its `gate_proj`, `[2560, 9728]`: 10 groups × 3 tiles),
+    /// the DiT's phase the DiT's; an unrotated map charges nothing. Found by the Compact's measured text
+    /// stage, 4 to 7 MB above a formula that did not hold it.
+    func testARotatedWeightChargesItsScratch() {
+        XCTAssertEqual(Widen.rotationScratchBytes(rows: 2560, columns: 9728, group: 256, workers: 10),
+                       Arena.capacity(for: 9728 * 4) + 10 * 2_097_152)
+        XCTAssertEqual(Widen.rotationScratchBytes(rows: 256, columns: 4096, group: 256, workers: 10),
+                       16384 + 2_097_152, "one job: never more workers than jobs")
+        XCTAssertEqual(Widen.rotationScratchBytes(rows: 512, columns: 1024, group: 256, workers: 10),
+                       16384 + 2 * 524_288)
+        XCTAssertEqual(Widen.rotationScratchBytes(header: ["tensors": ["w": ["shape": [512, 1024]]]]), 0, "not rotated")
+        let workers = Widen.widenWorkers
+        let rotated = MemoryFixtures.krea2Maps(ditBytesPerValue: 1, encoderBytesPerValue: 1, rotated: true)
+        XCTAssertEqual(rotated.encoderRotationScratch,
+                       Widen.rotationScratchBytes(rows: 2560, columns: 9728, group: 256, workers: workers))
+        XCTAssertEqual(rotated.ditRotationScratch,
+                       Widen.rotationScratchBytes(rows: 6144, columns: 16_384, group: 256, workers: workers))
+        let plain = MemoryFixtures.krea2Maps(ditBytesPerValue: 1, encoderBytesPerValue: 1)
+        XCTAssertEqual(plain.encoderRotationScratch, 0); XCTAssertEqual(plain.ditRotationScratch, 0)
+        let a = need(512, 512, maps: rotated), b = need(512, 512, maps: plain)
+        XCTAssertEqual(a.phases[0].bytes - b.phases[0].bytes, rotated.encoderRotationScratch)
+        XCTAssertEqual(a.phases[0].bytes("encoder rotation scratch"), rotated.encoderRotationScratch)
+        XCTAssertEqual(a.phases[2].bytes("DiT rotation scratch"), rotated.ditRotationScratch)
+    }
+
     /// **The timestep weights the tabulation widens**: the three published fp32 and kept so (the
     /// installed Standard's header, 17/10), read in place — and a map that would narrow one widens it
     /// for its call: `time_mod_proj`, 906 MB.

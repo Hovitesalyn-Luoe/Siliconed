@@ -390,7 +390,7 @@ extension Widen {
             }
             for c in 0..<n { d[c] *= norm }
         }
-        let tile = 4096, tiles = (n + tile - 1) / tile, groups = k / group
+        let tile = rotationTileWidth, tiles = (n + tile - 1) / tile, groups = k / group
         nonisolated(unsafe) let (src, dst) = (values.assumingMemoryBound(to: Int8.self), destination)
         factors.withUnsafeBufferPointer { f in
             nonisolated(unsafe) let factor = f.baseAddress!
@@ -400,6 +400,41 @@ extension Widen {
                            rows: group, width: w, stride: n)
             }
         }
+    }
+
+    /// The columns a tile of `dequantizeRotated` covers at most.
+    package static let rotationTileWidth = 4096
+
+    /// The workers `DispatchQueue.concurrentPerform` runs a widening's jobs on: one per active core.
+    package static var widenWorkers: Int { ProcessInfo.processInfo.activeProcessorCount }
+
+    /// **What `dequantizeRotated` allocates while it runs, outside every arena**: its `factors`
+    /// (`n` floats), and in each job alive at once its tile's integers — `G × w` `Int16`, w ≤ 4096
+    /// (a 4096-wide tile is 2 MB: past a worker's stack, so on the heap). At most `workers` jobs run at
+    /// once, and never more than there are. Each allocation counted at the page, as `malloc` maps a
+    /// large one. A width not a multiple of 8 takes the scalar path, `G` `Int32` per job.
+    package static func rotationScratchBytes(rows k: Int, columns n: Int, group: Int, workers: Int = widenWorkers) -> Int {
+        guard group > 0, k >= group, n > 0 else { return 0 }
+        let tiles = (n + rotationTileWidth - 1) / rotationTileWidth, jobs = (k / group) * tiles
+        let width = min(rotationTileWidth, n)
+        let tile = width % 8 == 0 ? group * width * MemoryLayout<Int16>.size : group * MemoryLayout<Int32>.size
+        return Arena.capacity(for: n * MemoryLayout<Float>.size) + min(max(1, workers), jobs) * Arena.capacity(for: tile)
+    }
+
+    /// The largest of `rotationScratchBytes` over a map's rotated tensors whose names start with one of
+    /// `prefixes` (all of them when `nil`), read from its header's tensor table — 0 for a map with none
+    /// (bf16, GGUF, an unrotated int8): what widening that map's layers adds to a phase's peak.
+    package static func rotationScratchBytes(header: [String: Any], prefixes: [String]? = nil,
+                                             workers: Int = widenWorkers) -> Int {
+        guard let table = header["tensors"] as? [String: [String: Any]] else { return 0 }
+        var largest = 0
+        for (name, entry) in table {
+            guard let rotation = entry["rotation"] as? [String: Any], let group = rotation["group"] as? Int,
+                  let shape = entry["shape"] as? [Int], shape.count == 2 else { continue }
+            if let prefixes, !prefixes.contains(where: { name.hasPrefix($0) }) { continue }
+            largest = max(largest, rotationScratchBytes(rows: shape[0], columns: shape[1], group: group, workers: workers))
+        }
+        return largest
     }
 
     /// One tile: `rows` (= G) × `width` (≤ 4096) values at `source` (row stride `stride`), rotated
