@@ -97,6 +97,8 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Plus de détail** avec Z-Image et Qwen-Image-2.1 : « Détail : Normal · Plus · Maximum » ajoute
   de la texture fine, sans temps en plus.
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
+- **Agrandir ×4** avec la super-résolution de macOS (macOS 26) : aucun prompt, rien d'ajouté, bords
+  et textures affinés — 1024² devient 4096² en une ou deux secondes.
 - **Les LoRA**, et **l'image vers image** avec Z-Image et Anima.
 
 ![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Z-Image Turbo en 1248×832 à droite — une Irlandaise rousse sur une plage, sa planche de surf sous le bras —, l’historique en dessous](docs/images/window.jpg)
@@ -106,8 +108,8 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **L'édition par instruction** avec Qwen-Image-2.1 : donnez-lui 1 à 3 images et une phrase
   (« remplace le ciel nuageux par un ciel bleu ») ; son encodeur voit les images. Dans l'app, une
   édition est plafonnée à une surface de 1024².
-- **Le rideau** : faites glisser une ligne sur deux images, ou sur une édition et son original, pour
-  voir ce qui a changé.
+- **Le rideau** : faites glisser une ligne sur deux images, ou sur une édition ou un agrandissement
+  et son original, pour voir ce qui a changé ; zoomez vers le curseur pour regarder un détail.
 - **Un historique comme dans Photos** : flèches, ⌫ et ⌘Z, sélection multiple, comparaison côte à
   côte, export, glisser-déposer, Partager.
 
