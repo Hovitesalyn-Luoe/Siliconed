@@ -11,8 +11,9 @@ Siliconed est une app macOS libre et gratuite pour la **génération d'images à
 l'édition d'images par IA, en local**, sur les Mac Apple silicon (M1 et suivants). Elle fait tourner
 des modèles de diffusion récents —
 [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo),
-[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) et
-[Anima Turbo](https://huggingface.co/circlestone-labs/Anima) — en natif, en Swift et Metal : ni
+[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo),
+[Anima Turbo](https://huggingface.co/circlestone-labs/Anima) et
+[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo) — en natif, en Swift et Metal : ni
 Python, ni serveur, ni cloud, rien ne quitte votre Mac. Elle marche hors ligne une fois le modèle
 installé.
 
@@ -35,7 +36,7 @@ comic book style with cel shading »), comparées sous le rideau.*
   avec les 8 évaluations que demande sa recette ([mesuré à côté de Draw
   Things](#à-côté-de-draw-things), la référence sur Mac). Jusqu'à la 0.8.1 il n'en faisait que 7, et
   les temps publiés alors (82–85 s) valaient pour 7 ; corrigé dans la 0.8.2.
-- **31 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
+- **34 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
   plan le plus rapide qui y tient, et compare son propre pic à ce chiffre. Ce que les autres
@@ -62,6 +63,7 @@ Diffusion, ni SDXL, ni Flux.1.
 | [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tongyi-MAI | texte vers image, image vers image, LoRA | Apache 2.0 |
 | [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) | Qwen | texte vers image, édition par instruction avec 1 à 3 images, LoRA | Qwen Research (non commerciale) |
 | [Anima Turbo v1.1](https://huggingface.co/circlestone-labs/Anima) | CircleStone Labs × Comfy Org | texte vers image (illustration, peinture, anime ; pas de photoréalisme, par choix de l'éditeur), image vers image, LoRA | CircleStone Labs Non-Commercial ; ses images sont utilisables commercialement |
+| [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo) | Krea | texte vers image (des images esthétiques, de la photographie à la peinture), LoRA | Krea 2 Community : usage commercial sous 1 M$ de chiffre d'affaires annuel, un filtre de contenu obligatoire au déploiement |
 
 Les versions Compact utilisent des poids 8 bits publiés par des tiers :
 [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF),
@@ -72,8 +74,20 @@ GGUF Q4_K_M de [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Ima
 d'[unsloth/Qwen-Image-2.1-Turbo-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-Turbo-GGUF) avec l'encodeur de
 texte de la Compact. La Compact et la Légère d'Anima prennent le DiT en GGUF Q8_0 et Q4_K_M de
 [vanes430/Anima-Turbo-V1.1-GGUF](https://huggingface.co/vanes430/Anima-Turbo-V1.1-GGUF) et gardent
-l'encodeur de texte de l'éditeur en bf16 (aucune version 8 bits n'en est publiée). Chaque fichier est
-figé à une révision et vérifié par sha256 (`Sources/Siliconed/Forge/Installation.swift`).
+l'encodeur de texte de l'éditeur en bf16 (aucune version 8 bits n'en est publiée).
+
+Krea 2 Turbo ne télécharge rien de [krea/Krea-2-Turbo](https://huggingface.co/krea/Krea-2-Turbo) :
+ce dépôt demande un compte Hugging Face, et l'app n'a pas de connexion. Chacun de ses fichiers vient
+d'une copie ouverte prouvée identique à celle de Krea : le DiT et l'encodeur de texte Qwen3-VL-4B en
+bf16 de [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) (le DiT, le même fichier ;
+l'encodeur, égal tenseur pour tenseur), le VAE de [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image)
+(le VAE fp32 de Krea est ce bf16 élargi, valeur pour valeur), le tokenizer de
+[Qwen/Qwen-Image-2.1-Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) (le même fichier) ; les
+fichiers de configuration de Krea sont embarqués tels que publiés. Sa Compact prend le DiT et
+l'encodeur de texte en int8 convrot de [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) ; sa
+Légère, le GGUF Q4_K_M de [vantagewithai/Krea-2-Turbo-GGUF](https://huggingface.co/vantagewithai/Krea-2-Turbo-GGUF)
+avec l'encodeur de texte de la Compact. Chaque fichier est figé à une révision et vérifié par sha256
+(`Sources/Siliconed/Forge/Installation.swift`).
 
 ![La fenêtre avec une image d’Anima Turbo : dans le rack, Anima Turbo et la LoRA inCase à 0,80 ; dans le canevas, une illustration peinte, une jeune Irlandaise rousse qui lit un livre sur une chaise en bois près d’une haute fenêtre, dans une vieille bibliothèque, une lumière d’automne à travers les carreaux, des rayonnages de livres à côté d’elle](docs/images/anima.jpg)
 
@@ -82,6 +96,9 @@ freckles, sitting by a tall window in an old library and reading a book. Warm af
 across the wooden shelves; visible brushstrokes, muted earthy colors, painterly realism. » 1024², graine
 44, 8 pas, 49 s sur un M1 Pro (Standard).*
 
+<!-- KR7 : ici un rendu de Krea 2 Turbo (docs/images/krea2.jpg), fait dans l'app ; son texte
+alternatif, puis sa légende : prompt, format, graine, pas, temps sur un M1 Pro (Standard). -->
+
 ## L'app
 
 `Siliconed.app` génère des images à partir d'un prompt, les édite par instruction, et tient une file
@@ -89,9 +106,11 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 
 ### Créer
 
-- **Trois modèles.** Z-Image Turbo (Apache 2.0), Qwen-Image-2.1 Turbo (licence Qwen Research, non
-  commerciale) et Anima Turbo (licence CircleStone Labs, non commerciale ; ses images sont
-  utilisables commercialement). Tous trois lisent le prompt avec un modèle de langage.
+- **Quatre modèles.** Z-Image Turbo (Apache 2.0), Qwen-Image-2.1 Turbo (licence Qwen Research, non
+  commerciale), Anima Turbo (licence CircleStone Labs, non commerciale ; ses images sont
+  utilisables commercialement) et Krea 2 Turbo (licence Krea 2 Community : commerciale sous 1 M$ de
+  chiffre d'affaires annuel, avec un filtre de contenu au déploiement). Tous quatre lisent le prompt
+  avec un modèle de langage.
 - **La chaîne, visible.** Le rack montre le pipeline de haut en bas (prompt, encodeurs, débruitage,
   décodeur), avec des fils typés et l'étage actif allumé ; chaque étage porte ses propres réglages.
 - **Plus de détail** avec Z-Image et Qwen-Image-2.1 : « Détail : Normal · Plus · Maximum » ajoute
@@ -139,12 +158,13 @@ rend la case choisie jusqu'au bout avec la même graine : l'image que son esqui
   est figé à une révision et vérifié par sha256.
 - **Standard, Compact ou Légère.** Chaque modèle s'installe avec les poids de l'éditeur (Standard,
   le défaut), avec des poids 8 bits publiés par des tiers (Compact : 11,7 Go au lieu de 20,4 pour
-  Z-Image, 17,3 Go au lieu de 31,2 pour Qwen-Image-2.1, 4,10 Go au lieu de 5,65 pour Anima ; une
-  image légèrement différente, à peu près aussi rapide), ou avec le transformer en 4 à 6 bits tel
-  qu'un tiers le publie (GGUF Q4_K_M ; Légère : 9,5 Go, 14,2 Go et 3,31 Go, le moins lu sur le disque
-  à chaque pas ; un autre jeu de poids, une image qui peut se composer autrement). Pour Z-Image et
-  Qwen-Image-2.1, l'encodeur de texte de la Compact est lui aussi en 8 bits, et la Légère le reprend ;
-  celui d'Anima reste le bf16 de l'éditeur dans les trois, faute de version 8 bits publiée. La Légère est
+  Z-Image, 17,3 Go au lieu de 31,2 pour Qwen-Image-2.1, 4,10 Go au lieu de 5,65 pour Anima, 19,5 Go
+  au lieu de 34,4 pour Krea 2 ; une image légèrement différente, à peu près aussi rapide pour les
+  trois premiers), ou avec le transformer en 4 à 6 bits tel qu'un tiers le publie (GGUF Q4_K_M ;
+  Légère : 9,5 Go, 14,2 Go, 3,31 Go et 12,8 Go, le moins lu sur le disque à chaque pas ; un autre jeu
+  de poids, une image qui peut se composer autrement). Pour Z-Image, Qwen-Image-2.1 et Krea 2,
+  l'encodeur de texte de la Compact est lui aussi en 8 bits, et la Légère le reprend ; celui d'Anima
+  reste le bf16 de l'éditeur dans les trois, faute de version 8 bits publiée. La Légère est
   présélectionnée sur un Mac de 8 Go de mémoire, la Standard ailleurs ; vous choisissez avant d'installer. Une version à la
   fois : passer à l'autre la remplace ; l'installée continue de rendre jusqu'à ce que la nouvelle
   soit complète, puis libère sa place — si le disque ne peut pas tenir les deux, l'app le dit avant
@@ -178,18 +198,18 @@ silicon. Les temps ci-dessous ont été mesurés avec 16 Go de mémoire.
 
 Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. 1024², graine 42.
 
-| | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo |
-|---|---|---|---|
-| 1024², Standard | 113–119 s (8 pas ; 1024×1536 190 s) | 134 s (8 pas) ; 1024×1536 232 s ; une édition à 1 image 211 s, à 2 images 297 s | 43,7 s (8 pas) ; 512² 12,1 s ; 1024×1536 75,6 s |
-| 1024², Légère (4 à 6 bits) | 118–120 s | non remesuré depuis la 0.10 (tous les pas en pleine taille) | non mesuré |
-| pic mémoire, Standard / Légère | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / non mesuré |
-| écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ |
+| | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo | Krea 2 Turbo |
+|---|---|---|---|---|
+| 1024², Standard | 113–119 s (8 pas ; 1024×1536 190 s) | 134 s (8 pas) ; 1024×1536 232 s ; une édition à 1 image 211 s, à 2 images 297 s | 43,7 s (8 pas) ; 512² 12,1 s ; 1024×1536 75,6 s | —<!-- KR : vitesse, Standard --> |
+| 1024², Légère (4 à 6 bits) | 118–120 s | non remesuré depuis la 0.10 (tous les pas en pleine taille) | non mesuré | —<!-- KR : vitesse, Légère --> |
+| pic mémoire, Standard / Légère | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / non mesuré | 3,07 Go (1024×1536 : 3,51 Go) / 1,35 Go, le moteur seul |
+| écart à la référence fp32 (`model_out`) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ | —<!-- KR : écart --> |
 
 Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG :
 Qwen-Image-2.1 mesuré le 15/10/2026 avec la 0.10, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est le
 `phys_footprint` de l'app, relevé toutes les 100 ms ; 0 page swappée sur la série. Les temps et le
-pic d'Anima Turbo sont ceux du moteur seul, sans l'app, cache de rendu éteint (14–15/10/2026).
-Comment l'écart est mesuré : [La vérification](#la-vérification).
+pic d'Anima Turbo sont ceux du moteur seul, sans l'app, cache de rendu éteint (14–15/10/2026) ; les
+pics de Krea 2 Turbo aussi (17/10/2026). Comment l'écart est mesuré : [La vérification](#la-vérification).
 
 Jusqu'à la 0.8.1, Z-Image Turbo faisait 7 des 8 évaluations du DiT que demande sa recette (« 8 pas »
 suivait un ancien calendrier de diffusers dont le dernier pas ne bougeait rien), les deux premières à

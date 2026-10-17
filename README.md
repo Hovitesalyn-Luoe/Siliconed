@@ -9,8 +9,9 @@ English · [Français](README.fr.md)
 Siliconed is a free, open-source macOS app for **local text-to-image generation and AI image
 editing** on Apple silicon Macs (M1 and later). It runs recent diffusion models —
 [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo),
-[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) and
-[Anima Turbo](https://huggingface.co/circlestone-labs/Anima) — natively in Swift and Metal: no
+[Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo),
+[Anima Turbo](https://huggingface.co/circlestone-labs/Anima) and
+[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo) — natively in Swift and Metal: no
 Python, no server, no cloud, nothing leaves your Mac. It works offline once a model is installed.
 
 ![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)
@@ -32,7 +33,7 @@ comic book style with cel shading”), compared under the curtain.*
   evaluations its recipe calls for ([measured next to Draw Things](#next-to-draw-things), the
   reference on the Mac). Until 0.8.1 it ran only 7 of them, and the times published then (82–85 s)
   were for 7; fixed in 0.8.2.
-- **31 GB of model on a 16 GB Mac, within a fixed budget.** Weights are read from disk as they are
+- **34 GB of model on a 16 GB Mac, within a fixed budget.** Weights are read from disk as they are
   needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac):
   each render computes what it needs before it starts, takes the fastest plan that fits, and checks
   its own peak against that figure. What the other applications hold is theirs.
@@ -57,6 +58,7 @@ Only recent models whose text encoder is a language model — no Stable Diffusio
 | [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tongyi-MAI | text-to-image, image-to-image, LoRA | Apache 2.0 |
 | [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) | Qwen | text-to-image, editing by instruction with 1 to 3 images, LoRA | Qwen Research (non-commercial) |
 | [Anima Turbo v1.1](https://huggingface.co/circlestone-labs/Anima) | CircleStone Labs × Comfy Org | text-to-image (illustration, painting, anime; no photorealism, by its publisher's choice), image-to-image, LoRA | CircleStone Labs Non-Commercial; its images may be used commercially |
+| [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo) | Krea | text-to-image (aesthetic images, from photography to painting), LoRA | Krea 2 Community: commercial use under $1M annual revenue, a content filter required when deployed |
 
 The Compact versions use 8-bit weights published by third parties:
 [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF),
@@ -67,8 +69,20 @@ GGUF Q4_K_M of [unsloth/Z-Image-Turbo-GGUF](https://huggingface.co/unsloth/Z-Ima
 [unsloth/Qwen-Image-2.1-Turbo-GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-Turbo-GGUF) with the Compact's
 text encoder. Anima's Compact and Light take the DiT in GGUF Q8_0 and Q4_K_M from
 [vanes430/Anima-Turbo-V1.1-GGUF](https://huggingface.co/vanes430/Anima-Turbo-V1.1-GGUF) and keep
-the publisher's text encoder in bf16 (no 8-bit version of it is published). Every file is pinned to a
-revision and checked by sha256 (`Sources/Siliconed/Forge/Installation.swift`).
+the publisher's text encoder in bf16 (no 8-bit version of it is published).
+
+Krea 2 Turbo downloads nothing from [krea/Krea-2-Turbo](https://huggingface.co/krea/Krea-2-Turbo):
+that repository asks for a Hugging Face account, and the app has no sign-in. Each of its files
+comes from an open copy proven identical to Krea's: the DiT and the Qwen3-VL-4B text encoder in bf16
+from [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) (the DiT the very same file, the
+encoder equal tensor for tensor), the VAE from [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image)
+(Krea's fp32 VAE is this bf16 one widened, value for value), the tokenizer from
+[Qwen/Qwen-Image-2.1-Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) (the same file); Krea's
+own configuration files are embedded as published. Its Compact takes the DiT and the text encoder in
+int8 convrot from [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2); its Light, the GGUF
+Q4_K_M of [vantagewithai/Krea-2-Turbo-GGUF](https://huggingface.co/vantagewithai/Krea-2-Turbo-GGUF)
+with the Compact's text encoder. Every file is pinned to a revision and checked by sha256
+(`Sources/Siliconed/Forge/Installation.swift`).
 
 ![The window with an Anima Turbo image: in the rack, Anima Turbo with the inCase LoRA at 0.80; in the canvas, a painted illustration of a young red-haired Irish woman reading a book on a wooden chair by a tall window in an old library, autumn light through the panes, shelves of books beside her](docs/images/anima.jpg)
 
@@ -77,6 +91,9 @@ freckles, sitting by a tall window in an old library and reading a book. Warm af
 across the wooden shelves; visible brushstrokes, muted earthy colors, painterly realism.” 1024², seed
 44, 8 steps, 49 s on an M1 Pro (Standard).*
 
+<!-- KR7: a Krea 2 Turbo render goes here (docs/images/krea2.jpg), made in the app; its alt text,
+then its caption: prompt, format, seed, steps, time on an M1 Pro (Standard). -->
+
 ## The app
 
 `Siliconed.app` generates images from a prompt, edits them by instruction, and keeps a queue and a
@@ -84,9 +101,10 @@ history. It follows the system language (English, French, German, Spanish or Ita
 
 ### Create
 
-- **Three models.** Z-Image Turbo (Apache 2.0), Qwen-Image-2.1 Turbo (Qwen Research license,
-  non-commercial) and Anima Turbo (CircleStone Labs license, non-commercial; its images may be used
-  commercially). All three read the prompt with a language model.
+- **Four models.** Z-Image Turbo (Apache 2.0), Qwen-Image-2.1 Turbo (Qwen Research license,
+  non-commercial), Anima Turbo (CircleStone Labs license, non-commercial; its images may be used
+  commercially) and Krea 2 Turbo (Krea 2 Community license: commercial under $1M annual revenue,
+  with a content filter when deployed). All four read the prompt with a language model.
 - **The chain, visible.** The rack shows the pipeline top to bottom (prompt, encoders, denoiser,
   decoder), with typed wires and the active stage lit; each stage holds its own settings.
 - **More detail** with Z-Image and Qwen-Image-2.1: « Detail: Normal · More · Most » adds fine
@@ -134,12 +152,13 @@ chosen cell to the end with the same seed: the image its sketch announced.
   revision and checked by sha256.
 - **Standard, Compact or Light.** Each model installs with the publisher's weights (Standard, the
   default), with 8-bit weights published by third parties (Compact: 11.7 GB instead of 20.4 for
-  Z-Image, 17.3 GB instead of 31.2 for Qwen-Image-2.1, 4.10 GB instead of 5.65 for Anima; an image
-  slightly different, about as fast), or with the transformer in 4 to 6 bits as a third party
-  publishes it (GGUF Q4_K_M; Light: 9.5 GB, 14.2 GB and 3.31 GB, the least read from disk at each
-  step; another set of weights, an image that may compose differently). For Z-Image and
-  Qwen-Image-2.1 the Compact's text encoder is 8-bit too, and the Light uses it; Anima's text encoder
-  stays the publisher's bf16 in all three, since no 8-bit version of it is published. The Light is
+  Z-Image, 17.3 GB instead of 31.2 for Qwen-Image-2.1, 4.10 GB instead of 5.65 for Anima, 19.5 GB
+  instead of 34.4 for Krea 2; an image slightly different, about as fast for the first three), or with the transformer in 4 to 6 bits
+  as a third party publishes it (GGUF Q4_K_M; Light: 9.5 GB, 14.2 GB, 3.31 GB and 12.8 GB, the least
+  read from disk at each step; another set of weights, an image that may compose differently). For
+  Z-Image, Qwen-Image-2.1 and Krea 2 the Compact's text encoder is 8-bit too, and the Light uses it;
+  Anima's text encoder stays the publisher's bf16 in all three, since no 8-bit version of it is
+  published. The Light is
   preselected on a Mac with 8 GB of memory, the Standard elsewhere; you choose before installing. One version at a time:
   switching replaces the other, which keeps rendering until the new one is complete, then frees its
   space — if the disk cannot hold both, the app says so before you accept (`docs/API.md` §3.11).
@@ -171,18 +190,18 @@ Requirements: macOS 15 or later, Apple silicon. The timings below were measured 
 
 Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. 1024², seed 42.
 
-| | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo |
-|---|---|---|---|
-| 1024², Standard | 113–119 s (8 steps; 1024×1536 190 s) | 134 s (8 steps); 1024×1536 232 s; an edit with 1 image 211 s, with 2 images 297 s | 43.7 s (8 steps); 512² 12.1 s; 1024×1536 75.6 s |
-| 1024², Light (4 to 6 bits) | 118–120 s | not remeasured since 0.10 (every step at full size) | not measured |
-| peak memory, Standard / Light | 2.6 GB / 2.0 GB | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / not measured |
-| deviation from the fp32 reference (`model_out`) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) | 1.4·10⁻⁵ from the fp64 exact (1024²), the fp32 reference at 1.5·10⁻⁵ |
+| | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo | Krea 2 Turbo |
+|---|---|---|---|---|
+| 1024², Standard | 113–119 s (8 steps; 1024×1536 190 s) | 134 s (8 steps); 1024×1536 232 s; an edit with 1 image 211 s, with 2 images 297 s | 43.7 s (8 steps); 512² 12.1 s; 1024×1536 75.6 s | —<!-- KR: speed, Standard --> |
+| 1024², Light (4 to 6 bits) | 118–120 s | not remeasured since 0.10 (every step at full size) | not measured | —<!-- KR: speed, Light --> |
+| peak memory, Standard / Light | 2.6 GB / 2.0 GB | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / not measured | 3.07 GB (1024×1536: 3.51 GB) / 1.35 GB, the engine alone |
+| deviation from the fp32 reference (`model_out`) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) | 1.4·10⁻⁵ from the fp64 exact (1024²), the fp32 reference at 1.5·10⁻⁵ | —<!-- KR: deviation --> |
 
 Each time is a render queued in the app by `silicontrol`, from the queue to the PNG: Qwen-Image-2.1
 measured on 15/10/2026 with 0.10, Z-Image on 14/10/2026 with 0.8.2. Peak memory is the app's
 `phys_footprint`, sampled every 100 ms; 0 swap-out over the series. Anima Turbo's times and peak are
-those of the engine alone, without the app, render cache off (14–15/10/2026). How the deviation is
-measured: [Verification](#verification).
+those of the engine alone, without the app, render cache off (14–15/10/2026); Krea 2 Turbo's peaks
+too (17/10/2026). How the deviation is measured: [Verification](#verification).
 
 Until 0.8.1, Z-Image Turbo ran 7 of the 8 DiT evaluations its recipe calls for (“8 steps” followed
 an older diffusers schedule whose last step moved nothing), the first two at half size at 1024².

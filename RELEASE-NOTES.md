@@ -2,6 +2,41 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## Unreleased
+
+### A fourth model: Krea 2 Turbo
+
+- **[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo)**, by Krea, joins Z-Image Turbo,
+  Qwen-Image-2.1 and Anima in the app, without Developer Mode. A 12.9-billion-parameter DiT, the
+  largest of the four and the slowest, that reads the prompt with Qwen3-VL-4B (twelve of its layers,
+  merged by a learned fusion) and decodes with the Qwen-Image VAE. Aesthetic images, from
+  photography to painting.
+- **Its recipe**: 8 evaluations, no CFG. Text-to-image, the rectangular formats, the four solvers
+  in Developer Mode, each checked against diffusers on Krea's own schedule; LoRAs (ai-toolkit
+  layout, read as diffusers and PEFT read it; ComfyUI gives the same update), applied whole on the
+  Compact and the Light and judged against the reference;
+  no editing by instruction, and no Detail: on this model its bell falls where the picture is still
+  being decided, and redraws it instead of sharpening it. Subtle variations use 0.05 (0.1 changes
+  the person).
+<!-- KR: the times (Standard, seed 42, 8 evaluations: 512², 1024², 1024×1536) -->
+- **Standard, Compact or Light**: 34.4 GB (the publisher's bf16), 19.5 GB (the DiT and the text
+  encoder in int8 convrot, as Comfy-Org publishes them) or 12.8 GB (the DiT in GGUF Q4_K_M, as
+  vantagewithai publishes it, with the Compact's text encoder). The Compact and the Light are
+  checked to the bit against their reference dequantization.
+- **Nothing comes from Krea's own repository**: it asks for a Hugging Face account, and the app has
+  no sign-in. Each file comes from an open copy proven identical: the DiT and the text encoder from
+  Comfy-Org (the DiT the very same file, the encoder equal tensor for tensor), the VAE from
+  Qwen-Image (Krea's fp32 VAE is its bf16 one widened, value for value), the tokenizer from
+  Qwen-Image-2.1-Turbo (the same file); Krea's configuration files are embedded as published. The
+  license sheet says so, and links the card of every repository downloaded from.
+- **Within the budget**: its memory need is computed from the model's shapes before the first
+  computation, as for the other three. Peaks at 1024², the engine alone: 3.07 GB in Standard
+  (3.51 GB at 1024×1536), 2.20 GB in Compact, 1.35 GB in Light.
+<!-- KR: checked against the reference — the deviation figures -->
+- **License**: Krea 2 Community. Commercial use under $1M of annual revenue; a content filter is
+  mandatory when the model is deployed. The app shows the license before the first byte is
+  downloaded.
+
 ## 0.11
 
 - **Enlarge ×4** (the button under the image, its context menu, the Image menu): macOS's own

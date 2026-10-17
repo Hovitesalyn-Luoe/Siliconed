@@ -5,11 +5,11 @@
 <link rel="icon" href="images/icon.svg" type="image/svg+xml">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Siliconed — local AI image generation and editing for Apple silicon Macs</title>
-<meta name="description" content="Free, open-source macOS app that runs Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo natively in Swift and Metal on Apple silicon: text-to-image and AI image editing, offline, fp32, checked against diffusers, and never more memory than its budget: ¾ of the Mac's memory minus 2 GB.">
+<meta name="description" content="Free, open-source macOS app that runs Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo natively in Swift and Metal on Apple silicon: text-to-image and AI image editing, offline, fp32, checked against diffusers, and never more memory than its budget: ¾ of the Mac's memory minus 2 GB.">
 <link rel="canonical" href="https://gwenn-ha-dev.github.io/Siliconed/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Siliconed — local AI image generation for Apple silicon">
-<meta property="og:description" content="Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo, native in Swift and Metal. Offline, fp32, checked against the reference, within a fixed memory budget.">
+<meta property="og:description" content="Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo, native in Swift and Metal. Offline, fp32, checked against the reference, within a fixed memory budget.">
 <meta property="og:url" content="https://gwenn-ha-dev.github.io/Siliconed/">
 <meta property="og:image" content="https://gwenn-ha-dev.github.io/Siliconed/images/social-preview.jpg">
 <meta property="og:image:width" content="1280">
@@ -19,7 +19,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Siliconed",
  "operatingSystem":"macOS 15 or later (Apple silicon)","applicationCategory":"MultimediaApplication",
- "description":"Local text-to-image generation and AI image editing on Apple silicon Macs: Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo in Swift and Metal.",
+ "description":"Local text-to-image generation and AI image editing on Apple silicon Macs: Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo in Swift and Metal.",
  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://www.apache.org/licenses/LICENSE-2.0",
  "downloadUrl":"https://github.com/gwenn-ha-dev/Siliconed/releases/latest",
  "codeRepository":"https://github.com/gwenn-ha-dev/Siliconed","image":"https://gwenn-ha-dev.github.io/Siliconed/images/window.jpg"}
@@ -74,7 +74,7 @@
   <h1>Siliconed</h1>
   <p class="tag">enhanced by silicone</p>
   <p class="lead">Local text-to-image generation and AI image editing for Apple silicon Macs.
-    Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo, native in Swift and Metal: no Python, no server, no cloud.</p>
+    Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo, native in Swift and Metal: no Python, no server, no cloud.</p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">Download for macOS</a>
     <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed">Source on GitHub</a>
@@ -94,7 +94,7 @@
   <div class="grid3">
     <div class="card"><h3>Checked against the original</h3><p>Every stage is compared channel by channel with diffusers and transformers in fp32. What cannot be checked against the reference does not ship.</p></div>
     <div class="card"><h3>Full precision, still fast</h3><p>Z-Image Turbo at 1024² in 113–119 s on an M1 Pro, in fp32, with the 8 evaluations of its recipe.</p></div>
-    <div class="card"><h3>31 GB of model on a 16 GB Mac, within a fixed budget</h3><p>Weights stream from disk as needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac): each render computes what it needs before it starts and checks its own peak against that figure.</p></div>
+    <div class="card"><h3>34 GB of model on a 16 GB Mac, within a fixed budget</h3><p>Weights stream from disk as needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac): each render computes what it needs before it starts and checks its own peak against that figure.</p></div>
     <div class="card"><h3>Private by construction</h3><p>Nothing leaves your Mac, and it works offline once a model is installed.</p></div>
     <div class="card"><h3>Your models</h3><p>Install full size, in 8 bits or in 4 to 6 bits; import LoRAs from Civitai or Hugging Face. Licenses and disk space are shown before the first byte.</p></div>
     <div class="card"><h3>Built to be driven by an AI</h3><p><code>silicontrol</code> drives the running app from a terminal with JSON output; <code>silicontrol help</code> is all an agent needs.</p></div>
@@ -113,6 +113,9 @@
     <figure class="shot"><img src="images/anima.jpg" width="1600" height="1046" alt="The Siliconed window with Anima Turbo and the inCase LoRA at 0.80 in the rack, and in the canvas a painted illustration of a young red-haired Irish woman reading a book by a tall library window" loading="lazy"></figure>
   </div>
 </section>
+
+<!-- KR7: a section for Krea 2 Turbo goes here, with a render made in the app (images/krea2.jpg):
+     "Aesthetic images, from photography to painting", the largest model of the four; its time on an M1 Pro. -->
 
 <section class="wrap">
   <div class="split">
@@ -180,8 +183,9 @@
     <tr><td><a href="https://huggingface.co/Tongyi-MAI/Z-Image-Turbo">Z-Image Turbo</a></td><td>text-to-image, image-to-image, LoRA</td><td>Apache 2.0</td></tr>
     <tr><td><a href="https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo">Qwen-Image-2.1 Turbo</a></td><td>text-to-image, editing by instruction with 1 to 3 images, LoRA</td><td>Qwen Research (non-commercial)</td></tr>
     <tr><td><a href="https://huggingface.co/circlestone-labs/Anima">Anima Turbo</a></td><td>text-to-image (illustration, painting, anime), image-to-image, LoRA</td><td>CircleStone Labs Non-Commercial (the images may be used commercially)</td></tr>
+    <tr><td><a href="https://huggingface.co/krea/Krea-2-Turbo">Krea 2 Turbo</a></td><td>text-to-image (aesthetic images, from photography to painting), LoRA</td><td>Krea 2 Community (commercial under $1M annual revenue, content filter required when deployed)</td></tr>
   </table></div>
-  <p style="color:var(--muted);font-size:15px">Timings on an M1 Pro with 16 GB, Standard weights: Z-Image Turbo 1024² 113–119 s (8 steps); Qwen-Image-2.1 Turbo 1024² ~134 s (8 steps); an edit with one reference ~210 s; Anima Turbo 1024² 43.7 s (8 steps).</p>
+  <p style="color:var(--muted);font-size:15px">Timings on an M1 Pro with 16 GB, Standard weights: Z-Image Turbo 1024² 113–119 s (8 steps); Qwen-Image-2.1 Turbo 1024² ~134 s (8 steps); an edit with one reference ~210 s; Anima Turbo 1024² 43.7 s (8 steps).<!-- KR: Krea 2 Turbo 1024² time --></p>
 </section>
 
 <section class="wrap" style="text-align:center">

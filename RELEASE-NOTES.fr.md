@@ -2,6 +2,41 @@
 
 # Siliconed — notes de version
 
+## Non publiée
+
+### Un quatrième modèle : Krea 2 Turbo
+
+- **[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo)**, de Krea, rejoint Z-Image Turbo,
+  Qwen-Image-2.1 et Anima dans l’app, sans le mode développeur. Un DiT de 12,9 milliards de
+  paramètres, le plus gros des quatre et le plus lent, qui lit le prompt avec Qwen3-VL-4B (douze de
+  ses couches, fondues par une fusion apprise) et décode avec le VAE de Qwen-Image. Des images
+  esthétiques, de la photographie à la peinture.
+- **Sa recette** : 8 évaluations, sans CFG. Texte vers image, les formats rectangulaires, les quatre
+  solveurs en mode développeur, chacun vérifié contre diffusers sur le calendrier de Krea ; les LoRA (format
+  d’ai-toolkit, lues comme diffusers et PEFT les lisent ; ComfyUI donne la même mise à jour),
+  appliquées entières sur la Compact et la Légère et jugées contre la référence ;
+  ni édition par instruction ni Détail : sur ce modèle, sa cloche tombe là où l’image se décide
+  encore, et la redessine au lieu de l’affiner. Les variations subtiles prennent 0,05 (0,1 change la
+  personne).
+<!-- KR : les temps (Standard, graine 42, 8 évaluations : 512², 1024², 1024×1536) -->
+- **Standard, Compact ou Légère** : 34,4 Go (le bf16 de l’éditeur), 19,5 Go (le DiT et l’encodeur
+  de texte en int8 convrot, tels que Comfy-Org les publie) ou 12,8 Go (le DiT en GGUF Q4_K_M, tel que
+  vantagewithai le publie, avec l’encodeur de texte de la Compact). La Compact et la Légère sont
+  vérifiées au bit contre leur déquantification de référence.
+- **Rien ne vient du dépôt de Krea lui-même** : il demande un compte Hugging Face, et l’app n’a pas
+  de connexion. Chaque fichier vient d’une copie ouverte prouvée identique : le DiT et l’encodeur de
+  texte de Comfy-Org (le DiT, le même fichier ; l’encodeur, égal tenseur pour tenseur), le VAE de
+  Qwen-Image (le VAE fp32 de Krea est son bf16 élargi, valeur pour valeur), le tokenizer de
+  Qwen-Image-2.1-Turbo (le même fichier) ; les fichiers de configuration de Krea sont embarqués tels
+  que publiés. La feuille de licence le dit, et montre la fiche de chaque dépôt d’où l’on télécharge.
+- **Dans le budget** : son besoin de mémoire est calculé d’après les formes du modèle avant le
+  premier calcul, comme pour les trois autres. Pics à 1024², le moteur seul : 3,07 Go en Standard
+  (3,51 Go en 1024×1536), 2,20 Go en Compact, 1,35 Go en Légère.
+<!-- KR : vérifié contre la référence — les chiffres d’écart -->
+- **Licence** : Krea 2 Community. Usage commercial sous 1 M$ de chiffre d’affaires annuel ; un
+  filtre de contenu est obligatoire quand le modèle est déployé. L’app montre la licence avant le
+  premier octet téléchargé.
+
 ## 0.11
 
 - **Agrandir ×4** (le bouton sous l’image, son menu contextuel, le menu Image) : la super-résolution de

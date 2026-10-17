@@ -3,7 +3,7 @@
 # L'API de Siliconed
 
 Pour qui écrit une app macOS (SwiftUI, « à la Draw Things ») par-dessus la bibliothèque
-`Siliconed`. État au 15/10/2026. Une app SwiftUI complète, **Siliconed.app**, est dans
+`Siliconed`. État au 17/10/2026. Une app SwiftUI complète, **Siliconed.app**, est dans
 [`Sources/SiliconedApp/`](../Sources/SiliconedApp/) (sa télécommande : [`REMOTE-CONTROL.fr.md`](REMOTE-CONTROL.fr.md)). Elle
 est **compilée par le paquet** (cible exécutable `SiliconedApp`, en client pur, sans `@testable`), donc
 elle ne peut pas dériver de l'API : en cas de doute, c'est l'exemple de référence. `tools/app.sh` la
@@ -77,8 +77,8 @@ bibliothèques existantes restent valides.)
 
 | dossier | contenu | taille (installation Standard, `family.installedSize(.standard)`) |
 |---|---|---|
-| `<root>/store/` | cartes forgées (`*.silicon` : DiT, encodeurs de texte), LoRA forgées (`*.lora.silicon`), `profil.json` | Z-Image : 12,3 Go de DiT + 7,8 Go d'encodeur ; Qwen-Image-2.1 : 14,2 Go de DiT + 16,3 Go d'encodeur ; Anima : 3,9 Go de DiT + 0,27 Go d'adaptateur de texte + 1,2 Go d'encodeur (Compact : 11,7, 17,3 et 4,10 Go en tout ; Légère : 9,5, 14,2 et 3,31 Go, §3.11) |
-| `<root>/store/composants/<famille>/` | les petits fichiers publiés d'une famille, lus tels quels : tokenizers, VAE, `transformer.json`, `dit.json` (noms et formes du DiT de l'éditeur, contre lesquels un import se vérifie) | 0,18 Go pour Z-Image, 0,69 Go pour Qwen-Image-2.1 (son VAE tel que publié, en bf16), 0,26 Go pour Anima |
+| `<root>/store/` | cartes forgées (`*.silicon` : DiT, encodeurs de texte), LoRA forgées (`*.lora.silicon`), `profil.json` | Z-Image : 12,3 Go de DiT + 7,8 Go d'encodeur ; Qwen-Image-2.1 : 14,2 Go de DiT + 16,3 Go d'encodeur ; Anima : 3,9 Go de DiT + 0,27 Go d'adaptateur de texte + 1,2 Go d'encodeur ; Krea 2 : 26,3 Go de DiT + 7,8 Go d'encodeur (Compact : 11,7, 17,3, 4,10 et 19,5 Go en tout ; Légère : 9,5, 14,2, 3,31 et 12,8 Go, §3.11) |
+| `<root>/store/composants/<famille>/` | les petits fichiers publiés d'une famille, lus tels quels : tokenizers, VAE, `transformer.json`, `dit.json` (noms et formes du DiT de l'éditeur, contre lesquels un import se vérifie) | 0,18 Go pour Z-Image, 0,69 Go pour Qwen-Image-2.1 (son VAE tel que publié, en bf16), 0,26 Go pour Anima, 0,27 Go pour Krea 2 (le VAE de Qwen-Image en bf16 et le tokenizer ; les fichiers de configuration de Krea sont embarqués dans le code) |
 | `<root>/store/importes/` | les DiT importés (`<nom>.silicon`) | la taille d'un DiT de la famille |
 | `<root>/telechargements/` | les sources d'une installation, le temps de la forger | vide au repos |
 | `<root>/cache/` | **le cache de rendu** : ce que les rendus gardent d'un rendu à l'autre pour ne pas le refaire (ci-dessous) | jusqu'à ~0,5 Go, plus les K/V d'une édition Qwen-Image-2.1 (2 à 6,4 Go) |
@@ -159,9 +159,10 @@ n'est lancé.
 public static func zImage(in b: Library, denoising: ZImageDenoisingModule? = nil) throws(EngineError) -> Model
 public static func qwenImage21(in b: Library) throws(EngineError) -> Model
 public static func anima(in b: Library) throws(EngineError) -> Model
+public static func krea2(in b: Library) throws(EngineError) -> Model
 public static func named(_ identifier: String, in b: Library) throws(EngineError) -> Model
 public init(card: ModelCard, chain: Chain)        // a hand-composed chain (§2.4)
-// model.identifier ("z-image" | "qwen-image-2.1" | "anima" | "<family>/<name>" imported), .name, .family, .license, .card, .chain
+// model.identifier ("z-image" | "qwen-image-2.1" | "anima" | "krea2" | "<family>/<name>" imported), .name, .family, .license, .card, .chain
 ```
 
 La bibliothèque se passe toujours sous l'étiquette `in:`, comme pour `card.missing(in:)`.
@@ -178,7 +179,7 @@ let loras: [LoRACard] = library.loras(for: "z-image")  // store/*.lora.silicon, 
 
 `ModelCard` (`Identifiable`, `Hashable` : utilisable telle quelle en `tag` d'un `Picker`) :
 `id`, `name`, `family: Family`, `isImported`, `license: License` (`text`, `commercial`,
-`requiredFilter`, `urls`), `defaultSteps` (8 pour Z-Image, Qwen-Image-2.1 et Anima), `space`,
+`requiredFilter`, `urls`), `defaultSteps` (8 pour Z-Image, Qwen-Image-2.1, Anima et Krea 2), `space`,
 `formats: [RecommendedFormat]`. Un modèle importé hérite de sa famille l'architecture, les
 formats et le texte de licence de l'éditeur (à vérifier sur la page du modèle).
 `LoRACard` : `path`, `name` (lisible), `rawName`, `target` (la famille visée), `rank`,
@@ -189,6 +190,7 @@ formats et le texte de licence de l'éditeur (à vérifier sur la page du modèl
 | `z-image` | Z-Image Turbo | Apache 2.0 | DiT S3, 8 pas | Flux |
 | `qwen-image-2.1` | Qwen-Image-2.1 Turbo (§3.12) | **non commerciale** (Qwen Research) | DiT Qwen-Image-2.1 (32 couches à un flux, attention bloc-causale) distillé par Qwen, 8 pas sur son calendrier publié ; édition avec 1 à 3 images (§3.12) | Qwen-Image-2.1 (16×, 64 canaux) |
 | `anima` | Anima Turbo | **non commerciale** (CircleStone Labs Non-Commercial) ; ses images sont utilisables commercialement | DiT Cosmos-Predict2 (28 blocs, auto-attention et attention croisée), Turbo v1.1, 8 pas, CFG 1 ; texte lu par Qwen3-0.6B et un adaptateur au vocabulaire T5 ; pas d'édition | Qwen-Image (8×, 16 canaux) |
+| `krea2` | Krea 2 Turbo | Krea 2 Community : commerciale sous 1 M$ de chiffre d'affaires annuel, un filtre de contenu obligatoire au déploiement (`requiredFilter`) | DiT Krea 2 (12,9 G paramètres, 28 blocs à un flux, attention softmax suivie d'une porte sigmoïde sur sa sortie), 8 pas, sans CFG ; texte lu par Qwen3-VL-4B, douze de ses couches fondues par une fusion apprise ; pas d'édition | Qwen-Image (8×, 16 canaux) |
 
 ### 2.3 `Request` : tout ce qui distingue un rendu
 
@@ -210,8 +212,8 @@ d'une app avant tout le reste.
 - **Graine** : `UInt64`. La valeur par défaut est 42 ; pour une graine au hasard, l'app tire
   `UInt64.random(in:)` elle-même.
 - **Pas** : `nil` donne le défaut du débruiteur (8 pour Z-Image Turbo, Qwen-Image-2.1
-  Turbo et Anima Turbo ; tous trois sont distillés pour ce nombre). Une autre valeur est acceptée par
-  Z-Image et Anima, mais sa qualité n'a pas été jugée ; Qwen-Image-2.1 ne publie de calendrier que pour 8 pas et refuse tout
+  Turbo, Anima Turbo et Krea 2 Turbo ; tous quatre sont distillés pour ce nombre). Une autre valeur
+  est acceptée par Z-Image, Anima et Krea 2, mais sa qualité n'a pas été jugée ; Qwen-Image-2.1 ne publie de calendrier que pour 8 pas et refuse tout
   autre nombre (§3.12). Un nombre hors de
   `1...Request.maximumSteps` (50) est refusé avant tout calcul (`EngineError.invalidSteps`,
   `allowed` vide : « N steps: a render takes between 1 and 50. »).
@@ -234,7 +236,7 @@ d'une app avant tout le reste.
   (`DenoisingModule.preparedReferences` : Qwen-Image-2.1 à ~1024² aux multiples de 32), quel que
   soit le format de la requête — donner à la requête le format de l'image 1 (`editFormat`, §3.12)
   garde le cadre. Seuls les débruiteurs qui l'annoncent les lisent
-  (`DenoisingModule.maxReferences` : 3 pour Qwen-Image-2.1, 0 pour Z-Image et Anima) ; au-delà, ou sur un
+  (`DenoisingModule.maxReferences` : 3 pour Qwen-Image-2.1, 0 pour Z-Image, Anima et Krea 2) ; au-delà, ou sur un
   autre modèle, le rendu est refusé avant tout calcul (`EngineError.tooManyReferences`). Coût : la
   séquence s'allonge d'autant de jetons (Qwen-Image-2.1 : une génération 1024² ~134 s, une
   édition en 1248×832 avec une référence ~210 s). **L'édition par instruction** — l'ordre
@@ -256,11 +258,11 @@ let edited = try await Engine().render(request, model: qwen)
   l'estimation de l'image finale par le modèle au lieu de l'image (§3.16). Se règle en propriété,
   pas dans `init`.
 - **`detail`** : `Detail` (`.normal`, `.more`, `.most`), `.normal` par défaut — une texture plus
-  fine au même coût ; `.normal` est le rendu sans elle, au bit près (§3.17). Pas sur Anima
-  (`detailUnsupported`). Se règle en propriété.
+  fine au même coût ; `.normal` est le rendu sans elle, au bit près (§3.17). Ni sur Anima
+  ni sur Krea 2 (`detailUnsupported`). Se règle en propriété.
 - **`solver`** : `Solver` (`.euler`, `.eulerAncestral`, `.dpmpp2m`, `.unipc`), `.euler` par
   défaut — la règle qui fait passer d'un pas au suivant, les pas et leurs σ inchangés ; `.euler` est
-  le rendu d'avant, au bit près (§3.19). Z-Image, Qwen-Image-2.1 et Anima. Se règle en propriété.
+  le rendu d'avant, au bit près (§3.19). Z-Image, Qwen-Image-2.1, Anima et Krea 2. Se règle en propriété.
 - **`schedule`** : `SigmaSchedule` (`.official`, `.comfyUI`), `.official` par défaut — les σ que le
   rendu parcourt : ceux publiés avec la Turbo, ou ceux que ComfyUI parcourt pour ce modèle (le réglage
   du modèle de base de Qwen-Image-2.1, `flux_time_shift(0.69)` sur son scheduler `simple`, vérifiés au
@@ -282,9 +284,9 @@ TextModule ─ Conditioning ─┐
 [ImageEncodingModule: ImageRGB → Latent] ─┘   (img2img only)
 ```
 
-Les étages se relient par des câbles typés : `TextFormat` (`.zImage`, `.qwenImage21`, `.anima`) et
+Les étages se relient par des câbles typés : `TextFormat` (`.zImage`, `.qwenImage21`, `.anima`, `.krea2`) et
 `LatentSpace` (`.flux` — 16 canaux, une case pour 8 pixels —, `.qwenImage21` — 64 canaux, une
-case pour 16 pixels —, `.qwenImage` — celui d'Anima, 16 canaux, une case pour 8 pixels).
+case pour 16 pixels —, `.qwenImage` — celui d'Anima et de Krea 2, 16 canaux, une case pour 8 pixels).
 `Chain` vérifie les branchements **à la construction**, et un mauvais branchement lève
 `EngineError.incompatibleChain`. Un format qui **lit les images** (`TextFormat.readsImages` : celui de
 Qwen-Image-2.1) doit venir d'un `ImageTextModule`, qui reçoit les références avec le prompt —
@@ -300,6 +302,7 @@ public init(text: any TextModule, denoising: any DenoisingModule,
 | Z-Image | `ZImageTextModule` | `FluxEncodingModule` | `ZImageDenoisingModule` | `FluxDecodingModule` |
 | Qwen-Image-2.1 Turbo | `QwenImage21TextModule` (un `ImageTextModule`) | `QwenImage21EncodingModule` (les références seulement : l'img2img est refusé) | `QwenImage21DenoisingModule` | `QwenImage21DecodingModule` |
 | Anima Turbo | `AnimaTextModule` | `QwenImageEncodingModule` | `AnimaDenoisingModule` | `QwenImageDecodingModule` |
+| Krea 2 Turbo | `Krea2TextModule` | `QwenImageEncodingModule` | `Krea2DenoisingModule` (la fusion du texte, puis le DiT) | `QwenImageDecodingModule` |
 
 Le système est **fermé** : les protocoles sont publics pour qu'on puisse composer une chaîne
 avec les modules du dépôt, pas pour en écrire de nouveaux (leur `Context` n'a rien d'utilisable
@@ -465,6 +468,11 @@ cible lève `.unsupportedLoRA(file:reason: .noTarget)` : il faut la reforger.
 Une LoRA s'**importe** telle qu'elle est publiée (§3.11) : ai-toolkit, PEFT, diffusers, kohya
 (`lora_unet_…` et `alpha`), ComfyUI. Elle vise une famille : elle s'applique aussi aux modèles
 importés de cette famille.
+Une LoRA de Krea 2 se lit au format d'ai-toolkit, sous les noms d'origine du modèle
+(`diffusion_model.blocks.N.attn.wq…`), comme diffusers et PEFT la lisent (α = le rang quand le
+fichier n'en donne pas ; ComfyUI donne le même ΔW) ; elle touche aussi la fusion du texte, qui vit
+dans la carte du DiT. Elle s'applique entière sur la Compact et la Légère, et elle est jugée contre la
+référence.
 
 ### 3.4 Lot de graines
 
@@ -581,7 +589,7 @@ Civitai** (son lecteur prend une clé `prompt` pour un graphe ComfyUI) : le pro
 `Denoising strength` en img2img, `Lora hashes` (le sha256 du `.safetensors` publié de chaque LoRA,
 gardé à l'import — une LoRA importée avant n'en a pas et est nommée sans être créditée), `Civitai
 resources` (la version de modèle de la page officielle de Civitai pour Z-Image Turbo ou
-Qwen-Image-2.1 Turbo ; aucune pour Anima ni pour un fine-tune importé) et `Version: Siliconed <version>`. Pas de
+Qwen-Image-2.1 Turbo ; aucune pour Anima, Krea 2 ni pour un fine-tune importé) et `Version: Siliconed <version>`. Pas de
 date : des rendus identiques d'une même version restent des fichiers identiques. L'app ne la relit
 pas.
 
@@ -648,8 +656,8 @@ une carte fp32 entière, ~24 Go pour Z-Image). Les formats 8 bits gardés tels q
 | GGUF Q8_0 (`.gguf`) | blocs de 32 entrées, `w = d · q`, d fp16 | unsloth |
 
 **Sous 8 bits, en GGUF seulement, jusqu'à 4 bits.** Les `.gguf` qu'unsloth, jayn7, leejet
-(stable-diffusion.cpp) et Abiray publient pour Z-Image Turbo et Qwen-Image-2.1, et vanes430 pour
-Anima Turbo, sont lus dans ces types, mêlés tenseur par tenseur comme l'éditeur l'a choisi (un fichier `Q4_K_M` porte des tenseurs
+(stable-diffusion.cpp) et Abiray publient pour Z-Image Turbo et Qwen-Image-2.1, vanes430 pour
+Anima Turbo et vantagewithai pour Krea 2 Turbo, sont lus dans ces types, mêlés tenseur par tenseur comme l'éditeur l'a choisi (un fichier `Q4_K_M` porte des tenseurs
 Q4_K, Q5_K, Q6_K et parfois Q8_0) :
 
 | Type | Bits par poids | Poids |
@@ -670,7 +678,7 @@ pas de produit matriciel int8, les activations ne descendent jamais à 8 bits (`
 ignorée). Chaque poids fp8, int8 et GGUF, une fois déquantifié, est **identique au bit à la
 déquantification fp32 de l'éditeur** (torchao, SDNQ, le code GGUF de diffusers, et gguf-py pour les
 types sous 8 bits), vérifié sur des morceaux de fichiers Z-Image et Qwen-Image-2.1 publiés et sur
-des cartes entières (Z-Image Q8_0, Q6_K, Q4_K_M ; Qwen-Image-2.1 Q4_K_M ; Anima Q8_0 et Q4_K_M), sur CPU et GPU. L'int8 convrot, dont la référence arrondit deux fois, est exact à l'arrondi fp32 du
+des cartes entières (Z-Image Q8_0, Q6_K, Q4_K_M ; Qwen-Image-2.1 Q4_K_M ; Anima Q8_0 et Q4_K_M ; Krea 2 int8 convrot et Q4_K_M), sur CPU et GPU. L'int8 convrot, dont la référence arrondit deux fois, est exact à l'arrondi fp32 du
 résultat fp64, dix fois plus près de lui que le fp32 de ComfyUI.
 
 Mesuré sur Z-Image Turbo (M1 Pro, 16 Go) :
@@ -719,7 +727,7 @@ if let id = r.identifier {                           // "z-image/my-model"
 try library.install(.qwenImage21) { print($0) } // baseDiT: false → without the publisher's DiT
 let ready: [Family] = library.readyFamilies() // enough to render an imported model
 
-// Z-Image, Qwen-Image-2.1 and Anima also install in a Compact or a Light version (below):
+// Every family also installs in a Compact or a Light version (below):
 try library.install(.zImage, variant: .compact) { print($0) }
 library.variant(of: .zImage)                   // .compact — what the render reads
 Family.zImage.preselectedVariant()             // .light on a Mac of 8 GB, .standard elsewhere
@@ -727,15 +735,15 @@ Family.zImage.preselectedVariant()             // .light on a Mac of 8 GB, .stan
 
 **Standard, Compact ou Légère.** `Family.variants` liste les versions dans lesquelles une famille
 s'installe : chacune a sa **Standard** (`Variant.standard`, les poids de l'éditeur tels que publiés —
-le défaut) ; Z-Image, Qwen-Image-2.1 et Anima ont aussi une **Compact** (`Variant.compact`) : un
+le défaut) ; chacune a aussi une **Compact** (`Variant.compact`) : un
 DiT en 8 bits publié par un tiers, gardé 8 bits dans sa carte — une image légèrement différente de
-celle de la Standard, à peu près aussi rapide (les poids sont élargis à chaque évaluation, et moins
-lus sur le disque). Pour Z-Image et Qwen-Image-2.1, l'**encodeur de texte** de la Compact est lui
-aussi en 8 bits (environ 40 % de moins sur le disque en tout) ; **celui d'Anima reste le bf16 de
+celle de la Standard, à peu près aussi rapide sur Z-Image, Qwen-Image-2.1 et Anima (les poids sont
+élargis à chaque évaluation, et moins lus sur le disque). Pour Z-Image, Qwen-Image-2.1 et Krea 2,
+l'**encodeur de texte** de la Compact est lui aussi en 8 bits (environ 40 % de moins sur le disque en tout) ; **celui d'Anima reste le bf16 de
 l'éditeur** dans sa Compact et sa Légère, faute de version 8 bits publiée (Siliconed n'en quantifie
 jamais un lui-même). Tokenizers et VAE sont ceux de la Standard. Elles ont aussi une
 **Légère** (`Variant.light`) : le DiT tel qu'un tiers le publie en GGUF Q4_K_M (unsloth pour
-Z-Image et Qwen-Image-2.1, vanes430 pour Anima) — des blocs de 4 à 6 bits gardés entiers, comme
+Z-Image et Qwen-Image-2.1, vanes430 pour Anima, vantagewithai pour Krea 2) — des blocs de 4 à 6 bits gardés entiers, comme
 tout import GGUF (plus bas), et quatre tenseurs Q8_0 pour Qwen — et **l'encodeur de texte de la
 Compact**, la même carte (aucun encodeur n'est publié sous 8 bits sous une forme que la forge lit). La plus petite sur le
 disque et la moins relue à chaque pas (Z-Image : 1,78 Go par pas au lieu de 2,89) ; un autre jeu de
@@ -745,17 +753,31 @@ Compact à la Légère ne remplace que le DiT. `family.preselectedVariant()` est
 propose d'abord : la Standard, la Légère sur un Mac de 8 Go de mémoire — présélectionnée, jamais
 imposée.
 
+**Krea 2 Turbo ne télécharge rien de `krea/Krea-2-Turbo`** : ce dépôt est à accès restreint (un
+compte Hugging Face et son formulaire), et l'app n'a pas de connexion Hugging Face. Chacun de ses
+fichiers vient d'une copie ouverte prouvée identique à celle de Krea : le DiT de la Standard est
+`Comfy-Org/Krea-2` `diffusion_models/krea2_turbo_bf16.safetensors`, le fichier même que Krea publie
+(la carte forgée depuis lui est égale, octet pour octet, à celle forgée depuis les morceaux diffusers
+de Krea) ; son encodeur de texte, `text_encoders/qwen3vl_4b_bf16.safetensors` dans le même dépôt,
+est égal à celui de Krea tenseur pour tenseur ; le VAE est le bf16 de `Qwen/Qwen-Image`, dont le
+fichier fp32 de Krea est l'élargissement, valeur pour valeur ; le tokenizer est celui de
+`Qwen/Qwen-Image-2.1-Turbo`, le même fichier. Les trois fichiers de configuration de Krea sont
+embarqués dans le code tels que publiés, vérifiés contre leurs identifiants de blob git. Deux
+tenseurs du DiT de Krea que le modèle ne lit jamais sont laissés hors de la carte.
+
 | famille | DiT Compact | encodeur de texte Compact | disque, Standard → Compact |
 |---|---|---|---|
 | Z-Image | `unsloth/Z-Image-Turbo-GGUF` `z-image-turbo-Q8_0.gguf` (GGUF Q8_0) | `Disty0/Z-Image-Turbo-SDNQ-int8` `text_encoder/model.safetensors` (SDNQ int8), avec le `config.json` de l'éditeur | 20,4 → 11,7 Go |
 | Qwen-Image-2.1 | `Comfy-Org/Qwen-Image-2.1` `diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors` (int8 convrot du Turbo) | `unsloth/Qwen-Image-2.1-FP8` `Qwen-Image-2.1-text_encoder-INT8-ConvRot.safetensors` (int8 convrot), avec le `config.json` de l'éditeur | 31,2 → 17,3 Go |
 | Anima | `vanes430/Anima-Turbo-V1.1-GGUF` `anima-turbo-v1.1-Q8_0.gguf` (GGUF Q8_0) | celui de la Standard (bf16) | 5,65 → 4,10 Go |
+| Krea 2 | `Comfy-Org/Krea-2` `diffusion_models/krea2_turbo_int8_convrot.safetensors` (int8 convrot) | `Comfy-Org/Krea-2` `text_encoders/qwen3vl_4b_int8_convrot.safetensors` (int8 convrot), avec la configuration de Krea | 34,4 → 19,5 Go |
 
 | famille | DiT Légère | encodeur de texte Légère | disque, Standard → Légère |
 |---|---|---|---|
 | Z-Image | `unsloth/Z-Image-Turbo-GGUF` `z-image-turbo-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K) | celui de la Compact | 20,4 → 9,5 Go |
 | Qwen-Image-2.1 | `unsloth/Qwen-Image-2.1-Turbo-GGUF` `qwen-image-2.1-turbo-Q4_K_M.gguf` (Q4_K, Q5_K, Q6_K, Q8_0) | celui de la Compact | 31,2 → 14,2 Go |
 | Anima | `vanes430/Anima-Turbo-V1.1-GGUF` `anima-turbo-v1.1-Q4_K_M.gguf` (GGUF Q4_K_M) | celui de la Standard (bf16) | 5,65 → 3,31 Go |
+| Krea 2 | `vantagewithai/Krea-2-Turbo-GGUF` `krea2_turbo-Q4_K_M.gguf` (Q4_K, Q5_K) | celui de la Compact | 34,4 → 12,8 Go |
 
 Chaque fichier est figé (révision et sha256). **Une seule version d'une famille est installée à la
 fois, et jamais aucune** : `install(_:variant:)` avec une autre version forge la nouvelle à côté de
@@ -780,7 +802,7 @@ if plan.removesFirst { print("not enough room for both: the \(plan.replacing!) v
 ```
 
 Un dépôt à accès restreint demande d'accepter sa licence sur huggingface.co, puis de poser
-`HF_TOKEN` (ou `hf auth login`, dont le jeton est relu) ; Z-Image, Qwen-Image-2.1 et Anima sont ouverts. Pour montrer ce
+`HF_TOKEN` (ou `hf auth login`, dont le jeton est relu) ; chaque famille s'installe depuis des dépôts ouverts (Krea 2 depuis des copies du sien, restreint, plus haut). Pour montrer ce
 qu'une installation coûte et ce qui est installé : `library.occupancy()` (le `variant` de chaque
 famille), `family.installedSize(_:)` (une méthode d'instance : les octets `(dit:, encoder:, components:)`
 de cette version), `library.uninstall(_:)` (toutes les versions).
@@ -791,7 +813,7 @@ Le prompt est une **instruction** (« replace the cloudy sky with a blue sky�
 person from image 1 and put the dog of image 2 in her place »), et les images dont il parle
 voyagent dans `Request.references`. Un modèle qui édite le dit dans sa chaîne : `chain.entries`
 porte une entrée `.reference`, et `chain.denoising.maxReferences` dit combien d'images il lit
-(Qwen-Image-2.1 : 3 ; 0 pour un modèle sans édition, Z-Image et Anima). Rien n'est rebruité :
+(Qwen-Image-2.1 : 3 ; 0 pour un modèle sans édition, Z-Image, Anima et Krea 2). Rien n'est rebruité :
 les images sont lues, la nouvelle image part du bruit. Ni masque, ni inpainting : le prompt seul
 dit ce qui change.
 
@@ -1080,6 +1102,11 @@ print(detailed.detail, detailed.metadata["detail"] ?? "")   // more more
   32 pixels — et, aux forces qui restent propres, par rien de visible. `DenoisingModule.acceptsDetail`
   le dit ; `.more` ou `.most` sur Anima est refusé avant tout calcul (`detailUnsupported`), et l'app
   masque le choix.
+- **Ni sur Krea 2** : sur ses 8 pas (σ 1 ; 0,957 ; 0,905 ; 0,840 ; 0,760 ; 0,655 ; 0,513 ; 0,311),
+  la cloche standard tombe sur σ 0,84–0,66, là où l'image se décide encore. `.more` gardait la femme
+  et sa pose mais ajoutait une bague et des boucles d'oreilles, et aucune texture ; `.most` changeait
+  son visage et sa pose (512², graine 42). Un Détail qui redessine au lieu d'affiner ne s'offre pas :
+  refusé de même (`detailUnsupported`).
 - **La force suit le côté de l'image** (× 512/√(l·h)) : la même force peint quatre fois plus de
   jetons en 1024². Là, `.more` donne sur Z-Image +6 à 8 % et `.most` +8 à 10 %, la même image,
   propre.
@@ -1098,7 +1125,7 @@ voient pas.
 ```swift
 let model = try Model.zImage(in: library)
 var request = Request("woman posing in a library", resolution: 512, seed: 42)
-let subtle = Variation.Amount.subtle.strength(for: model.family)    // 0.1 (Qwen-Image-2.1 : 0.05)
+let subtle = Variation.Amount.subtle.strength(for: model.family)    // 0.1 (Qwen-Image-2.1, Krea 2 : 0.05)
 request.variations = [Variation(seed: UInt64.random(in: 0...UInt64.max), strength: subtle)]
 let cousin = try await Engine().render(request, model: model)       // graine 42, son bruit tourné
 request.variations.append(Variation(seed: 7, strength: 0.5))        // une variation de CETTE image
@@ -1117,8 +1144,9 @@ request.variations.append(Variation(seed: 7, strength: 0.5))        // une varia
   format est une autre image.
 - **`Variation.Amount`**, les deux choix de l'app, jamais montrés en chiffres : `.strong` 0,5
   partout (la même idée ; pose, tenue et cadrage qui bougent) ; `.subtle` 0,1 (même cadrage, même
-  pose, même personne), **0,05 sur Qwen-Image-2.1**, dont les premiers pas décident qui est dans
-  l'image. Calibrées sur Z-Image et Qwen-Image-2.1 à 512² seulement.
+  pose, même personne), **0,05 sur Qwen-Image-2.1 et Krea 2**, dont les premiers pas décident qui
+  est dans l'image (sur Krea 2, 0,1 donnait une autre femme dans la même pose). Calibrées sur
+  Z-Image et Qwen-Image-2.1 à 512² seulement, Krea 2 sur un seul couple de graines à 512².
   `Variation.Amount.named(_:)` nomme une force relue dans un PNG.
 - Le PNG porte `variation` (§3.8), et `Recipe.variations` la relit : un rendu refait depuis
   son PNG donne les mêmes bits.
@@ -1153,8 +1181,13 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 - **Ce que ça coûte** : rien de mesurable. À 1024², les quatre solveurs rendent dans le même temps,
   à la dérive de la machine près ; chacun rend deux fois les mêmes pixels, l'ancestral
   compris (son bruit vient de la graine).
-- **Z-Image, Qwen-Image-2.1 et Anima** : une autre famille refuse un solveur autre qu'Euler
-  avant tout calcul (`EngineError.solverUnsupported`). L'app les offre en mode développeur.
+- **Sur Krea 2** (512², graine 42, à l'œil), dont les pas sont les siens (le calendrier décalé de
+  Krea, σ 1 ; 0,957 … 0,311), chaque règle vérifiée contre diffusers sur lui : DPM++ 2M suit l'image
+  d'Euler ; UniPC garde la pose, la tenue et le décor, avec un autre visage ; la règle ancestrale
+  donne une autre image, comme sur les autres familles. Aucun n'a cassé une image.
+- **Z-Image, Qwen-Image-2.1, Anima et Krea 2** font les quatre ; un débruiteur refuse un solveur
+  que son `DenoisingModule.solvers` ne cite pas, avant tout calcul (`EngineError.solverUnsupported`).
+  L'app les offre en mode développeur.
 - Le PNG porte `solver` sauf pour `.euler` (§3.8).
 
 ## 4. Limites et contrats
@@ -1164,13 +1197,13 @@ print(walked.solver, walked.metadata["solver"] ?? "")      // unipc unipc
 | plancher | **chaque côté ≥ 512 px** (latent 64). Aucune évaluation n'a lieu sous 512 : en dessous, les modèles sont hors de leur domaine | `Format.minimumSide` |
 | multiple | chaque côté multiple de **16** (VAE ×8, patch ×2) | `Format.multiple` |
 | plafond | surface ≤ **1024×1536** (1 572 864 px), le dernier format mesuré | `Format.maxSurface` |
-| mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,6 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,7 Go pour Qwen-Image-2.1 à 1024² (3,8 Go dans un lot de trois), 1,4 Go pour Anima à 1024² (le moteur seul, sans l'app), **3,8 Go** pour Z-Image en 1024×1536, **4,8 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin calculé contre B = ¾ · RAM − 2 Gio, fixé par la RAM seule (§5) | la portée par étage (`EngineRender.swift`), `MemoryBudget` |
+| mémoire | machine de **16 Go** (MacBookPro18,3). Pics mesurés (`phys_footprint`) : 1,7 Go pour Z-Image et 2,6 Go pour Qwen-Image-2.1 à 512², 2,9 Go pour Z-Image et 3,7 Go pour Qwen-Image-2.1 à 1024² (3,8 Go dans un lot de trois), 1,4 Go pour Anima à 1024² (le moteur seul, sans l'app), 3,1 Go pour Krea 2 à 1024² et 3,5 Go en 1024×1536 (le moteur seul ; Compact 2,2 Go, Légère 1,35 Go à 1024²), **3,8 Go** pour Z-Image en 1024×1536, **4,8 Go** pour Qwen-Image-2.1 en 1024×1536 avec trois références ; 0 swapout à chaque pire cas. Avant un rendu, le préflight juge le besoin calculé contre B = ¾ · RAM − 2 Gio, fixé par la RAM seule (§5) | la portée par étage (`EngineRender.swift`), `MemoryBudget` |
 | précision | calcul **fp32** partout ; les poids peuvent être stockés en bf16, fp16, 8 bits ou GGUF 4 à 6 bits (§3.11), puis élargis. Aucun calcul en fp16/bf16 | `Widen` (les poids élargis en fp32) |
 | déterminisme | avec `reproducible` (vrai par défaut, coupe GPU/AMX figée) : **même graine, même requête, même machine et même version → mêmes bits**, et la non-régression se juge au md5. L'image n d'un lot = le rendu isolé de sa graine. `Noise` n'est **pas** `torch.randn` : une graine ne redonne pas l'image de diffusers ni celle de Draw Things. D'une version à l'autre, les pixels peuvent changer, et d'une machine à l'autre, rien n'a été mesuré | `Request.reproducible` (`nil` : `EngineSettings.effective.frozenCut`) |
 | schedule spectral (Qwen-Image-2.1) | **éteint depuis la 0.10** : toutes les évaluations en pleine taille, la recette publiée telle quelle. `SILICONED_SPECTRAL` le force encore pour une mesure, seulement quand **les deux côtés font ≥ 1024** (1024², 1024×1536 et sa transposée) ; forcé sous ce plancher, il est refusé avant tout calcul | `QwenImage21DenoisingModule.plan` |
 
 **Temps indicatifs** : MacBookPro18,3 (M1 Pro, 16 Go), profil de la machine chargé, pas par défaut
-(8 pour Z-Image, Qwen-Image-2.1 et Anima), graine 42, « a 30 year old woman posing in a library »,
+(8 pour Z-Image, Qwen-Image-2.1, Anima et Krea 2), graine 42, « a 30 year old woman posing in a library »,
 cache de rendu éteint, rendu complet (texte + débruitage + décodage). Ils dépendent de la chaleur et du cache de pages (le premier rendu
 relit les cartes) : l'UI doit se fier à `Progress.estimatedRemaining`, pas à ce tableau.
 
@@ -1179,6 +1212,7 @@ relit les cartes) : l'UI doit se fier à `Progress.estimatedRemaining`, pas à 
 | Z-Image Turbo (8 pas) | **~34 s** | **113–119 s** | 110 s | 190 s |
 | Qwen-Image-2.1 Turbo (8 pas) | **~44 s** | **~142 s** | — | non remesuré en pleine taille |
 | Anima Turbo (8 pas) | **12,1 s** | **43,7 s** | — | 75,6 s |
+| Krea 2 Turbo (8 pas) | —<!-- KR : vitesse 512² --> | —<!-- KR : vitesse 1024² --> | — | —<!-- KR : vitesse 1024×1536 --> |
 
 Édition avec Qwen-Image-2.1 : en 1248×832, ~210 s avec une référence, ~297 s avec
 deux ; 1024×1536 avec trois références ~515 s. Une LoRA fusionnée ajoute 0,2 à 0,4 s par pas
@@ -1203,6 +1237,7 @@ let licenseURLs: [URL] = model.license.urls   // https://huggingface.co/<dépôt
 | Z-Image Turbo | `Tongyi-MAI/Z-Image-Turbo` `README.md` — pas de fichier de licence ; la fiche déclare Apache 2.0 |
 | Qwen-Image-2.1 Turbo | `Qwen/Qwen-Image-2.1-Turbo` `LICENSE` (le texte Qwen Research de Qwen-Image-2.1, inchangé) |
 | Anima Turbo | `circlestone-labs/Anima` `LICENSE.md` (celle du DiT), puis `circlestone-labs/Anima-Base-v1.0-Diffusers` `LICENSE.md` (d'où viennent l'encodeur, le VAE et les tokenizers) |
+| Krea 2 Turbo | `Comfy-Org/Krea-2` `LICENSE.pdf` (le fichier de licence de Krea, le même que dans le dépôt restreint de Krea, illisible sans compte), puis les fiches des dépôts d'où viennent ses fichiers : `Comfy-Org/Krea-2` `README.md`, `Qwen/Qwen-Image` `README.md` (le VAE), `Qwen/Qwen-Image-2.1-Turbo` `README.md` (le tokenizer) |
 
 Une Compact (§3.11) est sous la même licence ; son installation montre aussi la fiche de chaque
 tiers, qui la déclare (`family.licenseURLs(.compact)`) : `unsloth/Z-Image-Turbo-GGUF` et
@@ -1212,6 +1247,9 @@ son encodeur : `unsloth/Z-Image-Turbo-GGUF` et `Disty0/Z-Image-Turbo-SDNQ-int8`
 `unsloth/Qwen-Image-2.1-Turbo-GGUF` et `unsloth/Qwen-Image-2.1-FP8`. La Compact et la Légère
 d'Anima montrent `vanes430/Anima-Turbo-V1.1-GGUF` après les deux fichiers de l'éditeur : sa fiche
 déclare Apache 2.0, mais les octets sont le DiT de CircleStone, sous la licence de CircleStone.
+La Compact de Krea 2 n'ajoute aucune fiche (ses fichiers sont ceux de Comfy-Org, comme ceux de la
+Standard) ; sa Légère ajoute celle de `vantagewithai/Krea-2-Turbo-GGUF`. Pour Krea 2 comme pour les
+autres, la licence est celle de l'éditeur, et les fiches disent à qui sont les octets.
 
 - **Z-Image Turbo** : Apache 2.0.
 - **Qwen-Image-2.1 Turbo** : Qwen Research, non commerciale.
@@ -1219,6 +1257,10 @@ déclare Apache 2.0, mais les octets sont le DiT de CircleStone, sous la licence
   (NVIDIA Open Model License). Les images qu'il produit (les « Outputs » de la licence) sont
   utilisables commercialement, comme le dit la fiche de l'éditeur. `license.commercial` vaut
   `false` : il dit la licence du modèle, pas celle des images.
+- **Krea 2 Turbo** : Krea 2 Community. L'usage commercial est permis sous 1 M$ de chiffre d'affaires
+  annuel ; un filtre de contenu est obligatoire quand le modèle est déployé ; un modèle qui en
+  dérive et se distribue porte « Krea » en tête de son nom. `license.commercial` et
+  `license.requiredFilter` valent tous deux `true`.
 - Chaque LoRA a sa propre licence, que la bibliothèque ne lit pas.
 
 ---
@@ -1285,9 +1327,9 @@ deux premiers et le verrou ne s'y appliquent pas.
 | `gridRefused(reason:)`, `tooManyGridCells(count:max:)` | `grid_refused`, `too_many_grid_cells` | `RenderGrid(_:x:y:limit:)`, `RenderGrid.axis(_:loras:)` (§3.15) | griser « Générer » ; les cases avant le clic |
 | `strengthOutOfRange(strength:)`, `strengthTooLow(strength:steps:floor:)` | `strength_out_of_range`, `strength_too_low` | rendu | borner le curseur à `]floor ; 1]` |
 | `imageToImageUnsupported(model:)` | `image_to_image_unsupported` | rendu | Qwen-Image-2.1 : passer l'image en référence 1 |
-| `solverUnsupported(solver:model:)` | `solver_unsupported` | rendu, avant tout calcul | un `Solver` que `DenoisingModule.solvers` du modèle ne cite pas (les trois modèles publics font les quatre) : n'offrir que ceux-là |
+| `solverUnsupported(solver:model:)` | `solver_unsupported` | rendu, avant tout calcul | un `Solver` que `DenoisingModule.solvers` du modèle ne cite pas (les quatre modèles publics font les quatre) : n'offrir que ceux-là |
 | `scheduleUnsupported(schedule:model:)` | `schedule_unsupported` | rendu, avant tout calcul | un `SigmaSchedule` que `DenoisingModule.schedules` du modèle ne cite pas (`.comfyUI` : Qwen-Image-2.1 seulement) : prendre `.official` |
-| `detailUnsupported(model:)` | `detail_unsupported` | rendu, avant tout calcul | `.more` ou `.most` sur un modèle dont `DenoisingModule.acceptsDetail` est faux (Anima) : n'offrir le Détail que là où il est vrai |
+| `detailUnsupported(model:)` | `detail_unsupported` | rendu, avant tout calcul | `.more` ou `.most` sur un modèle dont `DenoisingModule.acceptsDetail` est faux (Anima, Krea 2) : n'offrir le Détail que là où il est vrai |
 | `imageUnreadable(file:)`, `imageEncodingFailed`, `imageWriteFailed(file:)` | `image_unreadable`, `image_encoding_failed`, `image_write_failed` | `ImageRGB(contentsOf:)`, `png()`, `PNG.write` | refuser l'image ; enregistrer ailleurs |
 | `unsupportedLoRA(file:reason:)`, `loraForOtherModel(lora:target:model:)` | `unsupported_lora`, `lora_for_other_model` | rendu (~0,3 s) | ne proposer que `loras(for:)` ; sinon réimporter |
 | `incompatibleChain(output:input:)` | `incompatible_chain` | `Chain(…)` | bug de programmation : n'arrive pas avec `model.chain` |
@@ -1309,8 +1351,9 @@ budget d'une autre machine — l'image reste la même, seul le temps change.
 
 ## 6. Ce que l'API ne fait pas encore
 
-- **CFG et prompt négatif** : les trois modèles sont distillés (Z-Image : une seule évaluation par
-  pas ; Qwen-Image-2.1 : distillé par Qwen en 8 pas, sans CFG ; Anima Turbo : 8 pas à CFG 1). Il n'y a pas de champ `negative`.
+- **CFG et prompt négatif** : les quatre modèles sont distillés (Z-Image : une seule évaluation par
+  pas ; Qwen-Image-2.1 : distillé par Qwen en 8 pas, sans CFG ; Anima Turbo : 8 pas à CFG 1 ;
+  Krea 2 Turbo : 8 pas, sans CFG). Il n'y a pas de champ `negative`.
 - **Inpainting / outpainting / masque**, **ControlNet**, IP-Adapter, image de référence.
 - **Agrandissement** (upscaler, *hires fix*) ; formats au-delà de 1024×1536.
 - **Choix du schedule** : chaque modèle garde ses pas et leurs σ ; `Request.solver` ne change que la
