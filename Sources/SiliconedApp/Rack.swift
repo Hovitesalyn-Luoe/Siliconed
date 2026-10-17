@@ -682,9 +682,10 @@ private struct DiTBox: View {
                         VStack(alignment: .leading, spacing: 5) { license(card); HStack(spacing: 5) { technical } }
                     }
                     Divider().padding(.vertical, 2)
-                    settings
-                    Divider().padding(.vertical, 2)
+                    // The LoRA first: what changes the image most, under the model it modifies.
                     loras
+                    Divider().padding(.vertical, 2)
+                    settings
                 }
             }
             if app.state(of: .denoising) == .active, app.totalSteps > 0, app.currentJob?.settings.identifier == app.identifier {
@@ -813,25 +814,29 @@ private struct DiTBox: View {
             .font(.callout)
     }
 
-    /// The LoRA stack: one row each, its strength; a row opens its settings.
+    /// **The LoRA stack, in the open** — as reachable as the steps or the seed: a title with « Add »
+    /// (a menu of this model's LoRAs: one click opens it, one picks), then one row per LoRA with its
+    /// strength's slider always under the hand. Nothing hides behind a popover.
     @ViewBuilder private var loras: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach($app.loras) { $slot in LoRARow(app: app, slot: $slot) }
-            HStack {
-                if app.canAddLoRA {
-                    Button { app.loras.append(LoRASlot()) } label: { Label("LoRA", systemImage: "plus") }
-                        .buttonStyle(.borderless)
-                        .help("Add a LoRA to the stack (3 at most)")
-                } else if app.compatibleLoras.isEmpty {
-                    Text("No LoRA for this model").foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("LoRA").foregroundStyle(.secondary)
+                if !app.loras.isEmpty {
+                    Text(verbatim: "\(app.loras.count)/\(AppState.maxLoRA)").monospacedDigit().foregroundStyle(.tertiary)
                 }
-                Spacer()
+                Spacer(minLength: 4)
+                if app.compatibleLoras.isEmpty {
+                    Text("None for this model").foregroundStyle(.tertiary)
+                } else {
+                    LoRAAddMenu(app: app)
+                }
                 Button("Import…") { app.chooseToImport() }
                     .buttonStyle(.link)
                     .disabled(!app.managementPossible)
                     .help("A model (.safetensors or .gguf) or a LoRA (.safetensors), as published on Civitai")
             }
-            .font(.caption)
+            .font(.callout)
+            ForEach($app.loras) { $slot in LoRARow(app: app, slot: $slot) }
         }
     }
 
@@ -861,56 +866,71 @@ private struct DiTBox: View {
     }
 }
 
-/// A LoRA of the stack, in one line; a click opens its choice and strength.
+/// **« Add »**: the model's LoRAs not yet in the stack, in a menu — the pick goes in at 0.8, its
+/// slider ready. Greyed at three, the stack's limit.
+struct LoRAAddMenu: View {
+    let app: AppState
+
+    var body: some View {
+        let used = Set(app.loras.map(\.path))
+        Menu {
+            ForEach(app.compatibleLoras.filter { !used.contains($0.path) }) { l in
+                Button(l.name) { app.loras.append(LoRASlot(path: l.path)) }
+            }
+        } label: {
+            Label("Add", systemImage: "plus")
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .disabled(!app.canAddLoRA || app.compatibleLoras.allSatisfy { used.contains($0.path) })
+        .help("Add a LoRA to the stack (3 at most)")
+    }
+}
+
+/// **A LoRA of the stack, in the open**: its name (a menu to swap it for another), its strength and a
+/// remove button on one line; the slider under them, full width. A double click on the figure puts the
+/// strength back to 0.8.
 struct LoRARow: View {
     let app: AppState
     @Binding var slot: LoRASlot
-    @State private var editing = false
 
     var body: some View {
-        Button { editing = true } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "slider.horizontal.3").imageScale(.small).foregroundStyle(.secondary)
-                Text(app.loraCard(slot.path)?.name ?? String(localized: "Choose…")).lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 4)
-                if !slot.path.isEmpty { Text(Figures.strength(slot.strength)).monospacedDigit().foregroundStyle(.secondary) }
-            }
-            .font(.caption)
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Palette.well))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onAppear { if slot.path.isEmpty { editing = true } }
-        .popover(isPresented: $editing, arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("LoRA", selection: $slot.path) {
-                    Text("Choose…").tag("")
-                    ForEach(app.compatibleLoras) { l in Text(l.name).tag(l.path) }
-                }
-                HStack {
-                    Slider(value: $slot.strength, in: app.loraStrengthRange)
-                    Text(Figures.strength(slot.strength)).monospacedDigit().frame(width: 38, alignment: .trailing)
-                }
-                if let f = app.loraCard(slot.path) {
-                    Text([String(localized: "rank \(f.rank)"),
-                          f.resolution.map { String(localized: "trained at \($0)") }, f.trainedOn]
-                            .compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                HStack {
-                    Spacer()
-                    Button("Remove", role: .destructive) {
-                        // The id is read BEFORE: `slot` is a binding on `app.loras`, and re-reading it
-                        // in `removeAll`'s predicate accesses the array during its mutation.
-                        let id = slot.id
-                        editing = false
-                        app.loras.removeAll { $0.id == id }
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Menu {
+                    ForEach(app.compatibleLoras) { l in
+                        Button(l.name) { slot.path = l.path }.disabled(l.path == slot.path)
                     }
+                } label: {
+                    Text(app.loraCard(slot.path)?.name ?? String(localized: "Choose…"))
+                        .lineLimit(1).truncationMode(.middle)
                 }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                .help(details)
+                Spacer(minLength: 4)
+                Text(Figures.strength(slot.strength)).monospacedDigit().foregroundStyle(.secondary)
+                    .onTapGesture(count: 2) { slot.strength = LoRASlot().strength }
+                    .help("Strength — double-click for 0.8")
+                Button {
+                    // The id is read BEFORE: `slot` is a binding on `app.loras`, and re-reading it
+                    // in `removeAll`'s predicate accesses the array during its mutation.
+                    let id = slot.id
+                    app.loras.removeAll { $0.id == id }
+                } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless).foregroundStyle(.tertiary)
+                    .help("Remove this LoRA from the stack")
             }
-            .padding(14)
-            .frame(width: 300)
+            Slider(value: $slot.strength, in: app.loraStrengthRange)
+                .controlSize(.small)
         }
+        .font(.callout)
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Palette.well))
+    }
+
+    /// The name's tooltip: what the file says of itself.
+    private var details: String {
+        guard let f = app.loraCard(slot.path) else { return String(localized: "Choose a LoRA") }
+        return ([f.name, String(localized: "rank \(f.rank)"), f.resolution.map { String(localized: "trained at \($0)") }, f.trainedOn]
+            .compactMap { $0 }).joined(separator: " · ")
     }
 }

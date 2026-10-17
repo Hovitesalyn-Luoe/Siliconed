@@ -3619,6 +3619,34 @@
         }
       }
     },
+    "Add" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hinzufügen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiungi"
+          }
+        }
+      }
+    },
     "Add %lld Renders to Queue" : {
       "localizations" : {
         "de" : {
@@ -3699,34 +3727,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aggiungi una LoRA alla pila (massimo 3)"
-          }
-        }
-      }
-    },
-    "Add a LoRA to the stack (3 at most) — the rack's stack: a LoRA axis then sweeps its strength" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "LoRA zum Stapel hinzufügen (höchstens 3) – der Stapel des Racks: Eine LoRA-Achse variiert dann ihre Stärke"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Añadir un LoRA a la pila (3 como máximo) — la pila del rack: un eje LoRA recorre después su intensidad"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajouter une LoRA à la pile (3 au plus) — la pile du rack : un axe LoRA balaie ensuite sa force"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aggiungi una LoRA alla pila (massimo 3) — la pila del rack: un asse LoRA ne fa poi variare l’intensità"
           }
         }
       }
@@ -4875,6 +4875,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scegli Normale."
+          }
+        }
+      }
+    },
+    "Choose a LoRA" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine LoRA wählen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir una LoRA"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir une LoRA"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli una LoRA"
           }
         }
       }
@@ -11838,6 +11866,34 @@
         }
       }
     },
+    "None for this model" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine für dieses Modell"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ninguna para este modelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune pour ce modèle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessuna per questo modello"
+          }
+        }
+      }
+    },
     "None. A Civitai checkpoint of a known family imports as is (⌘O); it borrows its family's encoder and VAE." : {
       "localizations" : {
         "de" : {
@@ -13838,6 +13894,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rimuovi questa LoRA"
+          }
+        }
+      }
+    },
+    "Remove this LoRA from the stack" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese LoRA aus dem Stapel entfernen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitar esta LoRA de la pila"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer cette LoRA de la pile"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Togli questa LoRA dalla pila"
           }
         }
       }
@@ -16152,6 +16236,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Interrompe l’installazione: i file già scaricati vengono conservati, quello in corso ripartirà da zero"
+          }
+        }
+      }
+    },
+    "Strength — double-click for 0.8" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stärke — Doppelklick für 0,8"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fuerza — doble clic para 0,8"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Force — double-clic pour 0,8"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forza — doppio clic per 0,8"
           }
         }
       }

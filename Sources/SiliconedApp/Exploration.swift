@@ -333,9 +333,7 @@ struct ExplorationPanel: View {
                     .font(.caption).foregroundStyle(.orange)
             }
             if app.canAddLoRA {
-                Button { app.loras.append(LoRASlot()) } label: { Label("LoRA", systemImage: "plus") }
-                    .buttonStyle(.borderless).font(.caption)
-                    .help("Add a LoRA to the stack (3 at most) — the rack's stack: a LoRA axis then sweeps its strength")
+                LoRAAddMenu(app: app).font(.callout)
             } else if app.compatibleLoras.isEmpty {
                 Text("No LoRA for this model").font(.caption).foregroundStyle(.tertiary)
             }
