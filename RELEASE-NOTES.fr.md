@@ -2,6 +2,38 @@
 
 # Siliconed — notes de version
 
+## 0.11
+
+- **Agrandir ×4** (le bouton sous l’image, son menu contextuel, le menu Image) : la super-résolution de
+  macOS, le genre de réseau qu’utilise Pixelmator. Elle ne voit que l’image — aucun prompt —, elle
+  affine donc bords, cheveux et textures sans rien ajouter : 1024 × 1024 devient 4096 × 4096 en une ou
+  deux secondes, à côté de l’original, qui reste. Le modèle est celui d’Apple : macOS le télécharge une
+  fois, après l’avoir demandé. Demande macOS 26 ; `silicontrol enlarge i7` fait de même.
+- **Le rideau compare une image et son agrandissement**, et deux images marquées de mêmes
+  proportions ; **le zoom va vers le curseur**, sur le canevas et sous le rideau, pour glisser la
+  ligne sur un détail.
+- **Coller une image** avec ⌘V (hors du prompt) : copiée dans Procreate, Photoshop, Aperçu ou le
+  Finder, elle va là où un dépôt sur la case Images l’aurait mise — une image à éditer, ou un sujet à
+  nommer.
+- **Les LoRA à plat** : la pile est juste sous le modèle ; « Ajouter » est un menu des LoRA du
+  modèle ; chacune montre le curseur de sa force, son chiffre (double-clic : retour à 0,8) et un
+  bouton pour la retirer — plus de popover à ouvrir et refermer.
+- **Explorer est à côté de Générer** : le même geste, beaucoup de petites images au lieu d’une.
+- **Le rack en dit plus, à moins d’endroits** : chaque case montre ce qu’a pris son étage dès qu’il
+  finit ; le survol du nom d’un étage dit ce qu’il fait (encodeur de texte, DiT, VAE…) ; la mémoire
+  qu’il faut à un rendu est dite une fois, sous le rack ; ce qui grise Générer (« Écrivez un
+  prompt »…) est dit au-dessus.
+- **La file défile** au-delà de quelques rendus et montre en tête celui qui tourne : son image k/N
+  dans un lot, le temps restant, un arrêt qui laisse le reste continuer. Le diagnostic quitte la
+  barre d’outils (Réglages et le menu Aide le gardent).
+
+### Corrigé
+
+- Un plantage en marquant des images à comparer, surtout avec une grande image encore en lecture.
+- Les métadonnées PNG écrivent toujours `CFG scale: 1` : le « Remix » de Civitai ne part plus de
+  son échelle par défaut, qui brûlait l’image.
+- L’icône du Dock ne rebondit plus quand la file se vide.
+
 ## 0.10.2
 
 - **Une fenêtre Réglages** (Siliconed → Réglages…, ⌘,) remplace les interrupteurs du menu de l’app :

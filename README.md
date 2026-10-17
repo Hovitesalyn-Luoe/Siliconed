@@ -92,6 +92,8 @@ history. It follows the system language (English, French, German, Spanish or Ita
 - **More detail** with Z-Image and Qwen-Image-2.1: « Detail: Normal · More · Most » adds fine
   texture, at no extra time.
 - **Variations**: cousins of an image, subtle or strong, with the same settings.
+- **Enlarge ×4** with macOS's own super-resolution (macOS 26): no prompt, nothing added, edges and
+  texture sharpened — 1024² becomes 4096² in a second or two.
 - **LoRAs**, and **image-to-image** with Z-Image and Anima.
 
 ![The window: the rack on the left (prompt, text encoder, denoiser, decoder, each with its settings, time and memory), a Z-Image Turbo image at 1248×832 on the right — a red-haired Irish woman on a beach, her surfboard under her arm —, the history below](docs/images/window.jpg)
@@ -101,8 +103,8 @@ history. It follows the system language (English, French, German, Spanish or Ita
 - **Editing by instruction** with Qwen-Image-2.1: give it 1 to 3 images and a sentence (“replace the
   cloudy sky with a blue sky”); its encoder sees the images. In the app an edit is capped at a
   surface of 1024².
-- **Curtain**: drag a line across two images, or across an edit and its original, to see what
-  changed.
+- **Curtain**: drag a line across two images, or across an edit or an enlargement and its
+  original, to see what changed; zoom in toward the pointer to look at a detail.
 - **A history like Photos**: arrows, ⌫ and ⌘Z, multiple selection, side-by-side comparison, export,
   drag and drop, Share.
 

@@ -2,6 +2,36 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.11
+
+- **Enlarge ×4** (the button under the image, its context menu, the Image menu): macOS's own
+  super-resolution, the kind of network Pixelmator uses. It sees only the image — no prompt —, so it
+  sharpens edges, hair and texture without adding anything: 1024 × 1024 becomes 4096 × 4096 in a second
+  or two, beside the original, which stays. The model is Apple's: macOS downloads it once, after
+  asking. Needs macOS 26; `silicontrol enlarge i7` does the same.
+- **The curtain compares an image with its enlargement**, and any two marked images of the same
+  proportions; **zooming goes toward the pointer**, on the canvas and under the curtain, to slide
+  the line over a detail.
+- **Paste an image** with ⌘V (outside the prompt): copied in Procreate, Photoshop, Preview or the
+  Finder, it goes where a drop on the Images box would — an image to edit, or a subject to name.
+- **LoRA in the open**: the stack sits right under the model; « Add » is a menu of the model's
+  LoRAs; each one shows its strength's slider, its figure (double-click: back to 0.8) and a remove
+  button — no more popover to open and close.
+- **Explore stands beside Generate**: the same gesture, many small images instead of one.
+- **The rack says more, in fewer places**: each box shows what its stage took as soon as it ends;
+  hovering a stage's name says what it does (text encoder, DiT, VAE…); the memory a render needs is
+  said once, under the rack; what keeps Generate greyed (« Write a prompt »…) is said above it.
+- **The queue scrolls** past a few renders and shows the running one at its head: its image k/N in a
+  batch, the time left, a stop that lets the rest go on. The diagnostic leaves the toolbar (Settings
+  and the Help menu keep it).
+
+### Fixed
+
+- A crash when marking images to compare, most likely with a large image still being read.
+- PNG metadata always writes `CFG scale: 1`: Civitai's « Remix » no longer starts from its own
+  default scale, which burnt the image.
+- The Dock icon no longer bounces when the queue empties.
+
 ## 0.10.2
 
 - **A Settings window** (Siliconed → Settings…, ⌘,) replaces the switches of the app menu: Developer
