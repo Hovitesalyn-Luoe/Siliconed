@@ -19,7 +19,8 @@ import Foundation
 /// a convrot rotates the *input*, which a row order leaves alone). `map_dtype` says "mixed" then.
 ///
 /// Krea 2 reads a `Qwen3VLModel`: its text part has the shapes of Z-Image's Qwen3-4B, under
-/// `language_model.`, next to a vision tower the text never goes through (dropped).
+/// `language_model.` (`model.language_model.` in Comfy-Org's files, which the installation reads),
+/// next to a vision tower the text never goes through (dropped).
 ///
 /// **Qwen-Image-2.1 reads a whole `Qwen3VLForConditionalGeneration`** (Qwen3-VL-8B): the
 /// reference images go through its vision tower, so it is kept — and so is every layer of the
@@ -96,8 +97,10 @@ package enum ForgeText {
                 guard name.hasPrefix("model.language_model.") else { return nil }
                 without = String(name.dropFirst("model.language_model.".count))
             } else if family == .krea2 {
-                guard name.hasPrefix("language_model.") else { return nil }
-                without = String(name.dropFirst("language_model.".count))
+                // Krea's `Qwen3VLModel` (`language_model.`), or Comfy-Org's files of it, laid out as
+                // a `Qwen3VLForConditionalGeneration` (`model.language_model.`): the same tensors.
+                guard let prefix = ["language_model.", "model.language_model."].first(where: name.hasPrefix) else { return nil }
+                without = String(name.dropFirst(prefix.count))
             } else if name.hasPrefix("model.") {
                 without = String(name.dropFirst(6))
             } else if finalNorm && !name.hasPrefix("lm_head.") {

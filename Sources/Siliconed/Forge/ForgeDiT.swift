@@ -68,7 +68,7 @@ package enum ForgeDiT {
                          + widened.prefix(4).joined(separator: ", ") + (widened.count > 4 ? ", …" : ""))
             }
             l += notes
-            if ignored > 0 { l.append("\(ignored) embedded tensors ignored (encoder, VAE: the family's are used)") }
+            if ignored > 0 { l.append("\(ignored) tensors the DiT does not read ignored (an embedded encoder or VAE: the family's are used; Krea's last.down/last.up)") }
             l.append("values rounded: \(tally.inexact) out of \(tally.parameters)"
                      + (tally.inexact == 0 ? " — bit-exact" : ""))
             l.append(String(format: "%@ : %.2f GB, %d tensors, max |weight| %.4f",

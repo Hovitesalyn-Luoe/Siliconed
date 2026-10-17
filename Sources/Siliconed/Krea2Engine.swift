@@ -19,14 +19,10 @@ package enum Krea2Text {
     package static let templateTokens = 34
     package static let length = 512
 
-    /// The layers drawn from the encoder, read from the published `model_index.json` — not copied.
-    package static func sockets(index: String) throws -> [Int] {
-        let data = try Data(contentsOf: URL(fileURLWithPath: index))
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let sockets = root["text_encoder_select_layers"] as? [Int] else {
-            throw Safetensors.Failure.badHeader("\(index): `text_encoder_select_layers` missing from model_index.json")
-        }
-        return sockets
+    /// The layers drawn from the encoder, read from the published `model_index.json` — not copied:
+    /// the file itself is in the code (`Krea2Published`, its git blob checked by a test), `[2, 5, …, 35]`.
+    package static var sockets: [Int] {
+        (Krea2Published.modelIndex["text_encoder_select_layers"]?.elements ?? []).compactMap(\.integer)
     }
 
     /// The identifiers the encoder receives, template included, without padding.

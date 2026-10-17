@@ -359,7 +359,8 @@ extension Family {
     /// the Standard's; the maps measured as installed: Z-Image's DiT from
     /// unsloth's GGUF, its encoder from Disty0's; Qwen-Image-2.1's DiT from Comfy-Org's int8 convrot,
     /// its encoder from unsloth's; Anima's DiT from vanes430's GGUF Q8_0 (Q4_K_M for the Light), with
-    /// the Standard's encoder. An installation needs more while forging: the sources, about as
+    /// the Standard's encoder; Krea 2's DiT and encoder from Comfy-Org's int8 convrot, its Light's DiT
+    /// from vantagewithai's GGUF Q4_K_M. An installation needs more while forging: the sources, about as
     /// large as the map, then thrown away (`spaceNeeded`).
     public func installedSize(_ variant: Variant) -> (dit: Int, encoder: Int, components: Int) {
         if variant == .light {
@@ -369,7 +370,8 @@ extension Family {
             case .qwenImage21: return (4_167_073_792, installedSize(.compact).encoder, installedSize(.standard).components)
             // vanes430's Q4_K_M: the map, 1 307 197 440 B, and its text adapter in fp32, 538 671 696 B.
             case .anima: return (1_845_869_136, installedSize(.compact).encoder, installedSize(.standard).components)
-            default: break
+            // vantagewithai's Q4_K_M, blocks kept; Krea's two easter-egg tensors left out.
+            case .krea2: return (7_436_943_360, installedSize(.compact).encoder, installedSize(.standard).components)
             }
         }
         if variant == .compact {
@@ -380,13 +382,17 @@ extension Family {
             // source, fp32 here (the conditioner reads no 8-bit), twice the Standard's bf16 one. The
             // encoder is the Standard's.
             case .anima: return (2_636_790_352, installedSize(.standard).encoder, installedSize(.standard).components)
-            default: break
+            // Comfy-Org's int8 convrot, the DiT's Linears kept 8-bit; the encoder's embedding table
+            // in fp32 (a rotated table cannot be read by rows).
+            case .krea2: return (14_138_179_584, 5_096_919_040, installedSize(.standard).components)
             }
         }
         switch self {
         case .zImage: return (12_333_072_384, 7_845_068_800, 179_122_176)
         case .anima: return (4_184_088_192, 1_193_871_360, 267_694_080)
-        case .krea2: return (26_284_982_272, 7_845_068_800, 531_697_664)
+        // Forged from Comfy-Org's bf16 files (the maps krea's own files forge, compare-maps); the
+        // components: Qwen-Image's bf16 VAE, the tokenizer, the DiT's config.
+        case .krea2: return (26_284_982_272, 7_845_085_184, 265_252_635)
         // The maps measured on 2026-10-03 (the Turbo's DiT has the base's shapes and dtypes, its encoder
         // the base's tensors); the components summed from the Turbo's published files (VAE in bf16).
         case .qwenImage21: return (14_231_355_392, 16_295_034_880, 686_958_986)

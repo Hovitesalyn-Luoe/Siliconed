@@ -40,7 +40,15 @@ package struct Installer {
     static let zImage = Repository(name: "Tongyi-MAI/Z-Image-Turbo", revision: "f332072aa78be7aecdf3ee76d5c247082da564a6")
     static let animaBase = Repository(name: "circlestone-labs/Anima-Base-v1.0-Diffusers", revision: "073c3a9db359c31ad0e8aa268d15775473c2176c")
     static let anima = Repository(name: "circlestone-labs/Anima", revision: "f973fc41ec7545364ac9776c2440285f43ff2a30")
-    static let krea2 = Repository(name: "krea/Krea-2-Turbo", revision: "98e0fe118d17c9e3547fbb2e25acdbae2cadf7c7")
+    // Krea 2 Turbo: `krea/Krea-2-Turbo` is gated (a token, a license accepted on the Hub), which a user
+    // of the app does not have — **no file is downloaded from it**. Every byte comes from ungated
+    // repositories, proven equal to Krea's: Comfy-Org's repackaging (the Standard's DiT, the very
+    // LFS object of Krea's `turbo.safetensors`; its encoder, Krea's tensor for tensor; the Compact's int8
+    // convrot), Qwen-Image's VAE (Krea's fp32 is its bf16 widened, value for value), the tokenizer
+    // Qwen-Image-2.1-Turbo publishes (Krea's, the same LFS object), vantagewithai's GGUF for the Light;
+    // Krea's three small files are in the code, verbatim (`Krea2Published`).
+    static let krea2Comfy = Repository(name: "Comfy-Org/Krea-2", revision: "1171f4dc7e325bf3734586942e737872506c73e1")
+    static let qwenImage = Repository(name: "Qwen/Qwen-Image", revision: "75e0b4be04f60ec59a75f475837eced720f823b6")
     /// The official Turbo, the Standard's every file: DiT, encoder, VAE, `processor/`, configs, schedule —
     /// and the Compact's and the Light's but their DiT and their encoder's weights. No recipe reads
     /// the base model (`Qwen/Qwen-Image-2.1`) any more.
@@ -60,6 +68,9 @@ package struct Installer {
     // Anima's Compact and Light DiTs: vanes430's GGUFs of Turbo v1.1 (ComfyUI-GGUF, `cosmos`), the
     // Compact's Q8_0 and the Light's Q4_K_M in one repository; its encoder is the Standard's.
     static let animaGGUF = Repository(name: "vanes430/Anima-Turbo-V1.1-GGUF", revision: "efdf070de980a52fc03027d2f6ed543cc1d87a8f")
+    // Krea 2's Light DiT: vantagewithai's GGUF Q4_K_M. `Abiray/Krea-2-Turbo-GGUF`'s is the same tensors
+    // at the same offsets, plus 48 bytes appended after the data (`L2P_bypass_…`): a copy, not taken.
+    static let krea2GGUF = Repository(name: "vantagewithai/Krea-2-Turbo-GGUF", revision: "390847e2835c16bdf82303731e3d35b874760d89")
 
     /// The small files read at render time, and their place under `store/composants/<famille>/`.
     static func components(_ f: Family) -> [File] {
@@ -74,10 +85,11 @@ package struct Installer {
                     File(repository: animaBase, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
                     File(repository: animaBase, path: "transformer/config.json", destination: "transformer.json")]
         case .krea2:
-            return [File(repository: krea2, path: "tokenizer/tokenizer.json", destination: "tokenizer/tokenizer.json"),
-                    File(repository: krea2, path: "model_index.json", destination: "model_index.json"),
-                    File(repository: krea2, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
-                    File(repository: krea2, path: "transformer/config.json", destination: "transformer.json")]
+            // Krea's tokenizer is Qwen-Image-2.1-Turbo's `processor/tokenizer.json` (one LFS object,
+            // `be756060`); its fp32 VAE is Qwen-Image's bf16 one widened, each of its 126.9 M values
+            // (Anima's file, `0c8bc8b7`). No config: `Krea2Published` holds the two the engine reads.
+            return [File(repository: qwenImage21Turbo, path: "processor/tokenizer.json", destination: "tokenizer/tokenizer.json"),
+                    File(repository: qwenImage, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors")]
         case .qwenImage21:
             // `processor/` as published (transformers 5's serialization: `tokenizer.json` holds the
             // vocabulary, `processor_config.json` the image processor's values). The engine reads
@@ -101,8 +113,11 @@ package struct Installer {
     /// - Z-Image publishes no license file; Apache 2.0 is declared in the model card → `README.md`.
     /// - Anima's DiT comes from `circlestone-labs/Anima` (CircleStone Non-Commercial v1.2), its encoder,
     ///   VAE and tokenizers from the Diffusers repository, which carries its own file (v1.0).
-    /// - Krea 2 is gated: `LICENSE.pdf` answers 401 until the Hub's gate is accepted (the card's
-    ///   `license_link` points to the same PDF outside the Hub).
+    /// - Krea 2's `LICENSE.pdf` is read from Comfy-Org's repository, which carries Krea's own (the
+    ///   same LFS object, `b82a2805`): Krea's is gated, it answers 401 until the Hub's gate is accepted.
+    ///   Comfy-Org's card follows (the repackaging of the DiT and the encoder). The VAE's and the
+    ///   tokenizer's repositories (Qwen-Image, Qwen-Image-2.1-Turbo) are not listed: what is taken from
+    ///   them is Krea's own VAE and tokenizer (proven equal), which `LICENSE.pdf` covers.
     /// - Qwen-Image-2.1-Turbo carries the base model's Qwen Research text (same git blob): one file.
     /// - **A Compact also downloads from third parties**, which publish no license file: their model
     ///   card (`README.md`) declares it — Apache 2.0 for unsloth's and Disty0's Z-Image, Qwen
@@ -111,6 +126,9 @@ package struct Installer {
     ///   come after the Standard's: the license is the publisher's, the cards say whose bytes.
     /// - **A Light** links the card of its DiT's repository (unsloth's GGUF: Apache 2.0 for Z-Image,
     ///   Qwen Research for Qwen-Image-2.1), then the card of its encoder's, the Compact's.
+    /// - **Krea 2's Compact** adds nothing: its DiT and its encoder are Comfy-Org's, whose card is the
+    ///   Standard's. **Its Light** adds vantagewithai's card (`license: other`, Krea's license link,
+    ///   `base_model: krea/Krea-2-Turbo`).
     /// - **Anima's Compact and Light** link vanes430's card after the publisher's two files. The card
     ///   says `apache-2.0` and `base_model: circlestone-labs/Anima`: the bytes are CircleStone's DiT
     ///   requantized, under CircleStone's license, which the publisher's files say — as for the others,
@@ -128,13 +146,16 @@ package struct Installer {
                                       File(repository: qwenImage21Unsloth, path: "README.md", destination: nil)]
         case (.anima, .compact), (.anima, .light):
             return licenseFiles(f) + [File(repository: animaGGUF, path: "README.md", destination: nil)]
+        case (.krea2, .light):
+            return licenseFiles(f) + [File(repository: krea2GGUF, path: "README.md", destination: nil)]
         default: break
         }
         switch f {
         case .zImage: return [File(repository: zImage, path: "README.md", destination: nil)]
         case .anima: return [File(repository: anima, path: "LICENSE.md", destination: nil),
                              File(repository: animaBase, path: "LICENSE.md", destination: nil)]
-        case .krea2: return [File(repository: krea2, path: "LICENSE.pdf", destination: nil)]
+        case .krea2: return [File(repository: krea2Comfy, path: "LICENSE.pdf", destination: nil),
+                             File(repository: krea2Comfy, path: "README.md", destination: nil)]
         case .qwenImage21: return [File(repository: qwenImage21Turbo, path: "LICENSE", destination: nil)]
         }
     }
@@ -149,13 +170,19 @@ package struct Installer {
     /// Compact's comes from two repositories: the publisher's `config.json` (the third party's, when
     /// it publishes one, carries a `quantization_config` the forge has no use for), and the third
     /// party's 8-bit weights, which `ForgeText` keeps 8-bit. The Light's is the Compact's. Anima's
-    /// three versions read the Standard's (`Family.encoderMap(_:)`).
+    /// three versions read the Standard's (`Family.encoderMap(_:)`). **Krea 2's has no `config.json`
+    /// to download** (Krea's is gated: `Krea2Published.encoderConfig`): its files are the weights alone.
     static func encoder(_ f: Family, _ v: Variant = .standard) -> [File] {
         switch (f, v) {
         case (.zImage, .compact), (.zImage, .light):
             return [File(repository: zImage, path: "text_encoder/config.json", destination: nil),
                     File(repository: zImageSDNQ, path: "text_encoder/model.safetensors", destination: nil,
                          sha256: "21a5e09e4d05ddb2900dc5c51db5e2bc7bc8b3fa08ba10b372798fba3c594677")]
+        case (.krea2, .compact), (.krea2, .light):
+            // Comfy-Org's int8 convrot (`int8_tensorwise`, group 256): the 252 language-model linears and
+            // the embedding table, per-row scales; the vision tower in bf16, not written.
+            return [File(repository: krea2Comfy, path: "text_encoders/qwen3vl_4b_int8_convrot.safetensors", destination: nil,
+                         sha256: "32de113cbf8282b02cbff0794b637b9d6676da09314a1db5a30bcea9bf4ee01c")]
         case (.qwenImage21, .compact), (.qwenImage21, .light):
             // The Turbo's `config.json` (the base's but `pad_token_id: null`), the base's 8-bit weights.
             return [File(repository: qwenImage21Turbo, path: "text_encoder/config.json", destination: nil),
@@ -171,17 +198,20 @@ package struct Installer {
         case .anima:
             return ["config.json", "model.safetensors"].map { File(repository: animaBase, path: "text_encoder/" + $0, destination: nil) }
         case .krea2:
-            return ["config.json", "model.safetensors"].map { File(repository: krea2, path: "text_encoder/" + $0, destination: nil) }
+            // Comfy-Org's bf16 file: Krea's `text_encoder/model.safetensors`, every tensor equal, under
+            // `model.` (the `Qwen3VLForConditionalGeneration` layout).
+            return [File(repository: krea2Comfy, path: "text_encoders/qwen3vl_4b_bf16.safetensors", destination: nil,
+                         sha256: "36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34")]
         case .qwenImage21:
             // One file, the base's four shards to the bit (750 tensors): the map's tensors are the same.
             return ["config.json", "model.safetensors"].map { File(repository: qwenImage21Turbo, path: "text_encoder/" + $0, destination: nil) }
         }
     }
 
-    /// The vendor's DiT — or a Compact's single 8-bit file: unsloth's GGUF Q8_0 of Z-Image,
-    /// Comfy-Org's int8 convrot of Qwen-Image-2.1-Turbo, vanes430's GGUF Q8_0 of Anima, all kept
-    /// 8-bit by `ForgeDiT` — or a Light's single GGUF Q4_K_M (unsloth's; vanes430's for Anima), its
-    /// blocks kept whole. No Q4_K_M carries a type under 4 bits: Z-Image's Q4_K, Q5_K, Q6_K;
+    /// The vendor's DiT (Krea 2's: Comfy-Org's copy of it) — or a Compact's single 8-bit file: unsloth's
+    /// GGUF Q8_0 of Z-Image, Comfy-Org's int8 convrot of Qwen-Image-2.1-Turbo and of Krea 2 Turbo,
+    /// vanes430's GGUF Q8_0 of Anima, all kept 8-bit by `ForgeDiT` — or a Light's single GGUF Q4_K_M
+    /// (unsloth's; vanes430's for Anima, vantagewithai's for Krea 2), its blocks kept whole. No Q4_K_M carries a type under 4 bits: Z-Image's Q4_K, Q5_K, Q6_K;
     /// Qwen-Turbo's Q4_K, Q5_K, Q6_K and Q8_0 (the base's types and offsets, two metadata keys more);
     /// Anima's below.
     static func dit(_ f: Family, _ v: Variant = .standard) -> [File] {
@@ -200,6 +230,15 @@ package struct Installer {
             // text adapter (Q4_K ×50, Q6_K ×12, F32 ×56), written dequantized in fp32 beside the map.
             return [File(repository: animaGGUF, path: "anima-turbo-v1.1-Q4_K_M.gguf", destination: nil,
                          sha256: "709fceeec6b4f0eb155330c83fd2539406e86c01e431407276a1f31095484782")]
+        case (.krea2, .light):
+            // Q4_K ×201, Q5_K ×63, F32 ×167, F16 ×1 (`first`, published in fp32): nothing under 4 bits.
+            // Two of its 432 tensors are Krea's easter egg, outside the model (`Recipes.kreaEasterEgg`).
+            return [File(repository: krea2GGUF, path: "krea2_turbo-Q4_K_M.gguf", destination: nil,
+                         sha256: "bc12f539de7a7a6ddf9bac17ec6e5bfecd42c3517190f491131d8464a1034b40")]
+        case (.krea2, .compact):
+            // int8 convrot ×224 (the 28 blocks' linears), the rest bf16 and fp32 as Comfy-Org writes it.
+            return [File(repository: krea2Comfy, path: "diffusion_models/krea2_turbo_int8_convrot.safetensors", destination: nil,
+                         sha256: "8e4eeda70dd5037ab1ba2bef6b417f9f901e26093117cf397f741fc1fdaaf3f1")]
         case (.anima, .compact):
             // Q8_0 ×510, F32 ×169, BF16 ×6 (the adapter: Q8_0 ×62, F32 ×56).
             return [File(repository: animaGGUF, path: "anima-turbo-v1.1-Q8_0.gguf", destination: nil,
@@ -215,8 +254,10 @@ package struct Installer {
             return (["diffusion_pytorch_model.safetensors.index.json"] + (1...3).map { "diffusion_pytorch_model-0000\($0)-of-00003.safetensors" })
                 .map { File(repository: zImage, path: "transformer/" + $0, destination: nil) }
         case .krea2:
-            return (["diffusion_pytorch_model.safetensors.index.json"] + (1...3).map { "diffusion_pytorch_model-0000\($0)-of-00003.safetensors" })
-                .map { File(repository: krea2, path: "transformer/" + $0, destination: nil) }
+            // The original names (`blocks.N.attn.wq`, …), renamed by the forge: the map forged from it is
+            // the diffusers shards' to the byte.
+            return [File(repository: krea2Comfy, path: "diffusion_models/krea2_turbo_bf16.safetensors", destination: nil,
+                         sha256: "78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3")]
         case .anima:
             return [File(repository: anima, path: "split_files/diffusion_models/anima-turbo-v1.1.safetensors", destination: nil)]
         case .qwenImage21:
@@ -229,6 +270,17 @@ package struct Installer {
                          destination: nil, sha256: $0.element)
                 }
         }
+    }
+
+    /// **The DiT's published config**, which the map's header copies (`ForgeDiT.forge`): the family's
+    /// `transformer.json` among its components — Krea 2's is in the code (`Krea2Published`).
+    package func ditConfig(_ f: Family) throws -> OrderedJSON {
+        f == .krea2 ? Krea2Published.transformerConfig : try OrderedJSON.read(componentsFolder(f) + "/transformer.json")
+    }
+
+    /// The encoder's `config.json` when it is not downloaded beside its weights (`encoder(_:_:)`).
+    static func publishedEncoderConfig(_ f: Family) -> OrderedJSON? {
+        f == .krea2 ? Krea2Published.encoderConfig : nil
     }
 
     // MARK: - Where things live
@@ -342,7 +394,7 @@ package struct Installer {
         if !fm.fileExists(atPath: reference) {
             try writeReference(f, to: reference)
         }
-        let config = try OrderedJSON.read(componentsFolder(f) + "/transformer.json")
+        let config = try ditConfig(f)
 
         let encoderName = f.encoderMap(v), ditName = f.ditMap(v)
         let encoderMap = library.map(encoderName), ditMap = library.map(ditName)
@@ -364,6 +416,12 @@ package struct Installer {
             let beside = baseDiT && !ditPresent
                 ? startDownloads(ditFiles, alsoWriting: files.reduce(0) { $0 + Library.size(source($1)) }) : nil
             let forged = Result { () throws -> MapWriter.Tally in
+                if let published = Self.publishedEncoderConfig(f) {
+                    // The weights alone, their config in the code (Krea 2: `Krea2Published`).
+                    return try ForgeText.forge(source: TensorSource(paths: files.map(source)), published: published, family: f,
+                                               to: encoderMap, directory: files[0].repository.name + "@" + files[0].repository.revision,
+                                               progressHandler: beside == nil ? progressHandler : nil)
+                }
                 if f.encoderMap(v) == f.encoderMap(.standard) {
                     return try ForgeText.forge(folder: (source(files[0]) as NSString).deletingLastPathComponent, family: f,
                                                to: encoderMap, progressHandler: beside == nil ? progressHandler : nil)
@@ -391,9 +449,9 @@ package struct Installer {
             let begin = Date()
             let sourceDiT: TensorSource
             let description: OrderedJSON
-            if v != .standard {
+            if v != .standard || f == .krea2 {
                 // A single third-party file, kept as published (`QuantizedLayouts`): GGUF Q8_0, int8
-                // convrot (Compact), GGUF Q4_K_M blocks (Light).
+                // convrot (Compact), GGUF Q4_K_M blocks (Light) — or Comfy-Org's bf16 Krea 2 (Standard).
                 sourceDiT = try TensorSource(paths: [source(files[0])])
                 description = .object([.init("file", .string((files[0].path as NSString).lastPathComponent)),
                                        .init("repository", .string(files[0].repository.name)),

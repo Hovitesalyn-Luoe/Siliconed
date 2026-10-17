@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import Siliconed
 
@@ -17,10 +18,92 @@ final class CompactTests: XCTestCase {
         Installer.dit(f, .compact) + Installer.encoder(f, .compact).dropFirst()
     }
 
-    func testEveryFamilyButKrea2HasACompactAndALight() {
+    func testEveryFamilyHasACompactAndALight() {
         for f in Family.allCases {
-            XCTAssertEqual(f.variants, f == .krea2 ? [.standard] : [.standard, .compact, .light], f.name)
+            XCTAssertEqual(f.variants, [.standard, .compact, .light], f.name)
+            XCTAssertEqual(Set(Variant.allCases.map(f.ditMap)).count, 3, f.name)
         }
+    }
+
+    /// **Krea 2 installs without a byte of Krea's gated repository**: its three versions read
+    /// Comfy-Org's files (the Standard's bf16 DiT and encoder, the Compact's int8 convrot), Qwen's
+    /// tokenizer and VAE, vantagewithai's GGUF for the Light — all pinned (revision, sha256); no
+    /// `config.json` is downloaded (`Krea2Published`). The Compact's and the Light's files are the
+    /// judged ones (their fixtures); the Light carries nothing under 4 bits, and two tensors outside
+    /// the model, Krea's easter egg, which the recipe sets aside. Its license: Krea's `LICENSE.pdf` (from
+    /// Comfy-Org's copy) and Comfy-Org's card, then the GGUF's card for the Light.
+    func testKrea2VersionsReadNoGatedFileAndAreTheJudgedOnes() throws {
+        let hex = try NSRegularExpression(pattern: "^[0-9a-f]+$")
+        func isHex(_ s: String) -> Bool { hex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
+        for v in Family.krea2.variants {
+            let files = Installer.components(.krea2) + Installer.encoder(.krea2, v) + Installer.dit(.krea2, v)
+                + Installer.licenseFiles(.krea2, v)
+            XCTAssertFalse(files.contains { $0.repository.name.hasPrefix("krea/") }, v.rawValue)
+            XCTAssertFalse(files.contains { $0.path.hasSuffix("config.json") || $0.path == "model_index.json" }, v.rawValue)
+            for x in Installer.encoder(.krea2, v) + Installer.dit(.krea2, v) {
+                XCTAssertTrue(x.repository.revision.count == 40 && isHex(x.repository.revision), x.path)
+                let sha = try XCTUnwrap(x.sha256, "\(x.path): sha256 pinned")
+                XCTAssertTrue(sha.count == 64 && isHex(sha), x.path)
+            }
+            XCTAssertEqual(Installer.licenseFiles(.krea2, v).prefix(2).map(\.path), ["LICENSE.pdf", "README.md"])
+        }
+        XCTAssertNotNil(Installer.publishedEncoderConfig(.krea2))
+        XCTAssertEqual(Installer.licenseFiles(.krea2, .compact).count, 2, "Comfy-Org's card is the Standard's")
+        XCTAssertEqual(Installer.licenseFiles(.krea2, .light).last?.repository.name, Installer.dit(.krea2, .light)[0].repository.name)
+        XCTAssertEqual(Installer.encoder(.krea2, .light).map(\.sha256), Installer.encoder(.krea2, .compact).map(\.sha256))
+        XCTAssertEqual(Family.krea2.encoderMap(.light), Family.krea2.encoderMap(.compact))
+        XCTAssertNotEqual(Family.krea2.encoderMap(.compact), Family.krea2.encoderMap)
+
+        // The judged files: Comfy-Org's convrot DiT and encoder, vantagewithai's Q4_K_M.
+        let floor: Set<String> = ["F32", "F16", "BF16", "Q8_0", "Q6_K", "Q5_K", "Q4_K"]
+        for (x, format) in [(Installer.dit(.krea2, .compact)[0], "convrot"), (Installer.encoder(.krea2, .compact)[0], "encoder"),
+                            (Installer.dit(.krea2, .light)[0], "gguf")] {
+            let d = try fixture(x)
+            XCTAssertEqual(d.manifest["family"] as? String, "krea2", x.path)
+            XCTAssertEqual(d.manifest["format"] as? String, format, x.path)
+            guard format == "gguf" else { continue }
+            let header = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: d.folder + "/header.json"))) as? [String: Any])
+            let tensors = try XCTUnwrap(header["tensors"] as? [String: [String: Any]])
+            XCTAssertEqual(tensors.count, 432)
+            let types = Set(tensors.values.compactMap { $0["type"] as? String })
+            XCTAssertTrue(types.isSubset(of: floor), "\(types.subtracting(floor)) under the floor")
+            XCTAssertTrue(types.contains("Q4_K"))
+            XCTAssertEqual(Set(tensors.keys).intersection(Recipes.kreaEasterEgg), Recipes.kreaEasterEgg)
+        }
+
+        // Sizes: the Compact under the Standard, the Light under the Compact; the encoder shared.
+        let s = Family.krea2.installedSize(.standard), c = Family.krea2.installedSize(.compact), l = Family.krea2.installedSize(.light)
+        XCTAssertLessThan(l.dit, c.dit)
+        XCTAssertLessThan(c.dit, s.dit)
+        XCTAssertLessThan(c.encoder, s.encoder)
+        XCTAssertEqual(l.encoder, c.encoder)
+        XCTAssertEqual(Set([s.components, c.components, l.components]).count, 1)
+        let gguf = try XCTUnwrap(try fixture(Installer.dit(.krea2, .light)[0]).manifest["file_bytes"] as? Int)
+        XCTAssertEqual(Double(l.dit), Double(gguf), accuracy: 0.02 * Double(gguf))
+        let convrot = try XCTUnwrap(try fixture(Installer.dit(.krea2, .compact)[0]).manifest["file_bytes"] as? Int)
+        // Above the file by the bf16 tensors the forge writes in fp32 (44 of them, `quant-weights`
+        // counts them; 0.65 GB measured), never under it.
+        XCTAssertGreaterThan(c.dit, convrot)
+        XCTAssertEqual(Double(c.dit), Double(convrot), accuracy: 0.06 * Double(convrot))
+    }
+
+    /// **Krea's three small files are in the code, verbatim**: each literal hashes, as git hashes a
+    /// blob, to the id the Hub lists for that file at the revision the weights were proven against —
+    /// and what the engine reads of them is there (the DiT's config, the encoder's `text_config`,
+    /// the twelve layers drawn).
+    func testKrea2PublishedFilesAreKreasToTheByte() throws {
+        for (path, blob, text) in Krea2Published.blobs {
+            let bytes = Data(text.utf8)
+            var hasher = Insecure.SHA1()
+            hasher.update(data: Data("blob \(bytes.count)\u{0}".utf8))
+            hasher.update(data: bytes)
+            XCTAssertEqual(hasher.finalize().map { String(format: "%02x", $0) }.joined(), blob, path)
+        }
+        XCTAssertEqual(Krea2Published.transformerConfig["num_layers"]?.integer, 28)
+        XCTAssertEqual(Krea2Published.encoderConfig["text_config"]?["num_hidden_layers"]?.integer, 36)
+        XCTAssertEqual(Krea2Text.sockets, Array(stride(from: 2, through: 35, by: 3)))
+        let config = Krea2DiT.Config(header: ["config": try JSONSerialization.jsonObject(with: Data(Krea2Published.transformerConfigText.utf8))])
+        XCTAssertEqual([config.dim, config.heads, config.kvHeads, config.hidden, config.layers, config.channels], [6144, 48, 12, 16384, 28, 64])
     }
 
     /// **Anima's Compact and Light**: vanes430's GGUF Q8_0 and Q4_K_M of Turbo v1.1, pinned (revision,

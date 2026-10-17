@@ -129,7 +129,7 @@ public enum ModelImport {
         }
         try FileManager.default.createDirectory(at: b.imported, withIntermediateDirectories: true)
         let path = freePath(slug, suffix: ".silicon", in: b.imported.path)
-        let config = try OrderedJSON.read(installer.componentsFolder(family) + "/transformer.json")
+        let config = try installer.ditConfig(family)
         let r = try ForgeDiT.forge(source: source, family: family, config: config, to: path,
                                     reference: try installer.readReference(family), name: name ?? base,
                                     descriptionSource: .object([.init("file", .string((file as NSString).lastPathComponent))]),

@@ -58,11 +58,8 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         }
     }
 
-    /// **The versions a family installs in**: every family has its Standard;
-    /// Z-Image, Qwen-Image-2.1 and Anima also have a Compact and a Light.
-    public var variants: [Variant] {
-        self == .krea2 ? [.standard] : [.standard, .compact, .light]
-    }
+    /// **The versions a family installs in**: every family has its Standard, a Compact and a Light.
+    public var variants: [Variant] { [.standard, .compact, .light] }
 
     /// **The version preselected before an installation** (the welcome cards, « Install… »): the
     /// Standard (below the publisher's weights only by the user's choice) — except
@@ -82,6 +79,8 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         case (.qwenImage21, .light): return "qwen-image-2.1-turbo-dit.light.v0.silicon"
         case (.anima, .compact): return "anima-turbo-dit.compact.v0.silicon"
         case (.anima, .light): return "anima-turbo-dit.light.v0.silicon"
+        case (.krea2, .compact): return "krea2-turbo-dit.compact.v0.silicon"
+        case (.krea2, .light): return "krea2-turbo-dit.light.v0.silicon"
         default: return ditMap
         }
     }
@@ -98,6 +97,7 @@ public enum Family: String, CaseIterable, Sendable, Codable {
         switch (self, v) {
         case (.zImage, .compact), (.zImage, .light): return "qwen3-4b-encoder.compact.v0.silicon"
         case (.qwenImage21, .compact), (.qwenImage21, .light): return "qwen3-vl-8b-encoder.compact.v0.silicon"
+        case (.krea2, .compact), (.krea2, .light): return "qwen3-vl-4b-encoder.compact.v0.silicon"
         default: return encoderMap
         }
     }
@@ -127,9 +127,10 @@ public enum Variant: String, CaseIterable, Sendable, Codable {
     /// about 40 % smaller on disk, an image slightly different from the Standard's, a step a little
     /// slower (the weights are widened at each evaluation). Tokenizers and VAE are the Standard's.
     /// Anima's Compact is its DiT alone in GGUF Q8_0 (vanes430's): its encoder stays the Standard's.
+    /// Krea 2's are Comfy-Org's int8 convrot, DiT and encoder.
     case compact
     /// **The DiT in 4 to 6 bits as a third party publishes it** (a GGUF Q4_K_M — unsloth's, vanes430's
-    /// for Anima — its blocks kept whole), the Compact's text encoder, the Standard's tokenizers and VAE: the smallest
+    /// for Anima, vantagewithai's for Krea 2 — its blocks kept whole), the Compact's text encoder, the Standard's tokenizers and VAE: the smallest
     /// on disk and the least read from it at each step — another set of weights, an image that may
     /// compose differently. Preselected on a Mac of 8 GB (`Family.preselectedVariant`).
     case light
@@ -311,6 +312,7 @@ package enum Recipes {
             r.naming = origin ? "original Krea 2 (krea-ai, ComfyUI)" : "diffusers"
             for (published, raw) in keys {
                 guard origin else { try place(raw, asPublished(source, published)); continue }
+                if kreaEasterEgg.contains(raw) { r.ignored.append(published); continue }
                 guard let (name, reshaped) = krea2(raw, shape: source.shape(published)!) else {
                     throw Numerics.Failure(description: "\(published) : no Krea 2 renaming rule")
                 }
@@ -346,6 +348,12 @@ package enum Recipes {
     }
 
     // ── Krea 2: the `krea-ai/krea-2` repo → `Krea2Transformer2DModel` ─────────────────────
+    /// **Two tensors outside the model, Krea's easter egg**, which the GGUFs of Krea 2 Turbo carry
+    /// (`egg_w`, `egg_h`, `egg_format: chw_m1p1_flat` in their metadata) and the published
+    /// checkpoints do not: `last.down` `[6144, 6144]` is a picture in [−1, 1] (a hiring note),
+    /// `last.up` is all zeros. Neither diffusers' `Krea2Transformer2DModel` nor the oracle has them:
+    /// set aside like an embedded VAE, never placed — the strict recipe would refuse them otherwise.
+    static let kreaEasterEgg: Set<String> = ["last.down.weight", "last.up.weight"]
     static let kreaAttn = ["wq": "to_q", "wk": "to_k", "wv": "to_v", "wo": "to_out.0", "gate": "to_gate"]
 
     /// The diffusers name and the published shape it must have (`mod.lin`: `[6·D]` → `[6, D]`).

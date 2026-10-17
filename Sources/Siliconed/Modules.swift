@@ -770,7 +770,7 @@ public struct Model: Sendable {
         Model(card: card, library: b, chain: try Chain(
                    text: Krea2TextModule(map: try map(b.encoderMap(.krea2), b),
                                      tokenizer: try b.component(.krea2, "tokenizer"),
-                                     sockets: try Krea2Text.sockets(index: try b.component(.krea2, "model_index.json"))),
+                                     sockets: Krea2Text.sockets),
                    denoising: Krea2DenoisingModule(map: try map(dit, b)),
                    decoding: QwenImageDecodingModule(path: try b.component(.krea2, "vae.safetensors")),
                    encoding: QwenImageEncodingModule(path: try b.component(.krea2, "vae.safetensors"))))

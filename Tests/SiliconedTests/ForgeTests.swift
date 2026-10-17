@@ -635,9 +635,6 @@ final class ForgeTests: XCTestCase {
         XCTAssertEqual(plan.variant, .compact)
         XCTAssertNil(plan.replacing, "the prerequisites of an import replace nothing")
 
-        // A family with one version: no flag is Standard, and Compact is refused.
-        XCTAssertEqual(try b.resolvedVariant(.krea2, requested: nil, baseDiT: true), .standard)
-        XCTAssertThrowsError(try b.resolvedVariant(.krea2, requested: .compact, baseDiT: true))
     }
 
     /// **Anima's three versions read one encoder, the Standard's**: switching between them removes
@@ -668,16 +665,21 @@ final class ForgeTests: XCTestCase {
         XCTAssertEqual(plan.replacing, .light)
     }
 
-    /// A family with one version refuses the other before anything — no network, no file touched.
-    func testAFamilyWithoutCompactRefusesIt() throws {
-        var i = Installer(library: Library(root: FileManager.default.temporaryDirectory.appendingPathComponent("n-existe-pas-\(UUID())")))
-        i.journal = { _ in }
-        for f in Family.allCases where !f.variants.contains(.compact) {
-            XCTAssertThrowsError(try i.install(f, variant: .compact)) { XCTAssertTrue("\($0)".contains("no compact version"), "\($0)") }
-            XCTAssertEqual(f.ditMap(.compact), f.ditMap)
-            XCTAssertEqual(f.encoderMap(.compact), f.encoderMap)
+    /// **Krea's easter egg is set aside, never placed**: the two tensors the GGUFs of Krea 2 Turbo carry
+    /// beside the model (`last.down`, `last.up`) are ignored by the recipe, which still refuses any
+    /// other unknown name.
+    func testKreaEasterEggIsSetAside() throws {
+        final class Names: TensorCatalog {
+            let names: [String]
+            init(_ n: [String]) { names = n }
+            func shape(_ name: String) -> [Int]? { [6144, 6144] }
+            func dtype(_ name: String) -> String? { "BF16" }
+            func read(_ name: String) throws -> [Float] { [] }
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: i.library.root.path))
+        let n = try Recipes.normalize(Names(["blocks.0.attn.wq.weight", "last.down.weight", "last.up.weight"]), family: .krea2)
+        XCTAssertEqual(Array(n.dit.keys), ["transformer_blocks.0.attn.to_q.weight"])
+        XCTAssertEqual(Set(n.ignored), Recipes.kreaEasterEgg)
+        XCTAssertThrowsError(try Recipes.normalize(Names(["blocks.0.attn.wq.weight", "last.sideways.weight"]), family: .krea2))
     }
 
     /// A job that would not fit is refused before writing a byte.
