@@ -236,12 +236,7 @@ struct RackView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("Chain").font(.headline)
             Spacer()
-            // Exploring sweeps the settings of this chain: its door is on the chain, not under
-            // « Generate », whose footer counts only what the click makes.
-            Button("Explore…") { MainWindow.shared.showExploration() }
-                .buttonStyle(.link)
-                .font(.callout)
-                .help("Sweep seeds, a LoRA's strength, words of the prompt, models or the images to edit — small sketches, fast (⌥⌘G)")
+            // « Explore » is beside « Generate » (`Sidebar`): a gesture that makes images, not a setting.
             Button("Models…") { app.managementOpen = true }
                 .buttonStyle(.link)
                 .font(.callout)

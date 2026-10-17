@@ -8,8 +8,9 @@
 // between two steps: what is set is taken whole at the click (`Job`), and changing it afterwards
 // prepares the next render.
 //
-// **The exploration opens from the rack's header** (`Exploration.swift`), not from this footer: it
-// sweeps the chain's settings in its own panel, and this footer counts only what « Generate » makes.
+// **« Explore » stands beside « Generate »** (`Exploration.swift`): the same intention — make images
+// from this chain —, many small ones instead of one; not a setting, so not in the rack's header with
+// « Models… ». The cost line above counts only what « Generate » makes.
 // The queue scrolls past a few rows, so that the footer never pushes the rack out of the column.
 
 import AppKit
@@ -179,13 +180,21 @@ private struct Footer: View {
             } else if app.diagnosticRunning {
                 Text("The diagnostic is running: renders wait for it.").font(.callout)
             }
-            Button { app.render() } label: {
-                Text(label).fontWeight(.semibold).frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                Button { app.render() } label: {
+                    Text(label).fontWeight(.semibold).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(blocker != nil)
+                .help(Text(verbatim: "⌘↩"))
+                Button { MainWindow.shared.showExploration() } label: {
+                    Label("Explore", systemImage: "square.grid.3x3")
+                }
+                .buttonStyle(.bordered)
+                .fixedSize()
+                .help("Sweep seeds, a LoRA's strength, words of the prompt, models or the images to edit — small sketches, fast (⌥⌘G)")
             }
-            .buttonStyle(.borderedProminent)
             .controlSize(.extraLarge)
-            .disabled(blocker != nil)
-            .help(Text(verbatim: "⌘↩"))
             if app.busy { queue }
             if let title = app.forgeInProgress {
                 VStack(alignment: .leading, spacing: 4) {
