@@ -159,11 +159,27 @@ package final class Block {
         }
     }
 
-    /// Puts the weight `name` into fp32 in the reserve, by the shortest path available.
+    /// The weight in the reserve is bf16 (`Artifact.stage`), not fp32: the next product is
+    /// `TensorGEMM`'s. Set by `prepareWeight`, read by `product`.
+    private var staged = false
+
+    /// Puts the weight `name` into the reserve, by the shortest path available: **as it is** when
+    /// `gemm_tensor` is on and the map's weight is bf16, otherwise widened to fp32.
     ///
-    /// GPU or CPU, the two paths produce the **same bits**: the choice is about speed, never about
+    /// The fp32 paths, GPU or CPU, produce the **same bits**: the choice is about speed, never about
     /// correctness.
     private func prepareWeight(_ name: String, count: Int, buffer: MTLBuffer) throws {
+        staged = false
+        if gemm.tensor != nil, let got = try timed("staging", {
+            try artifact.stage(prefix + name, into: UnsafeMutableRawPointer(weightReserve),
+                               capacity: 2 * shapes.dim * shapes.hidden)
+        }) {
+            guard got == count else {
+                throw Artifact.Failure.badHeader("\(prefix + name): \(got) values, \(count) expected")
+            }
+            staged = true
+            return
+        }
         if let widener, let source = widener.source(prefix + name, in: artifact) {
             guard artifact.tensors[prefix + name]?.count == count else {
                 throw Artifact.Failure.badHeader("\(prefix + name): unexpected shape")
@@ -179,6 +195,12 @@ package final class Block {
         try timed("widening") { try widen(name, count: count, into: weightReserve) }
     }
 
+
+    /// `C = A · W`, `W` the weight `prepareWeight` just put in the reserve `w`, by the path it took.
+    private func product(a: MTLBuffer, w: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
+        staged ? gemm.linear(a: a, bf16: w, c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
+               : gemm.linear(a: a, b: w, c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
+    }
 
     // ── the LoRA stack ───────────────────────────────────────────────────────────────────────
 
@@ -339,7 +361,7 @@ package final class Block {
                                                    ("attention.to_k.weight", kHeads, kb, "layer0_k"),
                                                    ("attention.to_v.weight", vHeads, vb, "layer0_v")] {
             try prepareWeight(name, count: d * d, buffer: w)
-            timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: buffer, m: s, k: d, n: d, weightIsTransposed: transposed) }
+            timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: a, w: w, c: buffer, m: s, k: d, n: d) }
             try applyLoRA(name, x: a, c: buffer, m: s, k: d, n: d)
             record(label, destination, s * d)
         }
@@ -378,7 +400,7 @@ package final class Block {
 
         try prepareWeight("attention.to_out.0.weight", count: d * d, buffer: w)
         let mb = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: shapes.sequence * d * 4, name: "merged")
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: mb, b: w, c: o, m: s, k: d, n: d, weightIsTransposed: transposed) }
+        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: mb, w: w, c: o, m: s, k: d, n: d) }
         try applyLoRA("attention.to_out.0.weight", x: mb, c: o, m: s, k: d, n: d)
         record("layer0_attention_out", qkv, s * d)
 
@@ -397,11 +419,11 @@ package final class Block {
         let h1 = try gemm.wrap(UnsafeMutableRawPointer(hidden1), bytes: shapes.sequence * h * 4, name: "h1")
         let h3 = try gemm.wrap(UnsafeMutableRawPointer(hidden3), bytes: shapes.sequence * h * 4, name: "h3")
         try prepareWeight("feed_forward.w1.weight", count: h * d, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: h1, m: s, k: d, n: h, weightIsTransposed: transposed) }
+        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: a, w: w, c: h1, m: s, k: d, n: h) }
         try applyLoRA("feed_forward.w1.weight", x: a, c: h1, m: s, k: d, n: h)
         record("layer0_w1_out", hidden1, s * h)
         try prepareWeight("feed_forward.w3.weight", count: h * d, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: h3, m: s, k: d, n: h, weightIsTransposed: transposed) }
+        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: a, w: w, c: h3, m: s, k: d, n: h) }
         try applyLoRA("feed_forward.w3.weight", x: a, c: h3, m: s, k: d, n: h)
         record("layer0_w3_out", hidden3, s * h)
 
@@ -409,7 +431,7 @@ package final class Block {
         record("layer0_swiglu_out", hidden1, s * h)
 
         try prepareWeight("feed_forward.w2.weight", count: d * h, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += gemm.linear(a: h1, b: w, c: o, m: s, k: h, n: d, weightIsTransposed: transposed) }
+        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: h1, w: w, c: o, m: s, k: h, n: d) }
         try applyLoRA("feed_forward.w2.weight", x: h1, c: o, m: s, k: h, n: d)
         record("layer0_feed_forward_out", qkv, s * d)
 

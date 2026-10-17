@@ -167,8 +167,9 @@ chosen cell to the end with the same seed: the image its sketch announced.
   stays as published on disk, never re-quantized (Z-Image: 6.2 GB in 8 bits, about 5 GB in GGUF
   Q4_K_M, instead of 12.3 GB; each step a little slower, the computation stays fp32); below 4 bits,
   the file is refused (`docs/API.md` §3.11).
-- **Statistics and diagnostic.** The statistics palette (⌥⌘I) and « Report My Configuration » (what
-  the chip computes, measured, exported as JSON) are toolbar buttons.
+- **Statistics and diagnostic.** The statistics palette (⌥⌘I) is a toolbar button; « Report My
+  Configuration » (what the chip computes, measured, exported as JSON — and the paths the engine
+  takes on this Mac) opens from « Chain » at the head of the rack, orange until this Mac is measured.
 
 Models live in `~/Library/Application Support/Siliconed` (override with `SILICONED_ROOT`).
 

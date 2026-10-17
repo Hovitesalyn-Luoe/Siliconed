@@ -134,7 +134,8 @@ library (`Model.named(_:in:)` and the like); a hand-composed `Model(card:chain:)
   warning in `EngineSettings.effective.warnings`, and the defaults apply.
 - `try EngineSettings.load(from: library, map: report)` also hands over a **capacity map**: a
   `Diagnostic.Report` the app kept (§3.13). Rules on its measures — never on a chip's name — choose
-  the GPU + AMX co-execution and its split, the flash kernel and the attention's head split; the
+  the GPU + AMX co-execution and its split, the products on the bf16 weights (Metal 4), the flash
+  kernel and the attention's head split; the
   priority is default → map → profile → environment. Pass it only when `report.isCurrent` (same
   hardware, chip, macOS build and app build — its `fingerprint`); otherwise the defaults (a stale
   map is refused with a warning. The settings stay read once, so a map measured in this process
@@ -862,7 +863,8 @@ engine's own code paths, each output checked against an exact result computed in
 - `products`: the fp32 matrix products of the Z-Image and Qwen-Image-2.1 blocks (`[m, d]·[d, ffn]`
   and `[m, ffn]·[ffn, d]`, `m` = 1024 and 4096) on the GPU (`gpu`), on the CPU's matrix unit through
   BNNS (`amx`), and on both at once, the rows cut at the GPU's measured share (`gpuShare`,
-  `coexecution`, `coexecutionGPURows`);
+  `coexecution`, `coexecutionGPURows`), and through Metal 4's tensor operations on the weight kept in
+  bf16, the activations in fp32 (`tensor`, `nil` without Metal 4);
 - `lowPrecision`: fp16 and bf16 products on the GPU (`mpsgraph`, result in the type), on the CPU's
   matrix unit (`bnns`, fp32 result) and through Metal 4's tensor operations (`matmul2d`, fp32 result;
   the GPU's neural accelerators on an M5), each with the `floor` its output type allows and its
@@ -870,14 +872,14 @@ engine's own code paths, each output checked against an exact result computed in
 - `attention`: fp32 attention at S = 1024 and 4096 with each model's heads, through `MPSGraph`
   (`graph`), the in-house flash kernel (`flash`) and the heads split between GPU and CPU (`headSplit`);
 - `widening`: a weight widened to fp32 — bf16, and int8 times a bf16 scale per column — on the CPU
-  and on the GPU (G values/s);
+  and on the GPU, and the bf16 weight copied as it is (`bf16 copy`, CPU) (G values/s);
 - `witness`: the first product timed again at the end, the machine's drift over the run;
 - `machine` (chip, P/E cores, GPU cores and Metal family, memory, macOS, version), `cpuFeatures`
   (the `hw.optional.arm.*` flags: `FEAT_BF16`, `FEAT_I8MM`, `FEAT_SME`…), the `before`/`after`
   conditions (thermal state, Low Power Mode, battery, swap in use), the `settings` that are not the
-  defaults, the `thresholds`. `schema` is 5;
+  defaults, the `thresholds`, the seconds of each stage (`stages`). `schema` is 6;
 - `decisions`: what these measures make this Mac use (`Diagnostic.decide(report)`): per branch
-  (`amx`, `flash`, `headSplit`) `on`, `passed` (every engine it would use computed right), the `gain`
+  (`amx`, `flash`, `headSplit`, `tensor`) `on`, `passed` (every engine it would use computed right), the `gain`
   over the GPU alone or MPSGraph and its `gains` at 1024 and 4096, the `amxFraction` (the GPU's share
   of the rows), and the `margin` a gain must clear (the witness's drift, at least 5 %). A shared report
   thus says what the machine chose.

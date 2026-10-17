@@ -3,7 +3,7 @@ import XCTest
 @testable import Siliconed
 
 /// **The diagnostic without a GPU and without a byte of weights**: the JSON a report becomes (stable,
-/// schema 5, measures as triples, explicit `null`s, read back whole), the issue URL and its length at
+/// schema 6, measures as triples, explicit `null`s, read back whole), the issue URL and its length at
 /// the full size of a report, the shapes it measures, and its CPU references against naive loops.
 final class DiagnosticTests: XCTestCase {
     /// A report of the full size — every product, attention, widening and half-precision item a run
@@ -19,7 +19,8 @@ final class DiagnosticTests: XCTestCase {
         let products = Diagnostic.shapes.enumerated().map { i, s in
             Diagnostic.Product(model: s.model, product: s.product, m: s.m, k: s.k, n: s.n, gpu: measure(3.461, 1.1e-6),
                                amx: i == 7 ? nil : measure(2.223, 8.0e-7), gpuShare: i == 7 ? nil : 0.6091234,
-                               coexecution: i == 7 ? nil : measure(5.497, 1.1e-6), coexecutionGPURows: i == 7 ? nil : 2560)
+                               coexecution: i == 7 ? nil : measure(5.497, 1.1e-6), coexecutionGPURows: i == 7 ? nil : 2560,
+                               tensor: i == 6 ? nil : measure(2.362, 1.1e-6))
         }
         let lowPrecision = ["fp16", "bf16"].flatMap { t in
             [Diagnostic.LowPrecision(engine: "mpsgraph", type: t, output: t, m: 1024, k: 3840, n: 10240,
@@ -37,14 +38,17 @@ final class DiagnosticTests: XCTestCase {
             }
         }
         let widening = [Diagnostic.Widening(kind: "bf16", values: 39_321_600, cpu: measure(21.26, 0), gpu: measure(19.48, 0)),
+                        Diagnostic.Widening(kind: "bf16 copy", values: 39_321_600, cpu: measure(41.37, 0), gpu: nil),
                         Diagnostic.Widening(kind: "int8", values: 39_321_600, cpu: measure(23.07, 0), gpu: nil)]
+        let stages = Dictionary(uniqueKeysWithValues: Diagnostic.Stage.allCases.enumerated().map { ($1.key, 1.234567 * Double($0 + 1)) })
         let conditions = Diagnostic.Conditions(thermal: "nominal", lowPowerMode: false, onBattery: nil, swapUsedBytes: 0)
         var features: [String: Int] = ["sme_max_svl_b": 0]
         for name in Diagnostic.featureNames { features[name] = name.contains("FP16") || name.contains("DotProd") ? 1 : 0 }
         return Diagnostic.Report(date: "2026-10-14T10:00:00Z", seconds: 14.04, machine: machine, cpuFeatures: features,
                                  settings: ["flash": "true (env)"], before: conditions, after: conditions,
                                  products: products, lowPrecision: lowPrecision, attention: attention, widening: widening,
-                                 witness: .init(gpuBefore: 3.461, gpuAfter: 3.4721, amxBefore: 2.223, amxAfter: 2.149))
+                                 witness: .init(gpuBefore: 3.461, gpuAfter: 3.4721, amxBefore: 2.223, amxAfter: 2.149),
+                                 stages: stages)
     }
 
     // ── the JSON ────────────────────────────────────────────────────────────────────────────
@@ -59,19 +63,19 @@ final class DiagnosticTests: XCTestCase {
         // Sorted keys: `attention` before `machine` before `products` before `schema` before `widening`.
         let order = ["\"attention\"", "\"machine\"", "\"products\"", "\"schema\"", "\"widening\""].map { text.range(of: $0)!.lowerBound }
         XCTAssertEqual(order, order.sorted())
-        XCTAssertTrue(text.contains("\"schema\" : 5"))
-        XCTAssertEqual(Diagnostic.schema, 5)
+        XCTAssertTrue(text.contains("\"schema\" : 6"))
+        XCTAssertEqual(Diagnostic.schema, 6)
     }
 
-    /// **Schema 5 is the capacity map**: nothing of the model-rendering diagnostic survives in it.
-    func testSchemaFiveHoldsNoModelRun() throws {
+    /// **Schema 6 is the capacity map**: nothing of the model-rendering diagnostic survives in it.
+    func testSchemaSixHoldsNoModelRun() throws {
         let text = String(decoding: try sample().json(), as: UTF8.self)
         for gone in ["\"models\"", "golden", "deviation", "estimatedRenderSeconds", "peakFootprintBytes", "swapouts",
                      "diskReadBytes", "needBytes", "\"prompt\"", "\"seed\"", "\"resolution\"", "witnessBefore"] {
             XCTAssertFalse(text.contains(gone), gone)
         }
         for key in ["products", "lowPrecision", "attention", "widening", "witness", "thresholds", "cpuFeatures",
-                    "gpuShare", "coexecution", "headSplit", "floor"] {
+                    "gpuShare", "coexecution", "headSplit", "floor", "tensor", "stages", "bf16 copy"] {
             XCTAssertTrue(text.contains("\"\(key)\""), key)
         }
     }
@@ -142,20 +146,27 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertEqual(field("version"), "git 0123456789-dirty")
         XCTAssertEqual(field("labels"), "diagnostic")
         let json = try XCTUnwrap(field("report"))
-        XCTAssertEqual(try JSONDecoder().decode(Diagnostic.Report.self, from: Data(json.utf8)), report)
+        // The measures whole; the decisions left out (the rules give them back from the measures).
+        var measures = report
+        measures.decisions = nil
+        let read = try JSONDecoder().decode(Diagnostic.Report.self, from: Data(json.utf8))
+        XCTAssertEqual(read, measures)
+        XCTAssertEqual(Diagnostic.decide(read), report.decisions)
         // `+` is escaped: GitHub reads a bare one back as a space.
         XCTAssertFalse(url.absoluteString.contains("+"))
         XCTAssertTrue(url.absoluteString.contains("x%2By"))
     }
 
     /// **A whole report fits in a link**, with room for a longer chip name and a few settings: browsers
-    /// and GitHub cut beyond ~8 000 characters (schema 5 written as objects: 9 690; as triples, this one 7 066).
+    /// and GitHub cut beyond ~8 000 characters (schema 5 written as objects: 9 690; as triples, this one 7 066;
+    /// schema 6, its bf16-weight products and stages, the decisions left out: 7 682). At the app's own cut
+    /// (`openIssue`): beyond it, the report goes through the clipboard.
     func testAFullReportFitsInTheIssueLink() throws {
         var report = sample()
         report.machine.chip = "Apple M5 Max"
         report.settings = ["flash": "true (profile)", "amx": "true (profile)", "widen_gpu": "true (env)"]
         let length = try report.issueURL().absoluteString.utf8.count
-        XCTAssertLessThan(length, 7_600, "\(length) bytes")
+        XCTAssertLessThanOrEqual(length, 8_000, "\(length) bytes")
     }
 
     /// Too long for a link: the same form, every field but the report, which the user pastes.

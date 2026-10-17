@@ -447,7 +447,17 @@ package final class Krea2DiT {
     ///   Metal wrappers are memoized by address, at their maximum size.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int, rowsA: Int? = nil, rowsC: Int? = nil) throws {
-        let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
+        // Under `gemm_tensor`, a bf16 weight goes into the reserve as it is and `TensorGEMM` multiplies —
+        // without a LoRA only: under one, that path is not proven against the goldens yet.
+        var staged = false
+        let got: Int
+        if gemm.tensor != nil, lora == nil, let count = try timed("staging", {
+            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
+        }) {
+            (got, staged) = (count, true)
+        } else {
+            got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
+        }
         guard got == k * n else {
             throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
         }
@@ -455,8 +465,9 @@ package final class Krea2DiT {
         let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: config.dim * config.hidden * 4, name: "w")
         let cb = try gemm.wrap(UnsafeMutableRawPointer(c), bytes: (rowsC ?? maxRows) * n * 4, name: "c")
         timed("gemm wall") {
-            timings["gemm GPU", default: 0] += gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n,
-                                                            weightIsTransposed: true)
+            timings["gemm GPU", default: 0] += staged
+                ? gemm.linear(a: ab, bf16: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
+                : gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
         }
         let target = String(name.dropLast(".weight".count))
         if let lora, let cache = cacheLoRA, let mid = loraMid,

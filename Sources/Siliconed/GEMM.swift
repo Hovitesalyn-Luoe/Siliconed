@@ -146,12 +146,20 @@ package final class GEMM {
     /// The conductor of GPU + AMX co-execution, if requested.
     package private(set) var conductor: Conductor?
 
+    /// **The product on bf16 weights** (`gemm_tensor`, `TensorGEMM`), if requested and if this macOS
+    /// compiles it; `nil` otherwise, and every product widens as before. A caller asks
+    /// `Artifact.stage` for the bf16 weight and, given one, calls `linear(a:bf16:…)`.
+    package private(set) var tensor: TensorGEMM?
+
     /// - Parameter freezeCut: the GPU/AMX cut is not servo-controlled. This is the reproducible mode:
     ///   `T` stays the profile's, so `cut` is a pure function and two renders of the same
     ///   seed return the same bits. No effect when co-execution is off.
     /// - Parameter coexecution: the GPU/AMX conductor, `Conductor.enabled` by default. The diagnostic
     ///   asks for both on any chip: the GPU alone and the cut, measured on the same product.
-    package init(freezeCut: Bool = EngineSettings.effective.frozenCut, coexecution: Bool = Conductor.enabled) throws {
+    /// - Parameter tensorWeights: the bf16-weight product (`gemm_tensor`); the diagnostic asks for it on
+    ///   any chip that has it, to measure it.
+    package init(freezeCut: Bool = EngineSettings.effective.frozenCut, coexecution: Bool = Conductor.enabled,
+                 tensorWeights: Bool = EngineSettings.effective.gemmTensor) throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.noDevice
         }
@@ -168,6 +176,9 @@ package final class GEMM {
         }
         if coexecution {
             conductor = Conductor(queue: queue, driven: !freezeCut)
+        }
+        if tensorWeights {
+            tensor = TensorGEMM(device: device, queue: queue)
         }
     }
 
@@ -237,6 +248,18 @@ package final class GEMM {
         }
         return submitRows(a: a, b: b, c: c, m: m, k: k, n: n,
                           weightIsTransposed: weightIsTransposed)
+    }
+
+    /// **`C = A · W` with `W` in bf16** (`tensor`, which the caller checked): `wb` holds the weight as
+    /// `Artifact.stage` copied it, `[k, n]` when `weightIsTransposed`, `[n, k]` otherwise. Whole, any
+    /// `m`: no padding tier, no AMX cut (`TensorGEMM`).
+    package func linear(a: MTLBuffer, bf16 wb: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
+                        weightIsTransposed: Bool = false) -> Double {
+        let elapsed = tensor!.linear(a: a, w: wb, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
+        let key = "\(m)×\(k)×\(n)\(weightIsTransposed ? "ᵀ" : "")⊗"
+        let previous = census[key] ?? (0, 0, Double.infinity)
+        census[key] = (previous.count + 1, previous.seconds + elapsed, min(previous.best, elapsed))
+        return elapsed
     }
 
     /// `m` rows on the GPU at heights MPS computes right (`rowQuantum`): the body as it is, the

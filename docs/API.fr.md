@@ -138,8 +138,8 @@ cache sert aux modèles construits depuis une bibliothèque (`Model.named(_:in:)
   avertissement dans `EngineSettings.effective.warnings`, et les défauts s'appliquent.
 - `try EngineSettings.load(from: library, map: report)` remet en plus une **carte des capacités** :
   un `Diagnostic.Report` que l'app a gardé (§3.13). Des règles sur ses mesures — jamais sur le nom
-  d'une puce — choisissent la co-exécution GPU + AMX et sa part, le noyau flash et la coupe par têtes
-  de l'attention ; la priorité est défaut → carte → profil → environnement. Ne la passer que si
+  d'une puce — choisissent la co-exécution GPU + AMX et sa part, les produits sur les poids bf16
+  (Metal 4), le noyau flash et la coupe par têtes de l'attention ; la priorité est défaut → carte → profil → environnement. Ne la passer que si
   `report.isCurrent` (même matériel, même puce, même build de macOS et de l'app — son
   `fingerprint`) ; sinon, les défauts (une carte périmée est refusée avec un avertissement.
   Les réglages se lisant une seule fois, une carte mesurée dans ce processus s'applique au lancement
@@ -892,7 +892,8 @@ un résultat exact calculé en fp64 sur le CPU.
 - `products` : les produits matriciels fp32 des blocs de Z-Image et de Qwen-Image-2.1 (`[m, d]·[d, ffn]`
   et `[m, ffn]·[ffn, d]`, `m` = 1024 et 4096) sur le GPU (`gpu`), sur l'unité matricielle du CPU par
   BNNS (`amx`), et sur les deux à la fois, les lignes coupées à la part mesurée du GPU (`gpuShare`,
-  `coexecution`, `coexecutionGPURows`) ;
+  `coexecution`, `coexecutionGPURows`), et par les opérations tensorielles de Metal 4 sur le poids
+  gardé en bf16, les activations en fp32 (`tensor`, `nil` sans Metal 4) ;
 - `lowPrecision` : des produits fp16 et bf16 sur le GPU (`mpsgraph`, résultat dans le type), sur l'unité
   matricielle du CPU (`bnns`, résultat fp32) et par les opérations tensorielles de Metal 4 (`matmul2d`,
   résultat fp32 ; les accélérateurs neuronaux du GPU sur un M5), chacun avec le plancher (`floor`) que
@@ -900,14 +901,14 @@ un résultat exact calculé en fp64 sur le CPU.
 - `attention` : l'attention fp32 à S = 1024 et 4096 avec les têtes de chaque modèle, par `MPSGraph`
   (`graph`), le noyau flash maison (`flash`) et les têtes partagées entre GPU et CPU (`headSplit`) ;
 - `widening` : un poids élargi en fp32 — bf16, et int8 fois une échelle bf16 par colonne — sur le CPU
-  et sur le GPU (G valeurs/s) ;
+  et sur le GPU, et le poids bf16 copié tel quel (`bf16 copy`, CPU) (G valeurs/s) ;
 - `witness` : le premier produit rechronométré à la fin, la dérive de la machine pendant la mesure ;
 - `machine` (puce, cœurs P/E, cœurs GPU et famille Metal, mémoire, macOS, version), `cpuFeatures`
   (les drapeaux `hw.optional.arm.*` : `FEAT_BF16`, `FEAT_I8MM`, `FEAT_SME`…), l'état `before`/`after`
   (état thermique, mode économie d'énergie, batterie, swap occupé), les `settings` qui ne sont pas aux
-  défauts, les seuils (`thresholds`). `schema` vaut 5 ;
+  défauts, les seuils (`thresholds`), les secondes de chaque étape (`stages`). `schema` vaut 6 ;
 - `decisions` : ce que ces mesures font utiliser à ce Mac (`Diagnostic.decide(report)`) : par
-  branchement (`amx`, `flash`, `headSplit`) `on`, `passed` (chaque moteur qu'il emploierait a calculé
+  branchement (`amx`, `flash`, `headSplit`, `tensor`) `on`, `passed` (chaque moteur qu'il emploierait a calculé
   juste), le gain (`gain`) sur le GPU seul ou MPSGraph et ses `gains` à 1024 et 4096, la part du GPU
   dans les lignes (`amxFraction`), et la marge qu'un gain doit franchir (`margin` : la dérive du
   témoin, au moins 5 %). Un rapport partagé dit ainsi ce que la machine a choisi.

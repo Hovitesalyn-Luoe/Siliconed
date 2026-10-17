@@ -154,6 +154,7 @@ private struct ReportView: View {
                     row("Matrix products, GPU", products.map(\.gpu), unit: "TFLOP/s")
                     row("Matrix products, CPU matrix unit", products.compactMap(\.amx), unit: "TFLOP/s")
                     row("Matrix products, GPU and CPU together", products.compactMap(\.coexecution), unit: "TFLOP/s")
+                    row("Matrix products, GPU tensor units on the bf16 weights", products.compactMap(\.tensor), unit: "TFLOP/s")
                     Divider().gridCellUnsizedAxes(.horizontal)
                     row("Attention, system kernel", report.attention.compactMap(\.graph), unit: "TFLOP/s")
                     row("Attention, Siliconed kernel", report.attention.compactMap(\.flash), unit: "TFLOP/s")
@@ -214,8 +215,11 @@ private struct ReportView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("What this Mac uses").font(.headline)
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
-                decision("Matrix products, GPU and CPU together", d.amx,
-                         detail: d.amxFraction.map { String(format: " · GPU %.0f %%", $0 * 100) } ?? "")
+                // The bf16 path has no AMX: when it is taken, co-execution is not, whatever it measured.
+                let tensorOn = d.tensor?.on == true
+                decision("Matrix products, GPU and CPU together", d.amx, on: d.amx.on && !tensorOn,
+                         detail: d.amx.on && !tensorOn ? d.amxFraction.map { String(format: " · GPU %.0f %%", $0 * 100) } ?? "" : "")
+                if let tensor = d.tensor { decision("Matrix products, GPU tensor units on the bf16 weights", tensor) }
                 decision("Attention, Siliconed kernel", d.flash)
                 decision("Attention, split between GPU and CPU", d.headSplit)
             }
@@ -229,10 +233,11 @@ private struct ReportView: View {
         }
     }
 
-    @ViewBuilder private func decision(_ label: LocalizedStringKey, _ x: Diagnostic.Decision, detail: String = "") -> some View {
+    @ViewBuilder private func decision(_ label: LocalizedStringKey, _ x: Diagnostic.Decision, on: Bool? = nil,
+                                       detail: String = "") -> some View {
         GridRow {
             Text(label).foregroundStyle(.secondary)
-            Text(x.on ? "Used" : "Not used")
+            Text(on ?? x.on ? "Used" : "Not used")
             if x.passed {
                 Text(verbatim: String(format: "×%.2f", x.gain) + detail).monospacedDigit()
             } else {

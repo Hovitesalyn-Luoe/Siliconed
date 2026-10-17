@@ -513,6 +513,21 @@ package final class Artifact {
         return tensor.count
     }
 
+    /// **A bf16 weight copied as it is** into `destination` (`TensorGEMM`), or `nil` when the tensor is
+    /// not bf16 — an fp32, fp16, 8-bit or packed weight takes `materialize`, the default path.
+    /// `capacity` counts bf16 values: the reserve's fp32 floats × 2.
+    package func stage(_ name: String, into destination: UnsafeMutableRawPointer, capacity: Int) throws -> Int? {
+        guard let tensor = tensors[name], let source = pointer(name) else {
+            throw Failure.badHeader("\(name) missing from the artifact")
+        }
+        guard tensor.dtype == .bfloat16 else { return nil }
+        guard tensor.count <= capacity else {
+            throw Failure.inFile(path, .doesNotFit(name: name, count: tensor.count, capacity: capacity))
+        }
+        Widen.copyBfloat16(source: source, destination: destination, count: tensor.count)
+        return tensor.count
+    }
+
     /// `materialize` into a whole buffer: its count is the capacity.
     @discardableResult
     package func materialize(_ name: String, into buffer: UnsafeMutableBufferPointer<Float>) throws -> Int {

@@ -174,8 +174,9 @@ rend la case choisie jusqu'au bout avec la même graine : l'image que son esqui
   quantifié reste sur le disque tel que publié, jamais requantifié (Z-Image : 6,2 Go en 8 bits, environ
   5 Go en GGUF Q4_K_M, au lieu de 12,3 Go ; chaque pas un peu plus lent, le calcul reste en fp32) ;
   sous 4 bits, le fichier est refusé (`docs/API.fr.md` §3.11).
-- **Statistiques et diagnostic.** La palette des statistiques (⌥⌘I) et « Signaler ma configuration »
-  (ce que calcule la puce, mesuré, exporté en JSON) sont des boutons de la barre d'outils.
+- **Statistiques et diagnostic.** La palette des statistiques (⌥⌘I) est un bouton de la barre d'outils ;
+  « Signaler ma configuration » (ce que calcule la puce, mesuré, exporté en JSON — et les chemins que le
+  moteur prend sur ce Mac) s'ouvre par « Chaîne » en tête du rack, orange tant que ce Mac n'est pas mesuré.
 
 Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable avec `SILICONED_ROOT`).
 

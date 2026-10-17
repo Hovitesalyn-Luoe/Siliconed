@@ -15,6 +15,11 @@ final class CapacityRulesTests: XCTestCase {
         var split: [[Double]]
         var drift = (gpu: 1.0, amx: 1.0)
         var amxError = 8e-7
+        /// `TensorGEMM` on the bf16 weights, [size][product]; `nil`: no Metal 4.
+        var tensor: [[Double]]? = nil
+        var tensorError = 6e-7
+        /// The CPU's bf16 widening and bf16 copy, G values/s (the M1 Pro's: 21.3 and ~40).
+        var widen = 21.3, copy = 40.0
     }
 
     private static let machine = Diagnostic.Machine(chip: "Apple M1 Pro", hardwareModel: "MacBookPro18,3", performanceCores: 6,
@@ -32,7 +37,7 @@ final class CapacityRulesTests: XCTestCase {
                     let (g, a) = (r.gpu[h][i], r.amx[h][i])
                     products.append(.init(model: block.model, product: name, m: m, k: k, n: n, gpu: ok(g),
                                           amx: ok(a, r.amxError), gpuShare: g / (g + a), coexecution: ok(r.both[h][i]),
-                                          coexecutionGPURows: nil))
+                                          coexecutionGPURows: nil, tensor: r.tensor.map { ok($0[h][i], r.tensorError) }))
                 }
             }
         }
@@ -47,7 +52,9 @@ final class CapacityRulesTests: XCTestCase {
         let first = products[0]
         return Diagnostic.Report(date: "2026-10-14T20:11:08Z", seconds: 16.1, machine: machine, cpuFeatures: [:],
                                  before: conditions, after: conditions, products: products, lowPrecision: [],
-                                 attention: attention, widening: [],
+                                 attention: attention,
+                                 widening: [.init(kind: "bf16", values: 39_321_600, cpu: .init(rate: r.widen, error: 0, threshold: 0), gpu: nil),
+                                            .init(kind: "bf16 copy", values: 39_321_600, cpu: .init(rate: r.copy, error: 0, threshold: 0), gpu: nil)],
                                  witness: .init(gpuBefore: first.gpu.rate, gpuAfter: first.gpu.rate * r.drift.gpu,
                                                 amxBefore: first.amx?.rate, amxAfter: first.amx.map { $0.rate * r.drift.amx }))
     }
@@ -79,6 +86,75 @@ final class CapacityRulesTests: XCTestCase {
         XCTAssertEqual(settings["flash"] as? Bool, false)
         XCTAssertEqual(settings["head_split"] as? Bool, true)
         XCTAssertEqual(settings["amx_fraction"] as? Double, d.amxFraction)
+        XCTAssertEqual(settings["gemm_tensor"] as? Bool, false)
+        XCTAssertNotNil(d.tensor)
+        XCTAssertFalse(d.tensor!.passed, "no Metal 4 measure: the bf16 path is not a candidate")
+    }
+
+    /// **The M1 Pro with its `matmul2d`** (2.36 TFLOP/s on the bf16 weights, measured 17/10/2026): slower
+    /// than MPS + AMX even without the widening — the default path stays.
+    func testM1ProKeepsTheWidenedPath() {
+        var r = m1Pro
+        r.tensor = [[2.36, 2.3, 2.36, 2.3], [2.4, 2.35, 2.4, 2.35]]
+        let d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.tensor!.passed)
+        XCTAssertFalse(d.tensor!.on)
+        XCTAssertLessThan(d.tensor!.gain, 1)
+        XCTAssertEqual(d.settings["amx"] as? Bool, true)
+        XCTAssertEqual(d.settings["gemm_tensor"] as? Bool, false)
+    }
+
+    /// **The M5's map of 17/10/2026** (M225), its `matmul2d` at the bf16 × bf16 rate it measured (6.0):
+    /// the bf16 path beats MPS + AMX, takes the products, and turns the AMX off in the settings.
+    func testM5TakesTheBf16Path() {
+        var r = m1Pro
+        r.gpu = [[2.919, 2.831, 2.881, 2.847], [2.951, 2.872, 2.949, 2.835]]
+        r.amx = [[1.805, 1.75, 1.812, 1.768], [1.838, 1.829, 1.828, 1.842]]
+        r.both = [[3.35, 3.071, 3.353, 3.16], [4.569, 4.259, 4.579, 4.313]]
+        r.drift = (2.924 / 2.919, 1.814 / 1.805)
+        r.tensor = [[6.0, 5.9, 6.0, 5.9], [6.0, 5.9, 6.0, 5.9]]
+        r.widen = 20.07
+        r.copy = 35
+        let d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.amx.on, "co-execution still measured a gain")
+        XCTAssertTrue(d.tensor!.on)
+        XCTAssertGreaterThan(d.tensor!.gains.min()!, 1.3)
+        let settings = d.settings
+        XCTAssertEqual(settings["gemm_tensor"] as? Bool, true)
+        XCTAssertEqual(settings["amx"] as? Bool, false, "the bf16 path has no AMX")
+        XCTAssertNil(settings["amx_fraction"])
+    }
+
+    /// **The preparation counts**: at the GPU's own rate, the bf16 path wins by the widening it skips —
+    /// and loses it again when the copy is no faster than the widening.
+    func testThePreparationIsInTheComparison() {
+        var r = m1Pro
+        r.drift = (1.0, 1.0)
+        r.amx = r.gpu.map { $0.map { $0 * 0.1 } }              // an AMX that does not pay: `amx` off
+        r.both = r.gpu
+        r.tensor = r.gpu
+        r.widen = 2; r.copy = 20                               // a slow widening: ×1.1–1.4 on the preparations alone
+        var d = Diagnostic.decide(report(r))
+        XCTAssertFalse(d.amx.on)
+        XCTAssertTrue(d.tensor!.on)
+        r.copy = r.widen
+        d = Diagnostic.decide(report(r))
+        XCTAssertEqual(d.tensor!.gain, 1, accuracy: 1e-9)
+        XCTAssertFalse(d.tensor!.on)
+    }
+
+    /// A bf16 path that computed wrong, or a map without the copy's rate, is never taken.
+    func testAWrongOrUnmeasuredBf16PathStaysOff() {
+        var r = m1Pro
+        r.tensor = r.gpu.map { $0.map { $0 * 3 } }
+        XCTAssertTrue(Diagnostic.decide(report(r)).tensor!.on)
+        r.tensorError = 2e-3
+        XCTAssertFalse(Diagnostic.decide(report(r)).tensor!.on)
+        r.tensorError = 6e-7
+        var noCopy = report(r)
+        noCopy.widening.removeAll { $0.kind == "bf16 copy" }
+        XCTAssertFalse(Diagnostic.decide(noCopy).tensor!.passed)
+        XCTAssertEqual(Diagnostic.decide(noCopy).settings["gemm_tensor"] as? Bool, false)
     }
 
     /// **An M5-like chip**: the AMX nearly as fast as the GPU (an M5, an M4). The co-execution

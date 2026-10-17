@@ -44,6 +44,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         // Incognito: no frame kept, nothing restored.
         w.isRestorable = false
         w.delegate = self
+        // The hosting controller sizes the window at its first layout: centered before, it would
+        // grow from the left edge and run off to the right.
+        host.view.layoutSubtreeIfNeeded()
+        w.setContentSize(host.view.fittingSize)
         w.center()
         window = w
         NSApp.activate()

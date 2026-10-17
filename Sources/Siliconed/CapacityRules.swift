@@ -10,6 +10,8 @@ import Foundation
 ///        │
 ///        ├─ products, m = 1024 and 4096        g_m = Σ t(GPU alone) / Σ t(GPU + AMX)   ─▶ amx
 ///        │                                     share = R_gpu / (R_gpu + R_amx)          ─▶ amx_fraction
+///        │                                     g_m = Σ [t(fp32 path) + t(widen k·n)]
+///        │                                         / Σ [t(bf16 weight) + t(copy k·n)]    ─▶ gemm_tensor
 ///        ├─ attention, S = 1024 and 4096       g_S = Σ t(MPSGraph) / Σ t(flash)          ─▶ flash
 ///        │                                     g_S = Σ t(MPSGraph) / Σ t(head split)     ─▶ head_split
 ///        └─ a branch is on iff   every engine it would use passed its check (none missing)
@@ -32,6 +34,11 @@ import Foundation
 ///     total work over its total time (all eight items, each weighted by its flops), the GPU taking
 ///     `R_gpu / (R_gpu + R_amx)` of the rows. It moves the frozen cut (quantum 256), hence the last
 ///     bits of a render — like `amx` itself; it never re-associates a sum (one engine per output row);
+///   - **`gemm_tensor` is judged against the path it replaces, preparation included**: the fp32 path
+///     is the GPU alone, or GPU + AMX when `amx` went on, each weight widened first; the bf16 path
+///     copies the weight instead (`Artifact.stage`) — both at the map's own CPU rates (`widening`
+///     "bf16" and "bf16 copy"). It has no AMX: when it goes on, `amx` goes off in the settings (the
+///     decision still says what co-execution measured);
 ///   - **flash and the head split are not exclusive**: Z-Image's blocks take flash before the split
 ///     (`Block`), Qwen-Image-2.1's target only has the split. So flash goes on only if it also beats the
 ///     split where the split goes on — otherwise Z-Image would trade a faster path for a slower one;
@@ -40,8 +47,9 @@ import Foundation
 ///         behind the GEMM, which is the bottleneck, and the isolated measure flips between two
 ///         runs of the same machine;
 ///       · the head split's `cpuFraction` (0.4): the map measures the split only at 0.4;
-///       · fp16 / bf16: P20 (never under the published weights nor under bf16) and the `sdpa_fp16`
-///         decision stand — the half-precision figures answer a fleet question, they choose nothing;
+///       · fp16 / bf16 *activations*: P20 (never under the published weights nor under bf16) and the
+///         `sdpa_fp16` decision stand — the half-precision figures answer a fleet question, they choose
+///         nothing (`gemm_tensor` rounds nothing: its activations stay fp32);
 ///       · `amx_quantum`, `amx_min`, `parallel`: never swept, nothing in the map measures them.
 extension Diagnostic {
     /// **One branch, decided**: on or off, and the figures behind it.
@@ -73,25 +81,32 @@ extension Diagnostic {
         public var flash: Decision
         /// The SDPA's heads cut between the GPU and the CPU from S = 1024 on (`head_split`).
         public var headSplit: Decision
+        /// The DiT's products on the bf16 weights (`gemm_tensor`, `TensorGEMM`); `nil` in a decision
+        /// stored by a report of schema 5.
+        public var tensor: Decision?
 
-        public init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision) {
+        public init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
+                    tensor: Decision? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
-            self.flash = flash; self.headSplit = headSplit
+            self.flash = flash; self.headSplit = headSplit; self.tensor = tensor
         }
 
-        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, flash, headSplit }
+        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, flash, headSplit, tensor }
         public func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
             try c.encode(amxFraction, forKey: .amxFraction)
             try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
+            try c.encode(tensor, forKey: .tensor)
         }
 
         /// The settings they write, under `EngineSettings`' keys (those of `store/profil.json`).
         package var settings: [String: Any] {
-            var values: [String: Any] = ["amx": amx.on, "flash": flash.on, "head_split": headSplit.on]
-            if amx.on, let amxFraction { values["amx_fraction"] = amxFraction }
+            let tensorOn = tensor?.on == true
+            var values: [String: Any] = ["amx": amx.on && !tensorOn, "flash": flash.on, "head_split": headSplit.on,
+                                         "gemm_tensor": tensorOn]
+            if amx.on, !tensorOn, let amxFraction { values["amx_fraction"] = amxFraction }
             return values
         }
     }
@@ -101,7 +116,8 @@ extension Diagnostic {
     public static let minimumMargin = 0.05
 
     /// **The rules.** Pure: the same report always gives the same decisions.
-    public static func decide(products: [Product], attention: [AttentionCapacity], witness: Witness) -> Decisions {
+    public static func decide(products: [Product], attention: [AttentionCapacity], widening: [Widening],
+                              witness: Witness) -> Decisions {
         var drift = abs(1 - witness.gpuAfter / witness.gpuBefore)
         if let before = witness.amxBefore, let after = witness.amxAfter, before > 0 { drift = max(drift, abs(1 - after / before)) }
         let margin = max(minimumMargin, drift.isFinite ? drift : 1)
@@ -147,6 +163,28 @@ extension Diagnostic {
             fraction = min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, gpu / (gpu + cpu)))
         }
 
+        // ── gemm_tensor: the bf16-weight product against the fp32 path it replaces, preparations included ──
+        // Seconds, not ratios of rates: a product's flops at TFLOP/s and a weight's values at G values/s
+        // add up in one sum. The fp32 path is the one `amx` chose.
+        let widen = widening.first { $0.kind == "bf16" }?.cpu, copy = widening.first { $0.kind == "bf16 copy" }?.cpu
+        let tensorPassed = !products.isEmpty && widen?.pass == true && copy?.pass == true
+            && products.allSatisfy { $0.tensor?.pass == true && (!amx.on || $0.coexecution?.pass == true) }
+        let tensorGains: [Double] = heights.compactMap { h in
+            let these = products.filter { $0.m == h }
+            guard !these.isEmpty else { return nil }
+            var (tReference, tCandidate) = (0.0, 0.0)
+            for p in these {
+                let reference = amx.on ? p.coexecution : p.gpu
+                guard let r = reference?.rate, let t = p.tensor?.rate, let w = widen?.rate, let c = copy?.rate,
+                      r > 0, t > 0, w > 0, c > 0 else { return .nan }
+                let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
+                tReference += flops / r + values / w
+                tCandidate += flops / t + values / c
+            }
+            return tReference / tCandidate
+        }
+        let tensor = decision(passed: tensorPassed, gains: tensorGains)
+
         // ── the attention: flash and the head split against MPSGraph ──
         let attentionFlops = { (a: AttentionCapacity) in
             4.0 * Double(a.sequence) * Double(a.sequence) * Double(a.heads) * Double(a.headDim)
@@ -161,11 +199,11 @@ extension Diagnostic {
         // Z-Image takes flash before the split: flash only where it is also the faster of the two.
         if flash.on && split.on && flash.gain <= split.gain { flash.on = false }
 
-        return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split)
+        return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor)
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).
     public static func decide(_ report: Report) -> Decisions {
-        decide(products: report.products, attention: report.attention, witness: report.witness)
+        decide(products: report.products, attention: report.attention, widening: report.widening, witness: report.witness)
     }
 }

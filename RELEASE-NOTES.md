@@ -43,6 +43,18 @@ English · [Français](RELEASE-NOTES.fr.md)
   written in its metadata (« my first lora v1 copy copy » becomes « OiledSkinKrea V1 »). That name, and
   the trigger words when the file states them beyond doubt, show in a tooltip on the LoRA, in the
   rack and in the Models window. LoRAs imported before keep their name.
+- **The measure of this Mac chooses one more path**: where the GPU's tensor units multiply faster
+  (macOS 26, Metal 4 — the neural accelerators of an M5's GPU), the DiT's matrix products read the
+  published bf16 weights as they are, instead of widening them to fp32 first; the activations and
+  the sums stay fp32. Off unless the measure finds it faster, preparation of the weights included;
+  on an M1 Pro, slower, it stays off. Z-Image, Qwen-Image-2.1, Anima and Krea 2 (Krea 2 without a
+  LoRA) are each checked against the reference on that path. The measure records the time of each of
+  its stages, and stays under a minute.
+- **« Chain », at the head of the rack, opens the measure**: orange, with its chip, until this Mac is
+  measured — the renders run on the defaults until then —, a green chip after. A measure taken by an
+  earlier version no longer applies: measure once again.
+- The Settings window opens centered; the import dialog's sentence is shorter, so the Finder's
+  sidebar keeps its width.
 
 ## 0.11
 

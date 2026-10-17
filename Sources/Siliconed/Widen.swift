@@ -48,6 +48,17 @@ package enum Widen {
         }
     }
 
+    /// **bf16 → bf16, a copy over the cores** — what `gemm_tensor` puts in the reserve instead of the
+    /// widening (`TensorGEMM`): the same reads, half the writes. Split like the widening, so the two
+    /// rates the capacity map compares differ by their work only.
+    package static func copyBfloat16(source: UnsafeRawPointer, destination: UnsafeMutableRawPointer, count: Int) {
+        guard count >= 2 * valuesPerJob else { return destination.copyMemory(from: source, byteCount: 2 * count) }
+        nonisolated(unsafe) let (src, dst) = (source, destination)
+        spread(rows: count, width: 1, unit: 16) { _, first, n in
+            (dst + 2 * first).copyMemory(from: src + 2 * first, byteCount: 2 * n)
+        }
+    }
+
     /// The reciprocal, for the checks and the diagnostic's bf16 operands; the engine never narrows.
     /// Round to nearest even,
     /// like `torch.Tensor.to(torch.bfloat16)`.

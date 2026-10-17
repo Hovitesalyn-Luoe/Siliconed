@@ -141,29 +141,35 @@ extension Diagnostic {
     }
 
     /// The fp32 operands of every product: `A` and `B` at the largest of the shapes, `C` likewise.
+    /// **`B` holds bf16 values**, as a published weight does (P19): `bf16` is the same weight as the map
+    /// stores it, for `TensorGEMM` — and its widening is `b` exactly, so every engine multiplies the
+    /// same numbers.
     final class Operands {
-        let a, b, c: Pages
+        let a, b, c, bf16: Pages
         init() {
             let shapes = Diagnostic.shapes
             let (aFloats, bFloats) = (shapes.map { $0.m * $0.k }.max()!, shapes.map { $0.k * $0.n }.max()!)
-            a = Pages(bytes: aFloats * 4); b = Pages(bytes: bFloats * 4)
+            a = Pages(bytes: aFloats * 4); b = Pages(bytes: bFloats * 4); bf16 = Pages(bytes: bFloats * 2)
             c = Pages(bytes: shapes.map { $0.m * $0.n }.max()! * 4)
             Diagnostic.fill(a.floats(), count: aFloats, scale: 1, seed: 1)
             Diagnostic.fill(b.floats(), count: bFloats, scale: 1, seed: 2)
+            Widen.float32ToBfloat16(source: b.base, destination: bf16.base, count: bFloats)
+            Widen.bfloat16ToFloat32(source: bf16.base, destination: b.base, count: bFloats)
         }
     }
 
     // ── the fp32 products ───────────────────────────────────────────────────────────────────
 
     static func measureProducts(_ o: Operands, _ bench: Bench) throws -> [Product] {
-        let alone = try GEMM(freezeCut: true, coexecution: false)
-        let both = try GEMM(freezeCut: true, coexecution: true)
+        let alone = try GEMM(freezeCut: true, coexecution: false, tensorWeights: true)
+        let both = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false)
         func wrap(_ g: GEMM) throws -> (MTLBuffer, MTLBuffer, MTLBuffer) {
             (try g.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a"),
              try g.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b"),
              try g.wrap(o.c.base, bytes: o.c.capacity, name: "diagnostic.c"))
         }
         let (aloneBuffers, bothBuffers) = (try wrap(alone), try wrap(both))
+        let bf16 = try alone.wrap(o.bf16.base, bytes: o.bf16.capacity, name: "diagnostic.bf16")
         var workspace: Pages?
         var products: [Product] = []
         for s in shapes {
@@ -201,8 +207,16 @@ extension Diagnostic {
                 }.0
                 gpuRows = s.m >= Conductor.minimumRows ? Conductor.cut(s.m, share) : s.m
             }
+            var tensor: Measure?
+            if alone.tensor != nil {
+                try bench.check()
+                tensor = measure {
+                    _ = alone.linear(a: aloneBuffers.0, bf16: bf16, c: aloneBuffers.2, m: s.m, k: s.k, n: s.n,
+                                     weightIsTransposed: true)
+                }.0
+            }
             products.append(Product(model: s.model, product: s.product, m: s.m, k: s.k, n: s.n, gpu: gpu, amx: amx,
-                                    gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows))
+                                    gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows, tensor: tensor))
         }
         return products
     }
@@ -533,6 +547,17 @@ extension Diagnostic {
             gpu: widener.map { w in
                 measure(bf16Exact) { _ = try w.run(source: .init(buffer: bf16Buffer, dequantization: nil), destination: out, count: count) }
             }))
+
+        // bf16 → bf16, the copy `gemm_tensor` makes instead: the same reads, half the writes.
+        try bench.check()
+        let copy = Pages(bytes: count * 2)
+        memset(copy.base, 0xFF, count * 2)
+        let tCopy = seconds { Widen.copyBfloat16(source: bf16.base, destination: copy.base, count: count) }
+        results.append(Widening(kind: "bf16 copy", values: count,
+                                cpu: Measure(rate: Double(count) / tCopy / 1e9,
+                                             error: memcmp(copy.base, bf16.base, count * 2) == 0 ? 0 : .infinity,
+                                             threshold: 0),
+                                gpu: nil))
 
         // int8 × bf16 scale per column, the layout of an 8-bit map's `[K, N]` weight.
         try bench.check()

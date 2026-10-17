@@ -842,9 +842,20 @@ package final class QwenImage21DiT {
     /// rows (`LoRA.merges`). `reserve` is widened afresh at every call, so a merge never outlives its
     /// GEMM: the next call, at other rows, decides again (the prefill's text rows stay applied). Measured:
     /// at 1024² a rank-256 stack applied after the GEMM cost 2.0 s per evaluation, ∝ rows; the merge, a constant.
+    ///
+    /// Under `gemm_tensor` a bf16 weight goes into the reserve as it is (`Artifact.stage`) and the product
+    /// is `TensorGEMM`'s: the stack is then always added after it — merging would widen the weight again.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int) throws {
-        let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
+        var staged = false
+        let got: Int
+        if gemm.tensor != nil, let count = try timed("staging", {
+            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
+        }) {
+            (got, staged) = (count, true)
+        } else {
+            got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
+        }
         guard got == k * n else {
             throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
         }
@@ -855,14 +866,16 @@ package final class QwenImage21DiT {
             lora = (try gemm.wrap(UnsafeMutableRawPointer(stack.down), bytes: k * stack.rank * 4, name: "loraDown"),
                     try gemm.wrap(UnsafeMutableRawPointer(stack.up), bytes: stack.rank * n * 4, name: "loraUp"), stack.rank)
         }
-        let merged = lora != nil && LoRA.merges(rows: m, k: k, n: n)
+        let merged = lora != nil && !staged && LoRA.merges(rows: m, k: k, n: n)
         if merged, let lora {
             timed("lora wall") {
                 timings["lora GPU", default: 0] += gemm.accumulatedLinear(a: lora.down, b: lora.up, c: wb, m: k, k: lora.rank, n: n)
             }
         }
         timed("gemm wall") {
-            timings["gemm GPU", default: 0] += gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
+            timings["gemm GPU", default: 0] += staged
+                ? gemm.linear(a: ab, bf16: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
+                : gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
         }
         if !merged, let lora, let mid = loraMid {
             let mb = try slice(mid)

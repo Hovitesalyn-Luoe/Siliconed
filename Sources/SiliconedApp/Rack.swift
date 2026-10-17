@@ -234,7 +234,20 @@ struct RackView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("Chain").font(.headline)
+            // The engine's settings come from this Mac's measure (`CapacityRules`): the title and its
+            // chip open it, orange until it is taken — the renders run on the defaults —, a green chip
+            // once a current one is kept.
+            let measured = app.storedMap?.isCurrent == true
+            Button { app.openDiagnostic() } label: {
+                HStack(spacing: 6) {
+                    Text("Chain").font(.headline)
+                    Image(systemName: "cpu").font(.body).foregroundStyle(measured ? .green : .orange)
+                }
+                .foregroundStyle(measured ? .primary : Color.orange)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(DiagnosticSheet.mapStatus(app))
             Spacer()
             // « Explore » is beside « Generate » (`Sidebar`): a gesture that makes images, not a setting.
             Button("Models…") { app.managementOpen = true }

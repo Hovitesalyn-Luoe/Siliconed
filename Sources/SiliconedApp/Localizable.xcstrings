@@ -3221,30 +3221,30 @@
         }
       }
     },
-    "A model or a LoRA of a known family, as published (Civitai, Hugging Face). The encoder and VAE come with the family: there is nothing else to provide." : {
+    "A model or a LoRA, as published." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ein Modell oder eine LoRA einer bekannten Familie, wie veröffentlicht (Civitai, Hugging Face). Encoder und VAE kommen von der Familie: Sonst ist nichts bereitzustellen."
+            "value" : "Ein Modell oder eine LoRA, wie veröffentlicht."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un modelo o un LoRA de una familia conocida, tal como se publica (Civitai, Hugging Face). El codificador y el VAE vienen con la familia: no hay que aportar nada más."
+            "value" : "Un modelo o un LoRA, tal como se publica."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un modèle ou une LoRA d’une famille connue, tel que publié (Civitai, Hugging Face). L’encodeur et le VAE viennent de la famille : il n’y a rien d’autre à fournir."
+            "value" : "Un modèle ou une LoRA, tel que publié."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un modello o una LoRA di una famiglia nota, così come pubblicati (Civitai, Hugging Face). L’encoder e il VAE vengono dalla famiglia: non serve fornire altro."
+            "value" : "Un modello o una LoRA, così come pubblicati."
           }
         }
       }
@@ -10740,6 +10740,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prodotti matriciali, GPU e CPU insieme"
+          }
+        }
+      }
+    },
+    "Matrix products, GPU tensor units on the bf16 weights" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte, Tensor-Einheiten der GPU auf den bf16-Gewichten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales, unidades tensoriales de la GPU sobre los pesos bf16"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels, unités tensorielles du GPU sur les poids bf16"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali, unità tensoriali della GPU sui pesi bf16"
           }
         }
       }

@@ -47,7 +47,7 @@ extension AppState {
         panel.allowedContentTypes = Self.importExtensions.sorted().map { UTType(filenameExtension: $0) ?? .data }
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Import")
-        panel.message = String(localized: "A model or a LoRA of a known family, as published (Civitai, Hugging Face). The encoder and VAE come with the family: there is nothing else to provide.")
+        panel.message = String(localized: "A model or a LoRA, as published.")
         guard panel.runModal() == .OK else { return }
         perform(panel.urls)
     }

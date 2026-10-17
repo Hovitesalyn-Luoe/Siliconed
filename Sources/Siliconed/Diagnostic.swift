@@ -4,10 +4,10 @@ import IOKit
 import IOKit.ps
 import Metal
 
-/// **The diagnostic — a capacity map of the machine**: 14 s on the M1 Pro (a chip with half its GPU
-/// should stay under 30), voluntary, not one byte of weights, a JSON a user can share. It answers
-/// two things: what the fleet has (one report per user; `tools/aggregate_diagnostics.py` makes the
-/// table by chip), and, per machine, the figures
+/// **The diagnostic — a capacity map of the machine**: ~15 s on the M1 Pro, **a minute at most** on
+/// the slowest Mac it aims at (each stage's seconds are in the report, `stages`), voluntary, not one
+/// byte of weights, a JSON a user can share. It answers two things: what the fleet has (one report
+/// per user; `tools/aggregate_diagnostics.py` makes the table by chip), and, per machine, the figures
 /// that decide the engine's compute branches. **A figure is in it only if it decides a branch of the
 /// engine or answers a fleet question.**
 ///
@@ -19,12 +19,15 @@ import Metal
 ///        │     GPU alone   GEMM.linear (MPS)                          ─┐
 ///        │     AMX alone   Conductor.multiply (BNNSMatMul)              ├─ share = gpu / (gpu + amx)  ─▶ amx, amxFraction
 ///        │     both        GEMM.linear through Conductor at that share ─┘  does the cut pay here?
+///        │     bf16 weight GEMM.linear(bf16:) (TensorGEMM, matmul2d)  + the copy's time, against the
+///        │                 better of the two above + the widening's time ─────────────────────────▶ gemm_tensor
 ///        ├─ fp16 and bf16 products, Z-Image's [1024, 3840]·[3840, 10240]                       ─▶ fleet
 ///        │     GPU MPSGraph (out fp16 / bf16) · BNNS (out fp32) · Metal 4 matmul2d (out fp32)
 ///        ├─ fp32 attention, S = 1024 and 4096, the models' heads × 128
 ///        │     MPSGraph (Attention) · FlashMatrix · HeadSplitAttention (cpuFraction)           ─▶ flash, the head split
 ///        ├─ widening of a Z-Image w1, 39.3 M values: bf16 → fp32, int8 × bf16 scale per column
 ///        │     CPU (Widen) · GPU (WidenGPU)                                                   ─▶ widenGPU
+///        │     and its bf16 copy, CPU (Widen.copyBfloat16)                                    ─▶ gemm_tensor
 ///        └─ the first product again, GPU and AMX: the drift witness (invariant 6)
 ///     read, not measured: the machine, the CPU's FEAT_* flags, thermal / power / swap before and after
 ///
@@ -73,7 +76,7 @@ public enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
     /// day, optional: a report without it is the same measures.
-    public static let schema = 5
+    public static let schema = 6
     public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
@@ -208,21 +211,25 @@ public enum Diagnostic {
         /// The rows the cut gave the GPU (`Conductor.cut`, a multiple of `amx_quantum`); `m` when the
         /// cut does not apply (`m < amx_min`).
         public var coexecutionGPURows: Int?
+        /// `TensorGEMM` (`gemm_tensor`): the same product on the weight in bf16, the activations fp32;
+        /// `nil` without Metal 4, or in a report of schema 5.
+        public var tensor: Measure?
 
         public init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
-                    gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?) {
+                    gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?, tensor: Measure? = nil) {
             self.model = model; self.product = product; self.m = m; self.k = k; self.n = n; self.gpu = gpu
             self.amx = amx; self.gpuShare = gpuShare.map { Diagnostic.significant($0, 3) }
-            self.coexecution = coexecution; self.coexecutionGPURows = coexecutionGPURows
+            self.coexecution = coexecution; self.coexecutionGPURows = coexecutionGPURows; self.tensor = tensor
         }
 
-        private enum CodingKeys: String, CodingKey { case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows }
+        private enum CodingKeys: String, CodingKey { case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor }
         public func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(model, forKey: .model); try c.encode(product, forKey: .product)
             try c.encode(m, forKey: .m); try c.encode(k, forKey: .k); try c.encode(n, forKey: .n)
             try c.encode(gpu, forKey: .gpu); try c.encode(amx, forKey: .amx); try c.encode(gpuShare, forKey: .gpuShare)
             try c.encode(coexecution, forKey: .coexecution); try c.encode(coexecutionGPURows, forKey: .coexecutionGPURows)
+            try c.encode(tensor, forKey: .tensor)
         }
     }
 
@@ -254,7 +261,8 @@ public enum Diagnostic {
 
     /// **A weight widened to fp32**, CPU against GPU — what `widen_gpu` chooses between.
     public struct Widening: Codable, Sendable, Equatable {
-        /// "bf16" (a shift), "int8" (`Float(q) · s`, one bf16 scale per column).
+        /// "bf16" (a shift), "int8" (`Float(q) · s`, one bf16 scale per column), "bf16 copy" (what
+        /// `gemm_tensor` does instead of the widening: `Widen.copyBfloat16`, CPU only).
         public var kind: String
         public var values: Int
         public var cpu: Measure
@@ -348,6 +356,9 @@ public enum Diagnostic {
         public var attention: [AttentionCapacity]
         public var widening: [Widening]
         public var witness: Witness
+        /// **The seconds of each stage** (`Stage.key`), so the map's budget is read, not guessed;
+        /// `nil` in a report of schema 5.
+        public var stages: [String: Double]?
         public var thresholds: Thresholds
         /// **What these measures make this Mac use** (`Diagnostic.decide`), written so a shared report says
         /// it; `nil` in a report that predates it. The engine never reads this field: it applies the
@@ -357,13 +368,15 @@ public enum Diagnostic {
         public init(schema: Int = Diagnostic.schema, date: String, seconds: Double, machine: Machine,
                     cpuFeatures: [String: Int], settings: [String: String] = [:], before: Conditions, after: Conditions,
                     products: [Product], lowPrecision: [LowPrecision], attention: [AttentionCapacity],
-                    widening: [Widening], witness: Witness, thresholds: Thresholds = Thresholds()) {
+                    widening: [Widening], witness: Witness, thresholds: Thresholds = Thresholds(),
+                    stages: [String: Double]? = nil) {
             self.schema = schema; self.date = date; self.seconds = Diagnostic.significant(seconds, 3)
             self.thresholds = thresholds
             self.machine = machine; self.cpuFeatures = cpuFeatures; self.settings = settings
             self.before = before; self.after = after; self.products = products; self.lowPrecision = lowPrecision
             self.attention = attention; self.widening = widening; self.witness = witness
-            self.decisions = Diagnostic.decide(products: products, attention: attention, witness: witness)
+            self.stages = stages?.mapValues { Diagnostic.significant($0, 3) }
+            self.decisions = Diagnostic.decide(products: products, attention: attention, widening: widening, witness: witness)
         }
 
         /// What the report is valid for: the machine and the binary that measured it.
@@ -374,7 +387,7 @@ public enum Diagnostic {
 
         /// Every measure of the report, in its order.
         public var measures: [Measure] {
-            products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution].compactMap { $0 } }
+            products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution, $0.tensor].compactMap { $0 } }
                 + lowPrecision.compactMap(\.measure)
                 + attention.flatMap { [$0.graph, $0.flash, $0.headSplit].compactMap { $0 } }
                 + widening.flatMap { [$0.cpu] + [$0.gpu].compactMap { $0 } }
@@ -406,7 +419,11 @@ public enum Diagnostic {
                 ("macos", machine.macOS),
                 ("version", machine.version),
             ]
-            if includingReport { fields.append(("report", String(decoding: try json(pretty: false), as: UTF8.self))) }
+            // Without `decisions`: the rules give them back from the measures (`diagnose --decide`), and
+            // the link's bytes are counted.
+            var measures = self
+            measures.decisions = nil
+            if includingReport { fields.append(("report", String(decoding: try measures.json(pretty: false), as: UTF8.self))) }
             return Diagnostic.issueURL(fields: fields)
         }
     }
@@ -441,6 +458,16 @@ public enum Diagnostic {
         case widening = "weight widening"
         case witness = "drift witness"
         public var description: String { rawValue }
+        /// Its key in the report's `stages`: short, the issue link's bytes are counted.
+        public var key: String {
+            switch self {
+            case .products: return "products"
+            case .lowPrecision: return "lowPrecision"
+            case .attention: return "attention"
+            case .widening: return "widening"
+            case .witness: return "witness"
+            }
+        }
     }
 
     /// **Runs the diagnostic**: 14 s and 0.9 GB at the peak on the M1 Pro, no weights. Synchronous and
@@ -469,27 +496,29 @@ public enum Diagnostic {
         }
         let bench = Bench(device: device, queue: queue, cancellation: cancellation)
         let before = conditions()
+        var stages: [String: Double] = [:]
+        func stage<T>(_ s: Stage, _ body: () throws -> T) rethrows -> T {
+            onProgress?(s)
+            let begin = Date()
+            defer { stages[s.key] = Date().timeIntervalSince(begin) }
+            return try body()
+        }
         do {
-            onProgress?(.products)
-            // The products' operands (~600 MB) are released before the attention's peak.
+            // The products' operands (~700 MB) are released before the attention's peak.
             var operands: Operands? = Operands()
-            let products = try measureProducts(operands!, bench)
-            onProgress?(.lowPrecision)
-            let lowPrecision = try measureLowPrecision(operands!, bench)
+            let products = try stage(.products) { try measureProducts(operands!, bench) }
+            let lowPrecision = try stage(.lowPrecision) { try measureLowPrecision(operands!, bench) }
             operands = nil
-            onProgress?(.attention)
-            let attention = try measureAttention(bench)
-            onProgress?(.widening)
-            let widening = try measureWidening(bench)
-            onProgress?(.witness)
-            let witness = try measureWitness(first: products[0], bench)
+            let attention = try stage(.attention) { try measureAttention(bench) }
+            let widening = try stage(.widening) { try measureWidening(bench) }
+            let witness = try stage(.witness) { try measureWitness(first: products[0], bench) }
             let settings = EngineSettings.effective
             var forced: [String: String] = [:]
             for row in settings.rows where row.source != .byDefault { forced[row.key] = "\(row.value) (\(row.source.rawValue))" }
             return Report(date: ISO8601DateFormatter().string(from: started), seconds: Date().timeIntervalSince(started),
                           machine: machine(), cpuFeatures: cpuFeatures(), settings: forced, before: before,
                           after: conditions(), products: products, lowPrecision: lowPrecision, attention: attention,
-                          widening: widening, witness: witness)
+                          widening: widening, witness: witness, stages: stages)
         } catch {
             throw EngineError(error)
         }

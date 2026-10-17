@@ -592,7 +592,16 @@ package final class AnimaDiT {
     ///   never the part a call uses.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int, rowsA: Int? = nil, rowsC: Int? = nil) throws {
-        let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
+        // Under `gemm_tensor`, a bf16 weight goes into the reserve as it is and `TensorGEMM` multiplies.
+        var staged = false
+        let got: Int
+        if gemm.tensor != nil, let count = try timed("staging", {
+            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
+        }) {
+            (got, staged) = (count, true)
+        } else {
+            got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
+        }
         guard got == k * n else {
             throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
         }
@@ -600,8 +609,9 @@ package final class AnimaDiT {
         let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: config.dim * config.hidden * 4, name: "w")
         let cb = try gemm.wrap(UnsafeMutableRawPointer(c), bytes: (rowsC ?? imageTokens) * n * 4, name: "c")
         timed("gemm wall") {
-            timings["gemm GPU", default: 0] += gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n,
-                                                            weightIsTransposed: transposed)
+            timings["gemm GPU", default: 0] += staged
+                ? gemm.linear(a: ab, bf16: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: transposed)
+                : gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: transposed)
         }
         let target = String(name.dropLast(".weight".count))
         if let lora, let down = loraDown, let up = loraUp, let mid = loraMid, lora.rank(target) > 0 {
