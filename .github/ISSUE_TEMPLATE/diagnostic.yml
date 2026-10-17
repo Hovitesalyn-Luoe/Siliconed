@@ -36,7 +36,7 @@ body:
         Thank you. These reports fill the per-chip table in the README: one machine is not a benchmark.
         The report is a map of what this Mac's GPU and CPU compute — matrix products, attention, weight
         widening — how fast, and whether each result matches the exact one; it needs no model.
-        The fields below were prefilled by the app; check them, paste the JSON if it is empty, and submit.
+        The fields below were prefilled by the app; paste the report it copied into “Report”, check, and submit.
         The report holds no image, no prompt and no file path.
   - type: input
     id: chip

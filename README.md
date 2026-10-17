@@ -178,7 +178,7 @@ Models live in `~/Library/Application Support/Siliconed` (override with `SILICON
 ### Private by construction
 
 Rendering happens on your Mac. The only network traffic is the model download you accepted; the
-diagnostic opens a prefilled GitHub issue that you choose to submit or not. Before each render the
+diagnostic copies its report and opens a GitHub issue form that you choose to submit or not. Before each render the
 engine checks the model, its license, the format and the memory it needs, and refuses up front a
 render beyond this Mac's budget.
 
@@ -256,8 +256,8 @@ One machine is not a benchmark. The app's **Report My Configuration** button map
 chip computes, in under 30 seconds and without any model: the matrix products of the models' blocks
 on the GPU, on the CPU's matrix unit and on both at once, fp16 and bf16 products, attention through
 the engine's three kernels, weight widening on the CPU and on the GPU — each result checked against
-the exact one computed in double precision. It then opens a prefilled GitHub issue with the JSON
-report: chip, CPU and GPU cores, memory, macOS, the CPU's feature flags, each throughput and whether
+the exact one computed in double precision. It then copies the JSON report and opens a GitHub issue form to paste it into (or
+you send it another way): chip, CPU and GPU cores, memory, macOS, the CPU's feature flags, each throughput and whether
 it computed right, the thermal state and power source before and after. Nothing is sent unless you
 submit the issue.
 

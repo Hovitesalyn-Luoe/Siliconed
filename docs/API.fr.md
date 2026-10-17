@@ -925,13 +925,14 @@ for p in report.products where p.m == 4096 {
     print(p.model, p.product, p.gpu.rate, p.amx?.rate ?? 0, p.coexecution?.rate ?? 0, p.gpu.pass)
 }
 let json = try report.json()                  // stable : clés triées, null explicites
-let issue = try report.issueURL()            // une issue GitHub préremplie : NSWorkspace.shared.open(issue)
+let issue = try report.issueURL()            // le formulaire GitHub, le JSON dans le lien
 let form = try report.issueURL(includingReport: false)   // le même formulaire sans le JSON, à coller
 ```
 
-Un lien au-delà de ~8 000 caractères est coupé par les navigateurs et GitHub (un rapport en fait
-environ 7 000) : l'app copie alors `json()` dans le presse-papiers et ouvre
-`issueURL(includingReport: false)`. `Diagnostic.Stage` est ce que `onProgress` rapporte, en anglais
+L'app ne met jamais le rapport dans le lien : déconnecté, GitHub fait passer l'adresse d'une issue
+neuve par sa page de connexion, échappée une fois de plus, et ~6 500 caractères de JSON en sortent
+cassés. Elle copie `json()` dans le presse-papiers et ouvre `issueURL(includingReport: false)`, où
+l'utilisateur le colle. `Diagnostic.Stage` est ce que `onProgress` rapporte, en anglais
 par `description`, pour qu'une app le dise dans sa langue.
 
 Il est synchrone et occupe le GPU et le CPU (moins de 1 Go au pic sur le M1 Pro) : le lancer hors du

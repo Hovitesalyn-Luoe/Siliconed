@@ -896,12 +896,13 @@ for p in report.products where p.m == 4096 {
     print(p.model, p.product, p.gpu.rate, p.amx?.rate ?? 0, p.coexecution?.rate ?? 0, p.gpu.pass)
 }
 let json = try report.json()                  // stable: sorted keys, explicit nulls
-let issue = try report.issueURL()            // a prefilled GitHub issue: NSWorkspace.shared.open(issue)
+let issue = try report.issueURL()            // the GitHub form with the JSON in the link
 let form = try report.issueURL(includingReport: false)   // the same form without the JSON, to paste
 ```
 
-A link beyond ~8 000 characters is cut by browsers and GitHub (a report is about 7 000): the app then
-copies `json()` to the clipboard and opens `issueURL(includingReport: false)`. `Diagnostic.Stage` is
+The app never puts the report in the link: signed out, GitHub passes a new issue's URL through its
+login page, escaped once more, and ~6 500 characters of JSON come out of it broken. It copies `json()`
+to the clipboard and opens `issueURL(includingReport: false)`, where the user pastes it. `Diagnostic.Stage` is
 what `onProgress` reports, in English as `description`, for an app to say in its own language.
 
 It is synchronous and occupies the GPU and the CPU (under 1 GB at the peak on the M1 Pro): run it off

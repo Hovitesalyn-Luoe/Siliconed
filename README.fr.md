@@ -185,7 +185,7 @@ Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable a
 ### Privé par construction
 
 Le rendu se fait sur votre Mac. Le seul trafic réseau est le téléchargement du modèle que vous avez
-accepté ; le diagnostic ouvre une issue GitHub préremplie que vous choisissez de soumettre ou non.
+accepté ; le diagnostic copie son rapport et ouvre un formulaire d'issue GitHub que vous choisissez de soumettre ou non.
 Avant chaque rendu, le moteur vérifie le modèle, sa licence, le format et la mémoire qu'il lui faut,
 et refuse d'emblée un rendu au-delà du budget de ce Mac.
 
@@ -267,8 +267,8 @@ Configuration* en anglais) dresse la carte de ce que calcule la puce de votre Ma
 secondes et sans aucun modèle : les produits matriciels des blocs des modèles sur le GPU, sur l'unité
 matricielle du CPU et sur les deux à la fois, des produits fp16 et bf16, l'attention par les trois
 noyaux du moteur, l'élargissement des poids sur le CPU et sur le GPU — chaque résultat vérifié contre
-le résultat exact calculé en double précision. Il ouvre ensuite une issue GitHub préremplie avec le
-rapport JSON : puce, cœurs CPU et GPU, mémoire, macOS, drapeaux du CPU, chaque débit et s'il a
+le résultat exact calculé en double précision. Il copie ensuite le rapport JSON et ouvre un formulaire
+d'issue GitHub où le coller (ou vous l'envoyez autrement) : puce, cœurs CPU et GPU, mémoire, macOS, drapeaux du CPU, chaque débit et s'il a
 calculé juste, état thermique et alimentation avant et après. Rien n'est envoyé tant que vous ne
 soumettez pas l'issue.
 

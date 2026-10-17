@@ -71,20 +71,16 @@ extension AppState {
         diagnostic = .running(done: i, total: Diagnostic.Stage.allCases.count, line: line)
     }
 
-    /// **« Open the issue »**: the GitHub form, prefilled by the report. A URL beyond ~8 000 characters is
-    /// cut by browsers and GitHub: then the JSON goes to the clipboard, and the form opens with every
-    /// field but the report's.
-    /// Returns what to tell the user, or `nil` when the link carried everything.
+    /// **« Open the issue »**: the report goes to the clipboard, and GitHub's form opens with every field
+    /// prefilled but the report's, which the user pastes. Never the report in the link: signed out, GitHub
+    /// sends a new issue's URL through its login page inside `return_to`, escaped once more, and a link
+    /// carrying ~6 KB of JSON comes out of it broken — the short one survives the round trip.
+    /// Returns what to tell the user.
     func openIssue(_ report: Diagnostic.Report) -> String? {
         do {
-            let url = try report.issueURL()
-            if url.absoluteString.count <= 8000 {
-                NSWorkspace.shared.open(url)
-                return nil
-            }
             copyJSON(report)
             NSWorkspace.shared.open(try report.issueURL(includingReport: false))
-            return String(localized: "The report is too long for a link: it is in the clipboard. Paste it into the form's “Report” field.")
+            return String(localized: "The report is in the clipboard: paste it into the form's “Report” field.")
         } catch {
             return Problem(error).text
         }

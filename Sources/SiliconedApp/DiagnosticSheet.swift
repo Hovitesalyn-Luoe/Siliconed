@@ -4,9 +4,10 @@
 // Three states in one sheet: what the diagnostic does and how long (~30 s, no model needed; it occupies
 // the GPU and the CPU, so it waits for an empty queue — and the queue waits for it); its progress; then
 // the report as a person reads it — the chip, the memory, and per capacity its throughput and ✓/✗, the
-// output computed right against the exact or not. « Open the issue » opens GitHub's form prefilled by
-// `report.issueURL()`; nothing is sent without that click, and the issue is submitted in the browser,
-// by the user.
+// output computed right against the exact or not. « Open the issue » copies the report and opens GitHub's
+// form (`report.issueURL(includingReport: false)`), where the user pastes it; « Copy JSON » alone serves
+// whoever has no GitHub account. Nothing is sent without a click, and the issue is submitted in the
+// browser, by the user.
 
 import AppKit
 import Siliconed
@@ -129,10 +130,11 @@ struct DiagnosticSheet: View {
                 Button("Measure Again") { notice = nil; app.startDiagnostic() }
                     .disabled(app.diagnosticBlocker != nil)
                 Button("Copy JSON") { app.copyJSON(report) }
+                    .help("To send the report another way, without a GitHub account")
                 Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Open the Issue") { notice = app.openIssue(report) }
                     .keyboardShortcut(.defaultAction)
-                    .help("Opens GitHub's form, prefilled with this report; you submit it there")
+                    .help("Copies the report and opens GitHub's form; you paste it and submit it there")
             }
         }
     }

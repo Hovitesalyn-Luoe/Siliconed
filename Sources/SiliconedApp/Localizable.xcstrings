@@ -5971,6 +5971,34 @@
         }
       }
     },
+    "Copies the report and opens GitHub's form; you paste it and submit it there" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiert den Bericht und öffnet das GitHub-Formular; Sie fügen ihn dort ein und senden es selbst ab"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia el informe y abre el formulario de GitHub; lo pegas y lo envías tú desde allí"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie le rapport et ouvre le formulaire de GitHub ; c’est vous qui l’y collez et l’envoyez"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia il rapporto e apre il modulo di GitHub; sei tu a incollarlo e inviarlo"
+          }
+        }
+      }
+    },
     "Copy %lld Images" : {
       "localizations" : {
         "de" : {
@@ -12524,34 +12552,6 @@
         }
       }
     },
-    "Opens GitHub's form, prefilled with this report; you submit it there" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffnet das GitHub-Formular, vorausgefüllt mit diesem Bericht; Sie senden es dort selbst ab"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abre el formulario de GitHub, ya rellenado con este informe; lo envías tú desde allí"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ouvre le formulaire de GitHub, prérempli avec ce rapport ; c’est vous qui l’envoyez"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apre il modulo di GitHub, precompilato con questo rapporto; sei tu a inviarlo"
-          }
-        }
-      }
-    },
     "Optional. Add an image and the prompt becomes an instruction: “change her jacket to red”." : {
       "localizations" : {
         "de" : {
@@ -18527,30 +18527,30 @@
         }
       }
     },
-    "The report is too long for a link: it is in the clipboard. Paste it into the form's “Report” field." : {
+    "The report is in the clipboard: paste it into the form's “Report” field." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Bericht ist zu lang für einen Link: Er liegt in der Zwischenablage. Fügen Sie ihn in das Feld „Report“ des Formulars ein."
+            "value" : "Der Bericht liegt in der Zwischenablage: Fügen Sie ihn in das Feld „Report“ des Formulars ein."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El informe es demasiado largo para un enlace: está en el portapapeles. Pégalo en el campo «Report» del formulario."
+            "value" : "El informe está en el portapapeles: pégalo en el campo «Report» del formulario."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le rapport est trop long pour un lien : il est dans le presse-papiers. Collez-le dans le champ « Report » du formulaire."
+            "value" : "Le rapport est dans le presse-papiers : collez-le dans le champ « Report » du formulaire."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il rapporto è troppo lungo per un link: è negli appunti. Incollalo nel campo «Report» del modulo."
+            "value" : "Il rapporto è negli appunti: incollalo nel campo «Report» del modulo."
           }
         }
       }
@@ -19881,6 +19881,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Per installarlo tu stesso, incolla questo in un terminale:"
+          }
+        }
+      }
+    },
+    "To send the report another way, without a GitHub account" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um den Bericht auf anderem Weg zu senden, ohne GitHub-Konto"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para enviar el informe de otra forma, sin cuenta de GitHub"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour envoyer le rapport autrement, sans compte GitHub"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per inviare il rapporto in altro modo, senza un account GitHub"
           }
         }
       }
