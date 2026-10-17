@@ -153,6 +153,10 @@ private struct SceneView: View {
     @State private var zone: CGSize = .zero
     @State private var shown: CGSize = .zero
     @State private var hovering = false
+    /// Where the pointer is over the image's zone — what a zoom keeps still (`ZoomAnchor`).
+    @State private var pointer: CGPoint?
+    /// The offset a pinch just settled, applied once its zoom lands (`onChange(of: app.zoom)`).
+    @State private var settled: CGSize?
     @State private var scrollMonitor: Any?
 
     var body: some View {
@@ -192,7 +196,11 @@ private struct SceneView: View {
         }
         .onChange(of: app.selection) { app.zoom = 1; offset = .zero }
         .onChange(of: app.inProgress) { app.zoom = 1; offset = .zero }
-        .onChange(of: app.zoom) { _, z in withAnimation(.spring(duration: 0.3)) { offset = z == 1 ? .zero : clamped(offset) } }
+        .onChange(of: app.zoom) { z1, z2 in
+            let target = settled ?? ZoomAnchor.offset(offset, from: z1, to: z2, at: pointer, in: zone)
+            settled = nil
+            withAnimation(.spring(duration: 0.3)) { offset = z2 == 1 ? .zero : clamped(target) }
+        }
         .onAppear(perform: watchScroll)
         .onDisappear { scrollMonitor.map(NSEvent.removeMonitor); scrollMonitor = nil }
     }
@@ -255,7 +263,7 @@ private struct SceneView: View {
             .shadow(color: .black.opacity(0.35), radius: 18, y: 6)
             .frame(maxWidth: CGFloat(cg.width), maxHeight: CGFloat(cg.height))
             .scaleEffect(zoom * pinchScale)
-            .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
+            .offset(x: liveOffset.width + dragOffset.width, y: liveOffset.height + dragOffset.height)
             .gesture(zoomGesture)
             .simultaneousGesture(dragGesture)
             .onTapGesture(count: 2) { withAnimation(.spring(duration: 0.3)) { app.zoom = 1; offset = .zero } }
@@ -270,8 +278,18 @@ private struct SceneView: View {
                 shown = CGSize(width: w * scale, height: h * scale)
             }
             .contentShape(Rectangle())
-            .onHover { hovering = $0 }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let p): hovering = true; pointer = p
+                case .ended: hovering = false; pointer = nil
+                }
+            }
             .zIndex(1)
+    }
+
+    /// The offset as drawn: during a pinch, moved so that the point under the fingers stays there.
+    private var liveOffset: CGSize {
+        pinchScale == 1 ? offset : ZoomAnchor.offset(offset, from: zoom, to: zoom * pinchScale, at: pointer, in: zone)
     }
 
     /// Under the image: what it is, and what is done with it — or, with several marked, what is done
@@ -370,8 +388,9 @@ private struct SceneView: View {
         MagnifyGesture()
             .updating($pinchScale) { value, state, _ in state = value.magnification }
             .onEnded { value in
-                app.zoom = min(max(zoom * value.magnification, 1), 8)
-                if app.zoom == 1 { offset = .zero }
+                let z = min(max(zoom * value.magnification, 1), 8)
+                let target = ZoomAnchor.offset(offset, from: zoom, to: z, at: pointer, in: zone)
+                if z == app.zoom { offset = z == 1 ? .zero : clamped(target) } else { settled = target; app.zoom = z }
             }
     }
 

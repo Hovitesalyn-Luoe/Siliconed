@@ -15,6 +15,7 @@
 //   (`MainWindow.key`, only while the curtain is shown — Esc leaves the comparison as before).
 // - Zoom (pinch, ⌘+ ⌘− ⌘0 — the app's `zoom`) and the two-finger scroll apply to the two images
 //   together, at the same place: one transform, two layers. The line stays where it is on screen.
+//   A zoom keeps the point under the pointer still (`ZoomAnchor`), as on the canvas.
 // - The frame is the viewport: zoomed in, the images are cut at its edges, so the line always runs
 //   from top to bottom of what is seen.
 // - A is the left one in the strip, B the right one: the order the strip shows them in.
@@ -116,6 +117,10 @@ struct CurtainView: View {
     @State private var dragging = false
     @State private var frame: CGSize = .zero
     @State private var hovering = false
+    /// Where the pointer is over the frame — what a zoom keeps still (`ZoomAnchor`).
+    @State private var pointer: CGPoint?
+    /// The offset a pinch just settled, applied once its zoom lands (`onChange(of: app.zoom)`).
+    @State private var settled: CGSize?
     @State private var scrollMonitor: Any?
 
     private var zoom: CGFloat { app.zoom * pinch }
@@ -124,8 +129,8 @@ struct CurtainView: View {
         let w = CGFloat(width), h = CGFloat(height)
         let (tagA, tagB) = tags
         ZStack {
-            layer(b)
-            layer(a)
+            layer(b, liveOffset)
+            layer(a, liveOffset)
                 .mask(alignment: .leading) {
                     Rectangle().frame(width: frame.width * curtain.position)
                 }
@@ -145,23 +150,37 @@ struct CurtainView: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             withAnimation(.spring(duration: 0.3)) { app.zoom = 1; offset = .zero }
         })
-        .onHover { hovering = $0 }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let p): hovering = true; pointer = p
+            case .ended: hovering = false; pointer = nil
+            }
+        }
         .shadow(color: .black.opacity(0.35), radius: 18, y: 6)
         .frame(maxWidth: w, maxHeight: h)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onChange(of: app.zoom) { _, z in withAnimation(.spring(duration: 0.3)) { offset = z == 1 ? .zero : clamped(offset) } }
+        .onChange(of: app.zoom) { z1, z2 in
+            let target = settled ?? ZoomAnchor.offset(offset, from: z1, to: z2, at: pointer, in: frame)
+            settled = nil
+            withAnimation(.spring(duration: 0.3)) { offset = z2 == 1 ? .zero : clamped(target) }
+        }
         .onAppear(perform: watchScroll)
         .onDisappear { scrollMonitor.map(NSEvent.removeMonitor); scrollMonitor = nil }
         .help("Drag the line, or press ← →, to reveal one image or the other")
     }
 
     /// One image, under the common zoom and offset.
-    private func layer(_ image: CGImage) -> some View {
+    private func layer(_ image: CGImage, _ o: CGSize) -> some View {
         Image(decorative: image, scale: 1)
             .resizable()
             .interpolation(.high)
             .scaleEffect(zoom)
-            .offset(offset)
+            .offset(o)
+    }
+
+    /// The offset as drawn: during a pinch, moved so that the point under the fingers stays there.
+    private var liveOffset: CGSize {
+        pinch == 1 ? offset : ZoomAnchor.offset(offset, from: app.zoom, to: zoom, at: pointer, in: frame)
     }
 
     /// The line and its knob: white with a shadow, legible on any image; the knob takes the accent
@@ -214,8 +233,9 @@ struct CurtainView: View {
         MagnifyGesture()
             .updating($pinch) { value, state, _ in state = value.magnification }
             .onEnded { value in
-                app.zoom = min(max(app.zoom * value.magnification, 1), 8)
-                offset = app.zoom == 1 ? .zero : clamped(offset)
+                let z = min(max(app.zoom * value.magnification, 1), 8)
+                let target = ZoomAnchor.offset(offset, from: app.zoom, to: z, at: pointer, in: frame)
+                if z == app.zoom { offset = z == 1 ? .zero : clamped(target) } else { settled = target; app.zoom = z }
             }
     }
 
@@ -274,5 +294,18 @@ struct CurtainSwitch: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// **Zooming toward the pointer**, as Preview does: the point under it stays under it. An image drawn
+/// centered in a frame of `size`, scaled by `z` about that center then moved by `o`, shows its point
+/// `u` (from its center) at `center + u·z + o`; keeping that fixed from `z1` to `z2` gives the new
+/// offset below. Without a pointer (⌘+ from the menu, the pointer elsewhere), the frame's center holds.
+enum ZoomAnchor {
+    static func offset(_ o: CGSize, from z1: CGFloat, to z2: CGFloat, at pointer: CGPoint?, in size: CGSize) -> CGSize {
+        guard z1 > 0 else { return o }
+        let k = z2 / z1
+        let q = pointer.map { CGSize(width: $0.x - size.width / 2, height: $0.y - size.height / 2) } ?? .zero
+        return CGSize(width: q.width - (q.width - o.width) * k, height: q.height - (q.height - o.height) * k)
     }
 }
