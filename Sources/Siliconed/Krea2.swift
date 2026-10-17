@@ -32,11 +32,25 @@ import Foundation
 ///   - the text goes through a learned **fusion** of the twelve drawn layers (`Krea2TextFusion`),
 ///     computed once per render;
 ///   - the RoPE is **already interleaved** (Flux convention, θ = 1000, axes 32/48/48), and the text is
-///     at position `(0, 0, 0)` — it does not rotate;
+///     at position `(0, 0, 0)` — it does not rotate. The image starts at `(0, 0, 0)` too: its first
+///     token shares the text's position, with no offset (Qwen-Image shifts its image, Krea does not);
+///   - the **final layer reads `temb` as it is**, not `gelu(temb)` as `time_mod_proj` does, and adds its
+///     own `[2, d]` table (scale, then shift);
+///   - **σ stays fp32 up to the embedding.** The official pipeline casts the timestep to the latents' dtype
+///     (`.to(latents.dtype)`): in bf16, σ is rounded before the sinusoid. The fp32 reference followed here
+///     does not round it, so a bf16 diffusers render is not this one at the last bits;
+///   - **the text rows of block 0's output decide most of the velocity's error**: carried on in double
+///     from there, exact text rows leave a sixth of it, and a random error of rounding size on them, in
+///     any direction, as much as the engine's or more. The engine and the fp32 reference are two draws
+///     of that ill-conditioning; one draw against one draw does not judge a pass, the latent planes do;
 ///   - **a LoRA reaches the timestep path too**: diffusers names `tmlp.*` and `tproj.1` `time_embed.*` and
 ///     `time_mod_proj`, and PEFT adapts them like any `Linear` — here in double, inside the tabulated
 ///     modulation (`exactModules`). Its only `Linear` left out is the fusion's 12 → 1 projector, which
 ///     the engine computes as a weighted sum: the forge refuses it (`appliesLoRA`).
+///
+/// For a port of the undistilled Krea-2-Raw, two things this Turbo port does not need: μ then depends on
+/// the image's length (`calculate_shift`, `max_image_seq_len` 6400, not Flux's 4096), and the guidance is
+/// `cond + g · (cond − uncond)`, i.e. a scale of `1 + g` in the usual convention.
 ///
 /// **The text padding is removed, and this is exact.** The reference pads the text to 512 tokens
 /// and masks the padding tokens *as keys*, everywhere; their own rows are

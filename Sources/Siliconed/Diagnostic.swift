@@ -75,7 +75,8 @@ import Metal
 public enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
-    /// day, optional: a report without it is the same measures.
+    /// day, optional: a report without it is the same measures. **6** (17/10/2026): the bf16-weight
+    /// products (`products[].tensor`), the `bf16 copy` widening and `stages`; the decisions add `tensor`.
     public static let schema = 6
     public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
@@ -428,11 +429,14 @@ public enum Diagnostic {
         }
     }
 
-    /// The URL of a new issue with `fields` as its query, **every reserved byte escaped**: `URLComponents`
-    /// leaves `+` alone, which GitHub reads back as a space — in a JSON exponent (`1e+20`) or a chip name.
+    /// The URL of a new issue with `fields` as its query, **every byte that delimits a field escaped**:
+    /// `URLComponents` leaves `+` alone, which GitHub reads back as a space — in a JSON exponent (`1e+20`)
+    /// or a chip name. `,` and `:` stay as they are: a query may hold them (RFC 3986, `pchar`), they
+    /// delimit nothing in a form's value, and escaped they were a quarter of a report's link (`%2C`, `%3A`:
+    /// ~1 200 of 7 700 bytes for a schema 6 map). `;` stays escaped: some servers split a query on it.
     package static func issueURL(fields: [(String, String)]) -> URL {
         var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
+        allowed.insert(charactersIn: "-._~,:")
         let query = fields.map { key, value in
             "\(key)=\(value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")"
         }.joined(separator: "&")

@@ -159,14 +159,27 @@ final class DiagnosticTests: XCTestCase {
 
     /// **A whole report fits in a link**, with room for a longer chip name and a few settings: browsers
     /// and GitHub cut beyond ~8 000 characters (schema 5 written as objects: 9 690; as triples, this one 7 066;
-    /// schema 6, its bf16-weight products and stages, the decisions left out: 7 682). At the app's own cut
-    /// (`openIssue`): beyond it, the report goes through the clipboard.
+    /// schema 6, its bf16-weight products and stages, the decisions left out: 7 682; `,` and `:` left
+    /// unescaped: 6 520). Bounded at 7 000, a thousand under the app's own cut (`openIssue`, beyond which
+    /// the report goes through the clipboard): room for a column more before the link no longer carries it.
     func testAFullReportFitsInTheIssueLink() throws {
         var report = sample()
         report.machine.chip = "Apple M5 Max"
         report.settings = ["flash": "true (profile)", "amx": "true (profile)", "widen_gpu": "true (env)"]
         let length = try report.issueURL().absoluteString.utf8.count
-        XCTAssertLessThanOrEqual(length, 8_000, "\(length) bytes")
+        XCTAssertLessThanOrEqual(length, 7_000, "\(length) bytes")
+    }
+
+    /// What delimits a field is escaped, what does not is left as it is: a value holding `&`, `=`, `+`,
+    /// `#`, `;` or `%` reads back whole, and the JSON's `,` and `:` cost one byte each, not three.
+    func testIssueURLEscapesOnlyTheDelimiters() throws {
+        let value = "a&b=c+d#e;f%g,h:i [j] {\"k\"}"
+        let url = Diagnostic.issueURL(fields: [("report", value), ("chip", "x")])
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!.first { $0.name == "report" }?.value, value)
+        XCTAssertEqual(url.query?.filter { $0 == "&" }.count, 1)
+        XCTAssertTrue(url.absoluteString.contains(",h:i"))
+        XCTAssertFalse(url.absoluteString.contains("+"))
+        XCTAssertFalse(url.absoluteString.contains(";"))
     }
 
     /// Too long for a link: the same form, every field but the report, which the user pastes.
