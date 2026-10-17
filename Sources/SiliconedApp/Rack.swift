@@ -27,7 +27,9 @@
 // something happens**: at rest the boxes are quiet cards and the wires muted; during a render the box
 // of the stage at work wears the accent and the wire it reads brightens and widens; what is done keeps
 // a discreet check; where the engine refused, the box turns red. Under each box, what it costs: the
-// time learned on this Mac, and under the DiT the memory the render needs, computed (rule 7).
+// time learned on this Mac. The memory a render needs is the whole chain's: it is said once, in the
+// summary under the rack (`Sidebar`), not under the DiT. Each stage's name stays the technical one —
+// it is what the illustrator will meet elsewhere —; hovering it says, in plain words, what it does.
 //
 // **Only the DiT has choices of module today** — the model (the publisher's, or an imported
 // fine-tune) and its LoRA stack. The text encoder and the VAE are fixed by the family: their module
@@ -268,7 +270,8 @@ struct RackView: View {
     // ── the fixed stages ──
 
     private var textEncoder: some View {
-        StageBox(title: "Text encoder", symbol: "character.textbox", state: app.state(of: .text)) {
+        StageBox(title: "Text encoder", symbol: "character.textbox", state: app.state(of: .text),
+                 explanation: "A language model reads the prompt and turns it into what the DiT understands") {
             ModuleSlot(name: app.chain?.text.name)
             if app.promptNamesImages {
                 Tag(text: Text("sees the images"), symbol: "eye")
@@ -279,14 +282,16 @@ struct RackView: View {
     }
 
     private var imageEncoder: some View {
-        StageBox(title: "Image encoder", symbol: "photo", state: app.state(of: .image)) {
+        StageBox(title: "Image encoder", symbol: "photo", state: app.state(of: .image),
+                 explanation: "Turns the images to edit into the compact form the DiT works in, the latent") {
             ModuleSlot(name: app.chain?.encoding?.name)
             Cost(seconds: app.references.isEmpty && app.subjectImageCount == 0 ? nil : app.stageEstimate(.image))
         }
     }
 
     private var vae: some View {
-        StageBox(title: "VAE decoder", symbol: "square.grid.3x3.square", state: app.state(of: .decoding)) {
+        StageBox(title: "VAE decoder", symbol: "square.grid.3x3.square", state: app.state(of: .decoding),
+                 explanation: "Turns the DiT's result, the latent, into pixels: the final image") {
             ModuleSlot(name: app.chain?.decoding.name)
             Cost(seconds: app.stageEstimate(.decoding))
         }
@@ -302,11 +307,14 @@ private struct StageBox<Content: View>: View {
     let title: LocalizedStringKey
     let symbol: String
     let state: StageState
+    /// What the stage does, in plain words: shown when the pointer rests on its name.
+    let explanation: LocalizedStringKey
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            BoxTitle(title: title, symbol: symbol, tint: state == .active ? Palette.live : .secondary) {
+            BoxTitle(title: title, symbol: symbol, tint: state == .active ? Palette.live : .secondary,
+                     explanation: explanation) {
                 switch state {
                 case .idle: EmptyView()
                 case .active: ProgressView().controlSize(.mini)
@@ -335,17 +343,22 @@ private struct BoxTitle<Trailing: View>: View {
     let title: LocalizedStringKey
     let symbol: String
     let tint: Color
+    var explanation: LocalizedStringKey? = nil
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(tint.opacity(0.16)))
-            Text(title).font(.callout.weight(.semibold))
-                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 20, height: 20)
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(tint.opacity(0.16)))
+                Text(title).font(.callout.weight(.semibold))
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
+            .contentShape(Rectangle())
+            .help(explanation.map { Text($0) } ?? Text(verbatim: ""))
             Spacer(minLength: 4)
             trailing
         }
@@ -636,7 +649,8 @@ private struct DiTBox: View {
     @State private var customSize = false
 
     var body: some View {
-        StageBox(title: "DiT", symbol: "sparkles", state: app.state(of: .denoising)) {
+        StageBox(title: "DiT", symbol: "sparkles", state: app.state(of: .denoising),
+                 explanation: "The model that draws (a diffusion transformer): from noise, step by step, it makes the image the prompt describes") {
             Picker("Model", selection: $app.identifier) {
                 ForEach(app.visibleCards) { card in
                     if app.readySet.contains(card.id) {
@@ -672,18 +686,7 @@ private struct DiTBox: View {
             if app.state(of: .denoising) == .active, app.totalSteps > 0, app.currentJob?.settings.identifier == app.identifier {
                 progress
             } else {
-                HStack(spacing: 10) {
-                    Cost(seconds: app.stageEstimate(.denoising))
-                    if let need = app.memoryNeed {
-                        HStack(spacing: 4) {
-                            Image(systemName: "memorychip").imageScale(.small)
-                            // Said in words: under "Install…", a bare figure reads as the download.
-                            Text("\(Figures.memory(need)) of memory").monospacedDigit()
-                        }
-                        .font(.caption).foregroundStyle(.secondary)
-                        .help("The memory this render needs at this size (computed)")
-                    }
-                }
+                Cost(seconds: app.stageEstimate(.denoising))
             }
         }
     }

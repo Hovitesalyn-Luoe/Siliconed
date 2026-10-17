@@ -815,34 +815,6 @@
         }
       }
     },
-    "%@ of memory" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ Arbeitsspeicher"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ de memoria"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ de mémoire"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ di memoria"
-          }
-        }
-      }
-    },
     "%@ on disk" : {
       "localizations" : {
         "de" : {
@@ -3049,6 +3021,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Una griglia che fa variare il modello non accetta LoRA: ogni LoRA è fatta per un solo modello."
+          }
+        }
+      }
+    },
+    "A language model reads the prompt and turns it into what the DiT understands" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Sprachmodell liest den Prompt und übersetzt ihn in das, was der DiT versteht"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un modelo de lenguaje lee el prompt y lo convierte en lo que el DiT entiende"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un modèle de langage lit le prompt et le traduit en ce que le DiT comprend"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un modello linguistico legge il prompt e lo traduce in ciò che il DiT capisce"
           }
         }
       }
@@ -17373,34 +17373,6 @@
         }
       }
     },
-    "The memory this render needs at this size (computed)" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Arbeitsspeicher, den dieses Rendering in diesem Format braucht (berechnet)"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La memoria que necesita este renderizado a este tamaño (calculada)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La mémoire qu’il faut à ce rendu à cette taille (calculée)"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La memoria che serve a questo rendering a questa dimensione (calcolata)"
-          }
-        }
-      }
-    },
     "The model reads them as <image1>, <image2>… in front of the prompt" : {
       "localizations" : {
         "de" : {
@@ -17425,6 +17397,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il modello le legge come <image1>, <image2>… davanti al prompt"
+          }
+        }
+      }
+    },
+    "The model that draws (a diffusion transformer): from noise, step by step, it makes the image the prompt describes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Modell, das zeichnet (ein Diffusion Transformer): aus Rauschen macht es Schritt für Schritt das Bild, das der Prompt beschreibt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modelo que dibuja (un transformer de difusión): a partir del ruido, paso a paso, crea la imagen que describe el prompt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle qui dessine (un transformeur de diffusion) : partant du bruit, pas à pas, il fait l’image que décrit le prompt"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il modello che disegna (un transformer di diffusione): partendo dal rumore, passo dopo passo, crea l’immagine descritta dal prompt"
           }
         }
       }
@@ -19293,6 +19293,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Riprova; se il problema persiste, segnalalo (Aiuto ▸ Segnala la mia configurazione…)."
+          }
+        }
+      }
+    },
+    "Turns the DiT's result, the latent, into pixels: the final image" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Macht aus dem Ergebnis des DiT, dem Latent, Pixel: das fertige Bild"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Convierte el resultado del DiT, el latente, en píxeles: la imagen final"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change le résultat du DiT, le latent, en pixels : l’image finale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trasforma il risultato del DiT, il latente, in pixel: l’immagine finale"
+          }
+        }
+      }
+    },
+    "Turns the images to edit into the compact form the DiT works in, the latent" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bringt die zu bearbeitenden Bilder in die kompakte Form, in der der DiT arbeitet, das Latent"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Convierte las imágenes que editar en la forma compacta en la que trabaja el DiT, el latente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change les images à éditer en la forme compacte où travaille le DiT, le latent"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trasforma le immagini da modificare nella forma compatta in cui lavora il DiT, il latente"
           }
         }
       }
