@@ -200,7 +200,8 @@ extension MemoryNeed {
             + gemm("DiT", products: [(s, dit.channels, d), (s, d, dit.channels)],
                    bounded: [(n, d, d), (n, d, kv), (n, d, hidden), (n, hidden, d)], rank: rank)
         let runningBytes = running.reduce(0) { $0 + $1.bytes }
-        let tabulation = Krea2DiT.tabulationBytes(config: dit, count: Siliconed.Request.maximumSteps) + maps.timestepWidening
+        let tabulation = Krea2DiT.tabulationBytes(config: dit, count: Siliconed.Request.maximumSteps, rank: rank)
+            + maps.timestepWidening
         terms += running
         terms.append(Term("modulation tabulation beyond the attention", max(0, tabulation - runningBytes)))
         let denoising = Phase(kind: .denoising, terms: terms)
@@ -261,12 +262,9 @@ extension Krea2DiT {
     }
 
     /// **Every module a LoRA may touch in the DiT** (`CacheLoRA`'s retained ones, `[k, n]` as the map
-    /// lays them out): each block's 8 Linears and the final projection — the worst case of a stack.
+    /// lays them out): `loraTargets`, the list the cache reads — the worst case of a stack.
     package static func loraModules(config: Config) -> [(k: Int, n: Int)] {
-        let d = config.dim, h = config.hidden, kv = config.kvWidth
-        let block = [(d, d), (d, kv), (d, kv), (d, d), (d, d), (d, h), (d, h), (h, d)]
-        return Array([[(k: Int, n: Int)]](repeating: block.map { (k: $0.0, n: $0.1) }, count: config.layers).joined())
-            + [(k: d, n: config.channels)]
+        loraTargets(config: config).map { (k: $0.k, n: $0.n) }
     }
 
     /// **The modulation table the context keeps** (`ModulationTable`): per σ, `temb [d]` and
@@ -275,10 +273,12 @@ extension Krea2DiT {
 
     /// **What the tabulation of `count` σ holds at once, in double** (`modulation(sigmas:)`), at its
     /// widest — `time_mod_proj`'s call: the hidden vectors, `temb`, its activation, the inputs flattened,
-    /// the outputs accumulated and returned (`Krea2Exact.linears`), then the fp32 table they become.
-    package static func tabulationBytes(config: Config, count: Int) -> Int {
+    /// the outputs accumulated and returned (`Krea2Exact.linears`), then the fp32 table they become;
+    /// under a LoRA, that call's `down` and `up` (`Krea2Exact.loraBytes`).
+    package static func tabulationBytes(config: Config, count: Int, rank: Int = 0) -> Int {
         let d = config.dim
         return count * (4 * d + 2 * 6 * d) * 8 + tableBytes(config: config, count: count)
+            + Krea2Exact.loraBytes(k: d, n: 6 * d, rank: rank)
     }
 
     /// The timestep weights `modulation(sigmas:)` reads, `[input, output]`.

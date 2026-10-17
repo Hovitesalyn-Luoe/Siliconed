@@ -88,7 +88,7 @@ final class MemoryNeedKrea2Tests: XCTestCase {
         XCTAssertEqual(fusion.arenaCapacity, Krea2TextFusion.arenaBytes(outDim: d, maxTokens: 6, rank: 7))
         // The need charges every module a stack may touch: the two above among them.
         let modules = Krea2DiT.loraModules(config: config)
-        XCTAssertEqual(modules.count, 8 * config.layers + 1)
+        XCTAssertEqual(modules.count, 8 * config.layers + 2)   // the blocks, img_in, the final projection
         XCTAssertTrue(modules.contains { $0.k == d && $0.n == d } && modules.contains { $0.k == hidden && $0.n == d })
     }
 
@@ -248,13 +248,13 @@ final class MemoryNeedKrea2Tests: XCTestCase {
     }
 
     /// **A LoRA costs three things in the DiT** — its `mid` slice, the cache of every module it may touch
-    /// (~430 MB at rank 32), a `down` staged with two LoRAs or more — and its slices in the fusion.
+    /// (~431 MB at rank 32), a `down` staged with two LoRAs or more — and its slices in the fusion.
     func testTheLoRAIsCharged() {
         let config = MemoryFixtures.krea2Maps().dit
         let bare = need(1024, 1024), one = need(1024, 1024, ranks: [32]), two = need(1024, 1024, ranks: [32, 16])
         XCTAssertEqual(one.phases[2].bytes("DiT arena"),
                        Krea2DiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128, maxText: 25, rank: 32))
-        XCTAssertEqual(one.phases[2].bytes("LoRA cache"), 430_194_688)
+        XCTAssertEqual(one.phases[2].bytes("LoRA cache"), 430_997_504)   // img_in's 802 816 among them
         XCTAssertEqual(one.phases[2].bytes("LoRA down staging"), 0)
         XCTAssertEqual(two.phases[2].bytes("LoRA down staging"), LoRA.downBytes(k: 16_384, rank: 32))
         XCTAssertEqual(two.phases[2].bytes("DiT arena"),

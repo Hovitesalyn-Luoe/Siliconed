@@ -32,7 +32,11 @@ import Foundation
 ///   - the text goes through a learned **fusion** of the twelve drawn layers (`Krea2TextFusion`),
 ///     computed once per render;
 ///   - the RoPE is **already interleaved** (Flux convention, θ = 1000, axes 32/48/48), and the text is
-///     at position `(0, 0, 0)` — it does not rotate.
+///     at position `(0, 0, 0)` — it does not rotate;
+///   - **a LoRA reaches the timestep path too**: diffusers names `tmlp.*` and `tproj.1` `time_embed.*` and
+///     `time_mod_proj`, and PEFT adapts them like any `Linear` — here in double, inside the tabulated
+///     modulation (`exactModules`). Its only `Linear` left out is the fusion's 12 → 1 projector, which
+///     the engine computes as a weighted sum: the forge refuses it (`appliesLoRA`).
 ///
 /// **The text padding is removed, and this is exact.** The reference pads the text to 512 tokens
 /// and masks the padding tokens *as keys*, everywhere; their own rows are
@@ -142,7 +146,13 @@ package final class Krea2DiT {
         self.lora = r > 0 ? lora : nil
         if let lora, r > 0 {
             loraMid = slot("loraMid")
-            cacheLoRA = try CacheLoRA(lora: lora, retain: { $0.hasPrefix("transformer_blocks.") || $0.hasPrefix("final_layer.") })
+            let unapplied = lora.rankPerTarget.keys.filter { !Krea2DiT.appliesLoRA($0) }.sorted()
+            if let first = unapplied.first {
+                throw LoRA.Failure.inconsistentShape(target: first, reason: "a Krea 2 module the engine does not adapt "
+                    + "(\(unapplied.count) in all) — import the LoRA again: the forge refuses it rather than let it be ignored")
+            }
+            let served = Set(Krea2DiT.loraTargets(config: config).map(\.name))
+            cacheLoRA = try CacheLoRA(lora: lora, retain: served.contains)
         } else {
             loraMid = nil; cacheLoRA = nil
         }
@@ -150,6 +160,45 @@ package final class Krea2DiT {
 
     /// The arena this DiT mapped — what the tests compare with `arenaBytes`.
     package var arenaCapacity: Int { arena.capacity }
+    /// The LoRA cache's arena, `0` without a stack — what the tests compare with `CacheLoRA.bytes`.
+    package var loraCacheCapacity: Int { cacheLoRA?.capacity ?? 0 }
+
+    // MARK: - the modules a LoRA adapts
+
+    /// A block's eight `Linear`s, in the map's order — the DiT's and the fusion's blocks alike.
+    package static let blockLinears = ["attn.to_q", "attn.to_k", "attn.to_v", "attn.to_gate", "attn.to_out.0",
+                                       "ff.gate", "ff.up", "ff.down"]
+
+    /// **Every module a LoRA may touch in the DiT's GEMMs**, `[k, n]` as the map lays them out: each
+    /// block's eight `Linear`s, `img_in` and the final projection. One list for the cache that keeps them
+    /// expanded (`CacheLoRA`) and the need that charges it (`loraModules`): what one serves, the other counts.
+    package static func loraTargets(config: Config) -> [(name: String, k: Int, n: Int)] {
+        let d = config.dim, h = config.hidden, kv = config.kvWidth
+        let shapes = [(d, d), (d, kv), (d, kv), (d, d), (d, d), (d, h), (d, h), (h, d)]
+        return (0..<config.layers).flatMap { layer in
+            zip(blockLinears, shapes).map { (name: layerPrefix(layer) + $0, k: $1.0, n: $1.1) }
+        } + [(name: "img_in", k: config.channels, n: d), (name: "final_layer.linear", k: d, n: config.channels)]
+    }
+
+    /// **The timestep's `Linear`s**, adapted outside the GEMMs: unmerged, in double, inside the
+    /// modulation the render tabulates once (`Krea2Exact.linears(…, lora:)`).
+    package static let exactModules = ["time_embed.linear_1", "time_embed.linear_2", "time_mod_proj"]
+
+    /// **Does the engine apply a LoRA on this module** (diffusers name, without `.weight`)? The DiT's
+    /// GEMMs, the timestep path, the fusion's blocks and `txt_in` — not the fusion's 12 → 1 projector,
+    /// a weighted sum computed outside a GEMM, nor a norm. What the forge refuses on import, and the DiT
+    /// on a map forged before: a module believed adapted that is not yields a plausible, wrong image.
+    package static func appliesLoRA(_ module: String) -> Bool {
+        if ["img_in", "final_layer.linear", "txt_in.linear_1", "txt_in.linear_2"].contains(module)
+            || exactModules.contains(module) { return true }
+        for prefix in ["transformer_blocks.", "text_fusion.layerwise_blocks.", "text_fusion.refiner_blocks."]
+            where module.hasPrefix(prefix) {
+            let rest = module.dropFirst(prefix.count)
+            guard let dot = rest.firstIndex(of: "."), Int(rest[..<dot]) != nil else { return false }
+            return blockLinears.contains(String(rest[rest.index(after: dot)...]))
+        }
+        return false
+    }
 
     private func record(_ name: String, _ p: UnsafePointer<Float>, _ n: Int) {
         guard recordBoundaries else { return }
@@ -245,8 +294,9 @@ package final class Krea2DiT {
     /// **The tabulated modulation**: σ (its bits) → `(temb, temb_mod)`. Empty until
     /// `tabulateModulation` has been called — `forward` then computes its own, as before.
     package var modulations: ModulationTable = [:]
-    /// The bits of σ → `(temb, temb_mod)`. A table taken over from another DiT of the same map is as good as
-    /// its own: neither the latent, nor the text, nor the LoRA enter into it.
+    /// The bits of σ → `(temb, temb_mod)`. A table taken over from another DiT of the same map and the same
+    /// stack is as good as its own: neither the latent nor the text enter into it — a LoRA on
+    /// `exactModules` does, and a context (one batch) has one stack.
     package typealias ModulationTable = [UInt32: (temb: [Float], mod: [Float])]
 
     /// **Precomputes the modulation of the σ that will be evaluated** — a single read of
@@ -267,12 +317,12 @@ package final class Krea2DiT {
     /// `temb` and `temb_mod` for several σ, **in double**, each weight read once for all.
     private func modulation(sigmas: [Float]) throws -> [(temb: [Float], mod: [Float])] {
         let sinusoids = sigmas.map { Krea2Exact.sinusoid(sigma: $0, dim: config.timeDim).map(Double.init) }
-        var hiddenValues = try Krea2Exact.linears(artifact, "time_embed.linear_1", xs: sinusoids)
+        var hiddenValues = try Krea2Exact.linears(artifact, "time_embed.linear_1", xs: sinusoids, lora: lora)
         for i in hiddenValues.indices { Krea2Exact.geluTanh(&hiddenValues[i]) }
-        let tembs = try Krea2Exact.linears(artifact, "time_embed.linear_2", xs: hiddenValues)
+        let tembs = try Krea2Exact.linears(artifact, "time_embed.linear_2", xs: hiddenValues, lora: lora)
         var enabled = tembs
         for i in enabled.indices { Krea2Exact.geluTanh(&enabled[i]) }
-        let mods = try Krea2Exact.linears(artifact, "time_mod_proj", xs: enabled)
+        let mods = try Krea2Exact.linears(artifact, "time_mod_proj", xs: enabled, lora: lora)
         return zip(tembs, mods).map { ($0.map(Float.init), $1.map(Float.init)) }
     }
 
@@ -820,6 +870,39 @@ enum Krea2Exact {
             withExtendedLifetime(widened) { accumulate(UnsafePointer(widened.floats())) }
         }
         return (0..<count).map { Array(y[($0 * outputs)..<(($0 + 1) * outputs)]) }
+    }
+
+    /// `linears`, plus the LoRA stack on this module **unmerged, in double**: `y += (x·down)·up`, the
+    /// strength folded into `down` by `LoRA.materialize` — PEFT's `base(x) + lora_B(lora_A(x))·s`, its
+    /// sums in double. Without a stack on the module, `linears` itself: the same bits as before.
+    /// (Qwen-Image-2.1's `exactLinears` is the same computation.)
+    static func linears(_ artifact: Artifact, _ module: String, xs: [[Double]], lora: LoRA?) throws -> [[Double]] {
+        var ys = try linears(artifact, module, xs: xs)
+        guard let lora, lora.rank(module) > 0, let shape = artifact.tensors[module + ".weight"]?.shape else { return ys }
+        let (k, n, r) = (shape[0], shape[1], lora.rank(module))
+        // In `Pages` for the call (`loraBytes`), not arrays `free` would leave in the footprint.
+        let (downPages, upPages) = (Pages(bytes: k * r * 4), Pages(bytes: r * n * 4))
+        let (down, up) = (downPages.floats(), upPages.floats())
+        defer { withExtendedLifetime((downPages, upPages)) {} }
+        _ = try lora.materialize(module, k: k, n: n, down: down, up: up)
+        for v in xs.indices {
+            var mid = [Double](repeating: 0, count: r)
+            for i in 0..<k where xs[v][i] != 0 {
+                let xi = xs[v][i]
+                for c in 0..<r { mid[c] += xi * Double(down[i * r + c]) }
+            }
+            for c in 0..<r {
+                let m = mid[c]
+                for j in 0..<n { ys[v][j] += m * Double(up[c * n + j]) }
+            }
+        }
+        return ys
+    }
+
+    /// **What `linears(…, lora:)` holds for a module `[k, n]` at cumulative rank `r`**: its `down` and
+    /// `up` in fp32, each on its page, for the call.
+    static func loraBytes(k: Int, n: Int, rank r: Int) -> Int {
+        r > 0 ? Arena.capacity(for: k * r * 4) + Arena.capacity(for: r * n * 4) : 0
     }
 
     /// **The weight `linears` widens** when the map does not publish it in fp32: `[inputs, outputs]`

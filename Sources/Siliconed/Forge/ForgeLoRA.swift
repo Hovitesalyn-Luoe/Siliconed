@@ -248,14 +248,24 @@ package enum ForgeLoRA {
             }
             return [Target(module: m)]
         case .krea2:
-            if module.hasPrefix("transformer_blocks.") || module.hasPrefix("text_fusion.") || module.hasPrefix("txt_in.")
-                || module.hasPrefix("img_in") || module.hasPrefix("time_") || module.hasPrefix("final_layer.") {
-                return [Target(module: module)]
+            var target = module
+            if !(module.hasPrefix("transformer_blocks.") || module.hasPrefix("text_fusion.") || module.hasPrefix("txt_in.")
+                || module.hasPrefix("img_in") || module.hasPrefix("time_") || module.hasPrefix("final_layer.")) {
+                guard let (n, _) = Recipes.krea2(module + ".weight", shape: [1, 1]), n.hasSuffix(".weight") else {
+                    throw Numerics.Failure(description: "\(module) : no Krea 2 renaming rule")
+                }
+                target = String(n.dropLast(7))
             }
-            guard let (n, _) = Recipes.krea2(module + ".weight", shape: [1, 1]), n.hasSuffix(".weight") else {
-                throw Numerics.Failure(description: "\(module) : no Krea 2 renaming rule")
+            // diffusers adapts every `Linear` it names (`tmlp.*`, `tproj.1` included); the engine all
+            // but the fusion's 12 → 1 projector — refused here rather than accepted and left out.
+            guard Krea2DiT.appliesLoRA(target) else {
+                throw Numerics.Failure(description: "\(module) → \(target) : "
+                    + (target == "text_fusion.projector"
+                       ? "Krea 2's 12 → 1 layer projector is a weighted sum the engine computes outside a GEMM, "
+                         + "where a LoRA does not reach — refused rather than half-applied"
+                       : "a Krea 2 module the engine does not adapt with a LoRA — refused rather than ignored"))
             }
-            return [Target(module: String(n.dropLast(7)))]
+            return [Target(module: target)]
         case .anima:
             if module.hasPrefix("llm_adapter.") {
                 throw Numerics.Failure(description: "\(module) : this LoRA touches Anima's text adapter, "
