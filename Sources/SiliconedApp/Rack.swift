@@ -925,7 +925,22 @@ struct LoRARow: View {
     /// The name's tooltip: what the file says of itself.
     private var details: String {
         guard let f = app.loraCard(slot.path) else { return String(localized: "Choose a LoRA") }
-        return ([f.name, String(localized: "rank \(f.rank)"), f.resolution.map { String(localized: "trained at \($0)") }, f.trainedOn]
+        let line = ([f.name, String(localized: "rank \(f.rank)"), f.resolution.map { String(localized: "trained at \($0)") }, f.trainedOn]
             .compactMap { $0 }).joined(separator: " · ")
+        return ([line] + f.fromItsMetadata).joined(separator: "\n")
+    }
+}
+
+extension LoRACard {
+    /// What the file says of itself beyond its name, one line each: the trainer's name when it is
+    /// not the one shown, the trigger words when the file states them. Empty for a map forged
+    /// before these keys, or a file that says neither — then nothing is shown.
+    var fromItsMetadata: [String] {
+        var lines: [String] = []
+        if let trainerName { lines.append(String(localized: "Named “\(trainerName)” in its metadata")) }
+        if !triggers.isEmpty {
+            lines.append(String(localized: "Trigger words: \(triggers.joined(separator: ", "))"))
+        }
+        return lines
     }
 }

@@ -183,7 +183,10 @@ let loras: [LoRACard] = library.loras(for: "z-image")  // store/*.lora.silicon, 
 `formats: [RecommendedFormat]`. Un modèle importé hérite de sa famille l'architecture, les
 formats et le texte de licence de l'éditeur (à vérifier sur la page du modèle).
 `LoRACard` : `path`, `name` (lisible), `rawName`, `target` (la famille visée), `rank`,
-`resolution?`, `trainedOn?`, `compatible(with:)`, `entry(strength:) -> LoRAEntry`.
+`resolution?`, `trainedOn?`, `trainerName?`, `triggers`, `compatible(with:)`, `entry(strength:) -> LoRAEntry`.
+Un import prend le nom du fichier ; `trainerName` est le nom écrit dans ses métadonnées quand il
+diffère, et `triggers` les mots déclencheurs quand le fichier les donne sans ambiguïté (l'app montre
+les deux dans une infobulle) — `nil` et vide pour une LoRA importée avant.
 
 | identifiant | nom | licence | débruiteur | VAE |
 |---|---|---|---|---|

@@ -166,7 +166,8 @@ public struct LoRACard: Sendable, Identifiable, Hashable {
     public let path: String
     /// `Niji semi realism v5` — the header's `name`, underscores turned into spaces.
     public let name: String
-    /// The name as the trainer wrote it.
+    /// The header's `name` as written: the imported file's name, without its extension (the
+    /// trainer's own name for a map forged before an import took the file's).
     public let rawName: String
     /// The identifier of the targeted model (`cible.modele`, written by `ForgeLoRA` from the DiT of
     /// the family against which it checked every shape).
@@ -176,6 +177,12 @@ public struct LoRACard: Sendable, Identifiable, Hashable {
     public let resolution: String?
     /// The declared training model (`ss_sd_model_name`) — Krea-2-**Raw** for Incase.
     public let trainedOn: String?
+    /// The name the trainer wrote (`trainer_name`, `ForgeLoRA.trainerName`), when it is not the one
+    /// shown — case, underscores and dashes aside. `nil` for a map forged before the key.
+    public let trainerName: String?
+    /// The trigger words, when the file states them beyond doubt (`triggers`, `ForgeLoRA.triggers`);
+    /// empty when it does not, and for a map forged before the key.
+    public let triggers: [String]
 
     /// From a map's header; `nil` if it is not a LoRA, or if it does not state its target (it
     /// would be refused at render time: forge it again).
@@ -192,6 +199,11 @@ public struct LoRACard: Sendable, Identifiable, Hashable {
         self.path = path; self.rawName = raw; self.name = LoRACard.readableName(raw)
         self.target = target; self.rank = header["rang"] as? Int ?? 0
         self.resolution = meta("modelspec.resolution"); self.trainedOn = meta("ss_sd_model_name")
+        let trainer = (header["trainer_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }, shown = name
+        self.trainerName = trainer.flatMap {
+            LoRACard.readableName($0).caseInsensitiveCompare(shown) == .orderedSame ? nil : $0
+        }
+        self.triggers = header["triggers"] as? [String] ?? []
     }
 
     /// `Niji_semi_realism_v5` → `Niji semi realism v5`; `.lora` and the extension removed.

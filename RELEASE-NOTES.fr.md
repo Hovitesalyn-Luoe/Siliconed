@@ -37,6 +37,13 @@
   filtre de contenu est obligatoire quand le modèle est déployé. L’app montre la licence avant le
   premier octet téléchargé.
 
+### Aussi
+
+- **Une LoRA prend le nom de son fichier** : une LoRA importée s’appelle comme son fichier, et non
+  plus du nom écrit dans ses métadonnées (« my first lora v1 copy copy » devient « OiledSkinKrea V1 »).
+  Ce nom, et les mots déclencheurs quand le fichier les donne sans ambiguïté, s’affichent dans une
+  infobulle sur la LoRA, dans le rack et la fenêtre Modèles. Les LoRA déjà importées gardent leur nom.
+
 ## 0.11
 
 - **Agrandir ×4** (le bouton sous l’image, son menu contextuel, le menu Image) : la super-résolution de

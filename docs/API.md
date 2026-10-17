@@ -177,7 +177,10 @@ let loras: [LoRACard] = library.loras(for: "z-image")  // store/*.lora.silicon, 
 model inherits from its family the architecture, the formats and the publisher's license text (to
 be checked on the model's page).
 `LoRACard`: `path`, `name` (readable), `rawName`, `target` (the family aimed at), `rank`,
-`resolution?`, `trainedOn?`, `compatible(with:)`, `entry(strength:) -> LoRAEntry`.
+`resolution?`, `trainedOn?`, `trainerName?`, `triggers`, `compatible(with:)`, `entry(strength:) -> LoRAEntry`.
+An import takes the file's name; `trainerName` is the name written in the file's metadata when it
+differs, and `triggers` the trigger words when the file states them beyond doubt (the app shows both
+in a tooltip) — `nil` and empty for a LoRA imported before.
 
 | identifier | name | license | denoiser | VAE |
 |---|---|---|---|---|

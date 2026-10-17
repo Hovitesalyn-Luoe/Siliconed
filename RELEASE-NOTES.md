@@ -37,6 +37,13 @@ English · [Français](RELEASE-NOTES.fr.md)
   mandatory when the model is deployed. The app shows the license before the first byte is
   downloaded.
 
+### Also
+
+- **A LoRA takes its file's name**: an imported LoRA is called by its file, no longer by the name
+  written in its metadata (« my first lora v1 copy copy » becomes « OiledSkinKrea V1 »). That name, and
+  the trigger words when the file states them beyond doubt, show in a tooltip on the LoRA, in the
+  rack and in the Models window. LoRAs imported before keep their name.
+
 ## 0.11
 
 - **Enlarge ×4** (the button under the image, its context menu, the Image menu): macOS's own

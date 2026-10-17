@@ -81,6 +81,64 @@ package enum ForgeLoRA {
         return h.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    // MARK: - What the trainer says of it
+
+    /// **The name the trainer wrote**: `modelspec.title` (the SAI model spec's title, kohya), else
+    /// `name` (ai-toolkit). `nil` when empty or a checkpoint counter — Civitai's trainer writes
+    /// `epoch_1` into every epoch's file. Shown, never used to name the LoRA.
+    package static func trainerName(_ metadata: [String: String]) -> String? {
+        for key in ["modelspec.title", "name"] {
+            if let v = metadata[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty,
+               v.firstMatch(#"^epoch_\d+$"#) == nil { return v }
+        }
+        return nil
+    }
+
+    /// The most tags a dataset folder may hold for them to be read as its trigger.
+    static let triggerTagLimit = 3
+
+    /// **The trigger words — only what cannot be anything else.** Wrong ones would send the user
+    /// typing words the LoRA never learned; none sends them to the LoRA's page.
+    ///
+    /// 1. An explicit field, first found: `modelspec.trigger_phrase` (SAI model spec),
+    ///    `trigger_words`, `trigger_word`, `activation text` (some trainers and converters).
+    ///    A JSON list of strings, else one phrase as written.
+    /// 2. Failing that, `ss_tag_frequency`: kohya's captions counted per dataset folder,
+    ///    `{folder: {tag: count}}`. A folder whose captions hold at most `triggerTagLimit` distinct
+    ///    tags trained on those words alone: they are its trigger. ai-toolkit writes exactly that,
+    ///    `{"1_<trigger>": {"<trigger>": 1}}`, and kohya a caption-less DreamBooth folder
+    ///    `{"10_sks woman": {"sks woman": n}}`. A folder with more tags is a captioned dataset:
+    ///    a trigger, if any, is one tag among the descriptive ones and nothing in the counts singles
+    ///    it out (the most frequent is as often `1girl`), so it gives nothing. The folder's name is
+    ///    not read: `<repeats>_<trigger>` is one convention, a dataset config names folders freely
+    ///    (`Cleaned`). An empty tag is no trigger — ai-toolkit without one writes `{"1_": {"": 1}}`.
+    ///
+    /// Order: explicit fields as written; tags by folder name, then by falling count. No duplicates.
+    package static func triggers(_ metadata: [String: String]) -> [String] {
+        func clean(_ words: [String]) -> [String] {
+            var seen = Set<String>()
+            return words.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && seen.insert($0).inserted }
+        }
+        for key in ["modelspec.trigger_phrase", "trigger_words", "trigger_word", "activation text"] {
+            guard let v = metadata[key] else { continue }
+            let list = (try? JSONSerialization.jsonObject(with: Data(v.utf8))) as? [String]
+            let words = clean(list ?? [v])
+            if !words.isEmpty { return words }
+        }
+        guard let raw = metadata["ss_tag_frequency"],
+              let folders = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any] else { return [] }
+        var words: [String] = []
+        for folder in folders.keys.sorted() {
+            guard let tags = folders[folder] as? [String: Any] else { continue }
+            let named = tags.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            guard named.count <= triggerTagLimit else { continue }
+            let count = { (t: String) in (named[t] as? NSNumber)?.intValue ?? 0 }
+            words += named.keys.sorted { (count($0), $1) > (count($1), $0) }
+        }
+        return clean(words)
+    }
+
     static let prefixes = ["base_model.model.", "model.diffusion_model.", "diffusion_model.", "transformer.", "unet."]
 
     struct Pair {
@@ -457,12 +515,15 @@ package enum ForgeLoRA {
         }
         if permuted > 0 { notes.append("RoPE permutation: \(permuted) `up` (attn1.to_q, attn1.to_k)") }
 
-        let raw = metadata["name"].flatMap { $0.firstMatch(#"^epoch_\d+$"#) == nil ? $0 : nil }
-            ?? ((file as NSString).lastPathComponent as NSString).deletingPathExtension
+        // Named after its file, which the user chose and sees in the Finder; what the trainer wrote
+        // is often a leftover of its interface (`my_first_lora_v1_copy_copy_copy_copy`) and goes
+        // to `trainer_name`, shown in a tooltip.
+        let raw = ((file as NSString).lastPathComponent as NSString).deletingPathExtension
+        let trainer = trainerName(metadata), triggerWords = triggers(metadata)
         let sortedRanks = ranks.sorted()
         let shortEntries = metadata.filter { $0.value.count < 200 }.sorted { $0.key < $1.key }
         let fileSHA256 = try sha256(file: file)
-        let tally = try MapWriter.write(to: path, tensors: tensors, header: { _ in [
+        let tally = try MapWriter.write(to: path, tensors: tensors, header: { _ in var h: [OrderedJSON.Pair] = [
             .init("format", 1), .init("kind", "lora"), .init("page", .integer(MapWriter.page)),
             .init("map_dtype", "bfloat16"), .init("linear_weights_transposed", true),
             // on-disk key, kept for existing maps/profiles (.silicon header: cible, modele, echelle, source, fichier, tenseurs…)
@@ -482,8 +543,13 @@ package enum ForgeLoRA {
                                     .init("sha256", .string(fileSHA256)),
                                     .init("tenseurs", .integer(source.names.count)),
                                     .init("metadata", .object(shortEntries.map { .init($0.key, .string($0.value)) }))])),
-            .init("order", .list(tensors.map { .string($0.name) })),
-        ] })
+        ]
+            // Optional: a map forged before them has neither, and shows no tooltip.
+            if let trainer { h.append(.init("trainer_name", .string(trainer))) }
+            if !triggerWords.isEmpty { h.append(.init("triggers", .list(triggerWords.map { .string($0) }))) }
+            h.append(.init("order", .list(tensors.map { .string($0.name) })))
+            return h
+        })
         return Report(tally: tally, family: family, name: raw, modules: modules.count, ranks: sortedRanks, notes: notes)
     }
 }

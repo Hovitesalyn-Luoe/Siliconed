@@ -53,6 +53,33 @@ final class ForgeTests: XCTestCase {
         XCTAssertNil(Recipes.family(fromNames: ["encoder.down.0.weight"]))
     }
 
+    /// The trainer's name and the trigger words, from the metadata of three published LoRAs
+    /// (their headers, copied): ai-toolkit with a trigger, Civitai's trainer without one, kohya
+    /// with a captioned dataset.
+    func testWhatALoRASaysOfItself() {
+        let oiled = ["name": "my_first_lora_v1_copy_copy_copy_copy", "ss_output_name": "my_first_lora_v1_copy_copy_copy_copy",
+                     "ss_tag_frequency": #"{"1_OiledSkin": {"OiledSkin": 1}}"#]
+        XCTAssertEqual(ForgeLoRA.trainerName(oiled), "my_first_lora_v1_copy_copy_copy_copy")
+        XCTAssertEqual(ForgeLoRA.triggers(oiled), ["OiledSkin"])
+
+        let incaseKrea = ["name": "epoch_1", "modelspec.title": "", "ss_output_name": "training_1356263-20260704185321882",
+                          "ss_tag_frequency": #"{"1_": {"": 1}}"#]
+        XCTAssertNil(ForgeLoRA.trainerName(incaseKrea), "an empty title and an epoch counter are no names")
+        XCTAssertEqual(ForgeLoRA.triggers(incaseKrea), [], "ai-toolkit without a trigger")
+
+        let incaseAnima = ["modelspec.title": "InCase", "ss_output_name": "InCase",
+                           "ss_tag_frequency": #"{"Cleaned": {"interracial": 5, "1girl": 51, "hetero": 39, "dark_skin": 41}}"#]
+        XCTAssertEqual(ForgeLoRA.trainerName(incaseAnima), "InCase")
+        XCTAssertEqual(ForgeLoRA.triggers(incaseAnima), [], "a captioned folder: no tag is singled out")
+
+        XCTAssertEqual(ForgeLoRA.triggers(["ss_tag_frequency": #"{"10_sks woman": {"sks woman": 20}, "1_x": {"b": 1, "a": 1, "c": 3}}"#]),
+                       ["sks woman", "c", "a", "b"], "caption-less folders: folder order, then falling count")
+        XCTAssertEqual(ForgeLoRA.triggers(["modelspec.trigger_phrase": " kelvoran style ", "ss_tag_frequency": #"{"1_x": {"x": 1}}"#]),
+                       ["kelvoran style"], "an explicit field wins")
+        XCTAssertEqual(ForgeLoRA.triggers(["trigger_words": #"["a", "b", "a", ""]"#]), ["a", "b"])
+        XCTAssertEqual(ForgeLoRA.triggers(["ss_tag_frequency": "not json"]), [])
+    }
+
     func testTheLoRAKeys() throws {
         XCTAssertEqual(try ForgeLoRA.parseKey("diffusion_model.layers.0.attention.to_q.lora_A.default.weight")?.module,
                        "layers.0.attention.to_q")

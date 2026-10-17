@@ -11390,6 +11390,34 @@
         }
       }
     },
+    "Named “%@” in its metadata" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In den Metadaten „%@“ genannt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Llamada «%@» en sus metadatos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nommée « %@ » dans ses métadonnées"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiamata «%@» nei suoi metadati"
+          }
+        }
+      }
+    },
     "Needs a Mac with %@ GB of memory." : {
       "localizations" : {
         "de" : {
@@ -19915,6 +19943,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Totale"
+          }
+        }
+      }
+    },
+    "Trigger words: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trigger-Wörter: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Palabras de activación: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mots déclencheurs : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parole di attivazione: %@"
           }
         }
       }

@@ -355,6 +355,7 @@ struct ModelManagement: View {
                 Text("for \(Family(rawValue: l.target)?.name ?? l.target) · rank \(l.rank)")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            .help(l.fromItsMetadata.joined(separator: "\n"))
             Spacer()
             Text(Figures.disk(bytes)).monospacedDigit().foregroundStyle(.secondary)
             Button { removal = .lora(l) } label: { Image(systemName: "trash") }

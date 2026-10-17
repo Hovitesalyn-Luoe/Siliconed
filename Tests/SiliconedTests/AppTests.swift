@@ -100,6 +100,24 @@ final class AppTests: XCTestCase {
         XCTAssertNil(LoRACard(header: header("anima", kind: "z-image-turbo-dit"), path: "x"))
     }
 
+    /// The trainer's name is kept only when it is not the one shown; a map forged before the keys
+    /// has neither, and is read all the same.
+    func testALoRACardReadsWhatTheFileSaysOfItself() throws {
+        var h = header("krea2", name: "OiledSkinKrea_V1")
+        h["trainer_name"] = "my_first_lora_v1_copy_copy_copy_copy"; h["triggers"] = ["OiledSkin"]
+        let f = try XCTUnwrap(LoRACard(header: h, path: "/s/oiled.lora.silicon"))
+        XCTAssertEqual(f.name, "OiledSkinKrea V1")
+        XCTAssertEqual(f.trainerName, "my_first_lora_v1_copy_copy_copy_copy")
+        XCTAssertEqual(f.triggers, ["OiledSkin"])
+
+        var same = header("anima", name: "inCase"); same["trainer_name"] = "InCase"
+        XCTAssertNil(try XCTUnwrap(LoRACard(header: same, path: "x")).trainerName, "the same name, case aside")
+
+        let old = try XCTUnwrap(LoRACard(header: header("anima"), path: "x"))
+        XCTAssertNil(old.trainerName)
+        XCTAssertEqual(old.triggers, [])
+    }
+
     func testTheFilterKeepsOnlyCompatibleLoRAs() {
         let cards = [("krea2", "Incase_Krea_v2"), ("anima", "Niji"), ("z-image", "PopArt"), ("anima", "Autre")]
             .compactMap { LoRACard(header: header($0.0, name: $0.1), path: "/s/\($0.1)") }
