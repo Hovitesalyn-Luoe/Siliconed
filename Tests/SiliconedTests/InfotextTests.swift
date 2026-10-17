@@ -25,13 +25,13 @@ final class InfotextTests: XCTestCase {
     func testATxt2ImgWithoutLoRA() {
         XCTAssertEqual(render().parameters(version: "0.8"), """
             woman posing in a library
-            Steps: 8, Sampler: Euler, Seed: 1303787694, Size: 3x2, Model: Z-Image Turbo, \
+            Steps: 8, Sampler: Euler, CFG scale: 1, Seed: 1303787694, Size: 3x2, Model: Z-Image Turbo, \
             Civitai resources: [{"type":"checkpoint","modelVersionId":2442439}], Version: Siliconed 0.8
             """)
         // Outside the app's bundle: no version to give. Qwen's page; a developer-mode solver by its A1111 name.
         XCTAssertEqual(render(model: "qwen-image-2.1", solver: .dpmpp2m, name: "Qwen-Image-2.1 Turbo").parameters(version: nil), """
             woman posing in a library
-            Steps: 8, Sampler: DPM++ 2M, Seed: 1303787694, Size: 3x2, Model: Qwen-Image-2.1 Turbo, \
+            Steps: 8, Sampler: DPM++ 2M, CFG scale: 1, Seed: 1303787694, Size: 3x2, Model: Qwen-Image-2.1 Turbo, \
             Civitai resources: [{"type":"checkpoint","modelVersionId":3400828}], Version: Siliconed
             """)
         // Anima: its publisher's page, the same for the three variants.
@@ -53,7 +53,7 @@ final class InfotextTests: XCTestCase {
                                  .init(name: "neg", sha256: sha)])
         XCTAssertEqual(r.parameters(version: "0.8"), """
             woman posing in a library <lora:popart01b-ce__zimgt__v2_:0.70> <lora:Niji_semi_realism_v5:1.00>
-            Steps: 8, Sampler: Euler, Seed: 1303787694, Size: 3x2, Model: Z-Image Turbo, \
+            Steps: 8, Sampler: Euler, CFG scale: 1, Seed: 1303787694, Size: 3x2, Model: Z-Image Turbo, \
             Lora hashes: "popart01b-ce__zimgt__v2_: \(sha), neg: \(sha)", \
             Civitai resources: [{"type":"checkpoint","modelVersionId":2442439}], Version: Siliconed 0.8
             """)
@@ -69,7 +69,7 @@ final class InfotextTests: XCTestCase {
         let r = render(strength: 0.6, solver: .unipc, imported: true, name: "Real: v2, \"pro\"")
         XCTAssertEqual(r.parameters(version: "0.8"), """
             woman posing in a library
-            Steps: 8, Sampler: UniPC, Seed: 1303787694, Size: 3x2, Model: "Real- v2, \\"pro\\"", \
+            Steps: 8, Sampler: UniPC, CFG scale: 1, Seed: 1303787694, Size: 3x2, Model: "Real- v2, \\"pro\\"", \
             Denoising strength: 0.60, Version: Siliconed 0.8
             """)
     }

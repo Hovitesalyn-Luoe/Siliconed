@@ -4,7 +4,7 @@ import Foundation
 /// reads from a PNG made off its site, written beside the app's own keys (`Engine.Render.metadata`).
 ///
 ///     woman posing in a library <lora:popart:0.70>                                   ← prompt + tags
-///     Steps: 8, Sampler: Euler, Seed: 1303787694, Size: 1152x896, Model: Z-Image Turbo,
+///     Steps: 8, Sampler: Euler, CFG scale: 1, Seed: 1303787694, Size: 1152x896, Model: Z-Image Turbo,
 ///       Lora hashes: "popart: 9f86d081…(64 hex)", Civitai resources: [{"type":"checkpoint",
 ///       "modelVersionId":2442439}], Version: Siliconed 0.8                           ← one line
 ///
@@ -34,7 +34,10 @@ import Foundation
 ///   - a value holding `,` `"` or a newline is JSON-quoted (A1111's `quote()`), or the pair
 ///     scanner splits it — but a quoted value that looks like `word: …` is read back as a nested
 ///     block (`KEY_VALUE_SHAPE` in `a1111-text.ts`): `Model: "Real: v2"` becomes `{Real: v2}`. A
-///     colon in a free value is written `-`.
+///     colon in a free value is written `-`;
+///   - **`CFG scale: 1` is always written**: the three offered families are distilled, run without
+///     guidance, and a reader who reuses the settings (Civitai's "Remix") otherwise starts from its
+///     own default, 3.5 or 7 — a scale that burns the image.
 ///
 /// No date anywhere: two identical renders of one version stay two identical files.
 package enum Infotext {
@@ -91,7 +94,7 @@ package enum Infotext {
         let named = loras.map { (name: name($0.name), lora: $0) }
         let tags = named.filter { $0.lora.strength >= 0 && $0.lora.strength.isFinite }
             .map { "<lora:\($0.name):\(String(format: "%.2f", $0.lora.strength))>" }
-        var details = ["Steps: \(steps)", "Sampler: \(sampler(solver))", "Seed: \(seed)",
+        var details = ["Steps: \(steps)", "Sampler: \(sampler(solver))", "CFG scale: 1", "Seed: \(seed)",
                        "Size: \(width)x\(height)", "Model: \(value(model))"]
         if let strength { details.append("Denoising strength: \(String(format: "%.2f", strength))") }
         let hashes = named.compactMap { n in n.lora.sha256.map { "\(n.name): \($0.lowercased())" } }

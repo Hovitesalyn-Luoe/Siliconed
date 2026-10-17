@@ -503,8 +503,8 @@ enum SilicontrolCommand {
 }
 
 /// **The Dock follows the render**: a bar under the icon while it runs, and the number of renders
-/// still waiting as a badge — a 2-minute render is followed from another app. When the queue empties
-/// with the app in the background, the icon bounces once.
+/// still waiting as a badge — a 2-minute render is followed from another app. The icon never bounces:
+/// the bar is enough, and the app sends no notification of any kind.
 @MainActor
 enum DockTile {
     private static var bar: NSProgressIndicator?
@@ -533,6 +533,5 @@ enum DockTile {
 
     static func finished() {
         show(fraction: nil, waiting: 0)
-        if !NSApp.isActive { NSApp.requestUserAttention(.informationalRequest) }
     }
 }
