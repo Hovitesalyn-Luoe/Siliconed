@@ -111,9 +111,35 @@ extension AppState {
         placeReference(entry)
     }
 
+    /// **⌘V outside a text field**: an image copied in Procreate, Photoshop, Preview or the Finder
+    /// goes where a drop on the Images box would — image or subject. `false` when the pasteboard holds
+    /// no image, so the key goes on to the menu.
+    func pasteImage() -> Bool {
+        let pasteboard = NSPasteboard.general
+        let files = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+            .filter { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }
+        // Pixels without a file: re-encoded as a PNG once, whatever came (TIFF from most apps).
+        let pixels: Data? = files.isEmpty ? pasteboard.data(forType: .png) ?? NSImage(pasteboard: pasteboard)
+            .flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }
+            .flatMap { try? PNG.data($0) } : nil
+        guard !files.isEmpty || pixels != nil else { return false }
+        guard editingPossible else {
+            flash(String(localized: "To start from an image, choose a model that edits"))
+            return true
+        }
+        if subjectsActive {
+            nameSubject(files.first.map { .file($0) } ?? .png(pixels!))
+        } else if let pixels {
+            addReference(png: pixels, name: String(localized: "pasted image"))
+        } else {
+            addReferences(files)
+        }
+        return true
+    }
+
     /// PNG bytes dropped on the Images box: a strip image is recognized by its bytes (its name, its
     /// curtain); any other PNG is taken as it is.
-    func addReference(png data: Data) {
+    func addReference(png data: Data, name: String = String(localized: "dropped image")) {
         guard editingPossible else { return }
         guard canAddReference else { flash(String(localized: "This model reads \(maxReferences) images at most")); return }
         if let refusal = nextReferenceRefusal() { flash(refusal); return }
@@ -123,7 +149,7 @@ extension AppState {
                   let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) {
             let vignette = FinishedImage.reduce(cg, side: 240) ?? cg
             references.append(ReferenceImage(source: .image(cg), vignette: NSImage(cgImage: vignette, size: .zero),
-                                             name: String(localized: "dropped image"), width: cg.width, height: cg.height))
+                                             name: name, width: cg.width, height: cg.height))
         } else {
             flash(String(localized: "This image can't be read"))
         }

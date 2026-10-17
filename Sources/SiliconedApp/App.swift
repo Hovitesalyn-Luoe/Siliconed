@@ -137,6 +137,8 @@ private struct AppCommands: Commands {
             Button("Reuse These Settings") { app.selectedEntry.map(app.restoreSettings) }
             Button("Edit This Image") { app.selectedEntry.map(app.placeReference) }
                 .disabled(!app.editingPossible)
+            Button("Enlarge ×4") { app.selectedEntry.map(app.enlarge) }
+                .disabled(app.selectedEntry.flatMap(app.enlargeRefusal) != nil || app.selectedEntry == nil)
             Divider()
             // No ⌘⌫: it deletes the line in the prompt field. ⌫ alone, outside the field, does it.
             Button(app.targets.count > 1 ? "Remove \(app.targets.count) Images from History" : "Remove from History") {
@@ -360,6 +362,11 @@ final class MainWindow: NSObject, NSWindowDelegate {
                 guard event.keyCode == 53, !SubjectCompletion.isOpen, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else { return event }
                 w.makeFirstResponder(nil)
                 return nil
+            }
+            // ⌘V by its character (AZERTY): an image on the pasteboard goes to the Images box.
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+               event.charactersIgnoringModifiers?.lowercased() == "v" {
+                return app.pasteImage() ? nil : event
             }
             guard !app.history.isEmpty else { return event }
             return key(event) ? nil : event

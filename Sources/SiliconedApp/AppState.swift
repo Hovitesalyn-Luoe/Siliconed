@@ -347,6 +347,11 @@ final class AppState {
     // ── What the remote control reads (`RemoteControl.swift`) ──
     private var lastJob = 0
     var lastImage = 0
+    /// **« Enlarge »** (`Enlarge.swift`): the image being enlarged, the model's download (0…1) while
+    /// macOS fetches it, and the seconds per input megapixel learned this session.
+    var enlarging: Entry.ID?
+    var enlargeDownload: Double?
+    var enlargeSpeed: Double?
     /// The session's finished jobs, their outcome and their images (even removed from the history
     /// since): `wait t3` afterwards still returns the answer.
     private(set) var completed: [Int: (job: Job, issue: Issue, images: [Int])] = [:]

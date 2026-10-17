@@ -312,6 +312,7 @@ private struct SceneView: View {
                         .disabled(!app.canVary(e))
                         .help("Variations: cousins of this image, same scene, slightly different — as many as the rack's Images")
                 }
+                EnlargeButton(app: app, entry: e)
                 if app.canCompareOriginal(e) {
                     Button { app.comparesOriginal.toggle() } label: {
                         Image(systemName: "square.lefthalf.filled")
@@ -887,6 +888,27 @@ private struct VariationButtons: View {
     }
 }
 
+/// **« Enlarge ×4 »** in the bar under the image: greyed with its reason when it cannot; while it
+/// works, a spinner — or the model's download, in percent.
+private struct EnlargeButton: View {
+    let app: AppState
+    let entry: Entry
+
+    var body: some View {
+        if app.enlarging == entry.id {
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.small)
+                if let p = app.enlargeDownload { Text(Figures.percent(Int(p * 100))).font(.caption).monospacedDigit() }
+            }
+            .help(app.enlargeDownload == nil ? "Enlarging…" : "macOS is downloading the enlargement model")
+        } else {
+            Button { app.enlarge(entry) } label: { Image(systemName: "arrow.up.left.and.down.right.magnifyingglass") }
+                .disabled(app.enlargeRefusal(entry) != nil)
+                .help(app.enlargeHelp(entry))
+        }
+    }
+}
+
 /// **Sending an image to be edited**: by the rack's model when it edits; otherwise by an installed model
 /// that does — chosen in the rack on the way.
 private struct EditButtons: View {
@@ -932,6 +954,10 @@ private struct MenuEntry: View {
             if entry.grid == nil, entry.sketch == nil {
                 Menu("Variations") { VariationButtons(app: app, entry: entry) }
                     .disabled(!app.canVary(entry))
+            }
+            if entry.grid == nil, entry.sketch == nil {
+                Button("Enlarge ×4") { app.enlarge(entry) }
+                    .disabled(app.enlargeRefusal(entry) != nil)
             }
             Button(entry.grid == nil ? "Reuse These Settings" : "Reuse This Grid") { app.restoreSettings(entry) }
             if entry.grid == nil { EditButtons(app: app, entry: entry) }

@@ -40,6 +40,7 @@ public final class Engine: Sendable {
     public struct Timings: Sendable {
         public var tokenizer = 0.0, encoder = 0.0, text = 0.0
         public var encoding = 0.0, denoising = 0.0, decoding = 0.0, total = 0.0
+        public init() {}
     }
 
     /// The footprints at the checkpoints. What is measured here cannot be deduced from any total:
@@ -50,6 +51,7 @@ public final class Engine: Sendable {
         /// The image encoder's peak, taken before it returns its memory; 0 without an image.
         public var encoding = 0
         public var denoising = 0, end = 0
+        public init() {}
     }
 
     /// An image and what it took to get it. **No file has been written.**

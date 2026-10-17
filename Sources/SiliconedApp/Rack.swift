@@ -618,8 +618,8 @@ private struct ImagesNode: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(refusal != nil).opacity(refusal == nil ? 1 : 0.35)
-                .help(app.references.isEmpty ? "The image to edit — or drop it here"
-                                             : "Add an image the prompt can draw from — or drop it here")
+                .help(app.references.isEmpty ? "The image to edit — or drop or paste it here (⌘V)"
+                                             : "Add an image the prompt can draw from — or drop or paste it here (⌘V)")
             }
             Spacer(minLength: 0)
         }

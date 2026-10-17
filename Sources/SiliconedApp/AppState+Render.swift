@@ -475,7 +475,8 @@ extension AppState {
     /// Whether « Variations » can take this image: an ordinary history image of an installed model,
     /// no installation running.
     func canVary(_ entry: Entry) -> Bool {
-        installBlocker == nil && entry.grid == nil && entry.sketch == nil && readySet.contains(entry.settings.identifier)
+        installBlocker == nil && entry.grid == nil && entry.sketch == nil && entry.enlarged == nil
+            && readySet.contains(entry.settings.identifier)
     }
 
     /// **« Variations »**: cousins of a history image — exactly its settings (model, prompt, LoRA,

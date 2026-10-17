@@ -150,6 +150,9 @@ struct Entry: Identifiable {
     var grid: GridInfo? = nil
     /// **A sketch** (an exploration's cell): the evaluations it stopped after. Never in the history.
     var sketch: Int? = nil
+    /// **An enlargement** (`Enlarge.swift`): its factor. Its settings stay the render's — what « Reuse
+    /// These Settings » and « Redo » bring back is the image it was made from.
+    var enlarged: Int? = nil
 
     var seconds: Double { timings.total }
     var name: String { "i\(ordinal)" }
@@ -179,6 +182,7 @@ struct Entry: Identifiable {
         return base + (settings.detail == .normal ? "" : " · " + settings.detail.label)
             + (settings.solver == .euler ? "" : " · " + settings.solver.label)
             + (settings.schedule == .official ? "" : " · " + String(localized: "ComfyUI schedule"))
+            + (enlarged.map { " · " + String(localized: "enlarged ×\(String($0))") } ?? "")
     }
 }
 

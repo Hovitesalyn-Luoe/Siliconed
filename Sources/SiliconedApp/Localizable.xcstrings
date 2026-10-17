@@ -2997,6 +2997,34 @@
         }
       }
     },
+    "A grid is not enlarged" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Raster wird nicht vergrößert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una cuadrícula no se amplía"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une grille ne s’agrandit pas"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una griglia non si ingrandisce"
+          }
+        }
+      }
+    },
     "A grid that varies the model can't take a LoRA: each LoRA is made for one model." : {
       "localizations" : {
         "de" : {
@@ -3731,30 +3759,30 @@
         }
       }
     },
-    "Add an image the prompt can draw from — or drop it here" : {
+    "Add an image the prompt can draw from — or drop or paste it here (⌘V)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ein Bild hinzufügen, aus dem der Prompt schöpfen kann – oder hier ablegen"
+            "value" : "Ein Bild hinzufügen, aus dem der Prompt schöpfen kann — oder hier ablegen oder einfügen (⌘V)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añadir una imagen de la que pueda partir el prompt — o soltarla aquí"
+            "value" : "Añadir una imagen de la que el prompt pueda tomar — o soltarla o pegarla aquí (⌘V)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajouter une image où le prompt peut puiser — ou la déposer ici"
+            "value" : "Ajouter une image où le prompt peut puiser — ou la déposer ou la coller ici (⌘V)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aggiungi un’immagine a cui il prompt può attingere — o trascinala qui"
+            "value" : "Aggiungi un’immagine da cui il prompt possa attingere — o trascinala o incollala qui (⌘V)"
           }
         }
       }
@@ -4063,6 +4091,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un motore d’immagine per Apple silicon, in Swift e Metal — fp32 da cima a fondo, verificato stadio per stadio rispetto al riferimento.\n\nLibreria: %@"
+          }
+        }
+      }
+    },
+    "An image is being enlarged" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Bild wird gerade vergrößert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se está ampliando una imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image est en cours d’agrandissement"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’immagine è in fase di ingrandimento"
           }
         }
       }
@@ -6615,6 +6671,34 @@
         }
       }
     },
+    "Download and Enlarge" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laden und vergrößern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descargar y ampliar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Télécharger et agrandir"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scarica e ingrandisci"
+          }
+        }
+      }
+    },
     "Downloaded at a pinned revision and verified (sha256), then forged without changing their precision. Installing takes a little more space while forging." : {
       "localizations" : {
         "de" : {
@@ -7357,6 +7441,208 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Codifica del prompt"
+          }
+        }
+      }
+    },
+    "Enlarge with macOS's super-resolution?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit der Superauflösung von macOS vergrößern?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Ampliar con la superresolución de macOS?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir avec la super-résolution de macOS ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingrandire con la super-risoluzione di macOS?"
+          }
+        }
+      }
+    },
+    "Enlarge ×4" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "×4 vergrößern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliar ×4"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir ×4"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingrandisci ×4"
+          }
+        }
+      }
+    },
+    "Enlarge ×4 with macOS's super-resolution: %@, about %@. The original stays." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "×4 vergrößern mit der Superauflösung von macOS: %@, etwa %@. Das Original bleibt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Enlarge ×4 with macOS's super-resolution: %1$@, about %2$@. The original stays."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliar ×4 con la superresolución de macOS: %@, unos %@. El original se queda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir ×4 avec la super-résolution de macOS : %@, environ %@. L’original reste."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingrandisci ×4 con la super-risoluzione di macOS: %@, circa %@. L’originale resta."
+          }
+        }
+      }
+    },
+    "Enlarge ×4 with macOS's super-resolution: %@. The original stays." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "×4 vergrößern mit der Superauflösung von macOS: %@. Das Original bleibt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliar ×4 con la superresolución de macOS: %@. El original se queda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir ×4 avec la super-résolution de macOS : %@. L’original reste."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingrandisci ×4 con la super-risoluzione di macOS: %@. L’originale resta."
+          }
+        }
+      }
+    },
+    "Enlarging needs macOS 26 or later" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vergrößern erfordert macOS 26 oder neuer"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliar requiere macOS 26 o posterior"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir demande macOS 26 ou plus récent"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’ingrandimento richiede macOS 26 o successivo"
+          }
+        }
+      }
+    },
+    "Enlarging waits for the queue to finish" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Vergrößern wartet, bis die Warteschlange fertig ist"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La ampliación espera a que termine la cola"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’agrandissement attend la fin de la file"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’ingrandimento attende che la coda finisca"
+          }
+        }
+      }
+    },
+    "Enlarging…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird vergrößert …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ampliando…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandissement…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingrandimento…"
           }
         }
       }
@@ -14800,6 +15086,34 @@
         }
       }
     },
+    "Siliconed enlarges ×4 with a model made by Apple: it sees only the image — no prompt — and sharpens edges and textures without adding anything. macOS downloads it once from Apple and keeps it; it is not in your models folder." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed vergrößert ×4 mit einem Modell von Apple: Es sieht nur das Bild — keinen Prompt — und schärft Kanten und Texturen, ohne etwas hinzuzufügen. macOS lädt es einmal von Apple und behält es; es liegt nicht in Ihrem Modellordner."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed amplía ×4 con un modelo hecho por Apple: solo ve la imagen — sin prompt — y afina bordes y texturas sin añadir nada. macOS lo descarga una vez de Apple y lo conserva; no está en tu carpeta de modelos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed agrandit ×4 avec un modèle fait par Apple : il ne voit que l’image — aucun prompt — et affine bords et textures sans rien ajouter. macOS le télécharge une fois chez Apple et le garde ; il n’est pas dans votre dossier de modèles."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed ingrandisce ×4 con un modello creato da Apple: vede solo l’immagine — nessun prompt — e affina bordi e texture senza aggiungere nulla. macOS lo scarica una volta da Apple e lo conserva; non è nella tua cartella dei modelli."
+          }
+        }
+      }
+    },
     "Siliconed is up to date." : {
       "localizations" : {
         "de" : {
@@ -16673,6 +16987,34 @@
         }
       }
     },
+    "The enlargement model could not be downloaded" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Vergrößerungsmodell konnte nicht geladen werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo descargar el modelo de ampliación"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle d’agrandissement n’a pas pu être téléchargé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile scaricare il modello di ingrandimento"
+          }
+        }
+      }
+    },
     "The exploration doesn't cite named subjects yet." : {
       "localizations" : {
         "de" : {
@@ -17037,30 +17379,30 @@
         }
       }
     },
-    "The image to edit — or drop it here" : {
+    "The image to edit — or drop or paste it here (⌘V)" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das zu bearbeitende Bild – oder hier ablegen"
+            "value" : "Das zu bearbeitende Bild — oder hier ablegen oder einfügen (⌘V)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La imagen que editar — o suéltala aquí"
+            "value" : "La imagen que editar — o suéltala o pégala aquí (⌘V)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’image à éditer — ou déposez-la ici"
+            "value" : "L’image à éditer — ou la déposer ou la coller ici (⌘V)"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’immagine da modificare — o trascinala qui"
+            "value" : "L’immagine da modificare — o trascinala o incollala qui (⌘V)"
           }
         }
       }
@@ -18747,6 +19089,62 @@
         }
       }
     },
+    "This image could not be enlarged" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild konnte nicht vergrößert werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo ampliar esta imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image n’a pas pu être agrandie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile ingrandire questa immagine"
+          }
+        }
+      }
+    },
+    "This image is already enlarged" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild ist bereits vergrößert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta imagen ya está ampliada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est déjà agrandie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa immagine è già ingrandita"
+          }
+        }
+      }
+    },
     "This model does not sketch: its cells are finished images. The step count is the rack's (a steps axis overrides it)" : {
       "localizations" : {
         "de" : {
@@ -19175,6 +19573,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Per installarlo tu stesso, incolla questo in un terminale:"
+          }
+        }
+      }
+    },
+    "To start from an image, choose a model that edits" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um von einem Bild auszugehen, wählen Sie ein Modell, das bearbeitet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para partir de una imagen, elige un modelo que edite"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour partir d’une image, choisissez un modèle qui édite"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per partire da un’immagine, scegli un modello che modifica"
           }
         }
       }
@@ -21301,6 +21727,34 @@
         }
       }
     },
+    "enlarged ×%@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vergrößert ×%@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ampliada ×%@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "agrandie ×%@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ingrandita ×%@"
+          }
+        }
+      }
+    },
     "expected end" : {
       "localizations" : {
         "de" : {
@@ -21945,6 +22399,34 @@
         }
       }
     },
+    "macOS is downloading the enlargement model" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS lädt das Vergrößerungsmodell"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS está descargando el modelo de ampliación"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS télécharge le modèle d’agrandissement"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS sta scaricando il modello di ingrandimento"
+          }
+        }
+      }
+    },
     "matrix products in fp16 and bf16" : {
       "localizations" : {
         "de" : {
@@ -22585,6 +23067,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "al massimo una versione: --standard, --compact o --light"
+          }
+        }
+      }
+    },
+    "pasted image" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "eingefügtes Bild"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "imagen pegada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "image collée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "immagine incollata"
           }
         }
       }
