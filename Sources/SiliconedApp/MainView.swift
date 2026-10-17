@@ -391,7 +391,9 @@ private struct Comparison: View {
 
     var body: some View {
         let items = app.compared
-        let columns = items.count == 4 ? 2 : items.count
+        // Empty while the marked images are decoded (`loadCompared`, off the main thread — a 4096²
+        // enlargement takes a while): a stride by 0 would trap.
+        let columns = max(1, items.count == 4 ? 2 : items.count)
         Grid(horizontalSpacing: 14, verticalSpacing: 14) {
             ForEach(Array(stride(from: 0, to: items.count, by: columns)), id: \.self) { start in
                 GridRow {
