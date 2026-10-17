@@ -59,6 +59,12 @@ number the command passes. A variation of a variation appends to the chain, so i
 image. Refused on a grid's sheet, a sketch, or a model that is not ready (`model`). Each image's
 `variation` lists its variation seeds in order; `silicontrol help vary` has the answer.
 
+**Enlarging is the menu's too.** `silicontrol enlarge i7 [--download]` and « Enlarge ×4 » both call
+`AppState.enlarged`: macOS's super-resolution (VideoToolbox, macOS 26), no prompt, outside the
+queue — refused while a render runs —, answered with the new image once it is in the history.
+Apple's model is downloaded by macOS only with `--download` (else `download_required`);
+`silicontrol help enlarge` has the rest.
+
 ## The command
 
 `silicontrol` ships inside the app, at `Siliconed.app/Contents/Helpers/silicontrol` (target `Silicontrol`,

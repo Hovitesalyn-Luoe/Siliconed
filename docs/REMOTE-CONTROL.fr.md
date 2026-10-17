@@ -66,6 +66,12 @@ image. Refusé sur la planche d'une grille, une esquisse, ou un modèle qui n'es
 Le `variation` de chaque image donne ses graines de variation dans l'ordre ; la réponse est dans
 `silicontrol help vary`.
 
+**L'agrandissement aussi est celui du menu.** `silicontrol enlarge i7 [--download]` et « Agrandir ×4 »
+appellent tous deux `AppState.enlarged` : la super-résolution de macOS (VideoToolbox, macOS 26),
+sans prompt, hors de la file — refusé pendant un rendu —, avec la nouvelle image en réponse une
+fois dans l'historique. Le modèle d'Apple n'est téléchargé par macOS qu'avec `--download` (sinon
+`download_required`) ; le reste est dans `silicontrol help enlarge`.
+
 ## La commande
 
 `silicontrol` est livrée dans l'app, `Siliconed.app/Contents/Helpers/silicontrol` (cible `Silicontrol`,

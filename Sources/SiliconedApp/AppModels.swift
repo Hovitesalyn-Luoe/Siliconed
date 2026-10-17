@@ -153,6 +153,9 @@ struct Entry: Identifiable {
     /// **An enlargement** (`Enlarge.swift`): its factor. Its settings stay the render's — what « Reuse
     /// These Settings » and « Redo » bring back is the image it was made from.
     var enlarged: Int? = nil
+    /// The image it was enlarged from, as its PNG — what the curtain lays under it, even once that
+    /// image has left the history.
+    var enlargedFrom: Data? = nil
 
     var seconds: Double { timings.total }
     var name: String { "i\(ordinal)" }

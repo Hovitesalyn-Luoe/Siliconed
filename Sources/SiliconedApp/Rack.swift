@@ -27,7 +27,7 @@
 // something happens**: at rest the boxes are quiet cards and the wires muted; during a render the box
 // of the stage at work wears the accent and the wire it reads brightens and widens; what is done keeps
 // a discreet check; where the engine refused, the box turns red. Under each box, what it costs: the
-// time learned on this Mac. The memory a render needs is the whole chain's: it is said once, in the
+// time it just took, set as soon as the stage ends — before, the one learned on this Mac. The memory a render needs is the whole chain's: it is said once, in the
 // summary under the rack (`Sidebar`), not under the DiT. Each stage's name stays the technical one —
 // it is what the illustrator will meet elsewhere —; hovering it says, in plain words, what it does.
 //
@@ -277,7 +277,7 @@ struct RackView: View {
                 Tag(text: Text("sees the images"), symbol: "eye")
                     .help("The encoder reads the edit's images with the prompt: the prompt can name them (image 1, image 2)")
             }
-            Cost(seconds: app.stageEstimate(.text))
+            Cost(app.stageCost(.text))
         }
     }
 
@@ -285,7 +285,7 @@ struct RackView: View {
         StageBox(title: "Image encoder", symbol: "photo", state: app.state(of: .image),
                  explanation: "Turns the images to edit into the compact form the DiT works in, the latent") {
             ModuleSlot(name: app.chain?.encoding?.name)
-            Cost(seconds: app.references.isEmpty && app.subjectImageCount == 0 ? nil : app.stageEstimate(.image))
+            Cost(app.references.isEmpty && app.subjectImageCount == 0 ? (nil, false) : app.stageCost(.image))
         }
     }
 
@@ -293,7 +293,7 @@ struct RackView: View {
         StageBox(title: "VAE decoder", symbol: "square.grid.3x3.square", state: app.state(of: .decoding),
                  explanation: "Turns the DiT's result, the latent, into pixels: the final image") {
             ModuleSlot(name: app.chain?.decoding.name)
-            Cost(seconds: app.stageEstimate(.decoding))
+            Cost(app.stageCost(.decoding))
         }
     }
 }
@@ -477,17 +477,21 @@ private struct Tag: View {
     }
 }
 
-/// The time a stage costs, learned on this Mac — or nothing yet.
+/// The time a stage costs: what it just took in the render on screen (no « ≈ »), or the estimate
+/// learned on this Mac — or nothing yet.
 private struct Cost: View {
     let seconds: Double?
+    let measured: Bool
+    init(_ cost: (seconds: Double?, measured: Bool)) { seconds = cost.seconds; measured = cost.measured }
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "clock").imageScale(.small)
-            Text(seconds.map { "≈ " + Figures.seconds($0) } ?? "—").monospacedDigit()
+            Text(seconds.map { (measured ? "" : "≈ ") + Figures.seconds($0) } ?? "—").monospacedDigit()
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-        .help("Learned on this Mac: the first render at this size, with this model, sets the estimate")
+        .help(measured ? "What this stage just took"
+                       : "Learned on this Mac: the first render at this size, with this model, sets the estimate")
     }
 }
 
@@ -686,7 +690,7 @@ private struct DiTBox: View {
             if app.state(of: .denoising) == .active, app.totalSteps > 0, app.currentJob?.settings.identifier == app.identifier {
                 progress
             } else {
-                Cost(seconds: app.stageEstimate(.denoising))
+                Cost(app.stageCost(.denoising))
             }
         }
     }

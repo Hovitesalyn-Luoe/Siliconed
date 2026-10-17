@@ -161,21 +161,15 @@ private struct Footer: View {
         let blocker = form ?? memory
         VStack(alignment: .leading, spacing: 10) {
             cost
-            Button { app.render() } label: {
-                Text(label).fontWeight(.semibold).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.extraLarge)
-            .disabled(blocker != nil)
-            .help(Text(verbatim: "⌘↩"))
-
             // **No `fixedSize(vertical:)` on a text of this footer** (nor in `ProblemView`): a refusal of
             // two lines held at its ideal height made the footer taller than the column: it left the
             // window and the rack scrolled to its end, nothing left to click (a `{` left open, a grid's
             // LoRA axis without strengths) — measured with the footer as a `safeAreaInset`, the same
             // in a `VStack`. Wrapping on its own, the text fits.
+            // What stops « Generate » is said above it, in the body's size: it is what to do next, read
+            // before the figures — the cost line above is caption-sized.
             if let reason = blocker {
-                Text(reason).font(.caption).foregroundStyle(.secondary)
+                Text(reason).font(.callout)
                 // A memory refusal is never a dead end: a size this Mac renders.
                 if let f = refusal?.smaller {
                     Button(String(localized: "Use \(String(f.width)) × \(String(f.height))")) { app.useFormat(f) }
@@ -183,8 +177,15 @@ private struct Footer: View {
                         .help("The largest of this model's sizes this Mac renders")
                 }
             } else if app.diagnosticRunning {
-                Text("The diagnostic is running: renders wait for it.").font(.caption).foregroundStyle(.secondary)
+                Text("The diagnostic is running: renders wait for it.").font(.callout)
             }
+            Button { app.render() } label: {
+                Text(label).fontWeight(.semibold).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.extraLarge)
+            .disabled(blocker != nil)
+            .help(Text(verbatim: "⌘↩"))
             if app.busy { queue }
             if let title = app.forgeInProgress {
                 VStack(alignment: .leading, spacing: 4) {

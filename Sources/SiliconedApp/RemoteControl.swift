@@ -92,6 +92,7 @@ final class RemoteControl {
             case "history": finish(c, try history(arguments))
             case "save": finish(c, try save(arguments, cwd: cwd))
             case "vary": finish(c, try vary(arguments))
+            case "enlarge": try enlarge(arguments, c)
             case "subjects": finish(c, try subjects(arguments, cwd: cwd))
             default:
                 throw Refusal("usage", String(localized: "unknown command: \"\(command)\""),
@@ -158,6 +159,7 @@ final class RemoteControl {
             o["empty_cells"] = g.empty
         }
         if let n = e.sketch { o["sketch"] = n }
+        if let n = e.enlarged { o["enlarged"] = n }
         if let path { o["path"] = path }
         return o
     }
@@ -1225,6 +1227,33 @@ final class RemoteControl {
                           help: "silicontrol wait, then retry")
         }
         return ["ok": true, "jobs": app.vary(e, amount, count: count).map { json($0) }]
+    }
+
+    /// `enlarge i7 [--download]`: « Enlarge ×4 », answered once the enlarged image is in the history.
+    private func enlarge(_ arguments: [String], _ c: Connection) throws {
+        guard (1...2).contains(arguments.count), arguments.count == 1 || arguments[1] == "--download" else {
+            throw Refusal("usage", "enlarge <i7> [--download]")
+        }
+        guard let e = image(arguments[0]) else {
+            throw Refusal("unknown_image", String(localized: "no image \"\(arguments[0])\" in the history"), help: "silicontrol history")
+        }
+        let download = arguments.count == 2
+        Task {
+            do {
+                let result = try await app.enlarged(e, download: download)
+                finish(c, ["ok": true, "image": json(result)])
+            } catch EnlargeFailure.refused(let sentence) {
+                finish(c, Response.failure("refused", sentence))
+            } catch EnlargeFailure.downloadRequired {
+                finish(c, Response.failure("download_required",
+                                           String(localized: "macOS does not have Apple's enlargement model yet"),
+                                           help: "silicontrol enlarge \(e.name) --download"))
+            } catch EnlargeFailure.download {
+                finish(c, Response.failure("download_failed", String(localized: "The enlargement model could not be downloaded")))
+            } catch {
+                finish(c, Response.failure("internal", String(localized: "This image could not be enlarged")))
+            }
+        }
     }
 
     // ── Tools ──

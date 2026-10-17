@@ -269,7 +269,8 @@ final class AppState {
     }
     /// Any image the model read can be the original — an edit's or a named subject's, framed as it was
     /// sent: « @ana as a western comic » keeps the picture's framing as an edit does.
-    func canCompareOriginal(_ e: Entry) -> Bool { e.grid == nil && !e.references.isEmpty }
+    /// An enlargement's original is the image it was made from, stretched to its size.
+    func canCompareOriginal(_ e: Entry) -> Bool { e.grid == nil && (!e.references.isEmpty || e.enlargedFrom != nil) }
     /// The thumbnails' height in the strip (the slider at its end); in memory, like the rest.
     var thumbnailSide: Double = 64
     /// Where a ⇧-run starts: the last image clicked without ⇧.
@@ -301,6 +302,9 @@ final class AppState {
     /// **Each stage of the last render, as the engine's events moved it** — the rack's lights, for the
     /// model of that render. Reset when a job starts.
     var stageStates: [Engine.Stage: StageState] = [:]
+    /// **What each finished stage of that render took**, set the moment it ends — the box shows it
+    /// instead of the estimate, without waiting for the whole render (`stageCost`).
+    var stageSeconds: [Engine.Stage: Double] = [:]
     /// The model the lights belong to: those of another model, chosen since, stay off.
     var stageModel: String?
     /// **The license the engine asked for** — the sheet that shows it (`LicenseSheet.swift`).
@@ -711,6 +715,13 @@ final class AppState {
             let reduced = min(plan.reduced, plan.evaluations)
             return Double(plan.evaluations - reduced) * v.full + Double(reduced) * (v.reducedAverage ?? v.full)
         }
+    }
+
+    /// **Under a box, its time**: what the stage just took when it is done in the render on screen;
+    /// otherwise the estimate learned on this Mac. `measured` says which.
+    func stageCost(_ stage: Engine.Stage) -> (seconds: Double?, measured: Bool) {
+        if state(of: stage) == .done, let s = stageSeconds[stage] { return (s, true) }
+        return (stageEstimate(stage), false)
     }
 
     /// The rack's light for a stage of the chosen model.

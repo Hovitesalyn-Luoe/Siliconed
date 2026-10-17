@@ -5635,6 +5635,34 @@
         }
       }
     },
+    "Compare with the original, merely stretched to this size, under a curtain" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit dem Original vergleichen, nur auf diese Größe gestreckt, unter einem Vorhang"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparar con el original, solo estirado a este tamaño, bajo una cortina"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comparer à l’original, simplement étiré à cette taille, sous un rideau"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confronta con l’originale, solo stirato a questa dimensione, sotto una tenda"
+          }
+        }
+      }
+    },
     "Compare with the original: the image edited, under a curtain" : {
       "localizations" : {
         "de" : {
@@ -14918,6 +14946,34 @@
         }
       }
     },
+    "Show the enlarged image alone (Esc)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das vergrößerte Bild allein zeigen (Esc)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar solo la imagen ampliada (Esc)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Montrer l’image agrandie seule (Échap)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra solo l’immagine ingrandita (Esc)"
+          }
+        }
+      }
+    },
     "Shows the license and the space it takes; nothing is downloaded before you accept" : {
       "localizations" : {
         "de" : {
@@ -20597,6 +20653,34 @@
         }
       }
     },
+    "What this stage just took" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was diese Stufe gerade gebraucht hat"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que esta etapa acaba de tardar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce que cet étage vient de prendre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quanto ha appena impiegato questa fase"
+          }
+        }
+      }
+    },
     "What varies from one column (X) or row (Y) to the next" : {
       "localizations" : {
         "de" : {
@@ -22395,6 +22479,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ometti il formato (l’output segue l’immagine 1)"
+          }
+        }
+      }
+    },
+    "macOS does not have Apple's enlargement model yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS hat das Vergrößerungsmodell von Apple noch nicht"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS aún no tiene el modelo de ampliación de Apple"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS n’a pas encore le modèle d’agrandissement d’Apple"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS non ha ancora il modello di ingrandimento di Apple"
           }
         }
       }

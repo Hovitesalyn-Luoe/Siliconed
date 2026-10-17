@@ -129,6 +129,31 @@ enum SuperResolution {
     }
 }
 
+extension SuperResolution {
+    /// The source image at the enlargement's size, drawn with Core Graphics' high interpolation — what
+    /// the curtain lays under the enlarged image: the same pixels, merely stretched.
+    static func stretched(_ png: Data, width: Int, height: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let c = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        c.interpolationQuality = .high
+        c.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return c.makeImage()
+    }
+}
+
+/// Why an enlargement did not happen — the remote control's refusal codes.
+enum EnlargeFailure: Error {
+    /// `enlargeRefusal`'s sentence.
+    case refused(String)
+    /// Apple's model is not on this Mac, and the download was not asked for.
+    case downloadRequired
+    case download
+    case failed
+}
+
 extension AppState {
     /// Why « Enlarge » cannot take this image now, in a sentence — `nil` when it can.
     func enlargeRefusal(_ entry: Entry) -> String? {
@@ -154,73 +179,70 @@ extension AppState {
         return String(localized: "Enlarge ×4 with macOS's super-resolution: \(size). The original stays.")
     }
 
-    /// **« Enlarge »**: the model there, the image is enlarged at once; missing, an alert offers to
-    /// download it — Apple's, kept by macOS —, then enlarges.
+    /// **« Enlarge »** from the app: the model there, the image is enlarged at once; missing, an alert
+    /// offers to download it — Apple's, kept by macOS —, then enlarges.
     func enlarge(_ entry: Entry) {
         guard enlargeRefusal(entry) == nil else { return }
-        switch SuperResolution.state(width: entry.width, height: entry.height) {
-        case .unavailable:
-            flash(String(localized: "Enlarging needs macOS 26 or later"))
-        case .ready:
-            runEnlargement(entry)
-        case .downloading:
-            flash(String(localized: "macOS is downloading the enlargement model"))
-        case .downloadRequired:
+        var download = false
+        if SuperResolution.state(width: entry.width, height: entry.height) == .downloadRequired {
             let alert = NSAlert()
             alert.messageText = String(localized: "Enlarge with macOS's super-resolution?")
             alert.informativeText = String(localized: "Siliconed enlarges ×4 with a model made by Apple: it sees only the image — no prompt — and sharpens edges and textures without adding anything. macOS downloads it once from Apple and keeps it; it is not in your models folder.")
             alert.addButton(withTitle: String(localized: "Download and Enlarge"))
             alert.addButton(withTitle: String(localized: "Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
-            enlarging = entry.id
-            enlargeDownload = 0
-            Task {
-                do {
-                    try await SuperResolution.download(width: entry.width, height: entry.height) { p in
-                        self.enlargeDownload = p
-                    }
-                    enlargeDownload = nil
-                    enlarging = nil
-                    runEnlargement(entry)
-                } catch {
-                    enlargeDownload = nil
-                    enlarging = nil
-                    flash(String(localized: "The enlargement model could not be downloaded"))
-                }
-            }
+            download = true
+        }
+        Task {
+            do { try await enlarged(entry, download: download) }
+            catch EnlargeFailure.refused(let sentence) { flash(sentence) }
+            catch EnlargeFailure.download { flash(String(localized: "The enlargement model could not be downloaded")) }
+            catch { flash(String(localized: "This image could not be enlarged")) }
         }
     }
 
-    private func runEnlargement(_ entry: Entry) {
+    /// **The enlargement itself**, for the app and `silicontrol enlarge`: downloads Apple's model if
+    /// `download` allows it, enlarges, and puts the result at the head of the history, shown.
+    @discardableResult
+    func enlarged(_ entry: Entry, download: Bool) async throws -> Entry {
+        if let refusal = enlargeRefusal(entry) { throw EnlargeFailure.refused(refusal) }
         enlarging = entry.id
-        let start = Date()
-        Task {
-            defer { enlarging = nil }
+        defer { enlarging = nil; enlargeDownload = nil }
+        switch SuperResolution.state(width: entry.width, height: entry.height) {
+        case .unavailable: throw EnlargeFailure.refused(String(localized: "Enlarging needs macOS 26 or later"))
+        case .ready: break
+        case .downloadRequired, .downloading:
+            guard download else { throw EnlargeFailure.downloadRequired }
+            enlargeDownload = 0
             do {
-                guard let image = try await SuperResolution.enlarge(entry.png).image else { throw SuperResolution.Failure.buffer }
-                let seconds = Date().timeIntervalSince(start)
-                var metadata = entry.metadata
-                metadata["enlarged"] = "\(SuperResolution.factor)x macOS super-resolution, from \(entry.width)x\(entry.height)"
-                let finished = try await Task.detached(priority: .userInitiated) { [metadata] in
-                    let png = try PNG.data(image, metadata: metadata)
-                    return (png, Decoded(FinishedImage.reduce(image, side: 240) ?? image))
-                }.value
-                enlargeSpeed = seconds / (Double(entry.width * entry.height) / 1_000_000)
-                var timings = Engine.Timings()
-                timings.total = seconds
-                lastImage += 1
-                let enlarged = Entry(ordinal: lastImage, job: entry.job, png: finished.0, vignette: finished.1.image ?? image,
-                                     width: image.width, height: image.height, seed: entry.seed, timings: timings,
-                                     footprints: Engine.Footprints(), evaluations: 0, settings: entry.settings,
-                                     metadata: metadata, enlarged: SuperResolution.factor)
-                history.insert(enlarged, at: 0)
-                selectedImage = (enlarged.id, image)
-                selection = enlarged.id
-                marked = []; anchor = enlarged.id
-                sessionSeconds += seconds
-            } catch {
-                flash(String(localized: "This image could not be enlarged"))
-            }
+                try await SuperResolution.download(width: entry.width, height: entry.height) { p in
+                    self.enlargeDownload = p
+                }
+            } catch { throw EnlargeFailure.download }
+            enlargeDownload = nil
         }
+        let start = Date()
+        guard let image = try? await SuperResolution.enlarge(entry.png).image else { throw EnlargeFailure.failed }
+        let seconds = Date().timeIntervalSince(start)
+        var metadata = entry.metadata
+        metadata["enlarged"] = "\(SuperResolution.factor)x macOS super-resolution, from \(entry.width)x\(entry.height)"
+        guard let finished = try? await Task.detached(priority: .userInitiated, operation: { [metadata] in
+            let png = try PNG.data(image, metadata: metadata)
+            return (png, Decoded(FinishedImage.reduce(image, side: 240) ?? image))
+        }).value else { throw EnlargeFailure.failed }
+        enlargeSpeed = seconds / (Double(entry.width * entry.height) / 1_000_000)
+        var timings = Engine.Timings()
+        timings.total = seconds
+        lastImage += 1
+        let result = Entry(ordinal: lastImage, job: entry.job, png: finished.0, vignette: finished.1.image ?? image,
+                           width: image.width, height: image.height, seed: entry.seed, timings: timings,
+                           footprints: Engine.Footprints(), evaluations: 0, settings: entry.settings,
+                           metadata: metadata, enlarged: SuperResolution.factor, enlargedFrom: entry.png)
+        history.insert(result, at: 0)
+        selectedImage = (result.id, image)
+        selection = result.id
+        marked = []; anchor = result.id
+        sessionSeconds += seconds
+        return result
     }
 }

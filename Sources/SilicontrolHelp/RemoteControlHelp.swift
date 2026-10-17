@@ -29,7 +29,7 @@ public enum RemoteControlHelp {
 
     /// The topics in reading order (`help all` follows it).
     static let order = ["contract", "open", "models", "install", "add", "grid", "edit", "wait", "status", "follow",
-                        "cancel", "clear", "history", "save", "vary", "subjects", "diagnose", "errors", "recipes"]
+                        "cancel", "clear", "history", "save", "vary", "enlarge", "subjects", "diagnose", "errors", "recipes"]
     static let aliases = ["examples": "recipes"]
 
     /// French when the user puts it before English. Not `Bundle.main.preferredLocalizations`: the app's
@@ -115,6 +115,7 @@ public enum RemoteControlHelp {
       history [N]                              the session's images (most recent first)
       save i7 [i8 …] DEST                      writes images (.png/.jpg file, or folder)
       vary i7 subtle|strong [--batch N]        variations of an image (same settings, same seed)
+      enlarge i7 [--download]                  the image ×4, by macOS's super-resolution → its image (i8)
       help [topic]                             this reference
 
     EDITING: silicontrol add --model qwen-image-2.1 --ref photo.png --ref dog.png "put the dog of image 2 next to her"
@@ -553,6 +554,23 @@ public enum RemoteControlHelp {
         FAILURES: usage, unknown_image, model, queue_full, busy (an installation is running).
         """,
 
+        "enlarge": """
+        silicontrol enlarge i7 [--download]
+
+        « Enlarge ×4 » on a history image, as in the app: macOS's super-resolution (VideoToolbox,
+        macOS 26), which sees the image and nothing else — no prompt, no denoising. 1024×1024 becomes
+        4096×4096 in a second or two; the image joins the history beside its original, which stays.
+        Its PNG keeps the original's metadata, plus "enlarged". It does not go through the queue: it
+        is refused while a render runs, and answers once done (no wait).
+        The model is Apple's, kept by macOS: missing, the command refuses (download_required) unless
+        --download lets macOS fetch it first. An image already enlarged, or wider than 1920, is refused.
+
+        Answer: {"ok": true, "image": {"image": "i8", "width": 4096, "height": 4096, "enlarged": 4, …}}
+        Then: silicontrol save i8 big.png
+        FAILURES: usage, unknown_image, refused (macOS before 26, a grid, already enlarged, a render
+          running), download_required, download_failed, internal.
+        """,
+
         "subjects": """
         NAMED SUBJECTS (experimental) — silicontrol subjects [add … | remove NAME]
 
@@ -752,6 +770,7 @@ public enum RemoteControlHelp {
       history [N]                              les images de la session (la plus récente d'abord)
       save i7 [i8 …] DEST                      écrit des images (fichier .png/.jpg, ou dossier)
       vary i7 subtle|strong [--batch N]        variations d'une image (mêmes réglages, même graine)
+      enlarge i7 [--download]                  l'image ×4, par la super-résolution de macOS → son image (i8)
       help [sujet]                             cette référence
 
     ÉDITER : silicontrol add --model qwen-image-2.1 --ref photo.png --ref chien.png "put the dog of image 2 next to her"
@@ -1195,6 +1214,24 @@ public enum RemoteControlHelp {
         Réponse : {"ok": true, "jobs": [{"job": "t5", "seeds": [42], "variation": [{"seed": 81…, "strength": 0.1}], …}, …]}
         Puis : silicontrol wait t5
         ÉCHECS : usage, unknown_image, model, queue_full, busy (une installation tourne).
+        """,
+
+        "enlarge": """
+        silicontrol enlarge i7 [--download]
+
+        « Agrandir ×4 » sur une image de l'historique, comme dans l'app : la super-résolution de macOS
+        (VideoToolbox, macOS 26), qui ne voit que l'image — ni prompt, ni débruitage. 1024×1024 devient
+        4096×4096 en une ou deux secondes ; l'image rejoint l'historique à côté de son original, qui
+        reste. Son PNG garde les métadonnées de l'original, plus "enlarged". Elle ne passe pas par la
+        file : refusée pendant un rendu, elle répond une fois faite (pas de wait).
+        Le modèle est celui d'Apple, gardé par macOS : absent, la commande refuse (download_required)
+        sauf si --download laisse macOS le chercher d'abord. Une image déjà agrandie, ou plus large que
+        1920, est refusée.
+
+        Réponse : {"ok": true, "image": {"image": "i8", "width": 4096, "height": 4096, "enlarged": 4, …}}
+        Puis : silicontrol save i8 grande.png
+        ÉCHECS : usage, unknown_image, refused (macOS avant 26, une grille, déjà agrandie, un rendu en
+          cours), download_required, download_failed, internal.
         """,
 
         "subjects": """

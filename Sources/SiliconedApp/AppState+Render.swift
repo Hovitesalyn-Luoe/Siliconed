@@ -226,7 +226,7 @@ extension AppState {
         let job = file.removeFirst()
         currentJob = job
         problem = nil; fraction = 0; estimatedRemaining = nil; stage = nil; preview = nil
-        stageStates = [:]; stageModel = job.settings.identifier
+        stageStates = [:]; stageSeconds = [:]; stageModel = job.settings.identifier
         journal = []   // the warnings shown are this render's, not the last one that had any
         currentStep = 0; totalSteps = 0; batchImage = 0; batchSize = job.seeds.count
         measurements.beginJob(job)
@@ -318,10 +318,20 @@ extension AppState {
                 case .stage(let e, let image):
                     // The stage that was working is done; this one lights up.
                     if let previous = stage, stageStates[previous] == .active { stageStates[previous] = .done }
+                    // The denoising ends where the decoding begins: its steps, for this image.
+                    if e == .decoding, batchImage < measurements.stepSeconds.count {
+                        stageSeconds[.denoising] = measurements.stepSeconds[batchImage].reduce(0, +)
+                    }
                     stageStates[e] = .active
                     stage = e
                     batchImage = image
                     signal(.stage(job, e, image: image))
+                case let .text(_, tokenizer, encoder, _):
+                    stageSeconds[.text] = tokenizer + encoder
+                case .encoding(let s):
+                    stageSeconds[.image] = s
+                case .decoding(let s):
+                    stageSeconds[.decoding] = s
                 case let .step(image, index, total, _, seconds, _, _):
                     batchImage = image; currentStep = index; totalSteps = total
                     signal(.step(job, image: image, index: index, total: total, seconds: seconds))

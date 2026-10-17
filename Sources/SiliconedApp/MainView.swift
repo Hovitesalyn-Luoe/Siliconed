@@ -318,8 +318,9 @@ private struct SceneView: View {
                         Image(systemName: "square.lefthalf.filled")
                             .foregroundStyle(app.comparesOriginal ? Color.accentColor : .primary)
                     }
-                    .help(app.comparesOriginal ? "Show the edited image alone (Esc)"
-                                               : "Compare with the original: the image edited, under a curtain")
+                    .help(app.comparesOriginal ? (e.enlarged == nil ? "Show the edited image alone (Esc)" : "Show the enlarged image alone (Esc)")
+                                               : e.enlarged == nil ? "Compare with the original: the image edited, under a curtain"
+                                               : "Compare with the original, merely stretched to this size, under a curtain")
                 }
                 Button { details.toggle() } label: { Image(systemName: "info.circle") }
                     .help("Image details")

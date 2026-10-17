@@ -50,10 +50,11 @@ extension AppState {
         originalLoad?.cancel()
         guard comparesOriginal, let e = selectedEntry, canCompareOriginal(e) else { original = nil; return }
         guard original?.id != e.id else { return }
-        let id = e.id, reference = e.references[0], width = e.width, height = e.height
+        let id = e.id, reference = e.references.first, source = e.enlargedFrom, width = e.width, height = e.height
         originalLoad = Task { [weak self] in
             let image = await Task.detached(priority: .userInitiated) {
-                Decoded(reference.displayed(width: width, height: height))
+                Decoded(source.flatMap { SuperResolution.stretched($0, width: width, height: height) }
+                        ?? reference?.displayed(width: width, height: height))
             }.value.image
             guard let self, !Task.isCancelled, self.selectedEntry?.id == id, self.comparesOriginal else { return }
             self.original = image.map { (id, $0) }
