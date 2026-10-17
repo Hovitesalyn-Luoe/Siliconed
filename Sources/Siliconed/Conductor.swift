@@ -141,6 +141,16 @@ package final class Conductor: @unchecked Sendable {
     /// The FLOPs passed through the cut, and the wall-clock time they cost.
     package private(set) var coFLOP = 0.0
     package private(set) var coSeconds = 0.0
+    /// The same, **per shape** (`k×n`): a total hides which shape makes which engine wait — a frozen
+    /// `T` fits the shapes it was measured on, not every model's.
+    package private(set) var perShape: [String: ShapeRecord] = [:]
+    package struct ShapeRecord {
+        package var calls = 0
+        package var wall = 0.0, idleGPU = 0.0, idleAMX = 0.0, flop = 0.0
+        package init(calls: Int = 0, wall: Double = 0, idleGPU: Double = 0, idleAMX: Double = 0, flop: Double = 0) {
+            (self.calls, self.wall, self.idleGPU, self.idleAMX, self.flop) = (calls, wall, idleGPU, idleAMX, flop)
+        }
+    }
 
     /// **Is the cut servo-controlled?** True by default, and it is the speed path: `T` follows the
     /// thermal drift, which was recorded at 13.2 % over four renders.
@@ -325,6 +335,11 @@ package final class Conductor: @unchecked Sendable {
         rendezvous += 2
         coFLOP += 2.0 * Double(m) * Double(k) * Double(n)
         coSeconds += wall
+        perShape[key, default: ShapeRecord()].calls += 1
+        perShape[key]!.wall += wall
+        perShape[key]!.idleGPU += max(0, wall - gpuWall)
+        perShape[key]!.idleAMX += max(0, wall - amxWall)
+        perShape[key]!.flop += 2.0 * Double(m) * Double(k) * Double(n)
 
         // ── the servo-control ───────────────────────────────────────────────────────────────
         //

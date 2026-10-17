@@ -88,6 +88,8 @@ package final class Krea2DiT {
     /// The token of the render in progress, consulted between two layers (see `Cancellation`).
     package var cancellation: Cancellation?
     package private(set) var timings: [String: Double] = [:]
+    package var census: [String: (count: Int, seconds: Double, best: Double)] { gemm.census }
+    package var conductor: Conductor? { gemm.conductor }
 
     private let artifact: Artifact
     private let prefetcher: Prefetcher

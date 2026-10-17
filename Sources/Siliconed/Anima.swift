@@ -66,6 +66,7 @@ package final class AnimaDiT {
     package var cancellation: Cancellation?
     package private(set) var timings: [String: Double] = [:]
     package var conductor: Conductor? { gemm.conductor }
+    package var census: [String: (count: Int, seconds: Double, best: Double)] { gemm.census }
 
     private let artifact: Artifact
     private let prefetcher: Prefetcher
