@@ -17,7 +17,7 @@ import Foundation
 
 // `public`, not `package`: `tools/translations.sh` compiles the app's files alone, without the
 // package's name, and a `package` symbol would not be seen there. This module is no part of the
-// engine's API (`docs/API.md`): only the app and `silicontrol` link it.
+// engine: only the app and `silicontrol` link it.
 public enum RemoteControlHelp {
     /// One language's pages: the overview, and a page per topic — and the refusal of an unknown topic.
     struct Pages: Sendable {

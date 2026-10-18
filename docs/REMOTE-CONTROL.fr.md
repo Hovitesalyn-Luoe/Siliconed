@@ -24,13 +24,13 @@ refusée, il finit en `"error"`. Aucune commande n'accepte à la place de l'util
 **Les alternatives d'un prompt se développent des deux côtés de la même façon.**
 `"woman posing in a {library|greenhouse}"` fait deux travaux, à la même graine, que le prompt vienne
 du champ de l'app ou de `silicontrol add` : les deux passent par `PromptAlternatives` (bibliothèque,
-`docs/API.fr.md` §3.14), puis par `AppState.enqueue`. Rien n'est refait côté serveur : il refuse ce
+`Sources/Siliconed/PromptAlternatives.swift`), puis par `AppState.enqueue`. Rien n'est refait côté serveur : il refuse ce
 que le parseur refuse (erreur `prompt`), et chaque travail porte son prompt développé et ses
 `choices`. La syntaxe et la réponse sont dans `silicontrol help add`.
 
 **Une grille, ce sont des travaux, puis une image.** `silicontrol grid --x … [--y …]` et la fenêtre
 « Exploration » de l'app (Rendu > Exploration, ⌥⌘G) vérifient toutes deux la grille avec la
-bibliothèque (`RenderGrid`, `docs/API.fr.md` §3.15) et la mettent en file par
+bibliothèque (`RenderGrid`, `Sources/Siliconed/RenderGrid.swift`) et la mettent en file par
 `AppState.enqueueGrid` : un travail ordinaire par case, dans l'ordre de lecture de la planche, plus
 un `GridRun` qui retient seulement quel travail est quelle case (`Sources/SiliconedApp/Grid.swift`).
 Les axes sont un groupe `{…}` du prompt, la graine, les pas, la force d'une LoRA, des LoRA à comparer
@@ -46,7 +46,7 @@ de planche. Un groupe `{…}` sur aucun axe est refusé (`grid`), jamais multipl
 `silicontrol help grid`.
 
 **L'exploration esquisse.** Dans la fenêtre (`Sources/SiliconedApp/Exploration.swift`), chaque case
-s'arrête en esquisse (`Request.sketch`, `docs/API.fr.md` §3.16) à 512 sur le petit côté (512²,
+s'arrête en esquisse (`Request.sketch`) à 512 sur le petit côté (512²,
 512×768, 768×512) : environ la moitié du temps d'une image finie. Ses esquisses restent dans la
 fenêtre, pas dans l'historique, jusqu'à l'exploration suivante, qui la remplace (ses cases en
 attente quittent la file, celle en cours s'arrête). Sur une case, « Finir cette image » la rend
@@ -60,7 +60,7 @@ l'historique ».
 `AppState.vary` : autant de travaux ordinaires que le champ « Images » du rack (1 par défaut ;
 `--batch` le remplace), avec exactement les réglages et la graine de cette
 image, chacun ajoutant une graine de variation tirée au hasard (`Request.variations`,
-`docs/API.fr.md` §3.18) à la force de la famille (`Variation.Amount`), jamais un nombre que la
+`Sources/Siliconed/Variation.swift`) à la force de la famille (`Variation.Amount`), jamais un nombre que la
 commande passerait. Une variation d'une variation s'ajoute à la chaîne, elle varie donc *cette*
 image. Refusé sur la planche d'une grille, une esquisse, ou un modèle qui n'est pas prêt (`model`).
 Le `variation` de chaque image donne ses graines de variation dans l'ordre ; la réponse est dans

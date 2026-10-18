@@ -1,7 +1,7 @@
 // **What the app says when something refuses or fails** — one sentence per `EngineError.code`,
 // translated, and what the user can do on a second line.
 //
-// The engine throws a closed enumeration (`EngineError`, `docs/API.md` §5): each case
+// The engine throws a closed enumeration (`EngineError`, `Errors.swift`): each case
 // carries its values, never a ready-made sentence. Here each case becomes the app's sentence, in the
 // system language (`Localizable.xcstrings`, English source — the engine's `errorDescription`
 // reworded for a person rather than a program —, every language required by `tools/translations.sh`). The

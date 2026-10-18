@@ -20,8 +20,7 @@
 // and the `subjects/` folder an earlier version kept in the library is deleted at launch.
 //
 // The rewrite (`NamedSubjects`) is public — the app is a pure client, and `tools/translations.sh`
-// compiles its files without the package's name — but not yet in `docs/API.md`: the feature is
-// experimental; it will be documented once its wording is settled.
+// compiles its files without the package's name.
 
 import AppKit
 import ImageIO

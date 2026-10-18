@@ -16,9 +16,8 @@ let package = Package(
         .target(name: "Siliconed", dependencies: ["AMXLegacy"], cSettings: [.define("ACCELERATE_NEW_LAPACK")]),
         // `BNNSMatMul`, deprecated and kept: isolated in C, where the deprecation is acknowledged once.
         .target(name: "AMXLegacy", linkerSettings: [.linkedFramework("Accelerate")]),
-        // **The app, `Siliconed.app` — the product.** It is also the SwiftUI example of
-        // `docs/API.md`, compiled: a client of the library as any app would be (no `@testable`). If
-        // it no longer compiles, the API changed without its doc. The target is `SiliconedApp`, not
+        // **The app, `Siliconed.app` — the product.** A client of the library as any app would be
+        // (no `@testable`): what it calls is `public`, the rest is `package`. The target is `SiliconedApp`, not
         // `Siliconed`: the library holds that name, and the file system does not tell it from
         // `siliconed`. `tools/app.sh` copies its binary to `Siliconed.app/Contents/MacOS/Siliconed`.
         // Its phrases (`Localizable.xcstrings`, English source, fr de es it translations) are not a resource of it:

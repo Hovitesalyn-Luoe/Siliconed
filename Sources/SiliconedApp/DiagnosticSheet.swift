@@ -1,5 +1,5 @@
 // **« Report My Configuration »: what this Mac computes, measured, then sent as a GitHub issue if the
-// user wants** (`docs/API.md` §3.13).
+// user wants** (`Diagnostic.swift`).
 //
 // Three states in one sheet: what the diagnostic does and how long (~30 s, no model needed; it occupies
 // the GPU and the CPU, so it waits for an empty queue — and the queue waits for it); its progress; then

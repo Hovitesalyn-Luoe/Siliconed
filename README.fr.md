@@ -168,12 +168,12 @@ rend la case choisie jusqu'au bout avec la même graine : l'image que son esqui
   présélectionnée sur un Mac de 8 Go de mémoire, la Standard ailleurs ; vous choisissez avant d'installer. Une version à la
   fois : passer à l'autre la remplace ; l'installée continue de rendre jusqu'à ce que la nouvelle
   soit complète, puis libère sa place — si le disque ne peut pas tenir les deux, l'app le dit avant
-  l'acceptation (`docs/API.fr.md` §3.11).
+  l'acceptation.
 - **Les imports Civitai et Hugging Face.** Les LoRA (formats Civitai, Comfy, kohya, diffusers) et le
   DiT d'un fine-tune (`.safetensors`, ou `.gguf` de Q4 à Q8_0), par glisser-déposer. Un fichier
   quantifié reste sur le disque tel que publié, jamais requantifié (Z-Image : 6,2 Go en 8 bits, environ
   5 Go en GGUF Q4_K_M, au lieu de 12,3 Go ; chaque pas un peu plus lent, le calcul reste en fp32) ;
-  sous 4 bits, le fichier est refusé (`docs/API.fr.md` §3.11).
+  sous 4 bits, le fichier est refusé.
 - **Statistiques et diagnostic.** La palette des statistiques (⌥⌘I) est un bouton de la barre d'outils ;
   « Signaler ma configuration » (ce que calcule la puce, mesuré, exporté en JSON — et les chemins que le
   moteur prend sur ce Mac) s'ouvre par « Chaîne » en tête du rack, orange tant que ce Mac n'est pas mesuré — le premier rendu le mesure, et de nouveau après une mise à jour.
@@ -299,9 +299,6 @@ La sortie est en lignes JSON ; la dernière porte `"ok"`. Le dedans : `docs/R
 
 ## Pour les développeurs
 
-**La bibliothèque `Siliconed`.** Une API Swift pour écrire votre propre app sur le moteur :
-`docs/API.fr.md`. L'app en est l'exemple de référence, compilée avec le paquet.
-
 ### Construire depuis les sources
 
 macOS 15 ou plus, Apple silicon, Xcode 26 ou plus (l’app emploie les API de macOS 26 là où le système les a).
@@ -341,7 +338,6 @@ qui vérifie une machine contre des résultats exacts calculés sur son propre C
 
 ## Documentation
 
-- `docs/API.fr.md` : l'API de la bibliothèque `Siliconed`, pour écrire une app par-dessus.
 - `docs/REMOTE-CONTROL.fr.md` : `silicontrol`, protocole et fonctionnement interne.
 - `RELEASE-NOTES.fr.md` : ce qui change à chaque version.
 - Les issues : [rapport de diagnostic, bug, idée](https://github.com/gwenn-ha-dev/Siliconed/issues/new/choose)

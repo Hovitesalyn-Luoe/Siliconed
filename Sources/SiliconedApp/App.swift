@@ -1,12 +1,9 @@
-// **Siliconed.app — the product, and the compiled reference example of `docs/API.md`.**
+// **Siliconed.app — the product.**
 //
-// Two roles, one code. **The product**: what a user of Draw Things or ComfyUI downloads
-// — Z-Image Turbo, Qwen-Image-2.1 and Anima in front, nothing preinstalled, each license accepted
-// before its first byte, a measure of the machine that it can report. **The example**: a pure client of the
-// `Siliconed` library (`import`, never `@testable`), compiled by the package (executable target
-// `SiliconedApp`, `swift build`), so the API cannot drift from its doc without breaking the build —
-// and therefore the close-out. Everything it calls is public, exactly what another macOS 15 app
-// would see.
+// What a user of Draw Things or ComfyUI downloads
+// — Z-Image Turbo, Qwen-Image-2.1, Anima and Krea 2 in front, nothing preinstalled, each license accepted
+// before its first byte, a measure of the machine that it can report. A pure client of the `Siliconed` library (`import`,
+// never `@testable`): everything it calls is public.
 //
 // The files: `App.swift` (the app, its menus, its window), `AppState.swift` and `AppState+….swift` (the state and the
 // calls to the library), `MainView.swift` (the window's view and the canvas), `Sidebar.swift` (the

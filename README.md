@@ -161,12 +161,12 @@ chosen cell to the end with the same seed: the image its sketch announced.
   published. The Light is
   preselected on a Mac with 8 GB of memory, the Standard elsewhere; you choose before installing. One version at a time:
   switching replaces the other, which keeps rendering until the new one is complete, then frees its
-  space — if the disk cannot hold both, the app says so before you accept (`docs/API.md` §3.11).
+  space — if the disk cannot hold both, the app says so before you accept.
 - **Civitai and Hugging Face imports.** LoRAs (Civitai, Comfy, kohya, diffusers layouts) and a
   fine-tune's DiT (`.safetensors`, or `.gguf` from Q4 to Q8_0), by drag and drop. A quantized file
   stays as published on disk, never re-quantized (Z-Image: 6.2 GB in 8 bits, about 5 GB in GGUF
   Q4_K_M, instead of 12.3 GB; each step a little slower, the computation stays fp32); below 4 bits,
-  the file is refused (`docs/API.md` §3.11).
+  the file is refused.
 - **Statistics and diagnostic.** The statistics palette (⌥⌘I) is a toolbar button; « Report My
   Configuration » (what the chip computes, measured, exported as JSON — and the paths the engine
   takes on this Mac) opens from « Chain » at the head of the rack, orange until this Mac is measured — the first render measures it, and again after an update.
@@ -287,9 +287,6 @@ Output is JSON lines; the last one carries `"ok"`. How it works inside: `docs/RE
 
 ## For developers
 
-**The `Siliconed` library.** A Swift API for writing your own app on top of the engine:
-`docs/API.md`. The app is its reference example, compiled with the package.
-
 ### Build from source
 
 macOS 15 or later, Apple silicon, Xcode 26 or later (the app uses macOS 26 APIs where the system has them).
@@ -329,7 +326,6 @@ against exact results computed on its own CPU.
 
 ## Documentation
 
-- `docs/API.md`: the `Siliconed` library API, for writing an app on top of it.
 - `docs/REMOTE-CONTROL.md`: `silicontrol`, protocol and internals.
 - `RELEASE-NOTES.md`: what changed in each version.
 - Issues: [diagnostic report, bug, idea](https://github.com/gwenn-ha-dev/Siliconed/issues/new/choose).

@@ -23,13 +23,13 @@ app's sheet shows the license: `status` lists it under `"waiting_for_license"`, 
 **A prompt's alternatives expand the same way on both sides.**
 `"woman posing in a {library|greenhouse}"` makes two jobs, at the same seed, whether the prompt comes
 from the app's field or from `silicontrol add`: both go through `PromptAlternatives` (the library,
-`docs/API.md` §3.14), then through `AppState.enqueue`. The server redoes nothing: it refuses what the
+`Sources/Siliconed/PromptAlternatives.swift`), then through `AppState.enqueue`. The server redoes nothing: it refuses what the
 parser refuses (error `prompt`), and each job carries its expanded prompt and its `choices`. The
 syntax and the answer are in `silicontrol help add`.
 
 **A grid is jobs, then an image.** `silicontrol grid --x … [--y …]` and the app's « Exploration »
-window (Render > Exploration, ⌥⌘G) both check the grid with the library (`RenderGrid`, `docs/API.md`
-§3.15) and queue it through `AppState.enqueueGrid`: one ordinary job per cell, in the sheet's reading
+window (Render > Exploration, ⌥⌘G) both check the grid with the library (`RenderGrid`,
+`Sources/Siliconed/RenderGrid.swift`) and queue it through `AppState.enqueueGrid`: one ordinary job per cell, in the sheet's reading
 order, plus a `GridRun` that only remembers which job is which cell (`Sources/SiliconedApp/Grid.swift`).
 The axes are a `{…}` group of the prompt, the seed, the steps, a LoRA's strength, LoRAs to compare
 (`loras=none,flat,ink`: one added to the stack per cell, names resolved as `--lora` does), the model
@@ -43,18 +43,18 @@ is drawn empty, with why; no cell rendered, no sheet. A `{…}` group on no axis
 never multiplied. The syntax is in `silicontrol help grid`.
 
 **The exploration sketches.** In the window (`Sources/SiliconedApp/Exploration.swift`), each cell
-stops as a sketch (`Request.sketch`, `docs/API.md` §3.16) at 512 on the short side (512², 512×768,
+stops as a sketch (`Request.sketch`) at 512 on the short side (512², 512×768,
 768×512): about half the time of a finished image. Its sketches stay in the window, not in the
 history, until the next exploration, which replaces it (its waiting cells leave the queue, the
 running one stops). On a cell, « Finish This Image » renders it to its end — same seed, same size —
-into the history, the image the sketch announced; « Use These Settings » gives the rack its model,
+into the history, the image the sketch announced; « Reuse These Settings » gives the rack its model,
 prompt, steps, LoRA strengths and seed, not its size. The sheet joins the history only on « Add Sheet
 to History ».
 
 **Variations are the menu's.** `silicontrol vary i7 subtle|strong [--batch N]` and an image's
 « Variations » menu (the button under the image, its context menu) both call `AppState.vary`: as
 many ordinary jobs as the rack's « Images » (1 by default; `--batch` overrides it), with exactly that image's settings and seed, each adding one variation seed drawn at random
-(`Request.variations`, `docs/API.md` §3.18) at the family's strength (`Variation.Amount`), never a
+(`Request.variations`) at the family's strength (`Variation.Amount`), never a
 number the command passes. A variation of a variation appends to the chain, so it varies *that*
 image. Refused on a grid's sheet, a sketch, or a model that is not ready (`model`). Each image's
 `variation` lists its variation seeds in order; `silicontrol help vary` has the answer.
