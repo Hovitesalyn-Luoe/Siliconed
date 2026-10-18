@@ -7,7 +7,7 @@ import ImageIO
 ///
 ///     image ─ calculate_dimensions(R², w/h): each side to the nearest multiple of 32
 ///           ─ PIL `resize(LANCZOS)` (the same image then goes to the VAE)        `lanczos`
-///           ─ alpha over white (an opaque image is unchanged)
+///           ─ alpha over white, Pillow's paste (an opaque image is unchanged)   `PillowAlpha`
 ///           ─ smart_resize(factor 32): the identity on sizes already multiples of 32
 ///           ─ (x − 127.5) / 127.5                    rescale 1/255 and normalize 0.5/0.5, FUSED
 ///           ─ patches 16×16, in 2×2 merge-block order, each DUPLICATED in time  → [N, 1536]
@@ -16,8 +16,10 @@ import ImageIO
 /// images — the oracle measured `do_resize=False` identical to the bit — so it is not ported:
 /// `pixels` refuses a size `smart_resize` would change. The normalization is the FUSED one
 /// (`_fuse_mean_std_and_rescale_factor`: mean and std times 255), not `x/255` then `(· − 0.5)/0.5`
-/// — one rounding apart. Images with transparency are not ported (Pillow premultiplies RGBA
-/// around its resize); the app's images are RGB.
+/// — one rounding apart. **Transparency is ported** (`PillowAlpha`): the pipeline makes every
+/// reference RGBA, Pillow premultiplies around its Lanczos, and only this copy is laid over white
+/// (`white.paste(img, mask=A)`) — the VAE reads the RGBA itself (`QwenImage21Pipeline.preparedReference`).
+/// `RGB8(contentsOf:)`, the checks' reader, still refuses transparency.
 package enum Qwen3VLImages {
     /// One image, ready for the vision tower: `pixel_values` and `image_grid_thw[1:]`. The values
     /// live in `Pages`, `valueBytes` of them: 24 MB for a 1024² condition, held from the
@@ -260,46 +262,106 @@ package enum PillowResample {
     /// `Image.resize((width, height), Image.LANCZOS)` on 8-bit RGB.
     package static func lanczos(_ image: Qwen3VLImages.RGB8, width: Int, height: Int) -> Qwen3VLImages.RGB8 {
         if image.width == width && image.height == height { return image }
-        var current = image
+        return Qwen3VLImages.RGB8(bytes: lanczos(image.bytes, channels: 3, width: image.width, height: image.height,
+                                                 toWidth: width, toHeight: height),
+                                  width: width, height: height)
+    }
+
+    /// The same on `channels` interleaved 8-bit channels, each resampled alone — Pillow's 3- and
+    /// 4-band paths do exactly that (`RGBa`: `PillowAlpha` premultiplies around it).
+    package static func lanczos(_ bytes: [UInt8], channels: Int, width w0: Int, height h0: Int,
+                                toWidth width: Int, toHeight height: Int) -> [UInt8] {
+        var current = bytes, currentWidth = w0
         // `ImagingResampleInner`: horizontal first, only if the width changes; then vertical.
-        if width != current.width {
-            let c = coefficients(input: current.width, output: width)
-            var out = [UInt8](repeating: 0, count: 3 * width * current.height)
-            current.bytes.withUnsafeBufferPointer { src in
-                for y in 0..<current.height {
+        if width != currentWidth {
+            let c = coefficients(input: currentWidth, output: width)
+            var out = [UInt8](repeating: 0, count: channels * width * h0)
+            current.withUnsafeBufferPointer { src in
+                for y in 0..<h0 {
                     for xx in 0..<width {
                         let (xmin, count) = c.bounds[xx]
-                        for ch in 0..<3 {
+                        for ch in 0..<channels {
                             var sum = 1 << (precisionBits - 1)
                             for x in 0..<count {
-                                sum += Int(src[(y * current.width + xmin + x) * 3 + ch]) * Int(c.k[xx * c.ksize + x])
+                                sum += Int(src[(y * currentWidth + xmin + x) * channels + ch]) * Int(c.k[xx * c.ksize + x])
                             }
-                            out[(y * width + xx) * 3 + ch] = clip8(sum)
+                            out[(y * width + xx) * channels + ch] = clip8(sum)
                         }
                     }
                 }
             }
-            current = Qwen3VLImages.RGB8(bytes: out, width: width, height: current.height)
+            current = out; currentWidth = width
         }
-        if height != current.height {
-            let c = coefficients(input: current.height, output: height)
-            var out = [UInt8](repeating: 0, count: 3 * width * height)
-            current.bytes.withUnsafeBufferPointer { src in
+        if height != h0 {
+            let c = coefficients(input: h0, output: height)
+            var out = [UInt8](repeating: 0, count: channels * width * height)
+            current.withUnsafeBufferPointer { src in
                 for yy in 0..<height {
                     let (ymin, count) = c.bounds[yy]
                     for x in 0..<width {
-                        for ch in 0..<3 {
+                        for ch in 0..<channels {
                             var sum = 1 << (precisionBits - 1)
                             for y in 0..<count {
-                                sum += Int(src[((ymin + y) * width + x) * 3 + ch]) * Int(c.k[yy * c.ksize + y])
+                                sum += Int(src[((ymin + y) * width + x) * channels + ch]) * Int(c.k[yy * c.ksize + y])
                             }
-                            out[(yy * width + x) * 3 + ch] = clip8(sum)
+                            out[(yy * width + x) * channels + ch] = clip8(sum)
                         }
                     }
                 }
             }
-            current = Qwen3VLImages.RGB8(bytes: out, width: width, height: height)
+            current = out
         }
         return current
+    }
+}
+
+/// **Pillow's arithmetic on alpha**, 8 bits, from `libImaging` (`Convert.c`, `Paste.c`) — what the
+/// Qwen-Image-2.1 pipeline does to a reference with transparency, checked to the bit against Pillow 12.3
+/// on random bytes and by `qwen21-preprocess-alpha` against `__call__`:
+///
+///     RGBA → RGBa     c · α / 255 rounded: `MULDIV255` = (t + (t >> 8)) >> 8, t = c·α + 128
+///     RGBa → RGBA     255 · c / α TRUNCATED, clipped to 255; α = 0 or 255 left as is
+///     paste on white  `BLEND`: DIV255(255 · (255 − α) + c · α), the same rounding as MULDIV255
+///     resize RGBA     RGBA → RGBa → Lanczos on the 4 bands → RGBA; a copy at the same size
+package enum PillowAlpha {
+    @inline(__always) static func div255(_ v: Int) -> UInt8 {
+        let t = v + 128
+        return UInt8((t + (t >> 8)) >> 8)
+    }
+
+    package static func premultiply(_ rgba: [UInt8]) -> [UInt8] {
+        var out = rgba
+        for p in stride(from: 0, to: rgba.count, by: 4) {
+            let a = Int(rgba[p + 3])
+            for c in 0..<3 { out[p + c] = div255(Int(rgba[p + c]) * a) }
+        }
+        return out
+    }
+
+    package static func unpremultiply(_ rgba: [UInt8]) -> [UInt8] {
+        var out = rgba
+        for p in stride(from: 0, to: rgba.count, by: 4) {
+            let a = Int(rgba[p + 3])
+            guard a != 0, a != 255 else { continue }
+            for c in 0..<3 { out[p + c] = UInt8(min(255, 255 * Int(rgba[p + c]) / a)) }
+        }
+        return out
+    }
+
+    /// `Image.resize((width, height), LANCZOS)` on an RGBA image.
+    package static func lanczos(_ rgba: [UInt8], width w0: Int, height h0: Int, toWidth width: Int, toHeight height: Int) -> [UInt8] {
+        if w0 == width && h0 == height { return rgba }
+        return unpremultiply(PillowResample.lanczos(premultiply(rgba), channels: 4, width: w0, height: h0,
+                                                    toWidth: width, toHeight: height))
+    }
+
+    /// `white = Image.new("RGB", size, (255,)*3); white.paste(img, mask=img.getchannel("A"))`.
+    package static func overWhite(_ rgba: [UInt8], width: Int, height: Int) -> Qwen3VLImages.RGB8 {
+        var out = [UInt8](repeating: 0, count: 3 * width * height)
+        for p in 0..<(width * height) {
+            let a = Int(rgba[4 * p + 3])
+            for c in 0..<3 { out[3 * p + c] = div255(255 * (255 - a) + Int(rgba[4 * p + c]) * a) }
+        }
+        return Qwen3VLImages.RGB8(bytes: out, width: width, height: height)
     }
 }

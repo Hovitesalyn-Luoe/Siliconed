@@ -709,7 +709,7 @@ package final class QwenImage21VAEEncoder {
             throw Safetensors.Failure.badHeader("\(path): not the Qwen-Image-2.1 VAE encoder")
         }
         guard height % config.factor == 0, width % config.factor == 0 else {
-            throw EngineError.formatRefused(width: width, height: height, reason: .notMultiple)
+            throw EngineError.formatRefused(width: width, height: height, reason: .notMultiple, bound: config.factor)
         }
         (device, queue) = try QwenImage21VAE.device()
         self.config = config; self.weights = weights; self.height = height; self.width = width
@@ -828,7 +828,8 @@ public struct QwenImage21DecodingModule: DecodingModule {
 }
 
 /// Qwen-Image-2.1's encoder, for the edit references and img2img: the image made **RGBA** (alpha +1,
-/// as `convert("RGBA")` makes an opaque image), then `(mean − mean_c) / std_c`.
+/// as `convert("RGBA")` makes an opaque image; the image's own straight RGBA when it has transparency,
+/// as `preprocess` hands the RGBA reference: no compositing), then `(mean − mean_c) / std_c`.
 public struct QwenImage21EncodingModule: ImageEncodingModule {
     public var path: String
     public var space: LatentSpace { .qwenImage21 }
@@ -842,8 +843,14 @@ public struct QwenImage21EncodingModule: ImageEncodingModule {
         return Latent(space: space, height: encoder.latentHeight, width: encoder.latentWidth, values: output.latent)
     }
 
-    /// `[3, H, W]` → `[4, H, W]` with an opaque alpha: 255 → `255/255 · 2 − 1` = +1.
+    /// `[3, H, W]` → `[4, H, W]` with an opaque alpha: 255 → `255/255 · 2 − 1` = +1. With transparency,
+    /// the straight `rgba` planes, each byte `b/255 · 2 − 1` like `VaeImageProcessor` (`pil_to_numpy`, then
+    /// `2x − 1`).
     package static func rgba(_ image: ImageRGB) -> [Float] {
-        image.pixels + [Float](repeating: 1, count: image.height * image.width)
+        guard let bytes = image.rgba else { return image.pixels + [Float](repeating: 1, count: image.height * image.width) }
+        let plane = image.height * image.width
+        var planes = [Float](repeating: 0, count: 4 * plane)
+        for p in 0..<plane { for c in 0..<4 { planes[c * plane + p] = Float(bytes[p * 4 + c]) / 255 * 2 - 1 } }
+        return planes
     }
 }

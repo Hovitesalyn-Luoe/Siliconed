@@ -174,7 +174,7 @@ private struct Section<Content: View>: View {
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor).opacity(0.8)))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
 }
 
@@ -197,7 +197,7 @@ private struct StatLine: View {
                 Text(value).monospacedDigit().multilineTextAlignment(.trailing)
             }
             if let detail {
-                Text(detail).font(.caption2).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .trailing)
+                Text(detail).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .font(.callout)
@@ -224,7 +224,7 @@ private struct Bars: View {
                     let reducedAverage = i < reduced
                     let value = mergeDone ? durations[i] : (reducedAverage ? ceiling * 0.35 : (mean ?? ceiling * 0.5))
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(mergeDone ? Color.accentColor.opacity(reducedAverage ? 0.5 : 1) : Color.secondary.opacity(0.18))
+                        .fill(mergeDone ? Color.accentColor.opacity(reducedAverage ? 0.5 : 1) : Color.secondary.opacity(0.25))
                         .frame(width: width, height: max(2, g.size.height * CGFloat(value / ceiling)))
                         .help(mergeDone ? (reducedAverage ? String(localized: "step \(i + 1), half-size: \(Figures.seconds(value))")
                                                : String(localized: "step \(i + 1): \(Figures.seconds(value))"))

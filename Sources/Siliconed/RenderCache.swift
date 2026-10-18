@@ -64,9 +64,11 @@ package struct RenderCache: Sendable {
             floats.withUnsafeBytes { add(raw: $0, tag: 0x46) }
         }
         package mutating func add(flags: [Bool]) { add(bytes: flags.map { $0 ? 1 : 0 }, tag: 0x42) }
-        /// An image: its size, then its planar floats.
+        /// An image: its size, then its planar floats — and its straight RGBA when it has transparency
+        /// (the same pixels over white can hide two RGBA; an opaque image's key is unchanged).
         package mutating func add(_ image: ImageRGB) {
             add(image.width); add(image.height); add(floats: image.pixels)
+            if let rgba = image.rgba { add(bytes: rgba, tag: 0x41) }
         }
         package mutating func add(_ latent: Latent) {
             add(latent.space.name); add(latent.height); add(latent.width); add(floats: latent.values)

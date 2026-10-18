@@ -237,7 +237,9 @@ are measured at the product's worst case, on a 16 GB Mac with nothing else runni
 decodes in bands, to the same bits).
 
 Each side must be at least 512 and a multiple of 16, with a surface of at most 1024×1536. Below
-512² the models are outside their domain.
+512² the models are outside their domain. Qwen-Image-2.1 needs multiples of 32 (its VAE divides by 16),
+and Anima at most 2048 px on a side (the positions its reference computes); both are refused before any
+computation.
 
 ## How it compares
 

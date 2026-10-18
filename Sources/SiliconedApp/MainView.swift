@@ -305,7 +305,7 @@ private struct SceneView: View {
                     CurtainSwitch(app: app)
                     Divider().frame(height: 22)
                 }
-                Button { app.export(group) } label: { Image(systemName: "square.and.arrow.down.on.square") }
+                Button { app.export(group) } label: { Image(systemName: "square.and.arrow.down") }
                     .help("Export the selected images to a folder (⇧⌘E)")
                 ShareLink(items: group.map(app.transferable), preview: { SharePreview($0.name) }) {
                     Image(systemName: "square.and.arrow.up")
@@ -364,7 +364,7 @@ private struct SceneView: View {
             if !app.visibleReady.isEmpty {
                 Image(systemName: app.missing == nil ? "sparkles" : "shippingbox")
                     .font(.system(size: 46, weight: .light))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
             if app.visibleReady.isEmpty {
                 Welcome(app: app)
@@ -376,7 +376,7 @@ private struct SceneView: View {
             } else {
                 Text("Describe an image, then press ⌘↩").font(.title3).foregroundStyle(.secondary)
                 if app.editingPossible {
-                    Text("Drop an image here to edit it.").font(.callout).foregroundStyle(.tertiary)
+                    Text("Drop an image here to edit it.").font(.callout).foregroundStyle(.secondary)
                 }
             }
         }
@@ -561,7 +561,7 @@ private struct Waiting: View {
 
     var body: some View {
         ZStack {
-            Color.primary.opacity(0.06)
+            Palette.well
             VStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text(stage?.label ?? String(localized: "Preparing…"))
@@ -693,7 +693,7 @@ private struct Details: View {
             .font(.callout)
             HStack {
                 Text("fp32 end to end · same seed, same bits")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Menu {
                     Button("Copy Prompt") { copy(r.prompt) }
@@ -760,13 +760,13 @@ private struct Banner: View {
                 if let id { withAnimation { reader.scrollTo(id, anchor: .center) } }
             }
             }
-            Divider().opacity(0.5)
+            Divider()
             sizeControl
         }
         // The strip is as tall as its thumbnails, never more: the canvas keeps the rest.
         .frame(height: app.thumbnailSide + 20)
         .background(.black.opacity(0.12))
-        .overlay(alignment: .top) { Divider().opacity(0.5) }
+        .overlay(alignment: .top) { Divider() }
     }
 
     /// At the strip's end: how many images, and the thumbnails' size.
@@ -777,7 +777,7 @@ private struct Banner: View {
             HStack(spacing: 4) {
                 Image(systemName: "photo").imageScale(.small)
                 Slider(value: $app.thumbnailSide, in: 48...140).frame(width: 80).controlSize(.mini)
-                Image(systemName: "photo").imageScale(.medium)
+                Image(systemName: "photo").imageScale(.large)
             }
             .foregroundStyle(.secondary)
             .help("Thumbnail size")
@@ -807,9 +807,9 @@ private struct Thumbnail: View {
             .frame(width: side * min(1, l / h), height: side * min(1, h / l))
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5)
-                .strokeBorder(marked ? Color.accentColor : Color.white.opacity(hover ? 0.35 : 0.12),
+                .strokeBorder(marked ? Color.accentColor : hover ? Color.secondary : Palette.hairline,
                               lineWidth: marked ? (shown ? 3.5 : 2.5) : 1))
-            .opacity(marked || hover ? 1 : 0.8)
+            .opacity(marked || hover ? 1 : 0.88)
             .frame(height: side + 4)
             .contentShape(Rectangle())
             .onHover { hover = $0 }
@@ -867,7 +867,7 @@ private struct LiveTile: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(following ? Palette.live : Color.white.opacity(0.12), lineWidth: following ? 2.5 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(following ? Palette.live : Palette.hairline, lineWidth: following ? 2.5 : 1))
         .frame(height: side + 4)
         .contentShape(Rectangle())
         .onTapGesture { app.followsRender = true; app.showsExploration = false }
@@ -894,7 +894,7 @@ private struct ExplorationTile: View {
         .frame(width: side, height: side)
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5)
-            .strokeBorder(app.showsExploration ? Palette.live : Color.white.opacity(0.12), lineWidth: app.showsExploration ? 2.5 : 1))
+            .strokeBorder(app.showsExploration ? Palette.live : Palette.hairline, lineWidth: app.showsExploration ? 2.5 : 1))
         .frame(height: side + 4)
         .contentShape(Rectangle())
         .onTapGesture { app.showsExploration = true }

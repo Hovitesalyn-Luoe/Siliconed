@@ -130,7 +130,7 @@ private struct ModelPromptPopover: View {
                 }
             }
             Text("The wording is provisional: it will be settled by eye on a series of renders.")
-                .font(.caption2).foregroundStyle(.tertiary)
+                .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)

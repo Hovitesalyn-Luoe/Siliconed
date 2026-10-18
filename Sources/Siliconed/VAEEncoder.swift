@@ -98,7 +98,7 @@ package final class VAEEncoder {
                                                 + [.flux: "of Flux", .qwenImage: "of Qwen-Image"][family]!)
         }
         guard height % 8 == 0, width % 8 == 0 else {
-            throw EngineError.formatRefused(width: width, height: height, reason: .notMultiple)
+            throw EngineError.formatRefused(width: width, height: height, reason: .notMultiple, bound: 8)
         }
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw GEMM.Failure.noDevice

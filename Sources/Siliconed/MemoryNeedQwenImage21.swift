@@ -361,10 +361,12 @@ package struct QwenImage21Need {
     }
 
     /// The references as handed and as prepared, the encoded text, the reference latents, the target
-    /// latent — and the batch's other targets, waiting for their decoding.
+    /// latent — and the batch's other targets, waiting for their decoding. Each image is charged its three
+    /// fp32 planes **and its straight RGBA** (`ImageRGB.rgba`, 4 bytes a pixel: one plane more), which only
+    /// an image with transparency carries — the request does not say which, so every one is charged it.
     package var crossing: Int {
         let images = references.reduce(0) {
-            $0 + 3 * ($1.original.width * $1.original.height + $1.prepared.width * $1.prepared.height)
+            $0 + (3 + 1) * ($1.original.width * $1.original.height + $1.prepared.width * $1.prepared.height)
         }
         let rows = encoderTokens - QwenImage21Need.dropCount
         let targetLatent = vae.zDim * target.height * target.width

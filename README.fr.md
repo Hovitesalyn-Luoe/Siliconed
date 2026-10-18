@@ -247,7 +247,9 @@ il compare maintenant 8 à 8.
 mêmes bits).
 
 Chaque côté doit être d'au moins 512 et multiple de 16, pour une surface d'au plus 1024×1536. Sous
-512² les modèles sont hors de leur domaine.
+512² les modèles sont hors de leur domaine. Qwen-Image-2.1 veut des multiples de 32 (son VAE divise
+par 16), et Anima au plus 2048 px de côté (les positions que sa référence calcule) ; l'un et l'autre
+sont refusés avant tout calcul.
 
 ## Face aux autres outils
 

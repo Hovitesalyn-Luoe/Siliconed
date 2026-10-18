@@ -39,9 +39,14 @@ import Foundation
 ///   - the references are sized by **`calculate_dimensions(R², w/h)`** — round half to EVEN at 32 —
 ///     with `R = output_resolution`, whatever the output size; one Lanczos (Pillow's, to the bit,
 ///     `PillowResample`) feeds both the encoder and the VAE;
+///   - **every reference is made RGBA** (`convert("RGBA")`): a transparent one keeps its alpha — Pillow
+///     premultiplies around the Lanczos, the VAE reads the four channels as they are, and only the vision
+///     copy is laid over white (`preparedReference`, `PillowAlpha`; `qwen21-preprocess-alpha`);
 ///   - the output follows the **last** reference without `height`/`width`. **The product's rule is
 ///     the first** (`outputSize`: the image one edits), at ~R², each side ≥ 512, under `Format`'s
 ///     ceiling; an explicit size wins. The checks pass the oracle's sizes explicitly;
+///   - an explicit size is **floored to 32** without a word (`multiple_of = vae_scale_factor · 2`); the
+///     product refuses a side not a multiple of 32 at the preflight instead (`Format.multiple(for:)`);
 ///   - the VAE returns RGBA; the product writes the RGB planes, alpha dropped (`QwenImage21DecodingModule`).
 ///     The Turbo publishes its VAE in bf16, exactly the base's fp32 rounded to nearest: the product
 ///     reads that file as published, widened to fp32 at load (never below the precision published).
@@ -180,6 +185,21 @@ package enum QwenImage21Pipeline {
         let bytes = rgb8(image)
         let size = Qwen3VLImages.conditionSize(width: image.width, height: image.height, resolution: resolution)
         return PillowResample.lanczos(bytes, width: size.width, height: size.height)
+    }
+
+    /// **One reference as the VAE and the vision tower read it** — `reference`'s copy for an opaque
+    /// image; with transparency (`ImageRGB.rgba`), what `__call__` does to an RGBA one: Pillow's Lanczos
+    /// premultiplied (`PillowAlpha.lanczos`, a copy at the same size: a transparent pixel keeps its
+    /// RGB), `rgba` kept for the VAE (four channels, the real alpha), `pixels` laid over white by
+    /// `white.paste(img, mask=A)` for the vision tower. The alpha is not composited for the VAE, and the
+    /// RGB is not composited before the resize — what an analogy with the other models would do.
+    package static func preparedReference(_ image: ImageRGB, resolution: Int = outputResolution) -> ImageRGB {
+        guard let rgba = image.rgba else { return self.image(reference(image, resolution: resolution)) }
+        let size = Qwen3VLImages.conditionSize(width: image.width, height: image.height, resolution: resolution)
+        let resized = PillowAlpha.lanczos(rgba, width: image.width, height: image.height,
+                                          toWidth: size.width, toHeight: size.height)
+        let white = PillowAlpha.overWhite(resized, width: size.width, height: size.height)
+        return ImageRGB(pixels: self.image(white).pixels, height: size.height, width: size.width, rgba: resized)
     }
 
     /// `[3, h, w]` in `[-1, 1]` → interleaved 8-bit RGB: `round((x + 1)/2 · 255)`, the exact inverse of

@@ -133,7 +133,7 @@ final class RequestTests: XCTestCase {
     /// B7: an absurd format raises `tooLarge` instead of overflowing at the multiplication.
     func testAnAbsurdFormatDoesNotOverflow() {
         XCTAssertThrowsError(try Format.check(width: 99_999_999_984, height: 99_999_999_984)) {
-            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 99_999_999_984, height: 99_999_999_984, reason: .tooLarge))
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 99_999_999_984, height: 99_999_999_984, reason: .tooLarge, bound: Format.maxSurface))
         }
         XCTAssertThrowsError(try Format.check(width: 512, height: 16_000))
     }

@@ -546,7 +546,7 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
 
     /// Pillow's Lanczos to `calculate_dimensions(R², w/h)`, each at its own ratio.
     public func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB] {
-        images.map { QwenImage21Pipeline.image(QwenImage21Pipeline.reference($0, resolution: resolution)) }
+        images.map { QwenImage21Pipeline.preparedReference($0, resolution: resolution) }
     }
 
     public func editFormat(referenceWidth: Int, referenceHeight: Int) -> (width: Int, height: Int) {

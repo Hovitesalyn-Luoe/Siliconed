@@ -62,8 +62,10 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     /// A side under `Format.minimumSide` — the models are out of their domain below. `side`: the
     /// image's smaller side in pixels.
     case imageTooSmall(side: Int, minimum: Int)
-    /// A format the engine does not render (see `FormatRefusal`).
-    case formatRefused(width: Int, height: Int, reason: FormatRefusal)
+    /// A format the engine, or this model, does not render (see `FormatRefusal`). `bound`: the rule
+    /// broken, in its own unit — the multiple each side must be, the longest side in pixels, the
+    /// largest area in pixels.
+    case formatRefused(width: Int, height: Int, reason: FormatRefusal, bound: Int)
     /// A format typed by hand that does not parse (`512`, `1024`, `832x1216`).
     case formatUnreadable(text: String)
     /// A prompt whose alternatives (`{a|b}`, `PromptAlternatives`) do not parse (see `PromptRefusal`).
@@ -128,8 +130,11 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
 
     /// Why a format is refused — `code` refines into `format_refused.<rawValue>`.
     public enum FormatRefusal: String, Sendable, Equatable, CaseIterable {
-        /// A side that is not a multiple of `Format.multiple` (16: VAE ×8, patch ×2).
+        /// A side that is not a multiple of the model's `Format.multiple(for:)` (16: VAE ×8, patch ×2;
+        /// Qwen-Image-2.1 32: VAE ×16, patch ×2).
         case notMultiple = "not_multiple"
+        /// A side longer than the model computes (`Format.maximumSide(for:)`; Anima: its RoPE table).
+        case sideTooLong = "side_too_long"
         /// An area beyond `Format.maxSurface` (1024×1536, the last format measured).
         case tooLarge = "too_large"
     }
@@ -258,12 +263,13 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
                 : "\(count) reference images: this model reads at most \(max)."
         case let .imageTooSmall(side, minimum):
             return "The image is too small: \(side) px on a side, \(minimum) px at least."
-        case let .formatRefused(width, height, reason):
+        case let .formatRefused(width, height, reason, bound):
             switch reason {
-            case .notMultiple: return "\(width)×\(height): each side must be a multiple of \(Format.multiple)."
+            case .notMultiple: return "\(width)×\(height): each side must be a multiple of \(bound)."
+            case .sideTooLong: return "\(width)×\(height): this model draws \(bound) px at most on a side."
             case .tooLarge:
                 return "\(width)×\(height) (\(megapixels(width * height))) is larger than the largest format: "
-                    + "\(megapixels(Format.maxSurface)) at most."
+                    + "\(megapixels(bound)) at most."
             }
         case .formatUnreadable(let text): return "\(text) is not a format."
         case let .promptSyntax(position, reason):
@@ -508,7 +514,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         .downloadRefused(file: "vae.safetensors", status: 403), .downloadCorrupt(file: "vae.safetensors"),
         .importRefused(file: "x.safetensors", detail: "not recognized"), .notAnImportedModel(model: "Z-Image Turbo"),
         .emptyPrompt, .invalidSteps(steps: 8, allowed: [5, 6, 7, 9]), .tooManyReferences(count: 4, max: 3),
-        .imageTooSmall(side: 256, minimum: 512), .formatRefused(width: 1000, height: 1000, reason: .notMultiple),
+        .imageTooSmall(side: 256, minimum: 512), .formatRefused(width: 1000, height: 1000, reason: .notMultiple, bound: 16),
         .formatUnreadable(text: "big"), .promptSyntax(position: 12, reason: .unclosedGroup),
         .tooManyPromptVariants(count: 128, max: 64), .promptReservedText(text: "<|image_pad|>"),
         .promptTooLong(tokens: 600, max: 512), .gridRefused(reason: .groupNotOnAxis),

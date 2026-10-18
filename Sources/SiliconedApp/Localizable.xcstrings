@@ -1349,6 +1349,40 @@
         }
       }
     },
+    "%@ × %@: this model draws %@ px at most on a side." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ × %@: Dieses Modell zeichnet höchstens %@ px pro Seite."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ × %2$@: this model draws %3$@ px at most on a side."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ × %@: este modelo dibuja como máximo %@ px por lado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ × %@ : ce modèle dessine au plus %@ px de côté."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ × %@: questo modello disegna al massimo %@ px per lato."
+          }
+        }
+      }
+    },
     "%@: accept its license to render" : {
       "localizations" : {
         "de" : {
@@ -12034,34 +12068,6 @@
         }
       }
     },
-    "None for this model" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine für dieses Modell"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ninguna para este modelo"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aucune pour ce modèle"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nessuna per questo modello"
-          }
-        }
-      }
-    },
     "None. A Civitai checkpoint of a known family imports as is (⌘O); it borrows its family's encoder and VAE." : {
       "localizations" : {
         "de" : {
@@ -17883,6 +17889,34 @@
         }
       }
     },
+    "The license asks whoever deploys the model to filter the content it makes (§ 4.2). Siliconed applies no filter: by installing the model and accepting its license, you take on that responsibility." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Lizenz verlangt von allen, die das Modell einsetzen, die erzeugten Inhalte zu filtern (§ 4.2). Siliconed wendet keinen Filter an: Wer das Modell installiert und seine Lizenz akzeptiert, übernimmt diese Verantwortung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La licencia pide a quien despliega el modelo que filtre el contenido que genera (§ 4.2). Siliconed no aplica ningún filtro: al instalar el modelo y aceptar su licencia, asumes esa responsabilidad."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La licence demande à qui déploie le modèle de filtrer les contenus qu’il produit (§ 4.2). Siliconed n’applique aucun filtre : en installant le modèle et en acceptant sa licence, vous en prenez la responsabilité."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La licenza chiede a chi distribuisce il modello di filtrare i contenuti che genera (§ 4.2). Siliconed non applica alcun filtro: installando il modello e accettandone la licenza, te ne assumi la responsabilità."
+          }
+        }
+      }
+    },
     "The license of %@ hasn't been accepted." : {
       "localizations" : {
         "de" : {
@@ -17907,34 +17941,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La licenza di %@ non è stata accettata."
-          }
-        }
-      }
-    },
-    "The license requires a content filter wherever the model is deployed." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Lizenz verlangt einen Inhaltsfilter überall, wo das Modell eingesetzt wird."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La licencia exige un filtro de contenido allí donde se despliegue el modelo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La licence exige un filtre de contenu partout où le modèle est déployé."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La licenza richiede un filtro dei contenuti ovunque il modello venga distribuito."
           }
         }
       }
@@ -20513,34 +20519,6 @@
         }
       }
     },
-    "Use These Settings" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diese Einstellungen übernehmen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Usar estos ajustes"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reprendre ces réglages"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Riusa queste impostazioni"
-          }
-        }
-      }
-    },
     "Use the official schedule." : {
       "localizations" : {
         "de" : {
@@ -21157,30 +21135,36 @@
         }
       }
     },
-    "Width × height: each side 512 at least and a multiple of 16, 1024 × 1536 at most." : {
+    "Width × height: each side from 512 to %@ and a multiple of %@, 1024 × 1536 at most." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Breite × Höhe: jede Seite mindestens 512 und ein Vielfaches von 16, höchstens 1024 × 1536."
+            "value" : "Breite × Höhe: jede Seite zwischen 512 und %@ und ein Vielfaches von %@, höchstens 1024 × 1536."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Width × height: each side from 512 to %1$@ and a multiple of %2$@, 1024 × 1536 at most."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ancho × alto: cada lado de al menos 512 y múltiplo de 16, 1024 × 1536 como máximo."
+            "value" : "Ancho × alto: cada lado de 512 a %@ y múltiplo de %@, 1024 × 1536 como máximo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Largeur × hauteur : chaque côté au moins 512 et multiple de 16, 1024 × 1536 au plus."
+            "value" : "Largeur × hauteur : chaque côté de 512 à %@ et multiple de %@, 1024 × 1536 au plus."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Larghezza × altezza: ogni lato almeno 512 e multiplo di 16, al massimo 1024 × 1536."
+            "value" : "Larghezza × altezza: ogni lato da 512 a %@ e multiplo di %@, al massimo 1024 × 1536."
           }
         }
       }

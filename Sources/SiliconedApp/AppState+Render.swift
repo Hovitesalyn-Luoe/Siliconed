@@ -611,8 +611,10 @@ extension AppState {
             }
         }
 
+        // The size if the model it goes to renders it (`Format.check(…, family:)`), the form's otherwise.
         var restoredFormat = format
-        if let w = recipe.width, let h = recipe.height, (try? Format.check(width: w, height: h)) != nil {
+        let family = (target ?? card)?.family ?? .zImage   // no model at all: the general rules (Z-Image adds none)
+        if let w = recipe.width, let h = recipe.height, (try? Format.check(width: w, height: h, family: family)) != nil {
             restoredFormat = RecommendedFormat(w, h)
         }
         if recipe.sourceImageMissing {

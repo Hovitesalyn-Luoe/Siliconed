@@ -1,7 +1,8 @@
 import Foundation
 
 // **The formats a render accepts** (`Format`): the per-side floor, the multiple of 16, the area
-// ceiling. The request that carries them is in `Request.swift`.
+// ceiling, and what a family adds — a coarser multiple, a shorter longest side. The request that
+// carries them is in `Request.swift`.
 
 /// **The formats a render accepts — three rules, each with its reason.**
 ///
@@ -12,6 +13,15 @@ import Foundation
 ///    only if both half-sizes stay at the floor (`Spectral.divisible`).
 /// 2. **Each side a multiple of 16**: the VAE divides by 8, the DiTs' patch by 2.
 /// 3. **Area at most `maxSurface`** — measured, not deduced. See its note.
+///
+/// **A family may ask more** (`check(width:height:family:)`, what the preflight applies), each read
+/// in its reference:
+///
+/// - **Qwen-Image-2.1: each side a multiple of 32** — its VAE divides by 16, the patch by 2.
+///   `pipeline_qwenimage21.py` floors a side to 32 without a word; the engine refuses it instead,
+///   before any computation: 848×1216 would otherwise die after the encoder.
+/// - **Anima: each side at most 2048 px** — the reference's RoPE table holds 128 positions per side
+///   (`AnimaDiT.Config.ropePositions`); past it the reference fails, and the engine would extrapolate.
 public enum Format {
     /// The smallest side, in pixels: `Spectral.minimumSide` latent cells of 8 px.
     public static let minimumSide = Spectral.minimumSide * 8
@@ -29,18 +39,50 @@ public enum Format {
     /// decoding. Beyond that, nothing is measured: the ceiling is the last format that was.
     public static let maxSurface = 1024 * 1536
 
-    /// Throws if the format is not renderable. The order of the rules is that of the most useful error.
+    /// The longest side the area ceiling leaves above the floor: 1536·1024 / 512 = 3072 px.
+    public static let maximumSide = maxSurface / minimumSide
+
+    /// **The multiple each side of `family` must be**: 32 for Qwen-Image-2.1 (VAE ×16, patch ×2), 16
+    /// otherwise.
+    public static func multiple(for family: Family) -> Int {
+        family == .qwenImage21 ? 32 : multiple
+    }
+
+    /// **The longest side `family` renders**, in pixels: Anima's RoPE table (128 positions × patch 2 ×
+    /// VAE 8 = 2048), `maximumSide` otherwise.
+    public static func maximumSide(for family: Family) -> Int {
+        switch family {
+        case .anima:
+            return min(maximumSide, AnimaDiT.Config.publishedRopePositions * 2 * LatentSpace.qwenImage.factor)
+        case .zImage, .krea2, .qwenImage21: return maximumSide
+        }
+    }
+
+    /// Throws if the format is not renderable by any model. The order of the rules is that of the
+    /// most useful error.
     public static func check(width: Int, height: Int) throws(EngineError) {
+        try check(width: width, height: height, multiple: multiple, maximumSide: maximumSide)
+    }
+
+    /// **Throws if `family` does not render the format** — the general rules, then the family's own:
+    /// what the preflight checks, what the app's size field judges.
+    public static func check(width: Int, height: Int, family: Family) throws(EngineError) {
+        try check(width: width, height: height, multiple: multiple(for: family), maximumSide: maximumSide(for: family))
+    }
+
+    private static func check(width: Int, height: Int, multiple: Int, maximumSide side: Int) throws(EngineError) {
         guard width >= minimumSide, height >= minimumSide else {
             throw .imageTooSmall(side: min(width, height), minimum: minimumSide)
         }
         guard width % multiple == 0, height % multiple == 0 else {
-            throw .formatRefused(width: width, height: height, reason: .notMultiple)
+            throw .formatRefused(width: width, height: height, reason: .notMultiple, bound: multiple)
         }
         // Each side bounded BEFORE the product: `99999999984 × 99999999984` would overflow.
-        let maximumSide = maxSurface / minimumSide
         guard width <= maximumSide, height <= maximumSide, width * height <= maxSurface else {
-            throw .formatRefused(width: width, height: height, reason: .tooLarge)
+            throw .formatRefused(width: width, height: height, reason: .tooLarge, bound: maxSurface)
+        }
+        guard width <= side, height <= side else {
+            throw .formatRefused(width: width, height: height, reason: .sideTooLong, bound: side)
         }
     }
 

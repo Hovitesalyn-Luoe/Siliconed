@@ -75,11 +75,15 @@ enum Palette {
     static let failure = Color(nsColor: .systemRed)
     /// A box: a card a step above the column — lifted in dark, white in light, as System Settings does.
     static let surface = Color(nsColor: NSColor(name: nil) { a in
-        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.055) : NSColor(white: 1, alpha: 0.85)
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.07) : NSColor(white: 1, alpha: 0.85)
     })
     /// A field inside a box: a recess.
-    static let well = Color.primary.opacity(0.06)
-    static let hairline = Color(nsColor: .separatorColor)
+    static let well = Color.primary.opacity(0.08)
+    /// A card's edge, a separator: a notch firmer than the system's `separatorColor` (10 %), which
+    /// let a box melt into the column on both grounds.
+    static let hairline = Color(nsColor: NSColor(name: nil) { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.16) : NSColor(white: 0, alpha: 0.14)
+    })
 
     private static func dynamic(dark: Int, light: Int) -> Color {
         func color(_ v: Int) -> NSColor {
@@ -457,7 +461,7 @@ private struct ModuleSlot: View {
         HStack(spacing: 5) {
             Text(name ?? "—").lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 2)
-            Image(systemName: "lock.fill").imageScale(.small).foregroundStyle(.tertiary)
+            Image(systemName: "lock.fill").imageScale(.small).foregroundStyle(.secondary)
         }
         .font(.callout)
         .padding(.horizontal, 8).padding(.vertical, 5)
@@ -547,7 +551,7 @@ private struct PromptNode: View {
 
     /// The handle: dragged, the field grows or shrinks; its cursor says so.
     private var grip: some View {
-        Capsule().fill(Color.secondary.opacity(0.35)).frame(width: 34, height: 4)
+        Capsule().fill(Color.secondary.opacity(0.5)).frame(width: 34, height: 4)
             .frame(maxWidth: .infinity).frame(height: 12)
             .contentShape(Rectangle())
             .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
@@ -752,7 +756,7 @@ private struct DiTBox: View {
             let f = app.outputFormat
             Field(title: "Size") {
                 Text(verbatim: "\(f.width) × \(f.height)").monospacedDigit()
-                Image(systemName: "lock.fill").imageScale(.small).foregroundStyle(.tertiary)
+                Image(systemName: "lock.fill").imageScale(.small).foregroundStyle(.secondary)
             }
             .help("An edit keeps the framing of image 1: about 1 megapixel at its proportions, each side at least 512, 1024² at most")
         }
@@ -830,11 +834,11 @@ private struct DiTBox: View {
             HStack(spacing: 8) {
                 Text("LoRA").foregroundStyle(.secondary)
                 if !app.loras.isEmpty {
-                    Text(verbatim: "\(app.loras.count)/\(AppState.maxLoRA)").monospacedDigit().foregroundStyle(.tertiary)
+                    Text(verbatim: "\(app.loras.count)/\(AppState.maxLoRA)").monospacedDigit().foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
                 if app.compatibleLoras.isEmpty {
-                    Text("None for this model").foregroundStyle(.tertiary)
+                    Text("No LoRA for this model").foregroundStyle(.secondary)
                 } else {
                     LoRAAddMenu(app: app)
                 }
@@ -924,7 +928,7 @@ struct LoRARow: View {
                     let id = slot.id
                     app.loras.removeAll { $0.id == id }
                 } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.borderless).foregroundStyle(.tertiary)
+                    .buttonStyle(.borderless).foregroundStyle(.secondary)
                     .help("Remove this LoRA from the stack")
             }
             Slider(value: $slot.strength, in: app.loraStrengthRange)

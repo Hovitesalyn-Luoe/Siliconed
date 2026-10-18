@@ -114,16 +114,29 @@ public struct Latent: Sendable {
 /// `[3, height, width]`, planar, in `[-1, 1]` — what `png()` and `cgImage()` read, and what an
 /// image encoder receives. Reading a file or a `CGImage` and fitting to the format:
 /// `ImageToImage.swift`.
+///
+/// **An image with transparency carries it twice**: `pixels` is always the image laid over white
+/// (what every model but one reads), and `rgba` the source's own bytes, unpremultiplied, alpha
+/// included — what Qwen-Image-2.1's edit reads, as diffusers hands its references in RGBA
+/// (`QwenImage21Pipeline.preparedReference`). An opaque image has no `rgba`: nothing changes for it.
 public struct ImageRGB: Sendable, Equatable {
     public let pixels: [Float]
     public let height: Int
     public let width: Int
+    /// `[height, width, 4]` interleaved 8-bit RGBA, **straight** (not premultiplied: a transparent
+    /// pixel keeps its colour), when some pixel's alpha is under 255; `nil` for an opaque image.
+    package let rgba: [UInt8]?
 
     public init(pixels: [Float], height: Int, width: Int) {
+        self.init(pixels: pixels, height: height, width: width, rgba: nil)
+    }
+
+    package init(pixels: [Float], height: Int, width: Int, rgba: [UInt8]?) {
         precondition(height > 0 && width > 0, "ImageRGB: \(width)×\(height), an empty image")
         precondition(pixels.count == 3 * height * width,
                      "ImageRGB: \(pixels.count) values for 3 × \(height) × \(width)")
-        self.pixels = pixels; self.height = height; self.width = width
+        precondition(rgba.map { $0.count == 4 * height * width } ?? true, "ImageRGB: RGBA of another size")
+        self.pixels = pixels; self.height = height; self.width = width; self.rgba = rgba
     }
 }
 

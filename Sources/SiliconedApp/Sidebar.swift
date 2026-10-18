@@ -63,7 +63,8 @@ struct CustomSize: View {
                 Text(refusal.title).font(.caption).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Width × height: each side 512 at least and a multiple of 16, 1024 × 1536 at most.")
+                // The chosen model's rules: never a step it would refuse (Qwen-Image-2.1 32, Anima 2048 px).
+                Text("Width × height: each side from 512 to \(String(app.formatMaximumSide)) and a multiple of \(String(app.formatMultiple)), 1024 × 1536 at most.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -100,7 +101,7 @@ struct ReferenceThumbnail: View {
                 .frame(width: Self.side, height: Self.side)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(target ? Color.accentColor : Color(nsColor: .separatorColor),
+                    .strokeBorder(target ? Color.accentColor : Palette.hairline,
                                   lineWidth: target ? 2 : 1))
                 .overlay(alignment: .topLeading) {
                     Text(verbatim: "\(number)")
@@ -347,7 +348,7 @@ private struct Footer: View {
         VStack(alignment: .leading, spacing: Self.rowSpacing) {
             ForEach(Array(app.file.enumerated()), id: \.element.id) { n, job in
                 HStack(spacing: 8) {
-                    Text(verbatim: "\(n + 1)").font(.caption2).monospacedDigit().foregroundStyle(.tertiary).frame(width: 14)
+                    Text(verbatim: "\(n + 1)").font(.caption2).monospacedDigit().foregroundStyle(.secondary).frame(width: 14)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(job.settings.prompt).font(.caption).lineLimit(1).truncationMode(.tail)
                         Text(job.legend).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -356,7 +357,7 @@ private struct Footer: View {
                     if let e = app.estimation(job) {
                         Text(verbatim: "≈ " + Figures.duration(e)).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
                     }
-                    Button { app.remove(job) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                    Button { app.remove(job) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                         .buttonStyle(.borderless)
                         .help("Remove from the queue")
                 }
@@ -398,6 +399,6 @@ struct ProblemView: View {
         }
         .font(.callout)
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.red.opacity(0.1)))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Palette.failure.opacity(0.1)))
     }
 }

@@ -5,7 +5,8 @@ import Synchronization
 //
 //     1. the model is installed          its maps and published files are all there (`ModelCard.missing`)
 //     2. its license is accepted         `<root>/accepted-licenses.json`, written by the app
-//     3. the format                      side ≥ 512, multiple of 16, area ≤ 1024×1536 (`Format.check`)
+//     3. the format                      side ≥ 512, multiple of 16, area ≤ 1024×1536, and the family's own
+//                                        rules: Qwen-Image-2.1 ×32, Anima ≤ 2048 px a side (`Format.check(…, family:)`)
 //     4. the memory                      the request's computed floor ≤ B, this Mac's budget (`MemoryBudget`);
 //                                        a floor that cannot be computed is refused too
 //     5. no other render                 `RenderLock.machine`, one for the machine, held for the whole render
@@ -37,7 +38,7 @@ package enum Preflight {
                               memory: MemoryNeed.Request? = nil, checksMemory: Bool = true) throws(EngineError) {
         guard installed else { throw .modelNotInstalled(model: card.id) }
         guard licenseAccepted else { throw .licenseNotAccepted(model: card.id) }
-        try Format.check(width: width, height: height)
+        try Format.check(width: width, height: height, family: card.family)
         guard checksMemory else { return }
         if let memory {
             try card.checkMemory(memory, ceiling: ceiling)

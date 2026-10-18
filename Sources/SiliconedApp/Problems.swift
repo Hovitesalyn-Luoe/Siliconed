@@ -97,10 +97,12 @@ struct Problem: Equatable, Sendable {
                 : String(localized: "\(count) images: this model reads \(max) at most.")
         case let .imageTooSmall(side, minimum):                      // image_too_small
             return String(localized: "Too small: \(String(side)) px on a side, \(String(minimum)) px at least.")
-        case let .formatRefused(w, h, reason):                       // format_refused
+        case let .formatRefused(w, h, reason, bound):                // format_refused
             switch reason {
             case .notMultiple:
-                return String(localized: "\(String(w)) × \(String(h)): each side must be a multiple of \(String(Format.multiple)).")
+                return String(localized: "\(String(w)) × \(String(h)): each side must be a multiple of \(String(bound)).")
+            case .sideTooLong:
+                return String(localized: "\(String(w)) × \(String(h)): this model draws \(String(bound)) px at most on a side.")
             case .tooLarge:
                 return String(localized: "\(String(w)) × \(String(h)) is larger than the largest size, 1024 × 1536.")
             }

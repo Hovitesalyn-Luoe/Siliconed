@@ -622,7 +622,7 @@ final class RemoteControl {
         }
 
         let (width, height) = d.format ?? (1024, 1024)
-        do { try Format.check(width: width, height: height) } catch {
+        do { try Format.check(width: width, height: height, family: model.card.family) } catch {
             let p = Problem(error)
             throw Refusal("format", p.title, help: p.suggestion)
         }

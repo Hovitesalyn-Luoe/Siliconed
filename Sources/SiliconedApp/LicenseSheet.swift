@@ -44,8 +44,10 @@ struct LicenseTerms: View {
                 if card.family == .anima {
                     Text("Anima derives from NVIDIA's Cosmos-Predict2, under the NVIDIA Open Model License.")
                 }
-                if card.license.requiredFilter {
-                    Text("The license requires a content filter wherever the model is deployed.")
+                // § 4.2 asks whoever deploys the model for content filtering; the app filters nothing
+                // (no prompt is censored): said once, plainly, where the license is accepted.
+                if card.family == .krea2 {
+                    Text("The license asks whoever deploys the model to filter the content it makes (§ 4.2). Siliconed applies no filter: by installing the model and accepting its license, you take on that responsibility.")
                 }
                 Group {
                     // Anima's Compact and Light: one third party, the image model alone (its encoder
@@ -83,12 +85,37 @@ struct LicenseTerms: View {
             }
             .font(.callout)
             .fixedSize(horizontal: false, vertical: true)
+            // Krea 2: the Agreement itself, whole, and its § 3.1 notice word for word (`Krea2License`).
+            if card.family == .krea2 { Krea2Agreement() }
         }
     }
 
     /// `Qwen/Qwen-Image-2.1` from `https://huggingface.co/Qwen/Qwen-Image-2.1/blob/<sha>/LICENSE`.
     static func repository(_ url: URL) -> String {
         url.pathComponents.dropFirst().prefix(2).joined(separator: "/")
+    }
+}
+
+/// **Krea 2's Agreement, in full, where it is accepted**: its attribution notice (§ 3.1), then the
+/// whole text in a box that scrolls. Quoted, never translated: it is the license.
+private struct Krea2Agreement: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: Krea2License.attribution)
+                .font(.callout).italic()
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView(.vertical) {
+                Text(verbatim: Krea2License.text)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .frame(height: 220)
+            .background(Palette.well, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Palette.hairline))
+        }
     }
 }
 

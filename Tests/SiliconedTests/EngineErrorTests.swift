@@ -22,7 +22,7 @@ final class EngineErrorTests: XCTestCase {
             XCTAssertTrue("\(e)".hasPrefix(sentence), e.code)
         }
         // The refinements of a reason are stable keys too.
-        XCTAssertEqual(EngineError.FormatRefusal.allCases.map(\.rawValue), ["not_multiple", "too_large"])
+        XCTAssertEqual(EngineError.FormatRefusal.allCases.map(\.rawValue), ["not_multiple", "side_too_long", "too_large"])
         XCTAssertEqual(EngineError.LoRARefusal.allCases.map(\.rawValue), ["not_a_lora", "no_target", "inconsistent"])
         XCTAssertEqual(EngineError.GridRefusal.allCases.map(\.rawValue),
                        ["empty_axis", "same_axis_twice", "no_such_group", "no_such_lora", "group_not_on_axis",
@@ -112,11 +112,22 @@ final class EngineErrorTests: XCTestCase {
             XCTAssertEqual($0 as? EngineError, .imageTooSmall(side: 256, minimum: Format.minimumSide))
         }
         XCTAssertThrowsError(try preflight(.zImage, 1000, 1000)) {
-            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 1000, height: 1000, reason: .notMultiple))
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 1000, height: 1000, reason: .notMultiple, bound: 16))
         }
         XCTAssertThrowsError(try preflight(.zImage, 2048, 2048)) {
-            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 2048, height: 2048, reason: .tooLarge))
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 2048, height: 2048, reason: .tooLarge, bound: Format.maxSurface))
         }
+        // The family's own rules, at the preflight: Qwen-Image-2.1's 32 (848×1216 used to die after the
+        // encoder), Anima's 2048 px a side (its reference's RoPE table) — whatever B.
+        XCTAssertThrowsError(try preflight(.qwenImage21, 848, 1216, memory: .max)) {
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 848, height: 1216, reason: .notMultiple, bound: 32))
+        }
+        XCTAssertNoThrow(try preflight(.zImage, 848, 1216, memory: .max))
+        XCTAssertThrowsError(try preflight(.anima, 2560, 512, memory: .max)) {
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 2560, height: 512, reason: .sideTooLong, bound: 2048))
+        }
+        XCTAssertNoThrow(try preflight(.anima, 2048, 768, memory: .max))
+        XCTAssertNoThrow(try preflight(.krea2, 2560, 512, memory: .max))
         let qwen = need(.qwenImage21, 1024, 1024)
         XCTAssertThrowsError(try preflight(.qwenImage21, 1024, 1024, memory: qwen - 1)) {
             XCTAssertEqual($0 as? EngineError, .insufficientMemory(needed: qwen, budget: qwen - 1))

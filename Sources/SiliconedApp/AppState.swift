@@ -747,20 +747,34 @@ final class AppState {
         loras.removeAll { !$0.path.isEmpty && !valid.contains($0.path) }
         steps = card?.defaultSteps ?? 8
         if references.count > maxReferences { references = Array(references.prefix(maxReferences)) }
-        // A size typed by hand stays: every model takes any size `Format.check` accepts — and this
-        // Mac's memory, or the footer says so and offers the largest that fits.
-        if (try? Format.check(width: format.width, height: format.height)) == nil {
+        // A size typed by hand stays while the new model takes it (`Format.check(…, family:)`: Qwen-Image-2.1
+        // wants multiples of 32, Anima 2048 px a side at most) — and this Mac's memory, or the footer
+        // says so and offers the largest that fits.
+        if (try? checkFormat(width: format.width, height: format.height)) == nil {
             format = formats[0]; orientation = format.orientation
         }
     }
 
+    /// **The chosen model's format rules** (`Format.check(…, family:)`, the engine's preflight); the
+    /// general ones when no model is chosen.
+    func checkFormat(width: Int, height: Int) throws(EngineError) {
+        if let family = card?.family { try Format.check(width: width, height: height, family: family) }
+        else { try Format.check(width: width, height: height) }
+    }
+
+    /// The multiple a typed side must be, and the longest side, for the chosen model — what the size
+    /// field announces, so that it never suggests a size the model refuses.
+    var formatMultiple: Int { card.map { Format.multiple(for: $0.family) } ?? Format.multiple }
+    var formatMaximumSide: Int { card.map { Format.maximumSide(for: $0.family) } ?? Format.maximumSide }
+
     /// **A size typed by hand** (`832x1216`, `1024`): read by `Format.parse`, judged by `Format.check` —
-    /// the engine's own rules (sides ≥ 512, multiples of 16, area ≤ 1024×1536). The refusal, translated.
+    /// the engine's own rules (sides ≥ 512, multiples of 16, area ≤ 1024×1536), and the model's (Qwen-Image-2.1
+    /// multiples of 32, Anima 2048 px a side at most). The refusal, translated.
     func setCustomFormat(_ text: String) -> Problem? {
         guard let (w, h) = Format.parse(text.trimmingCharacters(in: .whitespaces)) else {
             return Problem(EngineError.formatUnreadable(text: text))
         }
-        do { try Format.check(width: w, height: h) } catch { return Problem(error) }
+        do { try checkFormat(width: w, height: h) } catch { return Problem(error) }
         // Beyond B, refused here as the picker greys it out: the same check as the engine's.
         if settingsRead {
             do { try card?.checkMemory(width: w, height: h, references: subjectImageCount, ceiling: memoryCeiling) }

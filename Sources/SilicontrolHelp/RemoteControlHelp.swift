@@ -286,7 +286,8 @@ public enum RemoteControlHelp {
                               {a|b|c} in it: one job per alternative (ALTERNATIVES below).
           512 | 1024 | WxH    format. 512 = 512x512, 1024 = 1024x1024; WxH = width x height
                               (832x1216 = portrait, the "formats" of « models »). Each side
-                              ≥ 512 and a multiple of 16, area ≤ 1024×1536. Default: 1024x1024.
+                              ≥ 512 and a multiple of 16 (32 for qwen-image-2.1), ≤ 2048 for
+                              anima, area ≤ 1024×1536. Default: 1024x1024.
           seed                integer. Absent: drawn at random, returned in "seeds".
 
         OPTIONS
@@ -658,7 +659,7 @@ public enum RemoteControlHelp {
                                                                            → wait, then retry
           lora                 LoRA not found for this model, or > 3        → "hint" lists the compatible ones
           format               unreadable or out-of-bounds format; an edit beyond 1024² of area
-                                                                           → WxH, sides ≥ 512, multiples of 16
+                                                                           → WxH, sides ≥ 512, multiples of 16 (32: qwen-image-2.1)
           steps                a step count the model has no schedule for   → its "default_steps"
           edit                 --ref on a model without editing, or more --ref than it reads
                                                                            → a model with "edit": true; its "max_references"

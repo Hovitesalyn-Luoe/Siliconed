@@ -224,7 +224,7 @@ final class RobustnessTests: XCTestCase {
         let tiny = EngineError.strengthOutOfRange(strength: 0.001).errorDescription!
         XCTAssertTrue(tiny.contains("0.001") && tiny.contains("above 0"), tiny)
         XCTAssertTrue(EngineError.strengthTooLow(strength: 0.1, steps: 8, floor: 0.125).errorDescription!.contains("0.1 "))
-        let large = EngineError.formatRefused(width: 2048, height: 2048, reason: .tooLarge).errorDescription!
+        let large = EngineError.formatRefused(width: 2048, height: 2048, reason: .tooLarge, bound: Format.maxSurface).errorDescription!
         XCTAssertTrue(large.contains(String(format: "%.2f", Double(Format.maxSurface) / 1e6)), large)
         for e in EngineError.samples {
             let text = [e.errorDescription, e.recoverySuggestion].compactMap { $0 }.joined()

@@ -28,6 +28,9 @@ import Foundation
 ///     teenth channel, the padding mask, zero for a whole image;
 ///   - Cosmos RoPE is *split*: the forge converted it to interleaved (`ForgeDiT`),
 ///     so `Ops.rope` applies as-is on a table specific to Cosmos (`AnimaRope`);
+///   - that table is **bounded**: `max(max_size // patch_size)` = 128 positions per side, 2048 px —
+///     the reference cannot compute past it, so `Format.maximumSide(for: .anima)` refuses it
+///     (`Config.ropePositions`), where the formula alone would extrapolate without a word;
 ///   - the **residuals climb to 2.5·10⁵** at block 13 (golden tensors): four times the fp16
 ///     ceiling. Anima requires fp32 as much as Z-Image does;
 ///   - **every modulation depends on σ alone** (not on the latent, not on the text): the 170 `gemv`s of
@@ -43,6 +46,20 @@ package final class AnimaDiT {
     package struct Config {
         package let dim, heads, headDim, hidden, layers, channels, patch, adalnLoRA, textDim: Int
         package let ropeScale: [Double]
+        /// **The positions the reference's RoPE table holds, per side**: `CosmosRotaryPosEmbed` builds
+        /// `seq = arange(max(max_size // patch_size))` and slices `seq[:tokens]` on each axis — beyond it,
+        /// the slice comes back short and the reference fails on the concatenation. Note the `max` over
+        /// the three axes: with the published `max_size = (128, 240, 240)`, `patch_size = (1, 2, 2)` it is
+        /// the *time* axis' 128 that bounds the image's sides, not 240 // 2 = 120.
+        package let ropePositions: Int
+
+        /// `max(max_size // patch_size)` (`CosmosRotaryPosEmbed.__init__` then `forward`).
+        package static func ropePositions(maxSize: [Int], patchSize: [Int]) -> Int {
+            zip(maxSize, patchSize).map { $0 / $1 }.max() ?? 0
+        }
+        /// The published configuration's (`max_size = [128, 240, 240]`, `patch_size = [1, 2, 2]`, read in
+        /// the forged map's header): 128 tokens, 2048 px on a side through the VAE ×8 and the patch ×2.
+        package static let publishedRopePositions = ropePositions(maxSize: [128, 240, 240], patchSize: [1, 2, 2])
 
         package init(header: [String: Any]) {
             let c = header["config"] as? [String: Any] ?? [:]
@@ -56,6 +73,8 @@ package final class AnimaDiT {
             adalnLoRA = c["adaln_lora_dim"] as? Int ?? 256
             textDim = c["text_embed_dim"] as? Int ?? 1024
             ropeScale = (c["rope_scale"] as? [Double]) ?? [1, 4, 4]
+            ropePositions = Config.ropePositions(maxSize: (c["max_size"] as? [Int]) ?? [128, 240, 240],
+                                                 patchSize: (c["patch_size"] as? [Int]) ?? [1, 2, 2])
         }
     }
 
@@ -124,6 +143,13 @@ package final class AnimaDiT {
         }
         self.artifact = artifact
         self.config = Config(header: artifact.header)
+        // `Format.check(…, family: .anima)` refuses these sides first; this guards a hand-made call.
+        guard latentHeight / config.patch <= config.ropePositions, latentWidth / config.patch <= config.ropePositions else {
+            let side = config.ropePositions * config.patch * LatentSpace.qwenImage.factor
+            throw EngineError.formatRefused(width: latentWidth * LatentSpace.qwenImage.factor,
+                                            height: latentHeight * LatentSpace.qwenImage.factor,
+                                            reason: .sideTooLong, bound: side)
+        }
         self.prefetcher = Prefetcher(artifact: artifact)
         self.gemm = try GEMM(freezeCut: freezeCut)
         self.gelu = try AnimaGELU(device: gemm.device, queue: gemm.queue)
@@ -615,7 +641,8 @@ package final class AnimaDiT {
 ///
 /// The bases are **stretched by NTK**: `θ_h = 10000 · 4^(42/40)`, likewise for `w`, and `θ_t = 10000`
 /// (`rope_scale = [1, 4, 4]`). An image has only one frame: the `t` axis is zero everywhere, so its
-/// 22 pairs do not rotate.
+/// 22 pairs do not rotate. The reference's table stops at `Config.ropePositions` per side; the
+/// formula here would go on, so the callers bound it (`AnimaDiT.init`, `Format.maximumSide(for:)`).
 package enum AnimaRope {
     package static func write(into out: UnsafeMutablePointer<Float>, tilesHigh: Int, tilesWide: Int,
                              headDim: Int, scale: [Double]) {

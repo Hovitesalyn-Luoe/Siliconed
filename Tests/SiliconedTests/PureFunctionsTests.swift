@@ -133,7 +133,7 @@ final class PureFunctionsTests: XCTestCase {
     func testFormatIsMultipleOf16() {
         for (l, h) in [(520, 512), (512, 1000), (840, 1216)] {
             XCTAssertThrowsError(try Format.check(width: l, height: h)) {
-                XCTAssertEqual($0 as? EngineError, .formatRefused(width: l, height: h, reason: .notMultiple))
+                XCTAssertEqual($0 as? EngineError, .formatRefused(width: l, height: h, reason: .notMultiple, bound: 16))
             }
         }
         XCTAssertNoThrow(try Format.check(width: 528, height: 1008))
@@ -148,7 +148,7 @@ final class PureFunctionsTests: XCTestCase {
         // 1024×1536 is the measured ceiling; 16 px more are enough to exceed it.
         for (l, h) in [(2048, 2048), (1040, 1536), (1536, 1040), (1264, 1264), (1024, 1552)] {
             XCTAssertThrowsError(try Format.check(width: l, height: h)) {
-                XCTAssertEqual($0 as? EngineError, .formatRefused(width: l, height: h, reason: .tooLarge))
+                XCTAssertEqual($0 as? EngineError, .formatRefused(width: l, height: h, reason: .tooLarge, bound: Format.maxSurface))
             }
         }
     }
@@ -521,5 +521,16 @@ final class PureFunctionsTests: XCTestCase {
         for p in 0..<16 { XCTAssertEqual(table[last + 2 * p], 1); XCTAssertEqual(table[last + 2 * p + 1], 0) }
         XCTAssertEqual(table[last + 2 * 16], Float(cos(1.0)), accuracy: 1e-7, "axis h, frequency 1, position 1")
         XCTAssertFalse(table.contains { $0.isNaN })
+    }
+
+    /// Krea 2's license as the app shows it: whole (its last section reached), and still carrying the
+    /// § 3.1 notice the app quotes apart, word for word.
+    func testKrea2LicenseCarriesItsNotice() {
+        let t = Krea2License.text
+        XCTAssertTrue(t.hasPrefix("KREA 2 COMMUNITY LICENSE AGREEMENT"))
+        XCTAssertTrue(t.contains("\"" + Krea2License.attribution + "\""))
+        XCTAssertTrue(t.contains("4.2 Content Filtering Requirement."))
+        XCTAssertTrue(t.hasSuffix("will not operate as a waiver of such right or provision."))
+        XCTAssertFalse(t.contains("\n_\n"), "a PDF extraction artefact left in")
     }
 }

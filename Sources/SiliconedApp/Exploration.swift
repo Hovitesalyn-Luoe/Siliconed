@@ -245,7 +245,7 @@ struct ExplorationPanel: View {
                     TextEditor(text: $app.explorePrompt)
                         .font(.body)
                         .frame(minHeight: 70, maxHeight: 140)
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+                        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Palette.hairline))
                     Text("Write {brunette|blonde|red-haired} to make a group an axis.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -335,7 +335,7 @@ struct ExplorationPanel: View {
             if app.canAddLoRA {
                 LoRAAddMenu(app: app).font(.callout)
             } else if app.compatibleLoras.isEmpty {
-                Text("No LoRA for this model").font(.caption).foregroundStyle(.tertiary)
+                Text("No LoRA for this model").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -400,7 +400,7 @@ struct ExplorationCanvas: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().opacity(0.5)
+            Divider()
             ScrollView([.vertical, .horizontal]) {
                 cells.padding(24)
             }
@@ -409,10 +409,10 @@ struct ExplorationCanvas: View {
                 .onEnded { value in app.exploreCellSide = AppState.clampedCellSide(app.exploreCellSide * value.magnification) })
             // The chosen cell — or, while the exploration runs, the one rendering, live.
             if let i = chosen, run.cellJobs.indices.contains(i), run.entries[i] != nil {
-                Divider().opacity(0.5)
+                Divider()
                 detail(i)
             } else if let i = running {
-                Divider().opacity(0.5)
+                Divider()
                 detail(i, live: true)
             }
         }
@@ -440,6 +440,7 @@ struct ExplorationCanvas: View {
                 .disabled(run.entries.isEmpty || app.exploring)
                 .help("The sketches side by side, labelled — an image of the history, in memory like the others")
             Button { MainWindow.shared.showExploration() } label: { Image(systemName: "slider.horizontal.3") }
+                .buttonStyle(.borderless)
                 .help("The exploration's panel (⌥⌘G)")
             Button { app.showsExploration = false } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
@@ -486,7 +487,7 @@ struct ExplorationCanvas: View {
                 else { Rectangle().fill(.quaternary) }
                 ProgressView().controlSize(.small)
             } else {
-                Rectangle().fill(.quinary)
+                Rectangle().fill(Palette.well)
                 Text(run.issues[i] == nil ? String(localized: "Waiting") : GridWords.note(run.issues[i]))
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -500,7 +501,7 @@ struct ExplorationCanvas: View {
         .contextMenu {
             if run.entries[i] != nil {
                 Button("Finish This Image") { app.finishCell(i) }
-                Button("Use These Settings") { app.useCell(i) }
+                Button("Reuse These Settings") { app.useCell(i) }
             }
         }
         .help(run.cellJobs.indices.contains(i)
@@ -531,7 +532,7 @@ struct ExplorationCanvas: View {
 
     @ViewBuilder private func actions(_ i: Int) -> some View {
         HStack(spacing: 10) {
-            Button("Use These Settings") { app.useCell(i) }
+            Button("Reuse These Settings") { app.useCell(i) }
                 .help("The rack takes this cell whole — model, prompt, size, steps, LoRAs, seed — without rendering")
             Button("Finish This Image") { app.finishCell(i) }
                 .buttonStyle(.borderedProminent)

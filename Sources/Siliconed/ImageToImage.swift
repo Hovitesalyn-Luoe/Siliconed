@@ -45,7 +45,9 @@ extension ImageRGB {
     /// - the **EXIF orientation is applied** (a portrait phone photo arrives upright): it is
     ///   ImageIO's thumbnail with `CreateThumbnailWithTransform`, forced from the image
     ///   (`FromImageAlways`) and not from the embedded thumbnail;
-    /// - the rest is `init(cgImage:)`'s: 8-bit sRGB, transparency over white.
+    /// - the rest is `init(cgImage:)`'s: 8-bit sRGB, transparency over white — and, for an image with
+    ///   transparency, its straight RGBA (`rgba`), read from the full image: ImageIO's thumbnail comes
+    ///   premultiplied, which would lose the colour of the transparent pixels.
     public init(contentsOf url: URL, maxSide: Int = ImageRGB.maximumDecodedSide) throws(EngineError) {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -60,20 +62,26 @@ extension ImageRGB {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw .imageUnreadable(file: url.path)
         }
+        // The straight bytes, as Pillow reads them, from the full image — when it is the one decoded:
+        // upright (an EXIF rotation would need the bytes turned too) and not reduced.
+        let upright = (properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1
+        let full = ImageRGB.hasAlpha(image) && upright && image.width == l && image.height == h
+            ? CGImageSourceCreateImageAtIndex(source, 0, nil) : nil
         // Already within `maxSide` (ImageIO reduced it): the bound is the thumbnail's, not a second one.
-        try self.init(cgImage: image, name: url.path, maxSide: max(image.width, image.height, maxSide))
+        try self.init(cgImage: image, name: url.path, maxSide: max(image.width, image.height, maxSide), straight: full)
     }
 
     /// **An image already in memory** — drag-and-drop, pasteboard, `NSImage.cgImage(…)`:
     /// converted to 8-bit **sRGB** (the training images' space), transparency laid **over white**,
-    /// then to `[3, h, w]` in `[-1, 1]`. No orientation is applied (a `CGImage` has none).
+    /// then to `[3, h, w]` in `[-1, 1]`. No orientation is applied (a `CGImage` has none). With
+    /// transparency, its straight RGBA too (`rgba`).
     ///
     /// **Bounded like a file** (`maxSide`, `maximumDecodedSide` by default): an image whose longest
     /// side exceeds it is drawn **directly** into a smaller context, proportions kept — a 20k × 20k
     /// pasted image would otherwise take 1.6 GB of bytes, then 4.8 GB of floats, before `Request`
     /// fits it to the format. An image within the bound comes out bit for bit as before.
     public init(cgImage image: CGImage, maxSide: Int = ImageRGB.maximumDecodedSide) throws(EngineError) {
-        try self.init(cgImage: image, name: "CGImage \(image.width)×\(image.height)", maxSide: maxSide)
+        try self.init(cgImage: image, name: "CGImage \(image.width)×\(image.height)", maxSide: maxSide, straight: nil)
     }
 
     /// **The size an image is drawn at**: as it is when its longest side is within `maxSide`,
@@ -87,7 +95,7 @@ extension ImageRGB {
                 max(1, min(bound, Int((Double(height) * scale).rounded()))))
     }
 
-    private init(cgImage image: CGImage, name: String, maxSide: Int) throws(EngineError) {
+    private init(cgImage image: CGImage, name: String, maxSide: Int, straight: CGImage?) throws(EngineError) {
         guard let srgb = CGColorSpace(name: CGColorSpace.sRGB), image.width > 0, image.height > 0 else {
             throw .imageUnreadable(file: name)
         }
@@ -111,7 +119,62 @@ extension ImageRGB {
         for p in 0..<(height * width) {
             for c in 0..<3 { planes[c * height * width + p] = Float(bytes[p * 4 + c]) / 255 * 2 - 1 }
         }
-        self.init(pixels: planes, height: height, width: width)
+        let rgba = ImageRGB.hasAlpha(image)
+            ? ImageRGB.straightRGBA(straight ?? image, width: width, height: height, reduced: reduced) : nil
+        self.init(pixels: planes, height: height, width: width, rgba: rgba)
+    }
+
+    // MARK: the straight RGBA of an image with transparency
+
+    /// Whether the image declares an alpha channel at all (an opaque one never gets `rgba`).
+    static func hasAlpha(_ image: CGImage) -> Bool {
+        switch image.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast: return true
+        default: return false
+        }
+    }
+
+    /// **The image's straight RGBA at `width × height`**, or `nil` when every alpha is 255.
+    ///
+    /// - **Exact** (Pillow's `Image.open` bytes) when the image is stored straight — 8 bits, alpha
+    ///   first or last, not premultiplied, sRGB, big-endian order — and kept at its size: its bytes
+    ///   are read as they are, no colour management, as Pillow does (and as the sRGB `pixels` of an
+    ///   sRGB image already are).
+    /// - Otherwise (premultiplied, another space, reduced): drawn premultiplied into an sRGB context,
+    ///   then divided back as Pillow's `RGBa → RGBA` does (`premultiplied`) — the colour under an
+    ///   alpha near 0 is then approximate, where it weighs nothing over white anyway.
+    static func straightRGBA(_ image: CGImage, width: Int, height: Int, reduced: Bool) -> [UInt8]? {
+        var out = [UInt8](repeating: 0, count: 4 * width * height)
+        let order = image.bitmapInfo.intersection(.byteOrderMask)
+        if !reduced, image.width == width, image.height == height,
+           image.bitsPerComponent == 8, image.bitsPerPixel == 32,
+           image.alphaInfo == .last || image.alphaInfo == .first,
+           order == .byteOrderDefault || order == .byteOrder32Big,
+           image.colorSpace?.name == CGColorSpace.sRGB,
+           let data = image.dataProvider?.data, let base = CFDataGetBytePtr(data) {
+            let first = image.alphaInfo == .first
+            for y in 0..<height {
+                for x in 0..<width {
+                    let pixel = base + y * image.bytesPerRow + x * 4, o = (y * width + x) * 4
+                    if first { out[o] = pixel[1]; out[o + 1] = pixel[2]; out[o + 2] = pixel[3]; out[o + 3] = pixel[0] }
+                    else { for c in 0..<4 { out[o + c] = pixel[c] } }
+                }
+            }
+        } else {
+            guard let srgb = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+            let drawn: Bool = out.withUnsafeMutableBytes { raw in
+                guard let context = CGContext(data: raw.baseAddress, width: width, height: height,
+                                               bitsPerComponent: 8, bytesPerRow: width * 4, space: srgb,
+                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+                context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+                context.interpolationQuality = reduced ? .high : .none
+                context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+                return true
+            }
+            guard drawn else { return nil }
+            out = PillowAlpha.unpremultiply(out)
+        }
+        return stride(from: 3, to: out.count, by: 4).contains { out[$0] < 255 } ? out : nil
     }
 
     /// **Fill, then center-crop**: `fitted`'s geometry, without pixels. The image is scaled by
