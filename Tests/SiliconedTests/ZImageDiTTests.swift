@@ -224,4 +224,13 @@ final class ZImageDiTTests: XCTestCase {
                                                          capLength: capLength, loraRank: 3))
         XCTAssertEqual(dit.cacheLoRACapacity, CacheLoRA.arenaBytes(CacheLoRA.bytes(modules: [(d, inDim, 3)])))
     }
+
+    /// **Without the head split, Z-Image's SDPA is sliced past `maxMatrix`** (18/10): at 1024×1536 the
+    /// sequence is 6 144 image rows and a padded caption — 30 × 6 176² × 4 = 4.6 GB in one SDPA, the
+    /// regime where Krea 2's died; two query slices keep each under the bound. At 1024² one SDPA, as before.
+    func testZImageAttentionIsSlicedPastTheBound() {
+        XCTAssertEqual(Attention.groupedSlices(heads: 30, rows: 6144 + 32, keys: 6144 + 32), 2)
+        XCTAssertEqual(Attention.groupedSlices(heads: 30, rows: 4096 + 32, keys: 4096 + 32), 1)
+        XCTAssertEqual(Attention.groupedSlices(heads: 30, rows: 4096 + 32, keys: 4096 + 32, limit: 30 * 4128 * 4128 * 4 / 3), 3)
+    }
 }

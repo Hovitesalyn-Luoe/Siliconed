@@ -214,8 +214,8 @@ package final class AnimaDiT {
     }
 
     /// `latent` as `[16, H, W]`, `context` as `[textLength, 1024]` (the conditioner output,
-    /// padded), `sigma` as the scheduler gives it — the pipeline passes `t / 1000`, which
-    /// **is** σ. Returns the velocity as `[16, H, W]`.
+    /// padded), `sigma` as the scheduler gives it — the pipeline passes `t / 1000`, `t = σ·1000`, which
+    /// the timestep table retraces (`tabulate`). Returns the velocity as `[16, H, W]`.
     package func forward(latent: UnsafePointer<Float>, context: UnsafePointer<Float>,
                         sigma: Float) throws -> [Float] {
         let d = config.dim, p = config.patch, c = config.channels
@@ -574,8 +574,10 @@ package final class AnimaDiT {
             for i in 0..<m { (rows + i * stride + offset).update(from: slot + i * n, count: n) }
         }
 
-        // temb [3d] and embedded [d]
-        for i in 0..<m { Ops.timestepEmbedding(unique[i], into: sinusoid + i * d, dim: d) }
+        // temb [3d] and embedded [d]. The pipeline tells the DiT `t / 1000` with `t = σ · 1000`, two float32
+        // roundings (`AnimaLoopBeforeDenoiser`): σ back to the bit at 8 steps, not always — at 19 steps
+        // σ₅ and σ₁₆, 13 σ of N = 1…50 move by one bit (18/10).
+        for i in 0..<m { Ops.timestepEmbedding((unique[i] * 1000) / 1000, into: sinusoid + i * d, dim: d) }
         try gemv("time_embed.t_embedder.linear_1.weight", x: sinusoid, into: hidden, rows: m, outputs: d, inputs: d,
                  scratch: scratch)
         Ops.siluInPlace(hidden, count: m * d, scratch: siluScratch)
@@ -643,13 +645,19 @@ package final class AnimaDiT {
 /// (`rope_scale = [1, 4, 4]`). An image has only one frame: the `t` axis is zero everywhere, so its
 /// 22 pairs do not rotate. The reference's table stops at `Config.ropePositions` per side; the
 /// formula here would go on, so the callers bound it (`AnimaDiT.init`, `Format.maximumSide(for:)`).
+///
+/// **The reference's arithmetic, rounding for rounding** (`CosmosRotaryPosEmbed.forward`): θ a Python
+/// double, which `θ ** dim_range` casts to **float32** (a scalar against a float32 tensor), `1.0 / …` in
+/// float32, `torch.outer(seq, freqs)` with `seq` a float32 `arange` — one float32 product —, then
+/// `torch.cos`/`torch.sin` (SLEEF in torch: a one-bit residue, `Ops.polar`). Until 18/10 the table was
+/// in double, rounded once — the witness's function rather than the reference's.
 package enum AnimaRope {
     package static func write(into out: UnsafeMutablePointer<Float>, tilesHigh: Int, tilesWide: Int,
                              headDim: Int, scale: [Double]) {
         let dimH = headDim / 6 * 2, dimW = dimH, dimT = headDim - dimH - dimW
-        func frequencies(_ dims: Int, _ factor: Double) -> [Double] {
-            let theta = 10000.0 * pow(factor, Double(dims) / Double(dims - 2))
-            return (0..<(dims / 2)).map { 1 / pow(theta, Double(2 * $0) / Double(dims)) }
+        func frequencies(_ dims: Int, _ factor: Double) -> [Float] {
+            let theta = Float(10000.0 * pow(factor, Double(dims) / Double(dims - 2)))
+            return (0..<(dims / 2)).map { 1 / powf(theta, Float(2 * $0) / Float(dims)) }
         }
         let ft = frequencies(dimT, scale[0]), fh = frequencies(dimH, scale[1]), fw = frequencies(dimW, scale[2])
         let pairs = headDim / 2
@@ -660,12 +668,12 @@ package enum AnimaRope {
                 var index = 0
                 for _ in ft { token[2 * index] = 1; token[2 * index + 1] = 0; index += 1 }
                 for f in fh {
-                    let angle = Double(row) * f
-                    token[2 * index] = Float(cos(angle)); token[2 * index + 1] = Float(sin(angle)); index += 1
+                    let angle = Float(row) * f
+                    token[2 * index] = cosf(angle); token[2 * index + 1] = sinf(angle); index += 1
                 }
                 for f in fw {
-                    let angle = Double(column) * f
-                    token[2 * index] = Float(cos(angle)); token[2 * index + 1] = Float(sin(angle)); index += 1
+                    let angle = Float(column) * f
+                    token[2 * index] = cosf(angle); token[2 * index + 1] = sinf(angle); index += 1
                 }
             }
         }

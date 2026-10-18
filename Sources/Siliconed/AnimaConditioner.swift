@@ -139,19 +139,36 @@ package final class AnimaConditioner {
     /// The split RoPE of `AnimaRotaryEmbedding`: the angle `p · θ^(−2j/64)` rotates `(j, j+32)`.
     private func rope(_ x: UnsafeMutablePointer<Double>, rows: Int) {
         let half = headDim / 2
-        let inverse = (0..<half).map { 1 / pow(10000.0, Double(2 * $0) / Double(headDim)) }
+        let table = Self.ropeTable(rows: rows, headDim: headDim)
         for r in 0..<rows {
             for h in 0..<heads {
                 let base = (r * heads + h) * headDim
                 for j in 0..<half {
-                    let angle = Double(r) * inverse[j]
-                    let (c, s) = (cos(angle), sin(angle))
+                    let (c, s) = (Double(table[(r * half + j) * 2]), Double(table[(r * half + j) * 2 + 1]))
                     let (a, b) = (x[base + j], x[base + j + half])
                     x[base + j] = a * c - b * s
                     x[base + j + half] = b * c + a * s
                 }
             }
         }
+    }
+
+    /// **`AnimaRotaryEmbedding`'s table**, `[rows, headDim/2, (cos, sin)]` in float32, as the reference
+    /// computes it before the rotation (which runs in double here): `inv_freq = 1/θ^(2j/64)` in float32,
+    /// `inv_freq @ position.float()` — a matmul of inner size 1, one float32 product —, `.cos()` /
+    /// `.sin()` (SLEEF in torch: a one-bit residue, `Ops.polar`). Until 18/10 the angle and its cosine
+    /// were in double: the witness's table, not the reference's.
+    package static func ropeTable(rows: Int, headDim: Int = Shape.headDim, theta: Float = 10000) -> [Float] {
+        let half = headDim / 2
+        let inverse = (0..<half).map { 1 / powf(theta, Float(2 * $0) / Float(headDim)) }
+        var table = [Float](repeating: 0, count: rows * half * 2)
+        for r in 0..<rows {
+            for j in 0..<half {
+                let angle = Float(r) * inverse[j]
+                table[(r * half + j) * 2] = cosf(angle); table[(r * half + j) * 2 + 1] = sinf(angle)
+            }
+        }
+        return table
     }
 
     /// One attention of `rows` queries over `contextRows` keys, its `o_proj` written into `output`.

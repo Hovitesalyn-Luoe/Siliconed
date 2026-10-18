@@ -12,7 +12,11 @@ import Foundation
 /// `m = dx/dσ` is the engine's `negated` (`−v`), diffusers' `model_output`. Each rule is diffusers'
 /// scheduler read line by line (`FlowMatchEulerDiscreteScheduler`, its `stochastic_sampling`,
 /// `DPMSolverMultistepScheduler` and `UniPCMultistepScheduler`, both in `flow_prediction` with
-/// `use_flow_sigmas`), checked against them on a synthetic model (`SolverTests`).
+/// `use_flow_sigmas`), checked against them on a synthetic model (`SolverTests`) — **to the bit** since
+/// 18/10: every per-element operation is torch's, two roundings where torch writes `a·b + c` (it never
+/// fuses on the CPU; `vDSP_vsma` did), the corrector's 2×2 system solved as LAPACK does (`solve`). The
+/// scalar coefficients go through libm's `logf`/`expf`/`expm1f` where torch runs SLEEF's: one bit apart
+/// on rare σ (Krea 2's DPM++ at σ₂), the one residue.
 ///
 /// What a port by analogy would miss:
 ///
@@ -23,9 +27,12 @@ import Foundation
 ///   - **σ = 1 makes `λ = −∞`.** DPM++ lives with it: `h₀ = +∞`, `r₀ = +∞`, `D₁ = 0`, so its first
 ///     second-order step is a first-order one — IEEE arithmetic, not a special case. UniPC does not
 ///     (its corrector solves a system with a `−∞` in it): diffusers moves σ = 1 to `1 − 10⁻⁶` in
-///     `set_timesteps`, **before** `timesteps = σ · 1000` is taken from it — so the reference's DiT is
-///     told `1 − 10⁻⁶` too. Here only the solver's coefficients see it (`solverSigmas`); the DiT is
-///     told σ = 1 — an offset of 10⁻⁶ on the first evaluation's timestep under UniPC.
+///     `set_timesteps`. Only the solver's coefficients see it here (`solverSigmas`).
+///   - **What the DiT is told under DPM++ and UniPC is not diffusers'**, and on purpose: both schedulers
+///     cast `timesteps` to **int64** (`set_timesteps`, `.to(torch.int64)`), so diffusers' DiT is told
+///     `⌊1000σ⌋/1000` at every step — 999 for the nudged σ = 1, 954 for 0.954545 — a σ quantized to
+///     10⁻³, where Euler's (`FlowMatchEulerDiscreteScheduler`) keeps the float. The engine tells the
+///     DiT the schedule's σ under every rule, as Euler does (18/10, read in diffusers 0.41.0).
 ///   - **UniPC corrects after the evaluation, not before**: the DiT sees the predictor's sample,
 ///     `x̂₀` is computed on that same sample, and only then is the sample corrected — the corrected
 ///     one feeds the next predictor, never the DiT.
@@ -120,8 +127,10 @@ package final class SolverWalk {
         let n = count
         switch solver {
         case .euler:
-            var delta = t - s
-            vDSP_vsma(m, 1, &delta, x, 1, x, 1, vDSP_Length(n))
+            // `prev_sample = sample + dt * model_output`: two roundings, as torch computes it on the CPU.
+            // Not `vDSP_vsma`, which fuses them (one rounding): 6.5 % of the values a bit apart per step.
+            let delta = t - s
+            for i in 0..<n { x[i] = x[i] + delta * m[i] }
 
         case .eulerAncestral:
             // `x0 = sample − σ·m; prev = (1 − σ')·x0 + σ'·noise`, the noise drawn every step, even the
@@ -162,6 +171,23 @@ package final class SolverWalk {
         }
     }
 
+    /// **`torch.linalg.solve([[1, 1], [rk, 1]], [b1, b2])` as torch computes it on the CPU**: LAPACK's
+    /// LU with partial pivoting (the rows swap when `|rk| > 1`), then the two triangular solves — the
+    /// multiplier a division, the back substitution by the pivot's reciprocal, no fused product. Read off
+    /// 3 000 random systems against torch 2.14 (all equal); the closed form `(b1 − b2)/(1 − rk)` is
+    /// another rounding, a few coefficients one bit apart. Returns `(ρ₁, ρ₂)`, the corrector's `(r, t)`.
+    static func solve(rk: Float, _ b1: Float, _ b2: Float) -> (r: Float, t: Float) {
+        let swapped = abs(rk) > 1
+        let (pivot, below) = swapped ? (rk, Float(1)) : (Float(1), rk)
+        let (top, bottom) = swapped ? (b2, b1) : (b1, b2)
+        let l = below / pivot
+        let u22 = 1 - l * 1
+        let y2 = bottom - l * top
+        let x2 = y2 * (1 / u22)
+        let x1 = (top - 1 * x2) * (1 / pivot)
+        return (x1, x2)
+    }
+
     /// `UniPCMultistepScheduler.step`, `predict_x0`, `bh2`, `solver_order = 2`, `lower_order_final`.
     private func stepUniPC(_ k: Int, _ x: UnsafeMutablePointer<Float>, _ m: UnsafePointer<Float>) {
         let sig = solverSigmas, n = count
@@ -181,9 +207,7 @@ package final class SolverWalk {
             } else {
                 let rk = (Self.lambda(sig[k - 2]) - Self.lambda(sS0)) / h
                 let b2 = ((phi1 / hh - 1) / hh - 0.5) * 2 / bh
-                // `linalg.solve([[1, 1], [rk, 1]], [b1, b2])`.
-                let first = (b1 - b2) / (1 - rk)
-                rho = (first, b1 - first)
+                rho = Self.solve(rk: rk, b1, b2)
             }
             let (ratio, c) = (sT / sS0, (1 - sT) * phi1), cb = (1 - sT) * bh
             for i in 0..<n {

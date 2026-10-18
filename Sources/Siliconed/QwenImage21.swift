@@ -957,20 +957,27 @@ package struct QwenImage21Sequence: Equatable, Sendable {
 
 /// **Qwen-Image-2.1's RoPE table**: `[rows, 64, 2]` as `(cos, sin)` pairs for `Ops.rope`
 /// (`apply_rotary_emb_qwen(use_real=False)`: complex product on adjacent pairs). The 64 pairs are
-/// `[frame 8 | height 28 | width 28]`, `ωᵢ = θ^(−2i/dim)`. The reference computes the angles in fp32
-/// (`torch.outer` on fp32 frequencies, `torch.polar`); here in double, rounded once — the fp64
-/// witness's function. Negative positions are what the reference's table gives at negative indices.
+/// `[frame 8 | height 28 | width 28]`, `ωᵢ = 1/θ^(2i/dim)`. Negative positions are what the reference's
+/// table gives at negative indices.
+///
+/// **The reference's arithmetic, rounding for rounding** (`QwenImage21Rope.rope_params`): `1.0 /
+/// torch.pow(θ, arange(0, dim, 2).float32 / dim)` in float32, `torch.outer(index, freqs)` — an int64
+/// index times a float32 frequency, one float32 product —, then `torch.polar`, `__sincosf_stret` on
+/// macOS (`Ops.polar`). Until 18/10 the angle was computed in double and rounded once (the fp64
+/// witness's function rather than the reference's): at position 1 000 the reference's angle is
+/// 3·10⁻⁵ rad from it. torch's `pow` is SLEEF's: one frequency of 28 one bit apart (`siliconed-dev rope`).
 package enum QwenImage21Rope {
     package static func write(into out: UnsafeMutablePointer<Float>, positions: [[Int]], axes: [Int], theta: Double) {
-        let ω = axes.map { dims in (0..<(dims / 2)).map { i in 1 / pow(theta, Double(2 * i) / Double(dims)) } }
+        let base = Float(theta)
+        let ω = axes.map { dims in (0..<(dims / 2)).map { i in 1 / powf(base, Float(2 * i) / Float(dims)) } }
         let pairs = axes.reduce(0, +) / 2
         for (row, position) in positions.enumerated() {
             var j = 0
             let line = out + row * 2 * pairs
             for (axis, frequencies) in ω.enumerated() {
                 for f in frequencies {
-                    let angle = Double(position[axis]) * f
-                    line[2 * j] = Float(cos(angle)); line[2 * j + 1] = Float(sin(angle))
+                    let (c, s) = Ops.polar(Float(position[axis]) * f)
+                    line[2 * j] = c; line[2 * j + 1] = s
                     j += 1
                 }
             }

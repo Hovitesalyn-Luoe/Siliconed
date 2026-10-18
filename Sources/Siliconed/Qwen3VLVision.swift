@@ -257,16 +257,8 @@ package final class Qwen3VLVision {
         record("vit_embed_out", x, n * d)
 
         // ── 2D RoPE: per patch, 18 frequencies on the row, 18 on the column ───────────────────
-        let quarter = dh / 4
-        let inverse = (0..<quarter).map { j in 1 / powf(config.theta, Float(2 * j) / Float(dh / 2)) }
         let positions = Qwen3VLImages.patchPositions(gridHeight: gh, gridWidth: gw, merge: config.merge)
-        for p in 0..<n {
-            let row = freqs + p * dh
-            for j in 0..<(2 * quarter) {
-                let angle = Float(j < quarter ? positions[p].row : positions[p].column) * inverse[j % quarter]
-                row[2 * j] = cosf(angle); row[2 * j + 1] = sinf(angle)
-            }
-        }
+        Self.writeRope(into: freqs, positions: positions.map { ($0.row, $0.column) }, headDim: dh, theta: config.theta)
 
         let attention = Attention(device: gemm.device, queue: gemm.queue, heads: heads, sequence: n, headDim: dh,
                                   causal: false)
@@ -315,5 +307,24 @@ package final class Qwen3VLVision {
         try merger("visual.merger.", patches: n, postShuffle: false, into: features.embeddings)
         record("vit_out", features.embeddings, features.tokens * features.output)
         return features
+    }
+}
+
+extension Qwen3VLVision {
+    /// **`Qwen3VLVisionRotaryEmbedding`'s table**, `[patches, Dh/2, (cos, sin)]`: `inv_freq =
+    /// 1/θ^(2j/(Dh/2))` for `Dh/4` frequencies in float32, `position.float() * inv_freq` in float32, the
+    /// row's angles then the column's (`recomposition_frequencies`), `.cos()` / `.sin()` — with the one-bit
+    /// residue of torch's SLEEF (`Ops.polar`).
+    package static func writeRope(into out: UnsafeMutablePointer<Float>, positions: [(Int, Int)], headDim dh: Int,
+                                  theta: Float) {
+        let quarter = dh / 4
+        let inverse = (0..<quarter).map { j in 1 / powf(theta, Float(2 * j) / Float(dh / 2)) }
+        for (p, position) in positions.enumerated() {
+            let row = out + p * dh
+            for j in 0..<(2 * quarter) {
+                let angle = Float(j < quarter ? position.0 : position.1) * inverse[j % quarter]
+                row[2 * j] = cosf(angle); row[2 * j + 1] = sinf(angle)
+            }
+        }
     }
 }

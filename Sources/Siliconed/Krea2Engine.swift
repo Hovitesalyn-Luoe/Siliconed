@@ -46,12 +46,18 @@ package enum Krea2Text {
 extension Krea2DiT {
     /// The Krea 2 Turbo schedule: `sigmas = linspace(1, 1/N, N)`, shifted by the **exponential
     /// shift** at `μ = 1.15` (`is_distilled`: fixed μ, whatever the resolution) —
-    /// `σ' = e^μ / (e^μ + (1/σ − 1))` —, then a zero terminal σ. Checked against the oracle's
-    /// by the trajectory check.
+    /// `σ' = e^μ / (e^μ + (1/σ − 1))` —, then a zero terminal σ.
+    ///
+    /// **In float32, operation by operation**, as `set_timesteps` computes it: NumPy's double ramp cast
+    /// to float32, then `math.exp(μ) / (math.exp(μ) + (1 / t − 1) ** 1.0)` on a float32 array — `e^μ`
+    /// rounded to float32 (a weak Python float), `** 1.0` the identity. The same formula in double,
+    /// rounded once, is one bit off on 4 of the 8 σ at N = 8 (402 of 1 275 for N = 1…50). To the bit
+    /// against diffusers (`SolverTests`).
     package static func sigmas(steps: Int, mu: Double = 1.15) -> [Float] {
-        (0..<steps).map { i -> Float in
-            let s = steps == 1 ? 1 : 1 - Double(i) * (1 - 1 / Double(steps)) / Double(steps - 1)
-            return Float(exp(mu) / (exp(mu) + (1 / s - 1)))
+        let e = Float(exp(mu))
+        return NumPyRamp.linspace(1, 1 / Double(steps), steps).map { s -> Float in
+            let t = Float(s)
+            return e / (e + (1 / t - 1))
         } + [0]
     }
 }

@@ -172,10 +172,8 @@ package final class TextEncoder {
 
         // A 1D table: `rope_theta` is 10⁶ here against 256 for the DiT, and the position is
         // the token index. Written once — it depends on neither the prompt nor the layer.
-        let tables = RopeTables(axesDims: [config.headDim], axesLens: [s], theta: config.theta)
-        for position in 0..<s {
-            tables.write(ids: [position], into: freqs + position * config.headDim)
-        }
+        TextEncoder.writeRope(into: freqs, positions: [Array(0..<s)], count: s, theta: config.theta,
+                              headDim: config.headDim, sections: nil)
     }
 
     /// **The encoder's arena for `sequence` positions** (the prompt's tokens; for Qwen3-VL, its image
@@ -221,21 +219,30 @@ package final class TextEncoder {
     /// `j ≡ 2`, `j < 3·20`; `t` everywhere else (`recomposition_frequencies`). The forge's per-head
     /// permutation puts frequency `j` on the pair `(2j, 2j+1)`, so this is the same table layout as
     /// the 1D one. A text-only prompt has `t = h = w = index`: the 1D RoPE, by construction.
-    ///
-    /// The frequencies are `transformers`' own, `1 / θ^(2j/Dh)` in fp32 (`inverseFrequencies`),
-    /// and NOT `θ^(−2j/Dh)` as in the 1D path: one rounding apart, and the angle multiplies it by
-    /// positions in the hundreds.
     package func setPositions(_ positions: [[Int]]) {
         guard let sections = config.mropeSections else {
             preconditionFailure("setPositions: this map declares no mRoPE")
         }
         precondition(positions.count == 3 && positions.allSatisfy { $0.count >= sequence },
                      "setPositions: three axes of \(sequence) positions are needed")
-        let half = config.headDim / 2
-        let inverse = TextEncoder.inverseFrequencies(theta: config.theta, dim: config.headDim)
-        let axes = (0..<half).map { TextEncoder.mropeAxis(frequency: $0, sections: sections) }
-        for s in 0..<sequence {
-            let row = freqs + s * config.headDim
+        TextEncoder.writeRope(into: freqs, positions: positions, count: sequence, theta: config.theta,
+                              headDim: config.headDim, sections: sections)
+    }
+
+    /// **The RoPE table of `transformers`' Qwen3 and Qwen3-VL text encoders**, `[count, Dh/2, (cos, sin)]`:
+    /// `positions` holds one axis (Qwen3, `Qwen3RotaryEmbedding`) or three (`sections`: Qwen3-VL's
+    /// interleaved mRoPE). Their arithmetic, rounding for rounding: `inv_freq` in float32
+    /// (`inverseFrequencies`), `position.float() * inv_freq` — one float32 product —, then `.cos()` /
+    /// `.sin()` of that float. The 1D table took `powf(θ, −2j/Dh)` (the DiT's formula, no division)
+    /// until 18/10: one rounding apart on the frequency, which the position multiplies. The cosine
+    /// itself keeps a one-bit residue (`Ops.polar`: torch runs SLEEF).
+    package static func writeRope(into out: UnsafeMutablePointer<Float>, positions: [[Int]], count: Int,
+                                  theta: Float, headDim: Int, sections: [Int]?) {
+        let half = headDim / 2
+        let inverse = inverseFrequencies(theta: theta, dim: headDim)
+        let axes = (0..<half).map { j in sections.map { mropeAxis(frequency: j, sections: $0) } ?? 0 }
+        for s in 0..<count {
+            let row = out + s * headDim
             for j in 0..<half {
                 let angle = Float(positions[axes[j]][s]) * inverse[j]
                 row[2 * j] = cosf(angle); row[2 * j + 1] = sinf(angle)
@@ -243,7 +250,9 @@ package final class TextEncoder {
         }
     }
 
-    /// `1.0 / (θ ** (arange(0, Dh, 2, dtype=float) / Dh))`, fp32 operation by operation.
+    /// `1.0 / (θ ** (arange(0, Dh, 2, dtype=float) / Dh))`, fp32 operation by operation. torch's
+    /// `pow` is SLEEF's `powf4_u10`: `powf` differs from it by one bit on one frequency of 64 at
+    /// θ = 10⁶ and 5·10⁶ (`siliconed-dev rope`).
     package static func inverseFrequencies(theta: Float, dim: Int) -> [Float] {
         (0..<(dim / 2)).map { j in 1 / powf(theta, Float(2 * j) / Float(dim)) }
     }

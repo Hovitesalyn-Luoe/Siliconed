@@ -172,6 +172,26 @@ package enum Ops {
     }
 }
 
+// MARK: - The trigonometry of a RoPE table
+
+extension Ops {
+    /// **`torch.polar(1, angle)` on a float32 angle, as torch computes it on macOS**: Apple's
+    /// `__sincosf_stret` — the pair `cosf`/`sinf` is another implementation (on 662 144 angles up to
+    /// 1 100 rad, 1.3 % of the cosines and 10.6 % of the sines a bit apart; `__sincosf_stret`: none).
+    /// The tables built from `torch.polar` (Z-Image's and Qwen-Image-2.1's DiT) take it.
+    ///
+    /// The tables built from `.cos()`/`.sin()` of a float32 tensor (transformers' text encoders, the
+    /// Cosmos and adapter RoPEs of Anima) are not this: torch runs them through SLEEF's `cosf4_u10` /
+    /// `sinf4_u10` (vectorized, within one ulp, not correctly rounded), which no system function
+    /// reproduces; they take `cosf`/`sinf` and keep a one-bit residue on a few percent of the values
+    /// (`siliconed-dev rope` counts it).
+    @inline(__always)
+    package static func polar(_ angle: Float) -> (cos: Float, sin: Float) {
+        let pair = __sincosf_stret(angle)
+        return (pair.__cosval, pair.__sinval)
+    }
+}
+
 extension Ops {
     /// `LayerNorm` **without affine**: `(x − mean) / √(variance + eps)`, biased variance.
     /// Z-Image's `FinalLayer` uses it (the only LayerNorm of that model, everything else being
@@ -268,9 +288,16 @@ extension Ops {
     }
 }
 
-/// The 3D RoPE tables. Axis 0 is a **segment index** and not a time (pitfall 3.2): the text
-/// occupies `1…L`, the image occupies the constant value `L+1`, and axes 1 and 2 carry the
+/// The 3D RoPE tables of Z-Image's DiT. Axis 0 is a **segment index** and not a time (pitfall 3.2):
+/// the text occupies `1…L`, the image occupies the constant value `L+1`, and axes 1 and 2 carry the
 /// spatial coordinates. The image padding tokens receive `(0, 0, 0)`.
+///
+/// **The reference's arithmetic, rounding for rounding** (`RopeEmbedder.precompute_freqs_cis`): the
+/// frequencies `1/θ^(2j/d)` and the angles `position · frequency` in **float64**, then `.float()` —
+/// one rounding of the angle —, then `torch.polar`, which on macOS is `__sincosf_stret` of that float
+/// (to the bit on 662 144 angles; `cosf`/`sinf` are another function, 1.3 % / 10.6 % of the values a
+/// bit apart). Until 18/10 the angle was `powf(θ, −2j/d)` times the position in float32: at the
+/// end of the segment axis (1 535 rad) 10⁻⁴ rad off. Checked to the bit by `siliconed-dev rope`.
 package struct RopeTables {
     package let axesDims: [Int]
     package let axesLens: [Int]
@@ -283,14 +310,16 @@ package struct RopeTables {
         self.theta = theta
         for (dims, length) in zip(axesDims, axesLens) {
             let half = dims / 2
+            // `1.0 / (θ ** (arange(0, d, 2, float64) / d))`, θ a Python float.
+            let frequencies = (0..<half).map { 1 / pow(Double(theta), Double(2 * $0) / Double(dims)) }
             var table = [Float](repeating: 0, count: length * half * 2)
             for position in 0..<length {
                 for j in 0..<half {
-                    // `1 / theta^(2j/dims)`, angle = position · frequency — then `polar(1, angle)`.
-                    let frequency = powf(theta, -Float(2 * j) / Float(dims))
-                    let angle = Float(position) * frequency
-                    table[(position * half + j) * 2] = cosf(angle)
-                    table[(position * half + j) * 2 + 1] = sinf(angle)
+                    // `outer(arange(e, float64), freqs).float()`, then `polar(1, angle)`.
+                    let angle = Float(Double(position) * frequencies[j])
+                    let (c, s) = Ops.polar(angle)
+                    table[(position * half + j) * 2] = c
+                    table[(position * half + j) * 2 + 1] = s
                 }
             }
             tables.append(table)

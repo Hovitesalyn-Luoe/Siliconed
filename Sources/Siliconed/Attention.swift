@@ -27,7 +27,7 @@ package final class Attention {
     package let heads: Int
     /// The heads of `k`/`v`: `heads` without GQA, fewer with it (Krea 2: 48 `q` heads for 12).
     private let kvHeads: Int
-    /// Is the graph split into several SDPAs (GQA beyond `maxMatrix`)?
+    /// Is the graph split into several SDPAs (beyond `maxMatrix`, with or without GQA)?
     private let isSplit: Bool
     package let sequence: Int
     /// The length of the keys and values. Equal to `sequence` for a self-attention; different
@@ -128,8 +128,11 @@ package final class Attention {
     ///   query axis (`[1, kvHeads, g·S, Dh]`), by permutation (+1 GB of footprint at 1024²) or by
     ///   `reshape` after the transposition (+300 MB) — `MPSGraph` materializes an intermediate there.
     ///   Beyond `maxMatrix`, the queries are split into slices (see `isSplit`).
+    /// - Parameter matrixLimit: the bound the slices keep under, `maxMatrix` — lower only in the `sdpa`
+    ///   check, which slices a graph that fits whole to compare the two.
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
-                causal: Bool = false, queryChunk: Int = 0, keySequence: Int? = nil, kvHeads: Int? = nil) {
+                causal: Bool = false, queryChunk: Int = 0, keySequence: Int? = nil, kvHeads: Int? = nil,
+                matrixLimit: Int = Attention.maxMatrix) {
         let keys = keySequence ?? sequence
         let kvHeads = kvHeads ?? heads
         precondition(keys == sequence || queryChunk == 0, "cross-attention: no split")
@@ -199,7 +202,7 @@ package final class Attention {
             // The query rows per SDPA: all of them, as long as the attention matrix fits under
             // `maxMatrix`; otherwise equal slices that fit.
             let rows = sequence
-            let slices = Attention.groupedSlices(heads: heads, rows: rows, keys: keys)
+            let slices = Attention.groupedSlices(heads: heads, rows: rows, keys: keys, limit: matrixLimit)
             var pieceTensors: [MPSGraphTensor] = []
             var begin = 0
             let length = (rows + slices - 1) / max(1, slices)
@@ -240,6 +243,26 @@ package final class Attention {
             }
             attended = perHead.count == 1 ? perHead[0]
                                           : graph.concatTensors(perHead, dimension: 1, name: nil)
+        } else if mask == nil, Attention.groupedSlices(heads: heads, rows: sequence, keys: keys, limit: matrixLimit) > 1 {
+            // **Past `maxMatrix` without GQA** (Z-Image at 1024×1536 when the map turns the head split
+            // off: 30 × 6 176² × 4 = 4.6 GB in one SDPA, the regime where Krea 2's died): the same
+            // query slices as the GQA branch, each matrix under the bound, concatenated on the query axis.
+            // Exact up to reassociation (each output row reads its own query row and every key); below
+            // the bound the graph is the single SDPA of the branch below, bits included.
+            let slices = Attention.groupedSlices(heads: heads, rows: sequence, keys: keys, limit: matrixLimit)
+            let qh = headsFirst(q), kh = headsFirst(k), vh = headsFirst(v)   // [1, H, S, Dh]
+            let length = (sequence + slices - 1) / slices
+            var pieces: [MPSGraphTensor] = []
+            var begin = 0
+            while begin < sequence {
+                let l = min(length, sequence - begin)
+                pieces.append(graph.scaledDotProductAttention(
+                    query: graph.sliceTensor(qh, dimension: 2, start: begin, length: l, name: nil),
+                    key: kh, value: vh, mask: nil, scale: scale, name: nil))
+                begin += l
+            }
+            isSplit = true
+            attended = graph.concatTensors(pieces, dimension: 2, name: nil)
         } else {
             attended = graph.scaledDotProductAttention(query: headsFirst(q), key: headsFirst(k),
                                                        value: headsFirst(v), mask: mask,
@@ -258,11 +281,13 @@ package final class Attention {
     /// graph is that of a single SDPA, bits included.
     package static let maxMatrix = 3_300_000_000
 
-    /// **The query slices a GQA graph runs in**: as few as keep each attention matrix under
-    /// `maxMatrix` — 1 up to Krea 2's 1024², 3 at its 1024×1536. The memory need reads it too
-    /// (`MemoryNeed.krea2`: past one slice, MPSGraph concatenates them).
-    package static func groupedSlices(heads: Int, rows: Int, keys: Int) -> Int {
-        Int((Double(heads * rows * keys) * 4 / Double(maxMatrix)).rounded(.up))
+    /// **The query slices an unmasked graph runs in**: as few as keep each attention matrix under
+    /// `maxMatrix` — 1 up to Krea 2's 1024², 3 at its 1024×1536; for Z-Image without the head split,
+    /// 2 at 1024×1536. The memory need reads it too (`MemoryNeed.krea2`: past one slice, MPSGraph
+    /// concatenates them).
+    /// `limit`: `maxMatrix`, lowered only by the `sdpa` check, to slice a graph that would fit whole.
+    package static func groupedSlices(heads: Int, rows: Int, keys: Int, limit: Int = maxMatrix) -> Int {
+        Int((Double(heads * rows * keys) * 4 / Double(limit)).rounded(.up))
     }
 
     /// **The causal mask a causal instance holds** for its graph's life: `[S, K]` fp32 in `Pages`.

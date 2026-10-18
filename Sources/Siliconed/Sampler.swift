@@ -19,7 +19,10 @@ import Foundation
 ///     in float, `1 + step·i` on the first half and `end − step·(N − 1 − i)` on the second, **each a
 ///     single rounding** (the CPU kernel fuses them), `end = Float(1/N)` with `1/N` a Python double.
 ///     Then the shift in float32 (`set_timesteps` casts the list to `np.float32` first).
-///   - **Time is inverted**: the DiT receives `(1000 − t)/1000 = 1 − σ`.
+///   - **Time is inverted**: the DiT receives `(1000 − t)/1000` with `t = σ·1000`, **in float32,
+///     operation by operation** (`modelTime`) — not `1 − σ`, which is exact where the pipeline rounds
+///     twice: at σ₁ = 0.954545 the two are 8 ulps apart, at σ₂ 3 and σ₅ 1 (until 18/10 the engine took
+///     `1 − σ`).
 ///   - **The output is negated**: `noise_pred = −v`.
 package struct FlowMatchSchedule {
     package let sigmas: [Float]          // `steps + 1` values, strictly decreasing, ending in zero
@@ -36,7 +39,14 @@ package struct FlowMatchSchedule {
     }
 
     /// What the DiT receives: the inverted time.
-    package func modelTime(at step: Int) -> Float { 1 - sigmas[step] }
+    package func modelTime(at step: Int) -> Float { Self.modelTime(sigma: sigmas[step]) }
+
+    /// `timestep = (1000 − t) / 1000`, `t = σ · 1000` (`scheduler.timesteps`), each operation a float32
+    /// rounding as torch does them — `ZImagePipeline.__call__`, and its img2img's.
+    package static func modelTime(sigma: Float) -> Float {
+        let t = sigma * 1000
+        return (1000 - t) / 1000
+    }
 }
 
 package final class Sampler {
@@ -90,7 +100,7 @@ package final class Sampler {
                     caps: UnsafePointer<Float>, latentHeight: Int = 0, latentWidth: Int = 0,
                     start: Int = 0, onStep: ((Int, Float, Double) -> Void)? = nil) throws -> Int {
         let (height, width) = (latentHeight, latentWidth)
-        // What the DiT is told: `1 − σ'` (`FlowMatchSchedule.modelTime`) with σ' the detail's σ.
+        // What the DiT is told: `(1000 − 1000σ')/1000` (`FlowMatchSchedule.modelTime`) with σ' the detail's σ.
         let told = detail.modelSigmas(schedule.sigmas, start: start, bell: .zImage, scale: detailScale)
         // The update, step by step, on the true σ (`Solver`). Its history lives in `Pages`.
         var stream = Noise(seed: solverSeed ^ 0x5EED_A9CE_57A1_0000)
@@ -105,7 +115,7 @@ package final class Sampler {
             // `noise_pred = −v`, then the solver — Euler: `x ← x + Δσ · noise_pred`, hence `x − Δσ · v`.
             // One autorelease pool per evaluation: what MPS autoreleases (descriptors, NDArrays and
             // their buffers) dies with the evaluation, not with the render's queue item.
-            var negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: 1 - told[step]) }
+            var negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: FlowMatchSchedule.modelTime(sigma: told[step])) }
             negated.withUnsafeMutableBufferPointer { buffer in
                 var minusOne: Float = -1
                 vDSP_vsmul(buffer.baseAddress!, 1, &minusOne, buffer.baseAddress!, 1, vDSP_Length(count))
