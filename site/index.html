@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link rel="icon" href="images/icon.svg" type="image/svg+xml">
+<link rel="icon" href="images/icon-small.svg" type="image/svg+xml">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Siliconed — local AI image generation and editing for Apple silicon Macs</title>
-<meta name="description" content="Free, open-source macOS app that runs Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo natively in Swift and Metal on Apple silicon: text-to-image and AI image editing, offline, fp32, checked against diffusers, and never more memory than its budget: ¾ of the Mac's memory minus 2 GB.">
+<title>Siliconed — your Mac, mapped: local AI image generation and editing for Apple silicon</title>
+<meta name="description" content="Free, open-source macOS app that runs Krea 2 Turbo, Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo natively in Swift and Metal on Apple silicon. It measures your Mac before its first render and picks the kernels that win on that chip. Text-to-image and AI image editing, offline, fp32, checked against diffusers, within a fixed memory budget.">
 <link rel="canonical" href="https://gwenn-ha-dev.github.io/Siliconed/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Siliconed — local AI image generation for Apple silicon">
-<meta property="og:description" content="Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo, native in Swift and Metal. Offline, fp32, checked against the reference, within a fixed memory budget.">
+<meta property="og:title" content="Siliconed — your Mac, mapped">
+<meta property="og:description" content="Krea 2 Turbo, Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo, native in Swift and Metal. Every kernel chosen for this chip, measured. Offline, fp32, checked against the reference, within a fixed memory budget.">
 <meta property="og:url" content="https://gwenn-ha-dev.github.io/Siliconed/">
 <meta property="og:image" content="https://gwenn-ha-dev.github.io/Siliconed/images/social-preview.jpg">
 <meta property="og:image:width" content="1280">
@@ -19,183 +19,388 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Siliconed",
  "operatingSystem":"macOS 15 or later (Apple silicon)","applicationCategory":"MultimediaApplication",
- "description":"Local text-to-image generation and AI image editing on Apple silicon Macs: Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo in Swift and Metal.",
+ "description":"Local text-to-image generation and AI image editing on Apple silicon Macs: Krea 2 Turbo, Z-Image Turbo, Qwen-Image-2.1 and Anima Turbo in Swift and Metal, on kernels chosen by a measure of each Mac.",
  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://www.apache.org/licenses/LICENSE-2.0",
  "downloadUrl":"https://github.com/gwenn-ha-dev/Siliconed/releases/latest",
  "codeRepository":"https://github.com/gwenn-ha-dev/Siliconed","image":"https://gwenn-ha-dev.github.io/Siliconed/images/window.jpg"}
 </script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
   :root {
-    --bg: #111214; --panel: #1b1c1f; --line: #2c2d31; --text: #ececee; --muted: #a2a3a8;
-    --accent: #3b82f6; --accent-text: #fff;
+    --night: #14183A; --night2: #2B1438; --deep: #0D1028;
+    --coral: #FF5E7A; --peach: #FFB38A; --teal: #6FF0E0;
+    --text: #F3F1F8; --muted: #BDB8D3; --line: rgba(255, 255, 255, 0.11);
+    --panel: rgba(255, 255, 255, 0.045); --ink: #1A1030;
+    --grad: linear-gradient(100deg, var(--coral) 0%, var(--peach) 48%, var(--teal) 100%);
+    --display: "Space Grotesk", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
-  a { color: #8ab4ff; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
-  header { padding: 72px 0 40px; text-align: center; }
-  .icon { width: 96px; height: 96px; }
-  h1 { font-size: clamp(34px, 6vw, 56px); margin: 12px 0 4px; letter-spacing: -0.02em; }
-  .tag { color: var(--muted); font-style: italic; margin: 0 0 20px; }
-  .lead { font-size: clamp(19px, 2.6vw, 23px); max-width: 760px; margin: 0 auto 28px; }
+  html { -webkit-text-size-adjust: 100%; overflow-x: clip; scroll-behavior: smooth; }
+  body { margin: 0; overflow-x: clip; color: var(--text);
+         background: var(--deep) linear-gradient(160deg, var(--night) 0%, var(--deep) 45%, var(--night2) 100%) fixed;
+         font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  a { color: var(--teal); }
+  img { max-width: 100%; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+  .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text;
+          color: var(--peach); -webkit-text-fill-color: transparent; }
+
+  /* Top bar */
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 18px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font: 700 20px var(--display);
+           color: var(--text); text-decoration: none; letter-spacing: -0.01em; }
+  .brand img { width: 40px; height: 40px; }
+  .pill { font: 700 14px var(--display); padding: 9px 16px; border-radius: 999px; text-decoration: none;
+          color: var(--ink); background: var(--grad); white-space: nowrap; }
+
+  /* Hero */
+  .hero { position: relative; text-align: center; padding-block: 48px 24px; isolation: isolate; }
+  .tracks { position: absolute; z-index: -1; pointer-events: none; opacity: 0.32; }
+  .hero .tracks { width: min(1100px, 150vw); left: 50%; top: -40px; transform: translateX(-50%); opacity: 0.24; }
+  .eyebrow { display: inline-block; font: 500 13px var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+             color: var(--teal); border: 1px solid rgba(111, 240, 224, 0.35); border-radius: 999px;
+             padding: 6px 14px; margin: 0 0 26px; background: rgba(111, 240, 224, 0.06); }
+  h1 { font: 700 clamp(46px, 11vw, 124px)/0.95 var(--display); letter-spacing: -0.045em; margin: 0 0 18px; }
+  h1 .sub { display: block; font-size: 0.34em; line-height: 1.15; letter-spacing: -0.02em; color: var(--text);
+            margin-top: 18px; font-weight: 500; }
+  h1 em { font-style: normal; color: var(--coral); }
+  .lead { font-size: clamp(18px, 2.4vw, 21px); max-width: 680px; margin: 0 auto 30px; color: var(--muted); }
   .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  .btn { display: inline-block; padding: 12px 22px; border-radius: 10px; text-decoration: none;
-         font-weight: 600; border: 1px solid var(--line); color: var(--text); background: var(--panel); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-  .req { color: var(--muted); font-size: 14px; margin-top: 12px; }
+  .btn { display: inline-block; padding: 14px 24px; border-radius: 14px; text-decoration: none;
+         font: 700 16px var(--display); border: 1px solid var(--line); color: var(--text); background: var(--panel);
+         transition: transform 0.2s ease, box-shadow 0.2s ease; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn.primary { background: var(--grad); border-color: transparent; color: var(--ink);
+                 box-shadow: 0 10px 40px -10px rgba(255, 94, 122, 0.65); }
+  .req { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+  .stage { margin: 44px auto 0; max-width: 1000px; }
+  .glow { position: relative; border-radius: 20px; padding: 2px; background: var(--grad);
+          box-shadow: 0 30px 120px -30px rgba(255, 94, 122, 0.55), 0 0 90px -30px rgba(111, 240, 224, 0.5); }
+  .glow img { display: block; width: 100%; height: auto; border-radius: 18px; }
   figure { margin: 0; }
-  .shot img, .hero img { width: 100%; height: auto; display: block; border-radius: 12px;
-                         border: 1px solid var(--line); }
-  figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; text-align: center; }
-  section { padding: 48px 0; border-top: 1px solid var(--line); }
-  h2 { font-size: 28px; margin: 0 0 20px; letter-spacing: -0.01em; }
-  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
-  .card h3 { margin: 0 0 6px; font-size: 18px; }
-  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 10px; text-align: center; }
+
+  /* Strip */
+  .strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; padding: 30px 0 8px;
+           font: 500 14px var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+  .strip span::before { content: "◆ "; color: var(--coral); }
+
+  /* Sections */
+  section, section.wrap { position: relative; padding-block: clamp(72px, 11vw, 132px); }
+  .kicker { font: 700 13px var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+            color: var(--coral); margin: 0 0 14px; }
+  h2 { font: 700 clamp(38px, 6.4vw, 76px)/1 var(--display); letter-spacing: -0.035em; margin: 0 0 22px; }
+  h3 { font: 700 20px/1.25 var(--display); letter-spacing: -0.01em; margin: 0 0 8px; }
+  .text p { margin: 0 0 16px; color: var(--muted); }
+  .text p.punch { color: var(--text); font: 500 clamp(20px, 2.4vw, 24px)/1.35 var(--display); }
+  .split { display: grid; grid-template-columns: 1fr 1.15fr; gap: clamp(28px, 5vw, 64px); align-items: center; }
+  .split.rev { grid-template-columns: 1.15fr 1fr; }
   .split.rev .text { order: 2; }
-  @media (max-width: 760px) { .split { grid-template-columns: 1fr; } .split.rev .text { order: 0; } }
+  .shot img { display: block; width: 100%; height: auto; border-radius: 16px; border: 1px solid var(--line);
+              box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.9); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 40px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 26px 0 0;
+           padding: 0; list-style: none; }
+  .stats li { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+              font-size: 13.5px; color: var(--muted); }
+  .stats b { display: block; font: 700 clamp(20px, 2.6vw, 26px) var(--mono); letter-spacing: -0.03em; }
+  .stats b { background: var(--grad); -webkit-background-clip: text; background-clip: text;
+             color: var(--peach); -webkit-text-fill-color: transparent; }
+
+  /* The engine band */
+  .band { background: radial-gradient(70% 60% at 75% 50%, rgba(111, 240, 224, 0.10), transparent 70%),
+                      radial-gradient(60% 60% at 15% 30%, rgba(255, 94, 122, 0.10), transparent 70%);
+          border-block: 1px solid var(--line); overflow: hidden; }
+  .band .tracks { width: 760px; right: -260px; bottom: -220px; opacity: 0.18; }
+  .map { position: relative; background: rgba(9, 11, 30, 0.85); border: 1px solid rgba(111, 240, 224, 0.35);
+         border-radius: 18px; padding: 22px 22px 18px; font: 500 15px/1.6 var(--mono);
+         box-shadow: 0 0 0 1px rgba(255, 94, 122, 0.08), 0 0 60px -12px rgba(111, 240, 224, 0.45); }
+  .map .head { color: var(--teal); margin: 0 0 12px; font-size: 13px; letter-spacing: 0.04em; }
+  .map .head::before { content: "● "; color: var(--coral); }
+  .map .row { display: grid; grid-template-columns: 1fr auto 4.6em; gap: 12px; align-items: center; padding: 9px 0;
+              border-top: 1px dashed var(--line); }
+  .map .on, .map .off { font-weight: 700; font-size: 12.5px; padding: 2px 9px; border-radius: 999px; }
+  .map .on { color: var(--ink); background: var(--teal); }
+  .map .off { color: var(--muted); border: 1px solid var(--line); }
+  .map .gain { text-align: right; }
+  .map .note { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+
+  /* Cards */
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+  .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+          padding: 22px 22px 20px; overflow: hidden; }
+  .card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--grad); }
+  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+  code { font: 500 14px var(--mono); background: rgba(255, 255, 255, 0.07); padding: 2px 6px; border-radius: 6px;
+         border: 1px solid var(--line); }
+
+  /* Table */
   table { width: 100%; border-collapse: collapse; font-size: 15.5px; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  .tablewrap { overflow-x: auto; }
-  code { font: 14.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(--panel);
-         padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); }
-  footer { padding: 36px 0 56px; color: var(--muted); font-size: 14px; text-align: center;
+  th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--teal); font: 700 12.5px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+  td:first-child a { font: 700 16px var(--display); color: var(--text); }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+  .times { font: 500 14px/1.7 var(--mono); color: var(--muted); margin-top: 18px; }
+
+  /* Final call */
+  .final { text-align: center; overflow: hidden; }
+  .final .tracks { width: 900px; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.22; }
+  .final h2 { font-size: clamp(48px, 10vw, 112px); }
+  footer, footer.wrap { padding-block: 36px 56px; color: var(--muted); font-size: 14px; text-align: center;
            border-top: 1px solid var(--line); }
+
+  @media (max-width: 800px) {
+    .split, .split.rev, .pair { grid-template-columns: 1fr; }
+    .split.rev .text { order: 0; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .map { font-size: 13.5px; padding: 18px 16px 14px; }
+    .map .row { grid-template-columns: 1fr auto 4em; gap: 8px; }
+  }
+
+  /* Motion: CSS only, and only for those who want it. */
+  @media (prefers-reduced-motion: no-preference) {
+    .tracks path { stroke-dasharray: 1400; stroke-dashoffset: 1400; animation: draw 3.2s cubic-bezier(.6,.1,.2,1) forwards; }
+    .tracks path:nth-of-type(2) { animation-delay: 0.15s; }
+    .tracks path:nth-of-type(3) { animation-delay: 0.3s; }
+    .tracks path:nth-of-type(4) { animation-delay: 0.45s; }
+    .tracks path:nth-of-type(5) { animation-delay: 0.6s; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    .map { animation: pulse 3.6s ease-in-out infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(255, 94, 122, 0.08), 0 0 50px -14px rgba(111, 240, 224, 0.35); }
+      50%      { box-shadow: 0 0 0 1px rgba(255, 94, 122, 0.22), 0 0 90px -8px rgba(111, 240, 224, 0.7); }
+    }
+    .map .on { animation: blink 3.6s ease-in-out infinite; }
+    @keyframes blink { 50% { box-shadow: 0 0 14px rgba(111, 240, 224, 0.8); } }
+    .h-fade { animation: rise 0.9s cubic-bezier(.2,.7,.2,1) both; }
+    .h-fade.d1 { animation-delay: 0.12s; } .h-fade.d2 { animation-delay: 0.24s; } .h-fade.d3 { animation-delay: 0.36s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+    @supports (animation-timeline: view()) {
+      .reveal { animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 40%; }
+    }
+  }
 </style>
 </head>
 <body>
-<header class="wrap">
-  <img class="icon" src="images/icon.svg" width="96" height="96" alt="">
-  <h1>Siliconed</h1>
-  <p class="tag">enhanced by silicone</p>
-  <p class="lead">Local text-to-image generation and AI image editing for Apple silicon Macs.
-    Z-Image Turbo, Qwen-Image-2.1, Anima Turbo and Krea 2 Turbo, native in Swift and Metal: no Python, no server, no cloud.</p>
-  <div class="cta">
+<div class="wrap bar">
+  <a class="brand" href="#top"><img src="images/icon.svg" width="40" height="40" alt="">Siliconed</a>
+  <a class="pill" href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">Download</a>
+</div>
+
+<header class="wrap hero" id="top">
+  <svg class="tracks" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+    <defs><linearGradient id="tr1" gradientUnits="userSpaceOnUse" x1="200" y1="900" x2="800" y2="200"><stop offset="0" stop-color="#FF5E7A"/><stop offset="0.5" stop-color="#FFB38A"/><stop offset="1" stop-color="#6FF0E0"/></linearGradient></defs>
+    <g fill="none" stroke="url(#tr1)" stroke-width="10" stroke-linecap="round">
+      <path d="M 40 590 L 560 590 A 70 70 0 0 0 560 450 A 70 70 0 0 0 490 520"/>
+      <path d="M 40 650 L 560 650 A 130 130 0 0 0 560 390 A 130 130 0 0 0 430 520"/>
+      <path d="M 40 710 L 560 710 A 190 190 0 0 0 560 330 A 190 190 0 0 0 370 520"/>
+      <path d="M 40 770 L 560 770 A 250 250 0 0 0 560 270 A 250 250 0 0 0 310 520"/>
+      <path d="M 40 830 L 560 830 A 310 310 0 0 0 560 210 A 310 310 0 0 0 250 520"/>
+    </g>
+  </svg>
+  <p class="eyebrow h-fade">v0.12 · free · open source · Apple silicon</p>
+  <h1 class="h-fade d1"><span class="grad">Your Mac, mapped.</span><span class="sub">Every kernel chosen for <em>this</em> chip.</span></h1>
+  <p class="lead h-fade d2">Four image models, native in Swift and Metal. Full fp32, checked against the reference,
+    inside a fixed memory budget. No Python. No server. No cloud.</p>
+  <div class="cta h-fade d3">
     <a class="btn primary" href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">Download for macOS</a>
     <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed">Source on GitHub</a>
   </div>
-  <p class="req">Free and open source (Apache 2.0) · macOS 15 or later · M1 and later · signed and notarized</p>
+  <p class="req">Apache 2.0 · macOS 15 or later · M1 and later · signed and notarized</p>
+  <figure class="stage h-fade d3">
+    <div class="glow"><img src="images/curtain.gif" width="800" height="533" alt="Under a sliding curtain: on the left, a Krea 2 Turbo photo of a red-haired Irish woman in a shorty wetsuit on a wild beach in the west of Ireland, her surfboard under her arm; on the right, the same picture turned into a cel-shaded western comic book by Qwen-Image-2.1"></div>
+    <figcaption>Left, a photo by Krea 2 Turbo. Right, Qwen-Image-2.1 after one sentence: “Convert this photo to a western comic book style with cel shading.”</figcaption>
+  </figure>
+  <div class="strip" aria-label="Models and principles">
+    <span>Krea 2 Turbo</span><span>Qwen-Image-2.1</span><span>Z-Image Turbo</span><span>Anima Turbo</span><span>fp32</span><span>offline</span>
+  </div>
 </header>
 
-<div class="wrap hero">
-  <figure>
-    <img src="images/window.jpg" width="1600" height="1046" alt="The Siliconed window: the rack of stages on the left, a Z-Image Turbo image of a red-haired Irish woman on a beach, her surfboard under her arm, on the right">
-    <figcaption>The rack shows the whole chain — prompt, text encoder, denoiser, decoder — with each stage's time and memory.</figcaption>
-  </figure>
-</div>
+<section class="wrap">
+  <div class="split">
+    <div class="text reveal">
+      <p class="kicker">New in 0.12</p>
+      <h2><span class="grad">Krea 2 Turbo.</span><br>The big one.</h2>
+      <p class="punch">12.9 billion parameters. The largest model Siliconed runs.</p>
+      <p>Aesthetic images, from photography to painting. The whole 8-step recipe in fp32 on Krea's own
+        weights: 34 GB streamed from disk, while the app stays inside a 10 GB budget on a 16 GB Mac.</p>
+      <p>Standard, Compact or Light, from open copies proven identical to Krea's files. No account, no
+        sign-in. Krea 2 Community license: commercial use under $1M of annual revenue, a content filter when deployed.</p>
+      <ul class="stats">
+        <li><b>221.1 s</b>1024² on an M1 Pro</li>
+        <li><b>355.3 s</b>1024×1536</li>
+        <li><b>1.44·10⁻⁴</b>from the fp32 reference</li>
+      </ul>
+    </div>
+    <figure class="shot reveal">
+      <img src="images/krea2.jpg" width="1248" height="832" alt="A Krea 2 Turbo photo: a young Irish woman with long wavy auburn hair and freckles, in a shorty wetsuit, her surfboard under her arm, smiling on a wild beach in the west of Ireland, Atlantic waves breaking behind her under an overcast sky" loading="lazy">
+      <figcaption>Krea 2 Turbo, Standard, 1248×832, 8 steps: &ldquo;Photo of a young Irish woman with long wavy auburn red hair, pale freckled skin and green eyes, wearing a short-sleeved shorty wetsuit, holding her surfboard under her arm on a wild beach in the west of Ireland. Atlantic waves breaking behind her, green cliffs, overcast soft light. Natural skin texture, candid smile, 35 mm photograph.&rdquo;, seed 1001, 226 s.</figcaption>
+    </figure>
+  </div>
+</section>
 
-<section class="wrap" style="margin-top:48px">
-  <h2>Why Siliconed</h2>
+<section class="band" id="engine">
+  <svg class="tracks" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+    <defs><linearGradient id="tr2" gradientUnits="userSpaceOnUse" x1="200" y1="900" x2="800" y2="200"><stop offset="0" stop-color="#FF5E7A"/><stop offset="0.5" stop-color="#FFB38A"/><stop offset="1" stop-color="#6FF0E0"/></linearGradient></defs>
+    <g fill="none" stroke="url(#tr2)" stroke-width="10" stroke-linecap="round">
+      <path d="M 40 590 L 560 590 A 70 70 0 0 0 560 450 A 70 70 0 0 0 490 520"/>
+      <path d="M 40 650 L 560 650 A 130 130 0 0 0 560 390 A 130 130 0 0 0 430 520"/>
+      <path d="M 40 710 L 560 710 A 190 190 0 0 0 560 330 A 190 190 0 0 0 370 520"/>
+      <path d="M 40 770 L 560 770 A 250 250 0 0 0 560 270 A 250 250 0 0 0 310 520"/>
+      <path d="M 40 830 L 560 830 A 310 310 0 0 0 560 210 A 310 310 0 0 0 250 520"/>
+    </g>
+  </svg>
+  <div class="wrap split rev">
+    <div class="text reveal">
+      <p class="kicker">The adaptive engine</p>
+      <h2>It measures<br><span class="grad">before it draws.</span></h2>
+      <p class="punch">30 to 40 seconds. No model. No guesswork.</p>
+      <p>Before your first image, Siliconed gets to know your Mac. It runs the real matrix products of
+        the models' blocks on the GPU, on the CPU's matrix unit (AMX) and on both at once, attention
+        through three kernels, products straight on published int8 and Q8_0 weights, bf16 on the GPU's
+        tensor units. Every output is checked against the exact result.</p>
+      <p>That becomes your Mac's map. A kernel turns on only if it computed right and beats the default
+        by at least 5 %. New Mac, new macOS, new version: it measures again. The speed changes; the
+        picture does not move beyond the arithmetic it checked. Help → Report My Configuration shows
+        it, and lets you share it.</p>
+    </div>
+    <div class="map reveal" role="img" aria-label="The capacity map's decisions on an M1 Pro, 18 October 2026: GPU and AMX co-execution on, times 1.30; attention split by heads on, times 1.49; flash attention off, times 1.05, inside the margin; Q8_0 products off, times 0.43; bf16 tensor products off, times 0.53">
+      <p class="head">map · MacBook Pro M1 Pro · 18/10/2026</p>
+      <div class="row"><span>GPU + AMX co-execution</span><span class="on">ON</span><span class="gain">×1.30</span></div>
+      <div class="row"><span>attention split by heads</span><span class="on">ON</span><span class="gain">×1.49</span></div>
+      <div class="row"><span>flash attention</span><span class="off">OFF</span><span class="gain">×1.05</span></div>
+      <div class="row"><span>Q8_0 weight products</span><span class="off">OFF</span><span class="gain">×0.43</span></div>
+      <div class="row"><span>bf16 tensor products</span><span class="off">OFF</span><span class="gain">×0.53</span></div>
+      <p class="note">Flash gains 5 %: not above the margin, so it stays off. Another chip draws its own map.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="edit">
+  <div class="split">
+    <div class="text reveal">
+      <p class="kicker">Editing</p>
+      <h2>Say it.<br><span class="grad">It's done.</span></h2>
+      <p class="punch">One to three images, one sentence.</p>
+      <p>“Convert this photo to a western comic book style with cel shading.” “Put the dog of image 2
+        next to her.” Qwen-Image-2.1's encoder sees the images. Then drag the curtain across the result
+        and its original to see exactly what changed.</p>
+    </div>
+    <figure class="shot reveal">
+      <img src="images/edit.jpg" width="1600" height="1046" alt="An edit by Qwen-Image-2.1 in the Siliconed window: the Krea 2 photo of the Irish surfer as image 1, turned into a cel-shaded western comic book drawing" loading="lazy">
+      <figcaption>Qwen-Image-2.1 Turbo, Standard: &ldquo;Convert this photo to a western comic book style with cel shading&rdquo;, the Krea 2 photo as image 1, seed 42, 206 s.</figcaption>
+    </figure>
+  </div>
+  <div class="split rev" style="margin-top:clamp(64px, 9vw, 112px)">
+    <div class="text reveal">
+      <h2>Change one thing.<br><span class="grad">Only that.</span></h2>
+      <p>“Replace her wetsuit with a white linen blouse.” Same face, same hair, same board, same
+        Atlantic light: the instruction touches what it names and leaves the rest alone.</p>
+    </div>
+    <figure class="shot reveal">
+      <img src="images/outfit.gif" width="800" height="533" alt="Under a sliding curtain, an edit by Qwen-Image-2.1: the Krea 2 surfer in her wetsuit, then in a white linen blouse, the beach, her hair and her surfboard unchanged" loading="lazy">
+      <figcaption>Qwen-Image-2.1 Turbo, Standard: &ldquo;Replace her wetsuit with a white linen blouse. Keep her face, hair, surfboard, pose and the beach unchanged.&rdquo;, seed 42, 211 s.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="reveal" style="max-width:780px">
+    <p class="kicker">Exploration</p>
+    <h2>Sketch a grid.<br><span class="grad">Finish the one you love.</span></h2>
+    <p style="color:var(--muted)">Seeds, steps, LoRA strengths, models or prompt variants, drawn as quick
+      sketches in the canvas with the axes as labels. « Finish This Image » renders the chosen cell to the
+      end, with the same seed: the image its sketch announced. Here, Anima Turbo with the inCase LoRA,
+      seeds against the LoRA's strength.</p>
+  </div>
+  <div class="pair">
+    <figure class="shot reveal">
+      <img src="images/grid.jpg" width="1600" height="1046" alt="An exploration with Anima Turbo and the inCase LoRA: a grid of sketches of a red-haired Irish woman outdoors, seeds along one axis and the LoRA's strength along the other" loading="lazy">
+      <figcaption>The grid, seeds × LoRA strength.</figcaption>
+    </figure>
+    <figure class="shot reveal">
+      <img src="images/anima.jpg" width="1600" height="1046" alt="The finished cell: an Anima Turbo painting with the inCase LoRA, a young red-haired Irish woman in close-up, outdoors" loading="lazy">
+      <figcaption>The chosen cell, finished: strength 0.6, &ldquo;A close-up portrait of a young Irish woman with long wavy auburn red hair, pale freckled skin and green eyes, wearing a teal shorty wetsuit, standing on a windswept beach in the west of Ireland. Atlantic waves and green cliffs behind her, soft overcast light, wind in her hair.&rdquo;, 512×768, seed 2003, 17 s.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="wrap">
+  <p class="kicker">Why Siliconed</p>
+  <h2 class="reveal">Honest math.<br><span class="grad">Real speed.</span></h2>
   <div class="grid3">
-    <div class="card"><h3>Checked against the original</h3><p>Every stage is compared channel by channel with diffusers and transformers in fp32. What cannot be checked against the reference does not ship.</p></div>
-    <div class="card"><h3>Full precision, still fast</h3><p>Z-Image Turbo at 1024² in 113–119 s on an M1 Pro, in fp32, with the 8 evaluations of its recipe.</p></div>
-    <div class="card"><h3>34 GB of model on a 16 GB Mac, within a fixed budget</h3><p>Weights stream from disk as needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac): each render computes what it needs before it starts and checks its own peak against that figure.</p></div>
-    <div class="card"><h3>Private by construction</h3><p>Nothing leaves your Mac, and it works offline once a model is installed.</p></div>
-    <div class="card"><h3>Your models</h3><p>Install full size, in 8 bits or in 4 to 6 bits; import LoRAs from Civitai or Hugging Face. Licenses and disk space are shown before the first byte.</p></div>
-    <div class="card"><h3>Built to be driven by an AI</h3><p><code>silicontrol</code> drives the running app from a terminal with JSON output; <code>silicontrol help</code> is all an agent needs.</p></div>
-  </div>
-</section>
-
-<section class="wrap">
-  <div class="split rev">
-    <div class="text">
-      <h2>Paint with Anima</h2>
-      <p>New in 0.10: Anima Turbo, a 2-billion-parameter model for illustration, painting and anime.
-        It knows artists by name and takes LoRAs; here the inCase LoRA at 0.8, a 1024² image in
-        49 s on an M1 Pro. It makes no photorealism, by its publisher's choice — and the images it
-        makes may be used commercially.</p>
-    </div>
-    <figure class="shot"><img src="images/anima.jpg" width="1600" height="1046" alt="The Siliconed window with Anima Turbo and the inCase LoRA at 0.80 in the rack, and in the canvas a painted illustration of a young red-haired Irish woman reading a book by a tall library window" loading="lazy"></figure>
-  </div>
-</section>
-
-<!-- KR7: a section for Krea 2 Turbo goes here, with a render made in the app (images/krea2.jpg):
-     "Aesthetic images, from photography to painting", the largest model of the four; its time on an M1 Pro. -->
-
-<section class="wrap">
-  <div class="split">
-    <div class="text">
-      <h2>Edit with a sentence</h2>
-      <p>Give Qwen-Image-2.1 one to three images and an instruction — “convert this photo to a western comic book style with cel shading”,
-        “put the dog of image 2 next to her”. Its encoder sees the images. Drag the curtain across
-        the result and its original to see exactly what changed.</p>
-    </div>
-    <figure class="shot"><img src="images/edit.jpg" width="1600" height="1046" alt="An edit by Qwen-Image-2.1: the photo of the Irish surfer turned into a cel-shaded western comic book drawing" loading="lazy"></figure>
-  </div>
-</section>
-
-<section class="wrap">
-  <div class="split rev">
-    <div class="text">
-      <h2>Take from another image</h2>
-      <p>The second image is a source: “dress the woman of image 1 in the clothes of the woman in
-        image 2”. The surfer from Z-Image Turbo keeps her face, her beach and her light, and wears the
-        blouse and skirt of the reader Anima painted.</p>
-    </div>
-    <figure class="shot"><img src="images/outfit.gif" width="800" height="533" alt="Under a sliding curtain, the red-haired surfer in a shorty on the beach and the same woman in the cream blouse and long green skirt of the reader from the Anima painting, edited by Qwen-Image-2.1 from two images" loading="lazy"></figure>
+    <div class="card reveal"><h3>Checked against the original</h3><p>Every stage is compared channel by channel with diffusers and transformers in fp32, and rounds where they round. What cannot be checked against the reference does not ship.</p></div>
+    <div class="card reveal"><h3>34 GB of model, 16 GB of Mac</h3><p>Weights stream from disk as needed. Never more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac): each render computes what it needs before it starts.</p></div>
+    <div class="card reveal"><h3>Private by construction</h3><p>Nothing leaves your Mac, it works offline once a model is installed, and the render cache is gone when you quit.</p></div>
+    <div class="card reveal"><h3>Your models</h3><p>Install full size, in 8 bits or in 4 to 6 bits; import LoRAs from Civitai or Hugging Face. Licenses and disk space are shown before the first byte.</p></div>
+    <div class="card reveal"><h3>Built to be driven by an AI</h3><p><code>silicontrol</code> drives the running app from a terminal with JSON output; <code>silicontrol help</code> is all an agent needs.</p></div>
+    <div class="card reveal"><h3>Reproducible to the bit</h3><p>Same prompt, seed, settings and version on the same Mac: the same image, byte for byte.</p></div>
   </div>
 </section>
 
 <section class="wrap">
   <div class="split">
-    <div class="text">
-      <h2>Compare under the curtain</h2>
-      <p>Any two images, side by side in one frame: slide the curtain to see a photo by Z-Image Turbo
-        become, in Qwen-Image-2.1's hands, a cel-shaded comic book — same face, same pose, same beach.</p>
+    <div class="text reveal">
+      <p class="kicker">Install</p>
+      <h2>Pick your size.</h2>
+      <p class="punch">Standard, Compact or Light.</p>
+      <p>The publisher's weights, 8-bit versions, or a 4-bit transformer. Every file is pinned to a
+        revision and checked by sha256, and downloads resume where they stopped. The next file downloads
+        while the previous one is prepared: Qwen-Image-2.1 installs in about 6½ minutes on a fast connection.</p>
     </div>
-    <figure class="shot"><img src="images/curtain.gif" width="800" height="533" alt="A summer photo made with Z-Image Turbo — a red-haired Irish woman smiling on a beach in the west of Ireland, her surfboard under her arm, in a shorty wetsuit — and its cel-shaded comic-book edit by Qwen-Image-2.1, under a sliding curtain" loading="lazy"></figure>
+    <figure class="shot reveal"><img src="images/models.jpg" width="1600" height="1048" alt="The Models window with Krea 2 Turbo: Standard, Compact and Light, the license and the disk space" loading="lazy"></figure>
   </div>
 </section>
 
-<section class="wrap">
-  <div class="split rev">
-    <div class="text">
-      <h2>Explore before you commit</h2>
-      <p>A grid across seeds, steps, LoRA strengths, models or prompt variants, drawn in the canvas
-        with its axes as labels. The cell you pick becomes the finished image, with the same seed.</p>
-    </div>
-    <figure class="shot"><img src="images/grid.jpg" width="1600" height="1046" alt="An exploration with Anima Turbo and the inCase LoRA: four hair colors by two seeds, a woman reading by a library window" loading="lazy"></figure>
+<section class="wrap" id="community">
+  <div class="card reveal" style="padding:clamp(24px, 4vw, 44px)">
+    <p class="kicker">Community</p>
+    <h2>Your checkpoints. Your LoRAs.<br><span class="grad">Your Mac.</span></h2>
+    <p class="punch" style="color:var(--text);font:500 clamp(20px, 2.4vw, 24px)/1.35 var(--display);margin:0 0 14px">Nobody's looking over your shoulder.</p>
+    <p style="margin:0 0 12px">Drop in a Civitai checkpoint of a known family (⌘O): it imports as is and borrows its family's
+      encoder and VAE. LoRAs too. Siliconed censors no prompt and adds no filter of its own; nothing goes to
+      a server, and the render cache is emptied at launch and at quit. Whatever you're into stays between
+      you and your GPU.</p>
+    <p style="margin:0;font-size:14px">Each model's license still applies: Krea 2 Community's, for one, asks whoever deploys the model for a content filter.</p>
   </div>
 </section>
 
-<section class="wrap">
-  <div class="split">
-    <div class="text">
-      <h2>Install what fits your Mac</h2>
-      <p>Standard, Compact or Light: the publisher's weights, 8-bit versions, or a 4-bit transformer.
-        Every file is pinned to a revision and checked by sha256, and downloads resume where they stopped.
-        The next file downloads while the previous one is prepared: Qwen-Image-2.1 installs in about
-        6½ minutes on a fast connection.</p>
-    </div>
-    <figure class="shot"><img src="images/models.jpg" width="1600" height="1048" alt="The Models window with Standard, Compact and Light, the license and the disk space" loading="lazy"></figure>
-  </div>
-</section>
-
-<section class="wrap">
-  <h2>Models</h2>
-  <div class="tablewrap"><table>
+<section class="wrap" id="models">
+  <p class="kicker">The lineup</p>
+  <h2 class="reveal">Four models.<br><span class="grad">Zero cloud.</span></h2>
+  <div class="tablewrap reveal"><table>
     <tr><th>Model</th><th>What it does</th><th>License</th></tr>
-    <tr><td><a href="https://huggingface.co/Tongyi-MAI/Z-Image-Turbo">Z-Image Turbo</a></td><td>text-to-image, image-to-image, LoRA</td><td>Apache 2.0</td></tr>
-    <tr><td><a href="https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo">Qwen-Image-2.1 Turbo</a></td><td>text-to-image, editing by instruction with 1 to 3 images, LoRA</td><td>Qwen Research (non-commercial)</td></tr>
-    <tr><td><a href="https://huggingface.co/circlestone-labs/Anima">Anima Turbo</a></td><td>text-to-image (illustration, painting, anime), image-to-image, LoRA</td><td>CircleStone Labs Non-Commercial (the images may be used commercially)</td></tr>
     <tr><td><a href="https://huggingface.co/krea/Krea-2-Turbo">Krea 2 Turbo</a></td><td>text-to-image (aesthetic images, from photography to painting), LoRA</td><td>Krea 2 Community (commercial under $1M annual revenue, content filter required when deployed)</td></tr>
+    <tr><td><a href="https://huggingface.co/Tongyi-MAI/Z-Image-Turbo">Z-Image Turbo</a></td><td>text-to-image, LoRA</td><td>Apache 2.0</td></tr>
+    <tr><td><a href="https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo">Qwen-Image-2.1 Turbo</a></td><td>text-to-image, editing by instruction with 1 to 3 images, LoRA</td><td>Qwen Research (non-commercial)</td></tr>
+    <tr><td><a href="https://huggingface.co/circlestone-labs/Anima">Anima Turbo</a></td><td>text-to-image (illustration, painting, anime), LoRA</td><td>CircleStone Labs Non-Commercial (the images may be used commercially)</td></tr>
   </table></div>
-  <p style="color:var(--muted);font-size:15px">Timings on an M1 Pro with 16 GB, Standard weights: Z-Image Turbo 1024² 113–119 s (8 steps); Qwen-Image-2.1 Turbo 1024² ~134 s (8 steps); an edit with one reference ~210 s; Anima Turbo 1024² 43.7 s (8 steps).<!-- KR: Krea 2 Turbo 1024² time --></p>
+  <p class="times">1024², 8 steps, seed 42, Standard weights, on an M1 Pro with 16 GB, app 0.12: Krea 2 Turbo 221.1 s, Z-Image Turbo 117.7 s, Qwen-Image-2.1 Turbo 142.7 s, Anima Turbo 44.4 s. An edit with one reference: 211 s (0.10).</p>
 </section>
 
-<section class="wrap" style="text-align:center">
-  <h2>Get it</h2>
-  <div class="cta">
-    <a class="btn primary" href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">Download the .dmg</a>
-    <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed#readme">Read the README</a>
-    <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed/blob/main/README.fr.md">En français</a>
+<section class="final">
+  <svg class="tracks" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+    <defs><linearGradient id="tr3" gradientUnits="userSpaceOnUse" x1="200" y1="900" x2="800" y2="200"><stop offset="0" stop-color="#FF5E7A"/><stop offset="0.5" stop-color="#FFB38A"/><stop offset="1" stop-color="#6FF0E0"/></linearGradient></defs>
+    <g fill="none" stroke="url(#tr3)" stroke-width="10" stroke-linecap="round">
+      <path d="M 40 590 L 560 590 A 70 70 0 0 0 560 450 A 70 70 0 0 0 490 520"/>
+      <path d="M 40 650 L 560 650 A 130 130 0 0 0 560 390 A 130 130 0 0 0 430 520"/>
+      <path d="M 40 710 L 560 710 A 190 190 0 0 0 560 330 A 190 190 0 0 0 370 520"/>
+      <path d="M 40 770 L 560 770 A 250 250 0 0 0 560 270 A 250 250 0 0 0 310 520"/>
+      <path d="M 40 830 L 560 830 A 310 310 0 0 0 560 210 A 310 310 0 0 0 250 520"/>
+    </g>
+  </svg>
+  <div class="wrap">
+    <h2 class="reveal"><span class="grad">Get it.</span></h2>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">Download the .dmg</a>
+      <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed#readme">Read the README</a>
+      <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed/blob/main/README.fr.md">En français</a>
+    </div>
+    <p class="req">Nothing is preinstalled: pick a model in the app, read its license, and it downloads.</p>
   </div>
-  <p class="req">Nothing is preinstalled: pick a model in the app, read its license, and it downloads.</p>
 </section>
 
 <footer class="wrap">

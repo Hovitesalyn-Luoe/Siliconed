@@ -67,12 +67,17 @@ done
 # The icon: redrawn only when its source (or its renderer) changes. Each size is rendered from the
 # vector, not scaled down from the 1024 px one: the 16 px stays sharp.
 icon=.build/Siliconed.icns
-if [[ ! -e $icon || tools/icon.svg -nt $icon || tools/icon.swift -nt $icon ]]; then
+# Under 64 px the five tracks blur into a moiré: those sizes come from `icon-small.svg`, three thicker ones.
+if [[ ! -e $icon || tools/icon.svg -nt $icon || tools/icon-small.svg -nt $icon || tools/icon.swift -nt $icon ]]; then
   iconset=.build/Siliconed.iconset
   rm -rf $iconset && mkdir -p $iconset
   for t in 16 32 128 256 512; do
-    swift tools/icon.swift tools/icon.svg $iconset/icon_${t}x${t}.png $t
-    swift tools/icon.swift tools/icon.svg $iconset/icon_${t}x${t}@2x.png $((t * 2))
+    for scale in 1 2; do
+      px=$((t * scale)) svg=tools/icon.svg
+      (( px < 64 )) && svg=tools/icon-small.svg
+      suffix=; (( scale == 2 )) && suffix=@2x
+      swift tools/icon.swift $svg $iconset/icon_${t}x${t}$suffix.png $px
+    done
   done
   iconutil -c icns $iconset -o $icon
 fi

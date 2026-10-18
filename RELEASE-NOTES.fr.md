@@ -2,7 +2,7 @@
 
 # Siliconed — notes de version
 
-## Non publiée
+## 0.12
 
 ### Un quatrième modèle : Krea 2 Turbo
 
@@ -14,11 +14,14 @@
 - **Sa recette** : 8 évaluations, sans CFG. Texte vers image, les formats rectangulaires, les quatre
   solveurs en mode développeur, chacun vérifié contre diffusers sur le calendrier de Krea ; les LoRA (format
   d’ai-toolkit, lues comme diffusers et PEFT les lisent ; ComfyUI donne la même mise à jour),
-  appliquées entières sur la Compact et la Légère et jugées contre la référence ;
-  ni édition par instruction ni Détail : sur ce modèle, sa cloche tombe là où l’image se décide
-  encore, et la redessine au lieu de l’affiner. Les variations subtiles prennent 0,05 (0,1 change la
-  personne).
-<!-- KR : les temps (Standard, graine 42, 8 évaluations : 512², 1024², 1024×1536) -->
+  appliquées entières sur la Compact et la Légère et jugées contre la référence, modules du temps
+  compris ; ni édition par instruction ni Détail : sur ce modèle, sa cloche tombe là où l’image se
+  décide encore, et la redessine au lieu de l’affiner. Les variations subtiles prennent 0,05 (0,1
+  change la personne).
+- **Les temps** : sur un M1 Pro de 16 Go, Standard, graine 42, 8 évaluations, mis en file dans l’app :
+  1024² en 221,1 s, 1024×1536 en 355,3 s.
+- **Vérifié contre la référence** : à 1024², la sortie du débruiteur est à 1,44·10⁻⁴ de diffusers
+  en fp32.
 - **Standard, Compact ou Légère** : 34,4 Go (le bf16 de l’éditeur), 19,5 Go (le DiT et l’encodeur
   de texte en int8 convrot, tels que Comfy-Org les publie) ou 12,8 Go (le DiT en GGUF Q4_K_M, tel que
   vantagewithai le publie, avec l’encodeur de texte de la Compact). La Compact et la Légère sont
@@ -32,29 +35,97 @@
 - **Dans le budget** : son besoin de mémoire est calculé d’après les formes du modèle avant le
   premier calcul, comme pour les trois autres. Pics à 1024², le moteur seul : 3,07 Go en Standard
   (3,51 Go en 1024×1536), 2,20 Go en Compact, 1,35 Go en Légère.
-<!-- KR : vérifié contre la référence — les chiffres d’écart -->
-- **Licence** : Krea 2 Community. Usage commercial sous 1 M$ de chiffre d’affaires annuel ; un
-  filtre de contenu est obligatoire quand le modèle est déployé. L’app montre la licence avant le
-  premier octet téléchargé.
+- **Licence** : Krea 2 Community. Usage commercial sous 1 M$ de chiffre d’affaires annuel ; un
+  filtre de contenu est obligatoire quand le modèle est déployé. L’app montre la licence en entier
+  avant le premier octet téléchargé, avec l’attribution qu’elle demande.
 
-### Aussi
+### Le moteur mesure votre Mac avant son premier rendu
 
-- **Une LoRA prend le nom de son fichier** : une LoRA importée s’appelle comme son fichier, et non
-  plus du nom écrit dans ses métadonnées (« my first lora v1 copy copy » devient « OiledSkinKrea V1 »).
-  Ce nom, et les mots déclencheurs quand le fichier les donne sans ambiguïté, s’affichent dans une
-  infobulle sur la LoRA, dans le rack et la fenêtre Modèles. Les LoRA déjà importées gardent leur nom.
-- **La mesure de ce Mac choisit un chemin de plus** : là où les unités tensorielles du GPU multiplient
-  plus vite (macOS 26, Metal 4 — les accélérateurs neuronaux du GPU d’un M5), les produits matriciels du
-  DiT lisent les poids bf16 publiés tels quels, au lieu de les élargir d’abord en fp32 ; les activations
-  et les sommes restent en fp32. Éteint tant que la mesure ne le trouve pas plus rapide, préparation des
-  poids comprise ; sur un M1 Pro, plus lent, il reste éteint. Z-Image, Qwen-Image-2.1, Anima et Krea 2
-  (Krea 2 sans LoRA) sont chacun vérifiés contre la référence sur ce chemin. La mesure relève la durée
-  de chacune de ses étapes, et reste sous la minute.
+- **Aucun rendu sans la carte de ce Mac.** Avant le tout premier rendu, et de nouveau dès que le Mac,
+  macOS ou l’app change, l’app mesure la puce, en 30 à 40 secondes environ et sans aucun modèle, puis
+  rend avec ce qu’elle a trouvé ; la barre latérale le dit pendant la mesure. Jusqu’à la 0.11, la
+  carte était facultative, et les valeurs par défaut étaient celles d’un M1 Pro.
+- **Ce qu’elle mesure** : les vrais produits matriciels des blocs des quatre DiT sur le GPU, sur
+  l’unité matricielle du CPU (AMX) et sur les deux à la fois, à plusieurs profondeurs et largeurs ;
+  l’attention par trois noyaux ; des produits lus directement sur les poids int8 et GGUF Q8_0
+  publiés ; des produits bf16 sur les unités tensorielles du GPU (macOS 26, Metal 4). Chaque sortie
+  est vérifiée contre le résultat exact, calculé en double précision.
+- **Ce qu’elle décide** : un noyau ne s’allume que s’il a calculé juste et bat le défaut d’au moins
+  5 %, ou de la dérive que la mesure elle-même a vue si elle est plus grande, aux tailles d’une image
+  512² comme d’une image 1024². La co-exécution GPU + AMX, allumée d’après le nom de la puce jusqu’à
+  la 0.11, est désormais éteinte partout sauf si la mesure la trouve plus rapide, et la part de
+  chaque unité se calcule d’après la forme de chaque produit au lieu d’une part figée. Sur le M1 Pro
+  (18/10/2026) : co-exécution allumée (×1,30), attention partagée par têtes entre le GPU et le CPU
+  allumée (×1,49, désormais aussi pour les têtes groupées de Krea 2), attention flash éteinte (×1,05,
+  dans la marge), produit int8 allumé, produit Q8_0 éteint (×0,43), produit tensoriel bf16 éteint
+  (×0,53). Une autre puce décide d’après ses propres mesures.
+- **Les poids 8 bits publiés, lus tels quels** : là où la carte les allume, les poids int8 des
+  versions Compact (comme celles de Krea 2 et de Qwen-Image-2.1) et les poids GGUF Q8_0 (la Compact
+  d’Anima) sont multipliés tels que publiés, au lieu d’être d’abord élargis en fp32 ; les activations
+  et les sommes restent en fp32. Là où les unités tensorielles du GPU multiplient plus vite, les
+  poids bf16 de l’éditeur se lisent de la même façon. Chaque chemin est vérifié contre la référence.
+- **La carte change la vitesse, pas l’image** au-delà de l’arithmétique qu’elle a vérifiée ; le même
+  Mac avec la même carte donne toujours les mêmes bits.
 - **« Chaîne », en tête du rack, ouvre la mesure** : orange, avec sa puce, tant que ce Mac n’est pas
-  mesuré — les rendus tournent jusque-là sur les valeurs par défaut —, puce verte ensuite. Une mesure
-  prise par une version antérieure ne s’applique plus : mesurer une fois encore.
-- La fenêtre Réglages s’ouvre centrée ; la phrase de la fenêtre d’import est plus courte, la barre
-  latérale du Finder garde sa largeur.
+  mesuré, puce verte ensuite. **Signaler ma configuration** (menu Aide) montre la carte et ce qu’elle
+  a décidé ; « Ouvrir le signalement » copie désormais le rapport et ouvre un court formulaire GitHub où le
+  coller, le rapport ne tenant plus dans un lien ; « Copier le JSON » sert à qui l’envoie autrement.
+
+### Plus près de la référence, jusqu’à l’arrondi
+
+- **L’arithmétique arrondit là où la référence arrondit** : les pas d’Euler, le correcteur d’UniPC
+  (résolu comme LAPACK), les pas de temps entiers que diffusers donne au DiT sous DPM++ 2M et UniPC,
+  les calendriers de Z-Image, d’Anima et de Krea 2, les tables de positions rotatives de chaque
+  modèle, et les résidus à porte et modulations (a·b + c en deux arrondis, comme torch le calcule).
+  **Chaque image change de quelques unités sur le dernier chiffre**, et chaque modèle reste à la
+  distance de la référence elle-même d’un calcul fp64 : une image faite avec la 0.11 ne ressort plus
+  au bit.
+- **Z-Image en 832×1216 et 1216×832 change d’image** : ses jetons d’image sont maintenant complétés à
+  un multiple de 32, comme le fait diffusers ; ces deux formats avaient 16 jetons de moins.
+- **Les LoRA atteignent chaque module où la référence les applique** : sur Z-Image, les modules
+  extérieurs (plongements des patchs et de la légende, plongement du temps, dernière couche), sur
+  Krea 2, le plongement et la modulation du temps, qui étaient importés puis ignorés. Une LoRA qui
+  vise un module que le moteur n’applique pas est refusée avant tout calcul, avec la raison.
+- **Les éditions de Qwen-Image-2.1 gardent la transparence d’une référence**, comme diffusers : le
+  VAE lit l’image avec son alpha, seule la copie que voit l’encodeur est posée sur du blanc.
+
+### Plus solide
+
+- **Des formats par modèle** : Qwen-Image-2.1 veut des côtés multiples de 32, Anima au plus 2048 px ;
+  l’un et l’autre sont refusés avant tout calcul, et le champ de taille dit la règle du modèle choisi.
+- **Le cache de rendu ne dure qu’une session** : vidé au lancement et à la fermeture, il ne compte
+  plus dans la place occupée de la fenêtre Modèles.
+- **Importer ne télécharge jamais** : une LoRA ou un fine-tune dont le modèle n’est pas installé est
+  refusé, et l’app dit quel modèle installer d’abord ; les vraies erreurs (un disque plein) ne sont
+  plus avalées.
+- **Les fichiers hostiles sont refusés** : une LoRA dont le motif d’alpha ferait revenir le filtre en
+  arrière sans fin, des alphas ou des forces non finis, un rang 0, un bloc GGUF Q8_0 à l’échelle non
+  finie.
+- **Le besoin de mémoire compte ce qui lui échappait** : la mémoire de travail des poids int8
+  tournés (la Compact de Krea 2 dépassait de 7 Mo à l’étage du texte), les jetons complétés de
+  Z-Image. Un long prompt de Krea 2, au-delà de 170 jetons environ, ne s’arrête plus sur « arena
+  exhausted ».
+- **L’attention sans partage par têtes est découpée par requêtes** là où elle dépasserait la limite
+  des matrices du GPU (Z-Image en 1024×1536 sur un Mac dont la carte éteint le partage).
+- Le noyau d’attention flash calcule en mathématiques sûres et perd deux branches jamais utilisées
+  qui pouvaient mal lire une clé ; les produits int8 et Q8_0 n’écrivent plus au-delà des colonnes du
+  GPU ; un registre de téléchargement abîmé est ignoré ; la file attend la fin d’un agrandissement ou
+  d’une planche d’exploration ; les requêtes de `silicontrol` ont une échéance.
+
+### Interface
+
+- **Une LoRA prend le nom de son fichier** : une LoRA importée s’appelle comme son fichier, et non
+  plus du nom écrit dans ses métadonnées, souvent celui que l’outil d’entraînement met par défaut
+  (« my first lora v1 copy copy »). Le nom donné par son auteur, et les mots déclencheurs quand le
+  fichier les donne sans ambiguïté, s’affichent dans une infobulle sur la LoRA, dans le rack et la
+  fenêtre Modèles. Les LoRA déjà importées gardent leur nom.
+- La feuille de licence de Krea 2 montre la licence entière ; filets et fonds un peu plus marqués,
+  texte secondaire là où il informe, un seul symbole d’export ; la fenêtre Réglages s’ouvre centrée ;
+  la phrase de la fenêtre d’import est plus courte, la barre latérale du Finder garde sa largeur.
+- Pour les développeurs : Siliconed livre une app, pas une bibliothèque. Le produit bibliothèque et
+  la documentation de son API s’en vont ; `swift build` construit l’app et `silicontrol`.
+
+Les temps sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
 
 ## 0.11
 

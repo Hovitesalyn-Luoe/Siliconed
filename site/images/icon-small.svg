@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#14183A"/><stop offset="1" stop-color="#2B1438"/></linearGradient>
+<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="560" cy="520" r="420"><stop offset="0" stop-color="#6FF0E0" stop-opacity="0.18"/><stop offset="1" stop-color="#6FF0E0" stop-opacity="0"/></radialGradient>
+<linearGradient id="tr" gradientUnits="userSpaceOnUse" x1="200" y1="900" x2="800" y2="200"><stop offset="0" stop-color="#FF5E7A"/><stop offset="0.5" stop-color="#FFB38A"/><stop offset="1" stop-color="#6FF0E0"/></linearGradient>
+<linearGradient id="hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs>
+<g clip-path="url(#sq)">
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+<rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+<g fill="none" stroke="url(#tr)" stroke-width="64" stroke-linecap="round"><path d="M 40 615 L 560 615 A 95 95 0 0 0 560 425 A 95 95 0 0 0 465 520"/><circle cx="465" cy="520" r="44" fill="url(#tr)" stroke="none"/><path d="M 40 725 L 560 725 A 205 205 0 0 0 560 315 A 205 205 0 0 0 355 520"/><circle cx="355" cy="520" r="44" fill="url(#tr)" stroke="none"/><path d="M 40 835 L 560 835 A 315 315 0 0 0 560 205 A 315 315 0 0 0 245 520"/><circle cx="245" cy="520" r="44" fill="url(#tr)" stroke="none"/></g>
+<rect x="500.0" y="460.0" width="120" height="120" rx="20" fill="#FFFFFF" opacity="0.94"/>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#hl)"/>
+</g></svg>

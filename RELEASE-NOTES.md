@@ -2,7 +2,7 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
-## Unreleased
+## 0.12
 
 ### A fourth model: Krea 2 Turbo
 
@@ -14,11 +14,14 @@ English · [Français](RELEASE-NOTES.fr.md)
 - **Its recipe**: 8 evaluations, no CFG. Text-to-image, the rectangular formats, the four solvers
   in Developer Mode, each checked against diffusers on Krea's own schedule; LoRAs (ai-toolkit
   layout, read as diffusers and PEFT read it; ComfyUI gives the same update), applied whole on the
-  Compact and the Light and judged against the reference;
+  Compact and the Light and judged against the reference, the time modules included;
   no editing by instruction, and no Detail: on this model its bell falls where the picture is still
   being decided, and redraws it instead of sharpening it. Subtle variations use 0.05 (0.1 changes
   the person).
-<!-- KR: the times (Standard, seed 42, 8 evaluations: 512², 1024², 1024×1536) -->
+- **Times**: on an M1 Pro with 16 GB, Standard, seed 42, 8 evaluations, queued in the app: 1024² in
+  221.1 s, 1024×1536 in 355.3 s.
+- **Checked against the reference**: at 1024², the denoiser's output is 1.44·10⁻⁴ from diffusers
+  in fp32.
 - **Standard, Compact or Light**: 34.4 GB (the publisher's bf16), 19.5 GB (the DiT and the text
   encoder in int8 convrot, as Comfy-Org publishes them) or 12.8 GB (the DiT in GGUF Q4_K_M, as
   vantagewithai publishes it, with the Compact's text encoder). The Compact and the Light are
@@ -32,29 +35,91 @@ English · [Français](RELEASE-NOTES.fr.md)
 - **Within the budget**: its memory need is computed from the model's shapes before the first
   computation, as for the other three. Peaks at 1024², the engine alone: 3.07 GB in Standard
   (3.51 GB at 1024×1536), 2.20 GB in Compact, 1.35 GB in Light.
-<!-- KR: checked against the reference — the deviation figures -->
 - **License**: Krea 2 Community. Commercial use under $1M of annual revenue; a content filter is
-  mandatory when the model is deployed. The app shows the license before the first byte is
-  downloaded.
+  mandatory when the model is deployed. The app shows the license in full before the first byte is
+  downloaded, with the attribution it asks for.
 
-### Also
+### The engine measures your Mac before its first render
+
+- **No render without a map of this Mac.** Before the very first render, and again whenever the
+  Mac, macOS or the app changes, the app measures the chip, in about 30 to 40 seconds and without any
+  model, then renders with what it found; the sidebar says so while it runs. Until 0.11, the map
+  was optional, and the defaults were those of an M1 Pro.
+- **What it measures**: the real matrix products of the four DiTs' blocks on the GPU, on the CPU's
+  matrix unit (AMX) and on both at once, at several depths and widths; attention through three
+  kernels; products read straight from published int8 and GGUF Q8_0 weights; bf16 products on the
+  GPU's tensor units (macOS 26, Metal 4). Every output is checked against the exact result, computed
+  in double precision.
+- **What it decides**: a kernel turns on only if it computed right and beats the default by at
+  least 5 %, or by the drift the measure itself saw if that is larger, at both a 512² and a 1024²
+  image's sizes. The GPU + AMX co-execution, which turned on by chip name until 0.11, is now off
+  everywhere unless measured faster, and the share each engine takes is computed for each product's
+  shape instead of one frozen share. On the M1 Pro (18/10/2026): co-execution on (×1.30), attention
+  split by heads between the GPU and the CPU on (×1.49, now also for Krea 2's grouped heads), flash
+  attention off (×1.05, inside the margin), the int8 product on, the Q8_0 product off (×0.43), the
+  bf16 tensor product off (×0.53). Another chip decides from its own measurements.
+- **Published 8-bit weights read as they are**: where the map turns them on, the int8 weights of
+  Compact versions (such as Krea 2's and Qwen-Image-2.1's) and the GGUF Q8_0 weights (Anima's Compact) are
+  multiplied as published, instead of widened to fp32 first; the activations and the sums stay
+  fp32. Where the GPU's tensor units multiply faster, the publisher's bf16 weights are read the same
+  way. Each path is checked against the reference.
+- **The map changes the speed, not the picture** beyond the arithmetic it checked; the same Mac
+  with the same map still gives the same bits.
+- **« Chain », at the head of the rack, opens the measure**: orange, with its chip, until this Mac is
+  measured, a green chip after. **Report My Configuration** (Help menu) shows the map and what it
+  decided; « Open the Issue » now copies the report and opens a short GitHub form to paste it into,
+  since the report no longer fits in a link; « Copy JSON » serves whoever sends it another way.
+
+### Closer to the reference, to the rounding
+
+- **The arithmetic rounds where the reference rounds**: Euler steps, UniPC's corrector (solved as
+  LAPACK does), the integer timesteps diffusers gives the DiT under DPM++ 2M and UniPC, the schedules
+  of Z-Image, Anima and Krea 2, every model's rotary position tables, and the gated residuals and
+  modulations (a·b + c in two roundings, as torch computes it). **Every picture changes by a few
+  units in the last place**, and each model stays within the reference's own distance of an fp64
+  computation: an image made with 0.11 does not come out again to the bit.
+- **Z-Image at 832×1216 and 1216×832 changes image**: its image tokens are now padded to a multiple of
+  32 as diffusers does; those two formats were 16 tokens short.
+- **LoRAs reach every module the reference applies them to**: on Z-Image the outer modules (patch
+  and caption embedders, time embedder, final layer), on Krea 2 the time embedding and modulation,
+  which were imported and then ignored. A LoRA aiming at a module the engine does not apply is
+  refused before any computation, with the reason.
+- **Qwen-Image-2.1 edits keep a reference's transparency** as diffusers does: the VAE reads the
+  image with its alpha, only the copy the encoder sees is pasted on white.
+
+### Sturdier
+
+- **Formats per model**: Qwen-Image-2.1 wants sides in multiples of 32, Anima at most 2048 px; both
+  are refused before any computation, and the size field says the chosen model's rule.
+- **The render cache lasts one session**: emptied at launch and at quit, it no longer counts in the
+  Models window's used space.
+- **Importing never downloads**: a LoRA or a fine-tune whose model is not installed is refused, and
+  the app says which model to install first; real errors (a full disk) are no longer swallowed.
+- **Hostile files are refused**: a LoRA whose alpha pattern would make the matcher backtrack without
+  end, non-finite alphas or strengths, rank 0, a GGUF Q8_0 block with a non-finite scale.
+- **The memory need counts what it missed**: the scratch of rotated int8 weights (Krea 2's
+  Compact overran its text stage by 7 MB), Z-Image's padded tokens. A long Krea 2 prompt, past about
+  170 tokens, no longer stops with « arena exhausted ».
+- **Attention without the head split is sliced by queries** where it would exceed the GPU's matrix
+  limit (Z-Image at 1024×1536 on a Mac whose map turns the split off).
+- The flash attention kernel computes in safe math and lost two branches that were never used and
+  could misread a key; the int8 and Q8_0 products no longer write past the GPU's columns; a damaged
+  download registry is ignored; the queue waits for an enlargement or a grid sheet to finish;
+  `silicontrol` requests have a deadline.
+
+### Interface
 
 - **A LoRA takes its file's name**: an imported LoRA is called by its file, no longer by the name
-  written in its metadata (« my first lora v1 copy copy » becomes « OiledSkinKrea V1 »). That name, and
-  the trigger words when the file states them beyond doubt, show in a tooltip on the LoRA, in the
-  rack and in the Models window. LoRAs imported before keep their name.
-- **The measure of this Mac chooses one more path**: where the GPU's tensor units multiply faster
-  (macOS 26, Metal 4 — the neural accelerators of an M5's GPU), the DiT's matrix products read the
-  published bf16 weights as they are, instead of widening them to fp32 first; the activations and
-  the sums stay fp32. Off unless the measure finds it faster, preparation of the weights included;
-  on an M1 Pro, slower, it stays off. Z-Image, Qwen-Image-2.1, Anima and Krea 2 (Krea 2 without a
-  LoRA) are each checked against the reference on that path. The measure records the time of each of
-  its stages, and stays under a minute.
-- **« Chain », at the head of the rack, opens the measure**: orange, with its chip, until this Mac is
-  measured — the renders run on the defaults until then —, a green chip after. A measure taken by an
-  earlier version no longer applies: measure once again.
-- The Settings window opens centered; the import dialog's sentence is shorter, so the Finder's
-  sidebar keeps its width.
+  written in its metadata, often a trainer's default (« my first lora v1 copy copy »). The
+  trainer's name, and the trigger words when the file states them beyond doubt, show in a tooltip on
+  the LoRA, in the rack and in the Models window. LoRAs imported before keep their name.
+- Krea 2's license sheet shows the whole license; hairlines and fills a little stronger, secondary
+  text where it informs, one export symbol; the Settings window opens centered; the import dialog's
+  sentence is shorter, so the Finder's sidebar keeps its width.
+- For developers: Siliconed ships an app, not a library. The library product and its API
+  documentation are gone; `swift build` builds the app and `silicontrol`.
+
+Timings are measured on a MacBook Pro M1 Pro with 16 GB.
 
 ## 0.11
 
