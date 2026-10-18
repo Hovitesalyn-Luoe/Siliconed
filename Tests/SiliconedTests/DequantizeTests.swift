@@ -209,4 +209,50 @@ final class DequantizeTests: XCTestCase {
             }
         }
     }
+
+    /// **A slice of columns is those columns of the whole widening, at the bit** (`columns:`, the
+    /// AMX's share beside the GPU's int8 product): first, middle and last columns, across a tile edge
+    /// and on the scalar path, nothing written past `[k, width]`.
+    func testRotatedSliceIsTheWholeOnesColumns() {
+        for (g, k, n, slice) in [(256, 512, 328, 64..<328), (16, 64, 8200, 4096..<8200), (4, 8, 4100, 0..<12), (64, 192, 136, 64..<128)] {
+            let q = codes(k * n).map { Int8(bitPattern: $0) }
+            let (bytes, _) = scales(n, .bfloat16)
+            var whole = [Float](repeating: 0, count: k * n), part = [Float](repeating: -7, count: k * slice.count + 1)
+            q.withUnsafeBytes { v in
+                bytes.withUnsafeBytes { sc in
+                    whole.withUnsafeMutableBufferPointer { o in
+                        Widen.dequantizeRotated(v.baseAddress!, rows: k, columns: n, group: g, scale: sc.baseAddress!,
+                                                scaleType: .bfloat16, layout: .columns(n), into: o.baseAddress!)
+                    }
+                    part.withUnsafeMutableBufferPointer { o in
+                        Widen.dequantizeRotated(v.baseAddress!, rows: k, columns: n, group: g, scale: sc.baseAddress!,
+                                                scaleType: .bfloat16, layout: .columns(n), columns: slice, into: o.baseAddress!)
+                    }
+                }
+            }
+            var differ = 0
+            for r in 0..<k { for (j, c) in slice.enumerated() where part[r * slice.count + j].bitPattern != whole[r * n + c].bitPattern { differ += 1 } }
+            XCTAssertEqual(differ, 0, "G \(g), [\(k), \(n)], columns \(slice)")
+            XCTAssertEqual(part[k * slice.count], -7, "columns \(slice): written past the end")
+        }
+    }
+
+    /// **The int8 plan stays inside the model's reserve**: `q`, its scales, the AMX's widened columns and
+    /// the rotated rows, page-aligned and in that order; no plan when not even 64 rotated rows fit.
+    func testInt8PlanFitsTheReserve() {
+        let (k, n) = (16384, 6144), capacity = k * n
+        for (amx, perColumn) in [(0, false), (2048, true), (4096, false)] {
+            guard let p = WeightProducts.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: 256,
+                                                  amxColumns: amx) else { XCTFail("no plan, amx \(amx)"); continue }
+            XCTAssert(p.scalesOffset >= k * n && p.sliceOffset >= p.scalesOffset + (perColumn ? n : 1) * 4)
+            XCTAssert(p.rotatedOffset >= p.sliceOffset + k * amx * 4)
+            XCTAssert([p.scalesOffset, p.sliceOffset, p.rotatedOffset].allSatisfy { $0 % 16384 == 0 })
+            XCTAssert(p.chunk >= 64 && p.chunk % 64 == 0 && p.rotatedOffset + p.chunk * k * 4 <= capacity * 4)
+        }
+        // Most columns to the AMX: its widened slice and `q` overflow the reserve — the GPU alone then.
+        XCTAssertNil(WeightProducts.int8Plan(k: k, n: n, capacity: capacity, perColumn: false, group: 256, amxColumns: 6144 - 64))
+        // Room for `q` and its scales only: an unrotated weight fits, a rotated one has no rows.
+        XCTAssertNil(WeightProducts.int8Plan(k: k, n: n, capacity: k * n / 4 + 8192, perColumn: true, group: 256, amxColumns: 0))
+        XCTAssertNotNil(WeightProducts.int8Plan(k: k, n: n, capacity: k * n / 4 + 8192, perColumn: true, group: nil, amxColumns: 0))
+    }
 }

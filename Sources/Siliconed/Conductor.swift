@@ -262,6 +262,48 @@ package final class Conductor: @unchecked Sendable {
         return (amx_matmul(false, transposeWeight, 1.0, &A, &B, &C, size > 0 ? workspace?.base : nil, &params), size)
     }
 
+    /// **The AMX on columns `first ..< first + width` of `C [m, n]`, on the calling thread**: `C[:, first…]
+    /// = A · slice`, the slice `[k, width]` contiguous (widened for it alone), `C` strided by `n` — the AMX's
+    /// side of the cut by columns (`WeightProducts`, a published int8 weight the GPU reads as it is). The
+    /// conductor's workspace, the worker idle: the products run one at a time. Returns BNNS's status.
+    package func columns(a: UnsafeMutableRawPointer, slice: UnsafeMutableRawPointer, c: UnsafeMutableRawPointer,
+                         m: Int, k: Int, n: Int, first: Int, width: Int) -> Int32 {
+        var (A, B, C) = Conductor.columnDescriptors(a: a, slice: slice, c: c + first * 4, m: m, k: k, n: n, width: width)
+        var params = BNNSFilterParameters()
+        let size = amx_matmul_workspace(false, false, 1.0, &A, &B, &C, &params)
+        guard size >= 0 else { refusals += 1; return -1 }
+        if size > (workspace?.capacity ?? 0) { workspace = Pages(bytes: size) }
+        lastWorkspace = size
+        let status = Int32(amx_matmul(false, false, 1.0, &A, &B, &C, size > 0 ? workspace?.base : nil, &params))
+        lastStatus = status
+        if status != 0 { refusals += 1 }
+        return status
+    }
+
+    /// **The BNNS workspace of the AMX's `width` columns** of `[m, k] × [k, n]` (`columns`): BNNS answers
+    /// from the shapes and strides alone.
+    package static func columnWorkspaceBytes(m: Int, k: Int, n: Int, width: Int) -> Int {
+        guard width > 0 else { return 0 }
+        var (A, B, C) = columnDescriptors(a: nil, slice: nil, c: nil, m: m, k: k, n: n, width: width)
+        var params = BNNSFilterParameters()
+        return max(0, amx_matmul_workspace(false, false, 1.0, &A, &B, &C, &params))
+    }
+
+    private static func columnDescriptors(a: UnsafeMutableRawPointer?, slice: UnsafeMutableRawPointer?,
+                                          c: UnsafeMutableRawPointer?, m: Int, k: Int, n: Int, width: Int)
+        -> (a: BNNSNDArrayDescriptor, b: BNNSNDArrayDescriptor, c: BNNSNDArrayDescriptor) {
+        func nd(_ p: UnsafeMutableRawPointer?, rows: Int, columns: Int, stride: Int) -> BNNSNDArrayDescriptor {
+            var d = BNNSNDArrayDescriptor()
+            d.layout = BNNSDataLayoutRowMajorMatrix
+            d.size = (columns, rows, 0, 0, 0, 0, 0, 0)
+            d.stride = (1, stride, 0, 0, 0, 0, 0, 0)
+            d.data = p; d.data_type = .float; d.data_scale = 1; d.data_bias = 0
+            return d
+        }
+        return (nd(a, rows: m, columns: k, stride: k), nd(slice, rows: k, columns: width, stride: width),
+                nd(c, rows: m, columns: width, stride: n))
+    }
+
     /// **The BNNS workspace of an AMX slice of `rows` rows** of `[rows, k] × [k, n]`: what `amx` asks of
     /// BNNS for that job, with the same descriptors — BNNS answers from the shapes alone. A conductor
     /// holds the largest over the slices it ran (`Pages`, rounded to the page); the slice is

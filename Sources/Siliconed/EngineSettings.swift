@@ -114,6 +114,10 @@ public struct EngineSettings: Sendable {
     /// fp32 activations × bf16 weights → fp32), the AMX off. Off by default: slower than MPS on this
     /// machine (2.36 against 3.46 TFLOP/s); the map turns it on where it measures it faster.
     package var gemmTensor = false
+    /// **The products read the published int8 weights as they are** (`TensorGEMM`, `float × int8_t`, the
+    /// scale after the sums, a convrot rotation moved to the activation), the AMX off on them. Off by
+    /// default, as `gemm_tensor`: a path the map turns on where it measures it faster.
+    package var gemmInt8 = false
 
     /// Qwen-Image-2.1's spectral schedule, **when forced** (`SILICONED_SPECTRAL`): `k` half-size
     /// evaluations, 0 = full schedule, within the 512-px floor (`Spectral.forced`). Not forced, the
@@ -358,6 +362,7 @@ public struct EngineSettings: Sendable {
         read("SILICONED_SDPA_FP16", "sdpa_fp16")
         read("SILICONED_WIDEN_GPU", "widen_gpu")
         read("SILICONED_GEMM_TENSOR", "gemm_tensor")
+        read("SILICONED_GEMM_INT8", "gemm_int8")
         read("SILICONED_SPECTRAL", "spectral")
         read("SILICONED_VAE_BLOCK", "vae_bloc_requetes")
         read("SILICONED_VAE_TILE", "vae_tuile")
@@ -448,6 +453,7 @@ public struct EngineSettings: Sendable {
         flag("sdpa_fp16", &sdpaFp16)
         flag("widen_gpu", &widenGPU)
         flag("gemm_tensor", &gemmTensor)
+        flag("gemm_int8", &gemmInt8)
         integer("spectral", &spectral)
         integer("vae_bloc_requetes", &vaeRequestBlock)
         integer("vae_tuile", &vaeTile)
@@ -496,6 +502,7 @@ public struct EngineSettings: Sendable {
             ("sdpa_fp16", "\(sdpaFp16)"),
             ("widen_gpu", "\(widenGPU)"),
             ("gemm_tensor", "\(gemmTensor)"),
+            ("gemm_int8", "\(gemmInt8)"),
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
             ("vae_tuile", vaeTile == 0 ? "no" : "\(vaeTile) (overlap \(vaeOverlap))"),
@@ -513,7 +520,7 @@ public struct EngineSettings: Sendable {
             "amx_min": amxMinimumRows, "amx_fraction": amxFraction, "amx_shares": amxShares.description,
             "coupe_figee": frozenCut,
             "flash": flash, "head_split": headSplit, "sdpa_fp16": sdpaFp16,
-            "widen_gpu": widenGPU, "gemm_tensor": gemmTensor,
+            "widen_gpu": widenGPU, "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,
         ]

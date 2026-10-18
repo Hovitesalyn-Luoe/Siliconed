@@ -8,6 +8,8 @@ import Metal
 ///     path            the weight before the product           the product
 ///     default         bf16 → fp32 into the reserve (Widen)    MPS fp32, the AMX on its share of rows
 ///     gemm_tensor     bf16 copied into the reserve's head     matmul2d  float × bfloat → float
+///     gemm_int8       int8 copied, its scales fp32 after it   matmul2d  float × int8_t → float, × s after;
+///                                                             convrot: x · R first, on the GPU
 ///
 /// **Nothing is rounded that the default path does not round**: the weights *are* bf16 values (P19,
 /// the widening is a shift), the activations stay fp32 — the header's `float × bfloat → float`
@@ -30,12 +32,21 @@ import Metal
 ///     `static_slice`, `get_mask` and the header's other examples do not compile on every Metal 4
 ///     compiler; `slice` checks the edges, so any `m` and `n` are taken whole — no padding tier
 ///     (MPS's 8-to-32-row fault, `GEMM.poisonedRows`, is MPS's);
-///   - **no co-execution**: the AMX reads fp32 weights, which this path no longer makes. The rules
-///     compare this path to the better of MPS alone and MPS + AMX, and turn the AMX off when it wins.
+///   - **bf16: no co-execution**: the AMX reads fp32 weights, which this path no longer makes. The rules
+///     compare this path to the better of MPS alone and MPS + AMX, and turn the AMX off when it wins;
+///   - **int8: the AMX by columns**: beside the GPU's columns the AMX takes the last ones, widened for
+///     it alone while the GPU computes (`submit`, `WeightProducts`) — by rows it would need the whole
+///     weight widened, the reserve's size again. The scale is a pass of its own on the GPU's columns
+///     (the cooperative tensor's index API is not on every compiler): one more rounding, as the widened
+///     weight's own;
+///   - **the rotation moves to the activation**: `W = R · q · s` along K (`Widen.dequantizeRotated`),
+///     `x · W = (x · R) · q · s`, `R = H/√G` — fp32 butterflies on `x`, the integers never touched.
 package final class TensorGEMM {
     private let queue: MTLCommandQueue
     /// `[k, n]` weights (the forge's layout), then `[n, k]` (a published `nn.Linear`).
     private let byColumns, byRows: MTLComputePipelineState
+    /// The int8 product, the scale's pass, the rotation of the activation (`linear(a:int8:…)`).
+    private let int8, scaleColumns, rotateGroups: MTLComputePipelineState
 
     static let source = """
     #include <metal_stdlib>
@@ -78,6 +89,49 @@ package final class TensorGEMM {
         const int x = g.x * 32, y = g.y * 64;
         tile(op, A.slice(0, y), B.slice(0, x), C.slice(x, y));
     }
+
+    // The published int8 `[K, N]` (the forge's layout), a 64 × 64 tile: C = A · Float(q), unscaled.
+    kernel void linear_int8(device float *a [[buffer(0)]], device int8_t *w [[buffer(1)]], device float *c [[buffer(2)]],
+                            constant uint3 &mkn [[buffer(3)]], uint2 g [[threadgroup_position_in_grid]]) {
+        const int M = mkn.x, K = mkn.y, N = mkn.z;
+        tensor<device float, dextents<int32_t, 2>, tensor_inline> A(a, dextents<int32_t, 2>(K, M));
+        tensor<device int8_t, dextents<int32_t, 2>, tensor_inline> B(w, dextents<int32_t, 2>(N, K));
+        tensor<device float, dextents<int32_t, 2>, tensor_inline> C(c, dextents<int32_t, 2>(N, M));
+        constexpr auto d = matmul2d_descriptor(64, 64, static_cast<int>(dynamic_extent), false, false, false);
+        matmul2d<d, execution_simdgroups<4>> op;
+        const int x = g.x * 64, y = g.y * 64;
+        tile(op, A.slice(0, y), B.slice(x, 0), C.slice(x, y));
+    }
+
+    // C[r, j] *= s[j · stride] for the first `width` columns of C [M, N]: the scale, per column
+    // (stride 1) or for the tensor (0); the columns past `width` are the AMX's, already scaled.
+    kernel void scale_columns(device float *c [[buffer(0)]], device const float *s [[buffer(1)]],
+                              constant uint3 &nStrideWidth [[buffer(2)]], uint i [[thread_position_in_grid]]) {
+        const uint width = nStrideWidth.z, j = i % width;
+        c[(i / width) * nStrideWidth.x + j] *= s[j * nStrideWidth.y];
+    }
+
+    // y = x · R along each row, R = H/√G block-diagonal by groups of G (a power of 4 up to 256):
+    // ComfyUI's convrot, moved from the weight to the activation. One group per threadgroup.
+    kernel void rotate_groups(device const float *x [[buffer(0)]], device float *y [[buffer(1)]],
+                              constant uint2 &groupNorm [[buffer(2)]],
+                              uint gid [[threadgroup_position_in_grid]], uint t [[thread_position_in_threadgroup]]) {
+        threadgroup float v[256];
+        const uint G = groupNorm.x, base = gid * G;
+        for (uint i = t; i < G; i += 64) v[i] = x[base + i];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint span = 1; span < G; span *= 4) {
+            if (t < G / 4) {
+                const uint j = (t / span) * 4 * span + t % span;
+                const float a = v[j], b = v[j + span], c = v[j + 2 * span], d = v[j + 3 * span];
+                const float p = a + b, m = a - b, u = c + d, w = c - d;
+                v[j] = p + w; v[j + span] = p - w; v[j + 2 * span] = m + u; v[j + 3 * span] = u - m;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        const float norm = as_type<float>(groupNorm.y);
+        for (uint i = t; i < G; i += 64) y[base + i] = v[i] * norm;
+    }
     """
 
     /// `nil` before macOS 26, on a device without Metal 4, or when this macOS's compiler refuses the
@@ -91,7 +145,13 @@ package final class TensorGEMM {
               let kn = library.makeFunction(name: "linear_kn"), let nk = library.makeFunction(name: "linear_nk"),
               let byColumns = try? device.makeComputePipelineState(function: kn),
               let byRows = try? device.makeComputePipelineState(function: nk) else { return nil }
+        func pipeline(_ name: String) -> MTLComputePipelineState? {
+            library.makeFunction(name: name).flatMap { try? device.makeComputePipelineState(function: $0) }
+        }
+        guard let int8 = pipeline("linear_int8"), let scaleColumns = pipeline("scale_columns"),
+              let rotateGroups = pipeline("rotate_groups") else { return nil }
         self.queue = queue; self.byColumns = byColumns; self.byRows = byRows
+        self.int8 = int8; self.scaleColumns = scaleColumns; self.rotateGroups = rotateGroups
     }
 
     /// `C [m, n] = A [m, k] · W`, `A` and `C` fp32, `W` bf16 — `[k, n]` when `weightIsTransposed`
@@ -114,5 +174,66 @@ package final class TensorGEMM {
         commands.commit()
         commands.waitUntilCompleted()
         return Attention.verdict(commands, what: "matmul2d float × bfloat \(m)×\(k)×\(n)")
+    }
+
+    /// **`C [m, n] = A [m, k] · W` with `W = R · (q · s)` read as published** (`gemm_int8`): `q` int8
+    /// `[k, n]` at `w`'s offset 0, its scales fp32 at `scales` (`n` of them, or one for the tensor:
+    /// `perColumn` false), `R` the convrot rotation of group `rotation` (nil: none). The rotation goes
+    /// to the activation — `x · R · q · s` — by chunks of `chunk` rows into `rotated` (fp32, the
+    /// reserve's tail), each chunk's product written where its rows go. One submission; returns the
+    /// GPU seconds.
+    package func linear(a: MTLBuffer, int8 w: MTLBuffer, scales: MTLBuffer, scalesOffset: Int, perColumn: Bool,
+                        rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
+                        c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
+        let commands = submit(a: a, int8: w, scales: scales, scalesOffset: scalesOffset, perColumn: perColumn,
+                              rotation: rotation, c: c, m: m, k: k, n: n, columns: n)
+        commands.waitUntilCompleted()
+        return Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)")
+    }
+
+    /// The same on the first `columns` of `C` only, **committed and not awaited**: the caller computes
+    /// the other columns meanwhile (the AMX, `WeightProducts`), then waits on the buffer.
+    package func submit(a: MTLBuffer, int8 w: MTLBuffer, scales: MTLBuffer, scalesOffset: Int, perColumn: Bool,
+                        rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
+                        c: MTLBuffer, m: Int, k: Int, n: Int, columns: Int) -> MTLCommandBuffer {
+        let commands = queue.makeCommandBuffer()!
+        let encoder = commands.makeComputeCommandEncoder()!
+        var mkn = SIMD3<UInt32>(0, UInt32(k), UInt32(n))
+        func product(_ x: MTLBuffer, _ xOffset: Int, first: Int, rows: Int) {
+            encoder.setComputePipelineState(int8)
+            encoder.setBuffer(x, offset: xOffset, index: 0)
+            encoder.setBuffer(w, offset: 0, index: 1)
+            encoder.setBuffer(c, offset: first * n * 4, index: 2)
+            mkn.x = UInt32(rows)
+            encoder.setBytes(&mkn, length: MemoryLayout<SIMD3<UInt32>>.stride, index: 3)
+            encoder.dispatchThreadgroups(MTLSize(width: (columns + 63) / 64, height: (rows + 63) / 64, depth: 1),
+                                         threadsPerThreadgroup: MTLSize(width: int8.threadExecutionWidth * 4,
+                                                                        height: 1, depth: 1))
+        }
+        if let rotation {
+            var groupNorm = SIMD2<UInt32>(UInt32(rotation.group), (1 / Float(rotation.group).squareRoot()).bitPattern)
+            for first in stride(from: 0, to: m, by: rotation.chunk) {
+                let rows = min(rotation.chunk, m - first)
+                encoder.setComputePipelineState(rotateGroups)
+                encoder.setBuffer(a, offset: first * k * 4, index: 0)
+                encoder.setBuffer(rotation.scratch, offset: rotation.offset, index: 1)
+                encoder.setBytes(&groupNorm, length: MemoryLayout<SIMD2<UInt32>>.stride, index: 2)
+                encoder.dispatchThreadgroups(MTLSize(width: rows * k / rotation.group, height: 1, depth: 1),
+                                             threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+                product(rotation.scratch, rotation.offset, first: first, rows: rows)
+            }
+        } else {
+            product(a, 0, first: 0, rows: m)
+        }
+        encoder.setComputePipelineState(scaleColumns)
+        encoder.setBuffer(c, offset: 0, index: 0)
+        encoder.setBuffer(scales, offset: scalesOffset, index: 1)
+        var nStrideWidth = SIMD3<UInt32>(UInt32(n), perColumn ? 1 : 0, UInt32(columns))
+        encoder.setBytes(&nStrideWidth, length: MemoryLayout<SIMD3<UInt32>>.stride, index: 2)
+        encoder.dispatchThreads(MTLSize(width: m * columns, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+        encoder.endEncoding()
+        commands.commit()
+        return commands
     }
 }

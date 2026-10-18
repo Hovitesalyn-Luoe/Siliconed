@@ -7,6 +7,10 @@ import Metal
 ///
 ///     name ─▶ the weight into the reserve, by the shortest path the settings allow
 ///              ├─ gemm_tensor, a bf16 weight   copied as it is (`Artifact.stage`)       ─▶ TensorGEMM
+///              ├─ gemm_int8, a published int8  copied as it is, scale fp32 after it     ─▶ TensorGEMM, × s after the
+///              │                                (convrot: x · R by chunks of rows in the reserve's tail)  sums
+///              │     + the AMX, a convrot one   its columns widened alone, while the GPU   ─▶ BNNS on them
+///              │                                computes the others
 ///              ├─ widen_gpu                    widened on the GPU (`WidenGPU`)           ─▶ MPS (+ AMX)
 ///              └─ otherwise                    widened on the CPU (`Artifact.materialize`) ─▶ MPS (+ AMX)
 ///          ─▶ C = A · W
@@ -25,7 +29,10 @@ import Metal
 ///     2.0 s per 1024² evaluation, ∝ rows) needs an fp32 weight to add into: under `gemm_tensor` it falls
 ///     back to after the product;
 ///   - **the reserve is the model's, sized by its memory need** (`MemoryNeed`): this module wraps it, it
-///     never allocates — a bf16 weight takes its first half;
+///     never allocates — a bf16 weight takes its first half, an int8 one its first quarter, then its
+///     scales, then the rotated activation by as many rows as the rest holds (`int8Plan`);
+///   - **an int8 weight's rotation goes to the activation**: `W = R · q · s` (`Widen.dequantizeRotated`)
+///     gives `x · W = (x · R) · q · s` — `R` is applied to `x` in fp32, the integers are never touched;
 ///   - **the timings keep their names** (`staging`, `widening`, `gemm wall`, `gemm GPU`, `lora weights`,
 ///     `lora wall`, `lora GPU`): the models add them to theirs, so a budget reads the same as before.
 package final class WeightProducts {
@@ -70,7 +77,8 @@ package final class WeightProducts {
     package func linear(_ name: String, a: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
                         target: String? = nil) throws {
         let w = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: capacity * 4, name: "w")
-        let staged = try prepare(name, count: k * n, into: w)
+        let path = try prepare(name, count: k * n, m: m, n: n, into: w)
+        let staged = path != .widened
         let target = target ?? String(name.dropLast(".weight".count))
         var stack: (down: MTLBuffer, up: MTLBuffer, rank: Int)?
         if let lora, let module = try timed("lora weights", { try lora.module(target, k: k, n: n) }) {
@@ -85,11 +93,43 @@ package final class WeightProducts {
                                                                          m: k, k: stack.rank, n: n)
             }
         }
+        var failure: String?
         timed("gemm wall") {
-            timings["gemm GPU", default: 0] += staged
-                ? gemm.linear(a: a, bf16: w, c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
-                : gemm.linear(a: a, b: w, c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
+            switch path {
+            case .bf16:
+                timings["gemm GPU", default: 0] += gemm.linear(a: a, bf16: w, c: c, m: m, k: k, n: n,
+                                                              weightIsTransposed: transposed)
+            case .int8(let plan):
+                let rotation = plan.group.map { (group: $0, scratch: w, offset: plan.rotatedOffset, chunk: plan.chunk) }
+                guard plan.amxColumns > 0, let conductor = gemm.conductor, let group = plan.group else {
+                    timings["gemm GPU", default: 0] += gemm.tensor!.linear(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset,
+                                                                          perColumn: plan.perColumn, rotation: rotation,
+                                                                          c: c, m: m, k: k, n: n)
+                    break
+                }
+                // The GPU on its columns, the CPU widening the AMX's meanwhile, then the AMX on them.
+                let g = n - plan.amxColumns
+                let commands = gemm.tensor!.submit(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset,
+                                                   perColumn: plan.perColumn, rotation: rotation,
+                                                   c: c, m: m, k: k, n: n, columns: g)
+                let raw = UnsafeMutableRawPointer(reserve), slice = raw + plan.sliceOffset
+                timed("widening") {
+                    Widen.dequantizeRotated(raw, rows: k, columns: n, group: group, scale: raw + plan.scalesOffset,
+                                            scaleType: .float32, layout: plan.perColumn ? .columns(n) : .tensor,
+                                            columns: g..<n, into: slice.assumingMemoryBound(to: Float.self))
+                }
+                let status = conductor.columns(a: a.contents(), slice: slice, c: c.contents(), m: m, k: k, n: n,
+                                               first: g, width: plan.amxColumns)
+                commands.waitUntilCompleted()
+                timings["gemm GPU", default: 0] += Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)")
+                if status != 0 { failure = "\(name): the AMX refused its columns (BNNS \(status))" }
+            case .widened:
+                timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: c, m: m, k: k, n: n,
+                                                              weightIsTransposed: transposed)
+            }
         }
+        // A refused slice leaves its columns as they were: a plausible image, wrong exactly there.
+        if let failure { throw Artifact.Failure.badHeader(failure) }
         if !merged, let stack, let mid {
             let mb = try gemm.wrap(UnsafeMutableRawPointer(mid), bytes: midFloats * 4, name: "loraMid")
             timed("lora wall") {
@@ -99,28 +139,98 @@ package final class WeightProducts {
         }
     }
 
-    /// The weight into the reserve; `true` when it stays bf16 (`TensorGEMM`'s product).
-    private func prepare(_ name: String, count: Int, into w: MTLBuffer) throws -> Bool {
+    /// How the weight lies in the reserve, hence which product reads it.
+    private enum Path: Equatable {
+        case widened, bf16
+        case int8(Int8Plan)
+    }
+
+    /// An int8 weight in the reserve: `q` at 0, its fp32 scales at `scalesOffset`, the AMX's last
+    /// `amxColumns` widened at `sliceOffset`, the rotated activation (convrot of `group`) at
+    /// `rotatedOffset`, `chunk` rows at a time. Offsets in bytes, page-aligned.
+    struct Int8Plan: Equatable {
+        let scalesOffset, sliceOffset, rotatedOffset, chunk, amxColumns: Int
+        let perColumn: Bool
+        let group: Int?
+    }
+
+    /// Where an int8 `[k, n]` weight, the AMX's widened columns and the rotated activation fit in
+    /// `capacity` floats, or `nil` when fewer than 64 rows would: the reserve is the model's, never
+    /// grown for this path.
+    static func int8Plan(k: Int, n: Int, capacity: Int, perColumn: Bool, group: Int?, amxColumns: Int) -> Int8Plan? {
+        func page(_ bytes: Int) -> Int { (bytes + 16383) / 16384 * 16384 }
+        let scalesOffset = page(k * n), sliceOffset = page(scalesOffset + (perColumn ? n : 1) * 4)
+        let rotatedOffset = page(sliceOffset + k * amxColumns * 4)
+        guard rotatedOffset <= capacity * 4 else { return nil }
+        let rows = (capacity * 4 - rotatedOffset) / (k * 4) / 64 * 64
+        guard group == nil || rows >= 64 else { return nil }
+        return Int8Plan(scalesOffset: scalesOffset, sliceOffset: sliceOffset, rotatedOffset: rotatedOffset,
+                        chunk: rows, amxColumns: amxColumns, perColumn: perColumn, group: group)
+    }
+
+    /// **The GPU's share of a convrot int8 product's columns** beside the AMX, `nil` for the GPU alone.
+    /// The check sweeps it; otherwise the conductor's share of rows for the shape.
+    package var int8Share: ((_ k: Int, _ n: Int, _ m: Int) -> Double)?
+
+    /// The AMX's columns: a multiple of 64 (the GPU's tile), 0 without a conductor, under its
+    /// `minimumRows`, or for an unrotated weight (whose slice nothing widens alone yet).
+    private func amxColumns(k: Int, n: Int, m: Int, rotated: Bool) -> Int {
+        guard rotated, n >= 128, let conductor = gemm.conductor, m >= Conductor.minimumRows else { return 0 }
+        let T = int8Share?(k, n, m) ?? conductor.shares.share(k: k, n: n, m: m) ?? conductor.initialFraction
+        guard T < 1 else { return 0 }
+        return Self.amxColumns(n: n, share: T)
+    }
+
+    /// The AMX's columns of `n` at the GPU's share `T`, held in `Conductor.fractionRange` as the rows' —
+    /// what `MemoryNeed.gemm` bounds the BNNS workspace by.
+    package static func amxColumns(n: Int, share T: Double) -> Int {
+        let T = min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, T))
+        return n - max(64, min(n - 64, Int((T * Double(n) / 64).rounded()) * 64))
+    }
+
+    /// The weight into the reserve, by the path the settings allow.
+    private func prepare(_ name: String, count: Int, m: Int, n: Int, into w: MTLBuffer) throws -> Path {
         func expect(_ got: Int) throws {
             guard got == count else { throw Artifact.Failure.badHeader("\(name): \(got) values, \(count) expected") }
         }
-        if gemm.tensor != nil, let got = try timed("staging", {
+        if gemm.tensorBF16, let got = try timed("staging", {
             try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * capacity)
         }) {
             try expect(got)
-            return true
+            return .bf16
+        }
+        if gemm.tensorInt8, transposed, let tensor = artifact.tensors[name], tensor.dtype == .int8,
+           let scale = tensor.scale, scale.block == nil, scale.shape.count <= 1, tensor.shape == [count / n, n] {
+            let (k, perColumn, group) = (count / n, scale.shape.count == 1, tensor.rotation?.group)
+            let columns = amxColumns(k: k, n: n, m: m, rotated: group != nil)
+            guard let plan = Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group,
+                                           amxColumns: columns)
+                    ?? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group, amxColumns: 0)
+            else { return try widen(name, count: count, into: w) }
+            try expect(tensor.count)
+            try timed("staging") { try artifact.stageInt8(name, into: UnsafeMutableRawPointer(reserve),
+                                                          scalesAt: plan.scalesOffset) }
+            return .int8(plan)
+        }
+        return try widen(name, count: count, into: w)
+    }
+
+    /// The weight widened to fp32 into the reserve: on the GPU (`widen_gpu`) or the CPU.
+    private func widen(_ name: String, count: Int, into w: MTLBuffer) throws -> Path {
+        func expect(_ got: Int) throws {
+            guard got == count else { throw Artifact.Failure.badHeader("\(name): \(got) values, \(count) expected") }
         }
         if let widener = gemm.widener, let source = widener.source(name, in: artifact) {
             guard artifact.tensors[name]?.count == count else {
                 throw Artifact.Failure.badHeader("\(name): unexpected shape")
             }
             try timed("widening") { _ = try widener.run(source: source, destination: w, count: count) }
-            return false
+            return .widened
         }
         // An fp32 tensor in the map, a count that is not a multiple of four, or `widen_gpu` off.
         gemm.widener?.countFallback(count)
         try expect(try timed("widening") { try artifact.materialize(name, into: reserve, capacity: capacity) })
-        return false
+        return .widened
     }
 }
 

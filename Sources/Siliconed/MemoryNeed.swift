@@ -201,10 +201,14 @@ package struct MemoryNeed: Sendable, Equatable {
     /// slice, either weight layout), when the cut applies. The slice is at most `m − cut(m, T)` with the
     /// servo's `T` held in `Conductor.fractionRange`: the bound is its lower end (and the frozen cut's).
     /// MPS's own state is not charged: no shape gives it (`OperatorFootprint`). `bounded`: the products
-    /// whose height follows the prompt's tokens — a bound, not the height (`GEMM.tierBytes`).
+    /// whose height follows the prompt's tokens — a bound, not the height (`GEMM.tierBytes`). Under
+    /// `int8` (`gemm_int8`) the AMX may take a product's last columns instead, all `m` rows
+    /// (`Conductor.columnWorkspaceBytes`, larger: 151 against 109 MB at Krea 2's 4096 × 16384 × 6144),
+    /// at the same bound on the share — counted for every product, the map's dtype unknown here.
     package static func gemm(_ name: String, products: [(m: Int, k: Int, n: Int)] = [],
                              bounded: [(m: Int, k: Int, n: Int)] = [], rank: Int = 0,
-                             amx: Bool = EngineSettings.effective.amx) -> [Term] {
+                             amx: Bool = EngineSettings.effective.amx,
+                             int8: Bool = EngineSettings.effective.gemmInt8) -> [Term] {
         var workspace = 0
         if amx {
             for p in products + bounded where p.m >= Conductor.minimumRows {
@@ -214,6 +218,12 @@ package struct MemoryNeed: Sendable, Equatable {
                     for transposed in [false, true] {
                         workspace = max(workspace, Conductor.workspaceBytes(rows: rows, k: p.k, n: p.n,
                                                                             weightIsTransposed: transposed))
+                    }
+                }
+                if int8, p.n >= 128 {
+                    for T in [Conductor.fractionRange.lowerBound, EngineSettings.effective.amxFraction] {
+                        workspace = max(workspace, Conductor.columnWorkspaceBytes(
+                            m: p.m, k: p.k, n: p.n, width: WeightProducts.amxColumns(n: p.n, share: T)))
                     }
                 }
             }

@@ -374,8 +374,11 @@ extension Widen {
     /// 6 MB). The integers are the same in any tiling, so the bits are.
     package static func dequantizeRotated(_ values: UnsafeRawPointer, rows k: Int, columns n: Int, group: Int,
                                           scale: UnsafeRawPointer, scaleType: Artifact.DType, layout: ScaleLayout,
+                                          columns slice: Range<Int>? = nil,
                                           into destination: UnsafeMutablePointer<Float>) {
         precondition(isRotationGroup(group) && k % group == 0, "rotation: group \(group) on \(k) rows")
+        // `slice`: those columns only, written `[k, slice.count]` — the AMX's share (`WeightProducts`).
+        let slice = slice ?? 0..<n, width = slice.count
         // The factor of each column: s / √G, exact.
         let norm = rotationNorm(group)
         var factors = [Float](repeating: 0, count: n)
@@ -401,14 +404,14 @@ extension Widen {
             }
             for c in 0..<n { d[c] *= norm }
         }
-        let tile = rotationTileWidth, tiles = (n + tile - 1) / tile, groups = k / group
-        nonisolated(unsafe) let (src, dst) = (values.assumingMemoryBound(to: Int8.self), destination)
+        let tile = rotationTileWidth, tiles = (width + tile - 1) / tile, groups = k / group
+        nonisolated(unsafe) let (src, dst) = (values.assumingMemoryBound(to: Int8.self) + slice.lowerBound, destination)
         factors.withUnsafeBufferPointer { f in
-            nonisolated(unsafe) let factor = f.baseAddress!
+            nonisolated(unsafe) let factor = f.baseAddress! + slice.lowerBound
             DispatchQueue.concurrentPerform(iterations: groups * tiles) { job in
-                let g = job / tiles, c0 = (job % tiles) * tile, w = min(tile, n - c0)
-                rotateTile(src + g * group * n + c0, dst + g * group * n + c0, factor + c0,
-                           rows: group, width: w, stride: n)
+                let g = job / tiles, c0 = (job % tiles) * tile, w = min(tile, width - c0)
+                rotateTile(src + g * group * n + c0, dst + g * group * width + c0, factor + c0,
+                           rows: group, width: w, stride: n, outStride: width)
             }
         }
     }
@@ -449,10 +452,12 @@ extension Widen {
     }
 
     /// One tile: `rows` (= G) × `width` (≤ 4096) values at `source` (row stride `stride`), rotated
-    /// along the rows, times `factor[c]`, written at `destination`.
+    /// along the rows, times `factor[c]`, written at `destination` (row stride `outStride`).
     private static func rotateTile(_ source: UnsafePointer<Int8>, _ destination: UnsafeMutablePointer<Float>,
-                                   _ factor: UnsafePointer<Float>, rows g: Int, width w: Int, stride: Int) {
-        guard w % 8 == 0 else { return rotateTileScalar(source, destination, factor, rows: g, width: w, stride: stride) }
+                                   _ factor: UnsafePointer<Float>, rows g: Int, width w: Int, stride: Int, outStride: Int) {
+        guard w % 8 == 0 else {
+            return rotateTileScalar(source, destination, factor, rows: g, width: w, stride: stride, outStride: outStride)
+        }
         let vectors = w / 8
         withUnsafeTemporaryAllocation(of: SIMD8<Int16>.self, capacity: g * vectors) { tile in
             let t = tile.baseAddress!
@@ -476,7 +481,7 @@ extension Widen {
                 span *= 4
             }
             for r in 0..<g {
-                let out = UnsafeMutableRawPointer(destination + r * stride)
+                let out = UnsafeMutableRawPointer(destination + r * outStride)
                 for v in 0..<vectors {
                     let m = SIMD8<Float>(SIMD8<Int32>(truncatingIfNeeded: t[r * vectors + v]))
                     let f = UnsafeRawPointer(factor).loadUnaligned(fromByteOffset: 32 * v, as: SIMD8<Float>.self)
@@ -489,12 +494,13 @@ extension Widen {
     /// The same, one column at a time — a width that is not a multiple of 8 (none in the published
     /// files; kept so that any shape is right).
     private static func rotateTileScalar(_ source: UnsafePointer<Int8>, _ destination: UnsafeMutablePointer<Float>,
-                                         _ factor: UnsafePointer<Float>, rows g: Int, width w: Int, stride: Int) {
+                                         _ factor: UnsafePointer<Float>, rows g: Int, width w: Int, stride: Int,
+                                         outStride: Int) {
         var m = [Int32](repeating: 0, count: g)
         for c in 0..<w {
             for r in 0..<g { m[r] = Int32(source[r * stride + c]) }
             hadamard(&m)
-            for r in 0..<g { destination[r * stride + c] = Float(m[r]) * factor[c] }
+            for r in 0..<g { destination[r * outStride + c] = Float(m[r]) * factor[c] }
         }
     }
 

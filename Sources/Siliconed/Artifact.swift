@@ -528,6 +528,29 @@ package final class Artifact {
         return tensor.count
     }
 
+    /// **A published int8 weight copied as it is** (`gemm_int8`): its bytes at `destination`, its scales
+    /// widened to fp32 at `destination + scalesAt` (one per column, or one) — exact, the caller multiplies
+    /// after the sums. The caller checked the dtype, the layout and that both fit.
+    package func stageInt8(_ name: String, into destination: UnsafeMutableRawPointer, scalesAt: Int) throws {
+        guard let tensor = tensors[name], let source = pointer(name), tensor.dtype == .int8, let scale = tensor.scale else {
+            throw Failure.badHeader("\(name): not a scaled int8 tensor")
+        }
+        // Two bytes at a time over the cores; an odd count copies its last byte alone.
+        Widen.copyBfloat16(source: source, destination: destination, count: tensor.count / 2)
+        if tensor.count % 2 == 1 {
+            destination.storeBytes(of: source.load(fromByteOffset: tensor.count - 1, as: UInt8.self),
+                                   toByteOffset: tensor.count - 1, as: UInt8.self)
+        }
+        let scales = (destination + scalesAt).assumingMemoryBound(to: Float.self)
+        switch scale.dtype {
+        case .float32: scales.update(from: (source + scale.offset).assumingMemoryBound(to: Float.self), count: scale.count)
+        case .bfloat16: Widen.bfloat16ToFloat32(source: source + scale.offset, destination: UnsafeMutableRawPointer(scales),
+                                                count: scale.count)
+        case .float16: Widen.float16ToFloat32(source + scale.offset, count: scale.count, into: scales)
+        default: throw Failure.badHeader("\(name): scale in \(scale.dtype.rawValue)")
+        }
+    }
+
     /// `materialize` into a whole buffer: its count is the capacity.
     @discardableResult
     package func materialize(_ name: String, into buffer: UnsafeMutableBufferPointer<Float>) throws -> Int {
