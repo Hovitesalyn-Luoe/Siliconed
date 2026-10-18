@@ -496,10 +496,10 @@ package final class Krea2DiT {
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int, rowsA: Int? = nil, rowsC: Int? = nil) throws {
         // Under `gemm_tensor`, a bf16 weight goes into the reserve as it is and `TensorGEMM` multiplies —
-        // without a LoRA only: under one, that path is not proven against the goldens yet.
+        // under a LoRA too: its stack adds after the product, whichever path made it.
         var staged = false
         let got: Int
-        if gemm.tensor != nil, lora == nil, let count = try timed("staging", {
+        if gemm.tensor != nil, let count = try timed("staging", {
             try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
         }) {
             (got, staged) = (count, true)
