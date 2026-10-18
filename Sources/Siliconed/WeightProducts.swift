@@ -203,10 +203,15 @@ package final class WeightProducts {
     }
 
     /// The AMX's columns of `n` at the GPU's share `T`, held in `Conductor.fractionRange` as the rows' —
-    /// what `MemoryNeed.gemm` bounds the BNNS workspace by.
+    /// what `MemoryNeed.gemm` bounds the BNNS workspace by. **The GPU's columns `n − amx` are a
+    /// multiple of 64**, not the AMX's: `linear_int8` / `linear_q8` write whole 64 × 64 tiles clipped
+    /// only at `n`, so a GPU edge inside a tile would overwrite the AMX's first columns. When
+    /// `n % 64 ≠ 0` the AMX takes the ragged remainder; under 128 columns, nothing.
     package static func amxColumns(n: Int, share T: Double) -> Int {
+        let ceiling = (n - 64) / 64 * 64                 // the GPU's most, leaving the AMX ≥ 64
+        guard ceiling >= 64 else { return 0 }
         let T = min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, T))
-        return n - max(64, min(n - 64, Int((T * Double(n) / 64).rounded()) * 64))
+        return n - max(64, min(ceiling, Int((T * Double(n) / 64).rounded()) * 64))
     }
 
     /// The weight into the reserve, by the path the settings allow.

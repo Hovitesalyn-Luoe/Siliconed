@@ -23,7 +23,9 @@ import Foundation
 ///   - **σ = 1 makes `λ = −∞`.** DPM++ lives with it: `h₀ = +∞`, `r₀ = +∞`, `D₁ = 0`, so its first
 ///     second-order step is a first-order one — IEEE arithmetic, not a special case. UniPC does not
 ///     (its corrector solves a system with a `−∞` in it): diffusers moves σ = 1 to `1 − 10⁻⁶` in
-///     `set_timesteps`, **for the solver's coefficients only** — the DiT is still told σ.
+///     `set_timesteps`, **before** `timesteps = σ · 1000` is taken from it — so the reference's DiT is
+///     told `1 − 10⁻⁶` too. Here only the solver's coefficients see it (`solverSigmas`); the DiT is
+///     told σ = 1 — an offset of 10⁻⁶ on the first evaluation's timestep under UniPC.
 ///   - **UniPC corrects after the evaluation, not before**: the DiT sees the predictor's sample,
 ///     `x̂₀` is computed on that same sample, and only then is the sample corrected — the corrected
 ///     one feeds the next predictor, never the DiT.

@@ -74,8 +74,6 @@ package final class FlashMatrix {
     package let dimsPerSimdgroup: Int      // DS
     package let keysPerTile: Int           // Bc
     package let blocksPerGroup: Int
-    package let stageKeys: Bool
-    package let stageValues: Bool
     package let heads: Int
     package let sequence: Int
 
@@ -87,8 +85,7 @@ package final class FlashMatrix {
 
     package var tiling: String {
         "\(rowsPerSimdgroup)×\(dimsPerSimdgroup)/sg, \(rowsPerSimdgroup * dimsPerSimdgroup / 64) acc, "
-        + "Bc=\(keysPerTile), Br=\(rowsPerGroup), \(threadsPerGroup)/\(permitted) threads"
-        + ", tiles " + (stageKeys ? "K" : "-") + (stageValues ? "V" : "-")
+        + "Bc=\(keysPerTile), Br=\(rowsPerGroup), \(threadsPerGroup)/\(permitted) threads, tiles KV"
     }
 
     package enum Failure: Error, CustomStringConvertible {
@@ -99,48 +96,16 @@ package final class FlashMatrix {
     }
 
     package static func source(rowsPerSimdgroup SR: Int, dimsPerSimdgroup DS: Int,
-                              keysPerTile BC: Int, blocksPerGroup BLOCKS: Int,
-                              stageKeys: Bool, stageValues: Bool) -> String {
+                              keysPerTile BC: Int, blocksPerGroup BLOCKS: Int) -> String {
         let halves = FlashMatrix.headDim / DS      // simdgroups per row block
         let rowTiles = SR / 8                      // RT
         let dimTiles = DS / 8                      // DT
         let keyTiles = BC / 8                      // JT
         let simdgroups = BLOCKS * halves
         let width = simdgroups * 32
-        // One thread per cell when possible, otherwise several cells per thread. The two
-        // tilings that fit in registers — `8×64` and `16×32` — land exactly on one.
-        let cells = max(1, (SR * BC) / (halves * 32))
-        // **`simdgroup_load` reads DRAM as well as threadgroup memory**, and the scalar
-        // kernel only put `K` and `V` in tiles because it re-read them lane by lane.
-        // Removing them eliminates two barriers per tile and frees `Bc × 1 KiB` of threadgroup
-        // memory — that is, what capped `Bc`.
-        // **`K` and `V` are not decided together.** Putting both in tiles costs
-        // `2 × Bc` KiB of threadgroup memory, and that is what caps the number of blocks — hence
-        // occupancy. Removing both is slower (measured). Separating them lets us choose.
-        let tiles = (stageKeys ? "            threadgroup float kt[BC][DH];\n" : "")
-                  + (stageValues ? "            threadgroup float vt[BC][DH];\n" : "")
-        let lines = (stageKeys ? "                    kt[r][c] = g < S ? k[g * stride + head * DH + c] : 0;\n" : "")
-                  + (stageValues ? "                    vt[r][c] = g < S ? v[g * stride + head * DH + c] : 0;\n" : "")
-        let load = lines.isEmpty ? "" : """
-                for (uint i = tid; i < BC * DH; i += WIDTH) {
-                    uint r = i / DH, c = i % DH;
-                    uint g = tile + r;
-        \(lines)        }
-                threadgroup_barrier(mem_flags::mem_threadgroup);
-        """
-        // Without tiles, the tail is handled like the rows': the key block is brought back within
-        // bounds. The tail's scores are masked to `-INFINITY` by the softmax, so their
-        // weight is zero — but the read has to be **valid**, otherwise a non-finite pattern
-        // multiplied by zero would return a `NaN`.
-        let keyMat = stageKeys
-            ? "simdgroup_load(km, &kt[j * 8][dim0 + d], DH, ulong2(0, 0), true);"
-            : "simdgroup_load(km, k + min(tile + j * 8, S - 8) * stride + head * DH + dim0 + d, "
-              + "stride, ulong2(0, 0), true);"
-        let valueMat = stageValues
-            ? "simdgroup_load(vm, &vt[j * 8][dim0 + t * 8], DH);"
-            : "simdgroup_load(vm, v + min(tile + j * 8, S - 8) * stride + head * DH + dim0 + t * 8, "
-              + "stride);"
-        let trailing = lines.isEmpty ? "" : "threadgroup_barrier(mem_flags::mem_threadgroup);"
+        // Several cells (row, key) per thread, every cell covered exactly once: `init` refuses a
+        // tiling where the `HALVES · 32` lanes of a row block outnumber its `SR · BC` cells.
+        let cells = (SR * BC) / (halves * 32)
         return """
         #include <metal_stdlib>
         #include <metal_simdgroup_matrix>
@@ -172,7 +137,11 @@ package final class FlashMatrix {
                                uint  tid    [[thread_index_in_threadgroup]],
                                uint  sgid   [[simdgroup_index_in_threadgroup]],
                                uint  lane   [[thread_index_in_simdgroup]]) {
-            \(tiles)
+            // `K` and `V` go through threadgroup tiles. Read straight from DRAM by `simdgroup_load`
+            // instead, the kernel saves two barriers per tile but was measured slower (both), and the
+            // tile zero-fills the keys past `S`, which the softmax then masks — whatever `S % 8`.
+            threadgroup float kt[BC][DH];
+            threadgroup float vt[BC][DH];
             // The partial scores, one slice of dimensions per simdgroup, stitched together by the softmax.
             // **The weights are written over the partial scores.** Each cell (row,
             // key) belongs to one thread and only one: it reads the `HALVES` partials of ITS cell,
@@ -215,7 +184,13 @@ package final class FlashMatrix {
 
             for (uint tile = 0; tile < S; tile += BC) {
                 if (tid < BLOCKS) rescale[tid] = 0;
-                \(load)
+                for (uint i = tid; i < BC * DH; i += WIDTH) {
+                    uint r = i / DH, c = i % DH;
+                    uint g = tile + r;
+                    kt[r][c] = g < S ? k[g * stride + head * DH + c] : 0;
+                    vt[r][c] = g < S ? v[g * stride + head * DH + c] : 0;
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
 
                 // ── the scores, over the simdgroup's slice of dimensions ─────────────────────
                 simdgroup_float8x8 s[RT][JT];
@@ -231,7 +206,7 @@ package final class FlashMatrix {
                     for (uint j = 0; j < JT; ++j) {
                         // `Kᵀ`: the transpose is a load flag, not a copy.
                         simdgroup_float8x8 km;
-                        \(keyMat)
+                        simdgroup_load(km, &kt[j * 8][dim0 + d], DH, ulong2(0, 0), true);
                         for (uint r = 0; r < RT; ++r) {
                             simdgroup_float8x8 qm;
                             simdgroup_load(qm, q + (rowBase + r * 8) * stride + head * DH + dim0 + d,
@@ -307,7 +282,7 @@ package final class FlashMatrix {
                 for (uint t = 0; t < DT; ++t) {
                     for (uint j = 0; j < JT; ++j) {
                         simdgroup_float8x8 vm;
-                        \(valueMat)
+                        simdgroup_load(vm, &vt[j * 8][dim0 + t * 8], DH);
                         for (uint r = 0; r < RT; ++r) {
                             simdgroup_float8x8 pm;
                             simdgroup_load(pm, &weights(block)[r * 8][j * 8], BC);
@@ -315,7 +290,8 @@ package final class FlashMatrix {
                         }
                     }
                 }
-                \(trailing)
+                // The next tile's load overwrites `kt`, `vt` and the weights this one still reads.
+                threadgroup_barrier(mem_flags::mem_threadgroup);
             }
 
             // ── the normalization, by the same diagonal ──────────────────────────────────────
@@ -342,8 +318,7 @@ package final class FlashMatrix {
 
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
                 rowsPerSimdgroup: Int = 8, dimsPerSimdgroup: Int = 64,
-                keysPerTile: Int = 16, blocksPerGroup: Int = 8,
-                stageKeys: Bool = true, stageValues: Bool = true) throws {
+                keysPerTile: Int = 16, blocksPerGroup: Int = 8) throws {
         guard headDim == FlashMatrix.headDim else {
             throw Failure.unsupported("Dh = \(headDim), the kernel is written for 128")
         }
@@ -362,11 +337,16 @@ package final class FlashMatrix {
         self.dimsPerSimdgroup = dimsPerSimdgroup
         self.keysPerTile = keysPerTile
         self.blocksPerGroup = blocksPerGroup
-        self.stageKeys = stageKeys
-        self.stageValues = stageValues
         self.heads = heads
         self.sequence = sequence
         self.queue = queue
+        // The softmax gives each lane `SR · BC / (HALVES · 32)` cells: fewer cells than lanes would
+        // send some past the row block, and a remainder would leave cells unwritten. Only the default
+        // tiling (8×64, Bc 16: two cells per lane) is ever built.
+        let lanes = (FlashMatrix.headDim / dimsPerSimdgroup) * 32
+        precondition(rowsPerSimdgroup * keysPerTile >= lanes && (rowsPerSimdgroup * keysPerTile) % lanes == 0
+                     && keysPerTile % (rowsPerSimdgroup * keysPerTile / lanes) == 0,
+                     "flash tiling \(rowsPerSimdgroup)×\(dimsPerSimdgroup), Bc \(keysPerTile): SR·Bc must be a multiple of HALVES·32")
         let simdgroups = blocksPerGroup * (FlashMatrix.headDim / dimsPerSimdgroup)
         threadsPerGroup = simdgroups * 32
         rowsPerGroup = rowsPerSimdgroup * blocksPerGroup
@@ -376,12 +356,15 @@ package final class FlashMatrix {
         guard sequence >= rowsPerGroup else {
             throw Failure.unsupported("S = \(sequence) < Br = \(rowsPerGroup): the tail cannot be brought back")
         }
+        // No fast-math: the kernel leans on `-INFINITY` sentinels (the running maximum's start, the
+        // masked keys, `exp(previous − tileMax)` on the first tile), which fast-math may assume away.
+        let options = MTLCompileOptions()
+        options.mathMode = .safe
         let library = try device.makeLibrary(
             source: FlashMatrix.source(rowsPerSimdgroup: rowsPerSimdgroup,
                                        dimsPerSimdgroup: dimsPerSimdgroup,
-                                       keysPerTile: keysPerTile, blocksPerGroup: blocksPerGroup,
-                                       stageKeys: stageKeys, stageValues: stageValues),
-            options: nil)
+                                       keysPerTile: keysPerTile, blocksPerGroup: blocksPerGroup),
+            options: options)
         guard let function = library.makeFunction(name: "flash_sdpa") else {
             throw Failure.unsupported("flash_sdpa not found")
         }

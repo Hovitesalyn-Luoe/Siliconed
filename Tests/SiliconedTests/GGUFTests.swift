@@ -250,6 +250,26 @@ final class GGUFTests: XCTestCase {
         XCTAssertThrowsError(try TensorSource(paths: [cut]))
     }
 
+    /// A Q8_0 block whose fp16 `d` is not finite (±∞, NaN) refuses the forge, as a K-quant's does:
+    /// checked where the blocks are read, not at the file's opening.
+    func testQ8_0NonFiniteScaleIsRefused() throws {
+        for (block, pattern) in [(0, UInt16(0x7C00)), (3, 0xFC00), (5, 0x7E00)] {
+            var w = q8(4, 64)
+            let at = block * GGUF.q8BlockBytes
+            w.bytes[at] = UInt8(pattern & 0xFF); w.bytes[at + 1] = UInt8(pattern >> 8)
+            let path = try write([Tensor(name: "layers.0.feed_forward.w1.weight", shape: [4, 64], type: 8, bytes: w.bytes)],
+                                 name: "inf-q8-\(block).gguf")
+            let source = try TensorSource(paths: [path])
+            XCTAssertThrowsError(try forge(source, family: .zImage)) {
+                XCTAssertTrue("\($0)".contains("block \(block) has a non-finite d"), "\($0)")
+            }
+        }
+        // The same file with finite scales (zero and the smallest subnormal among them) is forged.
+        let ok = try write([Tensor(name: "layers.0.feed_forward.w1.weight", shape: [4, 64], type: 8, bytes: q8(4, 64).bytes)],
+                           name: "finite-q8.gguf")
+        XCTAssertNoThrow(try forge(try TensorSource(paths: [ok]), family: .zImage))
+    }
+
     /// **leejet's Z-Image GGUFs** (stable-diffusion.cpp) publish `cap_pad_token` and `x_pad_token` as
     /// `[3840]`: GGUF drops the trailing `ne` of 1 that unsloth keeps (`[1, 3840]`, the vendor's shape).
     /// The recipe adds the leading 1 back for these two names only, values unchanged; any other 1-D

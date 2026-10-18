@@ -264,6 +264,7 @@ struct QuantizedGroup {
                                    scale: [], scaleType: .float32, perRow: false)
         }
         if let block {
+            try raw.withUnsafeBytes { try QuantizedLayouts.checkQ8_0($0.baseAddress!, entry) }
             let (v, s) = raw.withUnsafeBytes { GGUF.deinterleaveQ8_0($0.baseAddress!, rows: rows, columns: columns) }
             return QuantizedTensor(kind: kind, rows: rows, columns: columns, values: v, scale: s,
                                    scaleType: .float16, perRow: false, block: block)
@@ -363,6 +364,16 @@ enum QuantizedLayouts {
         guard let bytes = kind.packedBlock?.bytes else { return }
         // Q6_K: `d` at the end; Q4_K, Q5_K, Q4_1, Q5_1: `d` then `dmin`/`m`; Q4_0, Q5_0: `d` alone.
         let offsets = kind == .q6_k ? [208] : [.q4_0, .q5_0].contains(kind) ? [0] : [0, 2]
+        try checkFiniteScales(p, e, blockBytes: bytes, offsets: offsets)
+    }
+
+    /// GGUF Q8_0 as published: the same rule for its `d` (first two bytes of each 34-byte block).
+    static func checkQ8_0(_ p: UnsafeRawPointer, _ e: Safetensors.Entry) throws {
+        try checkFiniteScales(p, e, blockBytes: GGUF.q8BlockBytes, offsets: [0])
+    }
+
+    private static func checkFiniteScales(_ p: UnsafeRawPointer, _ e: Safetensors.Entry, blockBytes bytes: Int,
+                                          offsets: [Int]) throws {
         for b in 0..<(e.bytes / bytes) {
             for o in offsets where !Float16(bitPattern: p.loadUnaligned(fromByteOffset: b * bytes + o, as: UInt16.self)).isFinite {
                 throw refuse("\(e.name): block \(b) has a non-finite \(o == 2 ? "min" : "d") — not a published "
