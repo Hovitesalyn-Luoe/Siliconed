@@ -282,7 +282,7 @@ package struct Installer {
     }
 
     /// The encoder's `config.json` when it is not downloaded beside its weights (`encoder(_:_:)`).
-    static func publishedEncoderConfig(_ f: Family) -> OrderedJSON? {
+    package static func publishedEncoderConfig(_ f: Family) -> OrderedJSON? {
         f == .krea2 ? Krea2Published.encoderConfig : nil
     }
 

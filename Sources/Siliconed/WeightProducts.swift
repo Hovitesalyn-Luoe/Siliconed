@@ -100,29 +100,10 @@ package final class WeightProducts {
                 timings["gemm GPU", default: 0] += gemm.linear(a: a, bf16: w, c: c, m: m, k: k, n: n,
                                                               weightIsTransposed: transposed)
             case .int8(let plan):
-                let rotation = plan.group.map { (group: $0, scratch: w, offset: plan.rotatedOffset, chunk: plan.chunk) }
-                guard plan.amxColumns > 0, let conductor = gemm.conductor, let group = plan.group else {
-                    timings["gemm GPU", default: 0] += gemm.tensor!.linear(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset,
-                                                                          perColumn: plan.perColumn, rotation: rotation,
-                                                                          c: c, m: m, k: k, n: n)
-                    break
-                }
-                // The GPU on its columns, the CPU widening the AMX's meanwhile, then the AMX on them.
-                let g = n - plan.amxColumns
-                let commands = gemm.tensor!.submit(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset,
-                                                   perColumn: plan.perColumn, rotation: rotation,
-                                                   c: c, m: m, k: k, n: n, columns: g)
-                let raw = UnsafeMutableRawPointer(reserve), slice = raw + plan.sliceOffset
-                timed("widening") {
-                    Widen.dequantizeRotated(raw, rows: k, columns: n, group: group, scale: raw + plan.scalesOffset,
-                                            scaleType: .float32, layout: plan.perColumn ? .columns(n) : .tensor,
-                                            columns: g..<n, into: slice.assumingMemoryBound(to: Float.self))
-                }
-                let status = conductor.columns(a: a.contents(), slice: slice, c: c.contents(), m: m, k: k, n: n,
-                                               first: g, width: plan.amxColumns)
-                commands.waitUntilCompleted()
-                timings["gemm GPU", default: 0] += Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)")
-                if status != 0 { failure = "\(name): the AMX refused its columns (BNNS \(status))" }
+                let r = Self.int8Product(gemm: gemm, plan: plan, reserve: w, a: a, c: c, m: m, k: k, n: n)
+                timings["gemm GPU", default: 0] += r.gpu
+                timings["widening", default: 0] += r.widening
+                if r.status != 0 { failure = "\(name): the AMX refused its columns (BNNS \(r.status))" }
             case .widened:
                 timings["gemm GPU", default: 0] += gemm.linear(a: a, b: w, c: c, m: m, k: k, n: n,
                                                               weightIsTransposed: transposed)
@@ -148,16 +129,16 @@ package final class WeightProducts {
     /// An int8 weight in the reserve: `q` at 0, its fp32 scales at `scalesOffset`, the AMX's last
     /// `amxColumns` widened at `sliceOffset`, the rotated activation (convrot of `group`) at
     /// `rotatedOffset`, `chunk` rows at a time. Offsets in bytes, page-aligned.
-    struct Int8Plan: Equatable {
-        let scalesOffset, sliceOffset, rotatedOffset, chunk, amxColumns: Int
-        let perColumn: Bool
-        let group: Int?
+    package struct Int8Plan: Equatable {
+        package let scalesOffset, sliceOffset, rotatedOffset, chunk, amxColumns: Int
+        package let perColumn: Bool
+        package let group: Int?
     }
 
     /// Where an int8 `[k, n]` weight, the AMX's widened columns and the rotated activation fit in
     /// `capacity` floats, or `nil` when fewer than 64 rows would: the reserve is the model's, never
     /// grown for this path.
-    static func int8Plan(k: Int, n: Int, capacity: Int, perColumn: Bool, group: Int?, amxColumns: Int) -> Int8Plan? {
+    package static func int8Plan(k: Int, n: Int, capacity: Int, perColumn: Bool, group: Int?, amxColumns: Int) -> Int8Plan? {
         func page(_ bytes: Int) -> Int { (bytes + 16383) / 16384 * 16384 }
         let scalesOffset = page(k * n), sliceOffset = page(scalesOffset + (perColumn ? n : 1) * 4)
         let rotatedOffset = page(sliceOffset + k * amxColumns * 4)
@@ -171,6 +152,32 @@ package final class WeightProducts {
     /// **The GPU's share of a convrot int8 product's columns** beside the AMX, `nil` for the GPU alone.
     /// The check sweeps it; otherwise the conductor's share of rows for the shape.
     package var int8Share: ((_ k: Int, _ n: Int, _ m: Int) -> Double)?
+
+    /// **The int8 product of a plan, the weight already in `reserve`** (`q`, its fp32 scales): the GPU on
+    /// the first columns — all of them without a conductor or AMX columns —, the CPU widening the last ones
+    /// meanwhile, the AMX on them. What the map measures (`Diagnostic`) is this function. Returns the GPU
+    /// seconds, the widening's, BNNS's status (0, or its refusal: those columns are then unwritten).
+    package static func int8Product(gemm: GEMM, plan: Int8Plan, reserve w: MTLBuffer, a: MTLBuffer, c: MTLBuffer,
+                                    m: Int, k: Int, n: Int) -> (gpu: Double, widening: Double, status: Int32) {
+        let rotation = plan.group.map { (group: $0, scratch: w, offset: plan.rotatedOffset, chunk: plan.chunk) }
+        guard plan.amxColumns > 0, let conductor = gemm.conductor, let group = plan.group else {
+            return (gemm.tensor!.linear(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset, perColumn: plan.perColumn,
+                                        rotation: rotation, c: c, m: m, k: k, n: n), 0, 0)
+        }
+        let g = n - plan.amxColumns
+        let commands = gemm.tensor!.submit(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset,
+                                           perColumn: plan.perColumn, rotation: rotation, c: c, m: m, k: k, n: n, columns: g)
+        let raw = w.contents(), slice = raw + plan.sliceOffset
+        let started = DispatchTime.now().uptimeNanoseconds
+        Widen.dequantizeRotated(raw, rows: k, columns: n, group: group, scale: raw + plan.scalesOffset,
+                                scaleType: .float32, layout: plan.perColumn ? .columns(n) : .tensor,
+                                columns: g..<n, into: slice.assumingMemoryBound(to: Float.self))
+        let widening = Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
+        let status = conductor.columns(a: a.contents(), slice: slice, c: c.contents(), m: m, k: k, n: n,
+                                       first: g, width: plan.amxColumns)
+        commands.waitUntilCompleted()
+        return (Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)"), widening, status)
+    }
 
     /// The AMX's columns: a multiple of 64 (the GPU's tile), 0 without a conductor, under its
     /// `minimumRows`, or for an unrotated weight (whose slice nothing widens alone yet).

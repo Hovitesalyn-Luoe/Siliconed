@@ -4,7 +4,7 @@ import IOKit
 import IOKit.ps
 import Metal
 
-/// **The diagnostic — a capacity map of the machine**: ~15 s on the M1 Pro, **a minute at most** on
+/// **The diagnostic — a capacity map of the machine**: ~27 s on the M1 Pro, **a minute at most** on
 /// the slowest Mac it aims at (each stage's seconds are in the report, `stages`), voluntary, not one
 /// byte of weights, a JSON a user can share. It answers two things: what the fleet has (one report
 /// per user; `tools/aggregate_diagnostics.py` makes the table by chip), and, per machine, the figures
@@ -21,6 +21,8 @@ import Metal
 ///        │     both        GEMM.linear through Conductor at that share ─┘  does the cut pay here?
 ///        │     bf16 weight GEMM.linear(bf16:) (TensorGEMM, matmul2d)  + the copy's time, against the
 ///        │                 better of the two above + the widening's time ─────────────────────────▶ gemm_tensor
+///        │     int8 weight WeightProducts.int8Product (matmul2d float × int8, convrot on the activation),
+///        │                 alone and beside the AMX on its columns, + the copy's time ─────────────▶ gemm_int8
 ///        ├─ fp16 and bf16 products, Z-Image's [1024, 3840]·[3840, 10240]                       ─▶ fleet
 ///        │     GPU MPSGraph (out fp16 / bf16) · BNNS (out fp32) · Metal 4 matmul2d (out fp32)
 ///        ├─ fp32 attention, S = 1024 and 4096, the models' heads × 128
@@ -28,6 +30,7 @@ import Metal
 ///        ├─ widening of a Z-Image w1, 39.3 M values: bf16 → fp32, int8 × bf16 scale per column
 ///        │     CPU (Widen) · GPU (WidenGPU)                                                   ─▶ widenGPU
 ///        │     and its bf16 copy, CPU (Widen.copyBfloat16)                                    ─▶ gemm_tensor
+///        │     int8 convrot (Widen.dequantizeRotated) and the int8 copy, CPU                   ─▶ gemm_int8
 ///        └─ the first product again, GPU and AMX: the drift witness (invariant 6)
 ///     read, not measured: the machine, the CPU's FEAT_* flags, thermal / power / swap before and after
 ///
@@ -62,24 +65,26 @@ import Metal
 /// **Deliberately not measured**: the disk (no decision reads its speed); a model's step (its
 /// weights, its plan and the page cache decide it, and a render's own figures already say it); the
 /// memory (B is a function of the RAM alone, ¾ · RAM − 2 GiB); the SDPA in fp16 (`sdpa_fp16` is a
-/// render option the image decides, not a capacity). The peak `phys_footprint` is 1.37 GB on the
-/// M1 Pro (18/10/2026), the products' operands (~1.1 GB with the cuts' grid, released before the attention)
-/// its larger part — under B on the smallest Mac (8 GB, B = 4 GiB).
+/// render option the image decides, not a capacity). The peak `phys_footprint` is 1.54 GB on the
+/// M1 Pro (18/10/2026, schema 8), the products' operands (~1.1 GB with the cuts' grid and the int8 weight,
+/// released before the attention) its larger part — under B on the smallest Mac (8 GB, B = 4 GiB).
 ///
 /// **The engine reads it in the app, and only there**: the app measures before its first render when it
 /// holds no current map — none yet, or one of another `Fingerprint` (hardware, chip, macOS build, the
 /// app's build: an update measures again) — and whenever the user asks (« Report My Configuration »).
 /// It keeps the report in its preferences and hands it to `EngineSettings.load(from:map:)`; the rules
 /// (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`,
-/// `gemm_tensor`. The command line, the checks and the close-out never designate a map: today's defaults.
+/// `gemm_tensor`, `gemm_int8`. The command line, the checks and the close-out never designate a map: today's defaults.
 public enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
     /// day, optional: a report without it is the same measures. **6** (17/10/2026): the bf16-weight
     /// products (`products[].tensor`), the `bf16 copy` widening and `stages`; the decisions add `tensor`.
     /// **7** (18/10/2026): `cuts`, the GPU's balanced share on a grid of shapes (`k` and `n` axes, both
-    /// heights); the decisions add `amxShares`.
-    public static let schema = 7
+    /// heights); the decisions add `amxShares`. **8** (18/10/2026): the int8-weight products
+    /// (`products[].int8`, `int8Coexecution`, `int8GPUColumns`), the `int8 convrot` and `int8 copy`
+    /// widenings; the decisions add `int8`.
+    public static let schema = 8
     public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
@@ -217,15 +222,26 @@ public enum Diagnostic {
         /// `TensorGEMM` (`gemm_tensor`): the same product on the weight in bf16, the activations fp32;
         /// `nil` without Metal 4, or in a report of schema 5.
         public var tensor: Measure?
+        /// `gemm_int8`: the product on a published int8 weight (convrot of 256, one scale), read as it is
+        /// (`WeightProducts.int8Product`, the GPU alone); `nil` without Metal 4, or before schema 8.
+        public var int8: Measure?
+        /// The same with the AMX on the last columns at `gpuShare` (`int8GPUColumns` to the GPU), the AMX's
+        /// slice widened while the GPU computes; `nil` when the cut does not apply.
+        public var int8Coexecution: Measure?
+        public var int8GPUColumns: Int?
 
         public init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
-                    gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?, tensor: Measure? = nil) {
+                    gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?, tensor: Measure? = nil,
+                    int8: Measure? = nil, int8Coexecution: Measure? = nil, int8GPUColumns: Int? = nil) {
             self.model = model; self.product = product; self.m = m; self.k = k; self.n = n; self.gpu = gpu
             self.amx = amx; self.gpuShare = gpuShare.map { Diagnostic.significant($0, 3) }
             self.coexecution = coexecution; self.coexecutionGPURows = coexecutionGPURows; self.tensor = tensor
+            self.int8 = int8; self.int8Coexecution = int8Coexecution; self.int8GPUColumns = int8GPUColumns
         }
 
-        private enum CodingKeys: String, CodingKey { case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor }
+        private enum CodingKeys: String, CodingKey {
+            case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor, int8, int8Coexecution, int8GPUColumns
+        }
         public func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(model, forKey: .model); try c.encode(product, forKey: .product)
@@ -233,6 +249,9 @@ public enum Diagnostic {
             try c.encode(gpu, forKey: .gpu); try c.encode(amx, forKey: .amx); try c.encode(gpuShare, forKey: .gpuShare)
             try c.encode(coexecution, forKey: .coexecution); try c.encode(coexecutionGPURows, forKey: .coexecutionGPURows)
             try c.encode(tensor, forKey: .tensor)
+            // Absent rather than `null`: the link of an issue carries the whole report (`issueURL`).
+            try c.encodeIfPresent(int8, forKey: .int8)
+            try c.encodeIfPresent(int8Coexecution, forKey: .int8Coexecution); try c.encodeIfPresent(int8GPUColumns, forKey: .int8GPUColumns)
         }
     }
 

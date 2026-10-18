@@ -155,6 +155,7 @@ private struct ReportView: View {
                     row("Matrix products, CPU matrix unit", products.compactMap(\.amx), unit: "TFLOP/s")
                     row("Matrix products, GPU and CPU together", products.compactMap(\.coexecution), unit: "TFLOP/s")
                     row("Matrix products, GPU tensor units on the bf16 weights", products.compactMap(\.tensor), unit: "TFLOP/s")
+                    row("Matrix products on the 8-bit weights, GPU and CPU together", products.compactMap(\.int8Coexecution), unit: "TFLOP/s")
                     Divider().gridCellUnsizedAxes(.horizontal)
                     row("Attention, system kernel", report.attention.compactMap(\.graph), unit: "TFLOP/s")
                     row("Attention, Siliconed kernel", report.attention.compactMap(\.flash), unit: "TFLOP/s")
@@ -220,6 +221,7 @@ private struct ReportView: View {
                 decision("Matrix products, GPU and CPU together", d.amx, on: d.amx.on && !tensorOn,
                          detail: d.amx.on && !tensorOn ? d.amxFraction.map { String(format: " · GPU %.0f %%", $0 * 100) } ?? "" : "")
                 if let tensor = d.tensor { decision("Matrix products, GPU tensor units on the bf16 weights", tensor) }
+                if let int8 = d.int8 { decision("Matrix products on the 8-bit weights, read as published", int8) }
                 decision("Attention, Siliconed kernel", d.flash)
                 decision("Attention, split between GPU and CPU", d.headSplit)
             }

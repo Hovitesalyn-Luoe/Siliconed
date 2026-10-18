@@ -10660,6 +10660,62 @@
         }
       }
     },
+    "Matrix products on the 8-bit weights, GPU and CPU together" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte auf den 8-Bit-Gewichten, GPU und CPU gemeinsam"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales sobre los pesos de 8 bits, GPU y CPU juntas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels sur les poids 8 bits, GPU et CPU ensemble"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali sui pesi a 8 bit, GPU e CPU insieme"
+          }
+        }
+      }
+    },
+    "Matrix products on the 8-bit weights, read as published" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matrixprodukte auf den 8-Bit-Gewichten, so gelesen, wie sie veröffentlicht sind"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Productos matriciales sobre los pesos de 8 bits, leídos tal como se publicaron"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Produits matriciels sur les poids 8 bits, lus tels que publiés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prodotti matriciali sui pesi a 8 bit, letti così come pubblicati"
+          }
+        }
+      }
+    },
     "Matrix products, CPU matrix unit" : {
       "localizations" : {
         "de" : {
