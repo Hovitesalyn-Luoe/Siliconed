@@ -36,14 +36,14 @@ final class QwenImage21VAETests: XCTestCase {
         XCTAssertThrowsError(try QwenImage21VAE.Config(json: Data(patched.utf8)))
     }
 
-    /// `_pack_latents` is a plain flatten: token `y·w + x` carries channel `c` at column `c`.
+    /// `_unpack_latents` undoes a plain flatten: token `y·w + x` carries channel `c` at column `c`.
     func testPackingIsATransposeNotA2x2Patch() {
         let (c, h, w) = (3, 2, 4)
-        let planar = (0..<(c * h * w)).map(Float.init)
-        let tokens = QwenImage21VAE.pack(planar, channels: c, height: h, width: w)
-        XCTAssertEqual(tokens[(1 * w + 2) * c + 2], planar[(2 * h + 1) * w + 2])
-        XCTAssertEqual(Array(tokens[0..<3]), [0, 8, 16])
-        XCTAssertEqual(QwenImage21VAE.unpack(tokens, channels: c, height: h, width: w), planar)
+        let tokens = (0..<(c * h * w)).map(Float.init)
+        let planar = QwenImage21VAE.unpack(tokens, channels: c, height: h, width: w)
+        XCTAssertEqual(planar[(2 * h + 1) * w + 2], tokens[(1 * w + 2) * c + 2])
+        XCTAssertEqual(Array(planar[0..<3]), [0, 3, 6])
+        XCTAssertEqual(planar[h * w], 1)
     }
 
     /// Per channel, mean and std of the published config; `normalize` inverts `denormalize` to an ulp.

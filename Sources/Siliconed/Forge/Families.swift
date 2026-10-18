@@ -3,7 +3,7 @@ import Foundation
 /// **An architecture family**: what Siliconed knows how to render. An imported model (a Civitai
 /// checkpoint) is a member of one — same architecture, other weights — and borrows from its family
 /// everything the user does not bring: tokenizers, text encoder, VAE.
-public enum Family: String, CaseIterable, Sendable, Codable {
+package enum Family: String, CaseIterable, Sendable, Codable {
     case zImage = "z-image"
     case anima
     case krea2
@@ -16,7 +16,7 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     /// cannot render yet is filtered out here, so that nobody downloads what cannot render.
     package static let offered: [Family] = allCases
 
-    public var name: String {
+    package var name: String {
         switch self {
         case .zImage: return "Z-Image"
         case .anima: return "Anima"
@@ -59,13 +59,13 @@ public enum Family: String, CaseIterable, Sendable, Codable {
     }
 
     /// **The versions a family installs in**: every family has its Standard, a Compact and a Light.
-    public var variants: [Variant] { [.standard, .compact, .light] }
+    package var variants: [Variant] { [.standard, .compact, .light] }
 
     /// **The version preselected before an installation** (the welcome cards, « Install… »): the
     /// Standard (below the publisher's weights only by the user's choice) — except
     /// on a Mac of 8 GB or less, where the Light is preselected. Preselected,
     /// never imposed: the three versions are shown, and the user picks.
-    public func preselectedVariant(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Variant {
+    package func preselectedVariant(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Variant {
         physicalMemory <= Variant.lightMemory && variants.contains(.light) ? .light : .standard
     }
 
@@ -119,7 +119,7 @@ public enum Family: String, CaseIterable, Sendable, Codable {
 
 /// **Which weights a family is installed with**. A single version of a family is
 /// installed at a time: installing the other replaces it, and gives its space back.
-public enum Variant: String, CaseIterable, Sendable, Codable {
+package enum Variant: String, CaseIterable, Sendable, Codable {
     /// The publisher's weights, as published — the default (never below the
     /// publisher's weights unless the user chooses so).
     case standard

@@ -28,30 +28,30 @@ import Foundation
 /// **The naming rule**: what the engine *emits* is nested in `Engine` (`Render`, `Event`,
 /// `Plan`, `Stage`, `Preview`, `Progress`, `Timings`, `Footprints`); what the caller *builds or
 /// wires* is at the top level (`Request`, `Model`, `Chain`, the modules and their wires,
-/// `ImageRGB`, `Library`, `Cancellation`). The one public error is `EngineError` (`Errors.swift`);
+/// `ImageRGB`, `Library`, `Cancellation`). The one error that leaves the engine is `EngineError` (`Errors.swift`);
 /// inside the package, each reader keeps its `Failure`, folded at the door.
-public final class Engine: Sendable {
+package final class Engine: Sendable {
 
     // ── what comes out ────────────────────────────────────────────────────────────────────
 
     /// What each phase cost. `text`, `encoding`, `denoising` and `decoding` partition
     /// `total`; `tokenizer` and `encoder` are indented within `text` — the lesson learned on
     /// decompositions that partition nothing. `encoding`: the img2img image, 0 without one.
-    public struct Timings: Sendable {
-        public var tokenizer = 0.0, encoder = 0.0, text = 0.0
-        public var encoding = 0.0, denoising = 0.0, decoding = 0.0, total = 0.0
-        public init() {}
+    package struct Timings: Sendable {
+        package var tokenizer = 0.0, encoder = 0.0, text = 0.0
+        package var encoding = 0.0, denoising = 0.0, decoding = 0.0, total = 0.0
+        package init() {}
     }
 
     /// The footprints at the checkpoints. What is measured here cannot be deduced from any total:
     /// a measurement found 520 MB of residue after the text phase because someone sampled between the two,
     /// not because a calculation predicted it.
-    public struct Footprints: Sendable {
-        public var start = 0, tokenizer = 0, encoder = 0, text = 0
+    package struct Footprints: Sendable {
+        package var start = 0, tokenizer = 0, encoder = 0, text = 0
         /// The image encoder's peak, taken before it returns its memory; 0 without an image.
-        public var encoding = 0
-        public var denoising = 0, end = 0
-        public init() {}
+        package var encoding = 0
+        package var denoising = 0, end = 0
+        package init() {}
     }
 
     /// An image and what it took to get it. **No file has been written.**
@@ -59,44 +59,44 @@ public final class Engine: Sendable {
     /// In a batch, each image has its own `Render`; the text (and the input image) are paid for only
     /// once, so `timings.text` and `timings.encoding` hold only for the first, and the `total`s
     /// of a batch's images partition the batch's time.
-    public struct Render: Sendable {
+    package struct Render: Sendable {
         /// What requested it — for the PNG metadata and an app's history.
-        public let model: String
-        public let prompt: String
-        public let seed: UInt64
-        public let steps: Int
-        public let loras: [LoRAEntry]
+        package let model: String
+        package let prompt: String
+        package let seed: UInt64
+        package let steps: Int
+        package let loras: [LoRAEntry]
         /// What the LoRA stack did, in one line — `nil` when there was none.
-        public let loraSummary: String?
+        package let loraSummary: String?
         /// The image, planar `[3, height, width]`, fp32 around `[-1, 1]` (not clamped).
-        public let image: ImageRGB
+        package let image: ImageRGB
         /// Was the GPU/AMX split frozen (`Request.reproducible`, resolved at render time)?
-        public let reproducible: Bool
+        package let reproducible: Bool
         /// The evaluations done — for a sketch, those it stopped after.
-        public let evaluations: Int
+        package let evaluations: Int
         /// **A sketch** (`Request.sketch`): the evaluations it stopped after, the image being the
         /// estimate x̂₀ there. `nil`: the whole render.
-        public let sketch: Int?
+        package let sketch: Int?
         /// The `k` actually applied, which is not the settings' one (a profile is not allowed to
         /// write it) and which a file name must carry on pain of lying.
-        public let spectral: Int
+        package let spectral: Int
         /// The img2img strength; `nil` in txt2img.
-        public let strength: Double?
+        package let strength: Double?
         /// The first step executed and its σ (0 and 1 in txt2img).
-        public let startStep: Int
-        public let startSigma: Float
-        public let timings: Timings
-        public let footprints: Footprints
-        public let tokens: Int
+        package let startStep: Int
+        package let startSigma: Float
+        package let timings: Timings
+        package let footprints: Footprints
+        package let tokens: Int
         /// **More detail** (`Request.detail`); `normal` writes nothing in the metadata.
-        public var detail: Detail = .normal
+        package var detail: Detail = .normal
         /// **The update rule** (`Request.solver`); `euler` writes nothing in the metadata.
-        public var solver: Solver = .euler
+        package var solver: Solver = .euler
         /// **Whose σ** (`Request.schedule`); `official` writes nothing in the metadata.
-        public var schedule: SigmaSchedule = .official
+        package var schedule: SigmaSchedule = .official
         /// **The variations its noise was turned by** (`Request.variations`), those of null
         /// strength left out; empty for an ordinary render.
-        public var variations: [Variation] = []
+        package var variations: [Variation] = []
         /// **The model's displayed name** (`ModelCard.name`): `Z-Image Turbo`, or an imported fine-tune's
         /// own. `nil`: the family identifier `model` stands for it.
         package var modelName: String? = nil
@@ -107,9 +107,9 @@ public final class Engine: Sendable {
         /// (`LoRA.origins`); empty when the engine did not open the stack (a test's `Render`).
         package var loraOrigins: [LoRAOrigin] = []
         /// **The render's memory: its computed need against its own measured peak**, phase by phase
-        /// (`MemoryCheck`); a phase above its need is a defect of the engine (`MemoryCheck.isDefect`).
+        /// (`MemoryCheck`); a phase above its need is a defect of the engine (`MemoryCheck.exceeded`).
         /// `nil` when no need was computed (a model whose maps are not installed).
-        public var memory: MemoryCheck? = nil
+        package var memory: MemoryCheck? = nil
 
         /// **The generation metadata**, as `png()` writes it (`iTXt` chunks). ASCII keys, readable
         /// values; **no date** — two identical renders must remain two identical files.
@@ -119,7 +119,7 @@ public final class Engine: Sendable {
         /// (the `image` key says so), and a LoRA appears only by its file name. `parameters` says the
         /// same render again for Civitai (`Infotext`), with the app's version: identical renders of
         /// one version stay identical files.
-        public var metadata: [String: String] {
+        package var metadata: [String: String] {
             var m = ["prompt": prompt, "seed": "\(seed)", "model": model, "steps": "\(steps)",
                      "format": "\(image.width)x\(image.height)", "reproducible": "\(reproducible)",
                      "Software": "Siliconed"]
@@ -166,7 +166,7 @@ public final class Engine: Sendable {
         }
 
         /// The sRGB PNG, metadata included.
-        public func png() throws(EngineError) -> Data { try image.png(metadata: metadata) }
+        package func png() throws(EngineError) -> Data { try image.png(metadata: metadata) }
 
         /// **`metadata` read back**: what a Siliconed PNG says about its render (`PNG.text`, then
         /// this). Pure: no library is consulted, so nothing here says whether the model or a LoRA is
@@ -181,35 +181,35 @@ public final class Engine: Sendable {
         ///
         /// Each field is `nil` when its key is absent **or unreadable**; `unreadable` lists the keys
         /// that were there but did not parse, so the caller can say so instead of guessing.
-        public struct Recipe: Sendable, Equatable {
+        package struct Recipe: Sendable, Equatable {
             /// The family, as `Render.model` writes it (`z-image`, `qwen-image-2.1`…).
-            public var model: String?
-            public var prompt: String?
-            public var seed: UInt64?
-            public var steps: Int?
-            public var width: Int?, height: Int?
+            package var model: String?
+            package var prompt: String?
+            package var seed: UInt64?
+            package var steps: Int?
+            package var width: Int?, height: Int?
             /// The stack in its order; `path` is **the file name only**, as written.
-            public var loras: [LoRAEntry] = []
+            package var loras: [LoRAEntry] = []
             /// The img2img strength; `nil` in txt2img.
-            public var strength: Double?
+            package var strength: Double?
             /// An img2img: the image it started from is not in the file.
-            public var sourceImageMissing = false
-            public var reproducible: Bool?
+            package var sourceImageMissing = false
+            package var reproducible: Bool?
             /// `Request.detail`; `normal` when the key is absent (every render before it).
-            public var detail: Detail = .normal
+            package var detail: Detail = .normal
             /// `Request.solver`; `euler` when the key is absent (every render before it).
-            public var solver: Solver = .euler
+            package var solver: Solver = .euler
             /// `Request.schedule`; `official` when the key is absent (every render before it).
-            public var schedule: SigmaSchedule = .official
+            package var schedule: SigmaSchedule = .official
             /// The variations its noise was turned by, in order (`Request.variations`); empty for an
             /// ordinary render.
-            public var variations: [Variation] = []
+            package var variations: [Variation] = []
             /// Keys present whose value did not parse, sorted.
-            public var unreadable: [String] = []
+            package var unreadable: [String] = []
 
             /// `nil` unless `Software` is `Siliconed`: another program's keys (ComfyUI's `prompt`
             /// is a JSON graph) are not interpreted.
-            public init?(metadata m: [String: String]) {
+            package init?(metadata m: [String: String]) {
                 guard m["Software"] == "Siliconed" else { return nil }
                 var bad: [String] = []
                 func read<T>(_ key: String, _ parse: (String) -> T?) -> T? {
@@ -250,19 +250,19 @@ public final class Engine: Sendable {
     }
 
     /// **What is about to be paid for**, announced before any computation (`Event.start`).
-    public struct Plan: Sendable {
+    package struct Plan: Sendable {
         /// The denoiser's plan, for each image: evaluations (the last `total` of the `step`
         /// events), reduced ones (the spectral), starting step and σ. Grids in latent cells.
-        public let denoising: DenoisingPlan
+        package let denoising: DenoisingPlan
         /// The batch's seeds, in image order; just one outside a batch.
-        public let seeds: [UInt64]
+        package let seeds: [UInt64]
         /// The stages that will run, in order — `image` only in img2img. The text and the input
         /// image run only once per batch; denoising and decoding, per image.
-        public let stages: [Stage]
+        package let stages: [Stage]
     }
 
     /// A render's stages, as `Event.stage` announces them.
-    public enum Stage: String, Sendable, CaseIterable {
+    package enum Stage: String, Sendable, CaseIterable {
         case text, image, denoising, decoding
     }
 
@@ -273,7 +273,7 @@ public final class Engine: Sendable {
     /// `preview` if requested), `stage(.decoding)`, `decoding`, `image`. The `warning`s can
     /// fall anywhere. The closure is called **on the render thread**, synchronously: it must
     /// return quickly (a UI does its `MainActor` hop there, or goes through the `async` stream).
-    public enum Event: Sendable {
+    package enum Event: Sendable {
         case start(Plan)
         /// **The start of a stage** — emitted BEFORE it begins, so the bar moves during the text
         /// encoder and the decoder. `image`: the index in the batch (0 for the text and the input
@@ -314,8 +314,8 @@ public final class Engine: Sendable {
     /// promised a render twice too short, then went backwards at every step. The time remaining
     /// therefore exists only **after the first full step**; decoding counts what it cost in this
     /// render, or 0.2 of a full step before the first.
-    public struct Progress: Sendable {
-        public static let textWeights = 0.5, imageWeights = 0.15, decodingWeights = 0.2
+    package struct Progress: Sendable {
+        package static let textWeights = 0.5, imageWeights = 0.15, decodingWeights = 0.2
 
         private var total = 1.0, done = 0.0
         private var images = 0, evaluations = 0, reduced = 0
@@ -323,13 +323,13 @@ public final class Engine: Sendable {
         private var secondsReduced = 0.0, reducedDone = 0
         private var decoding: Double?, decodingsDone = 0
 
-        public init() {}
+        package init() {}
 
         /// `[0, 1]`.
-        public var fraction: Double { min(1, done / total) }
+        package var fraction: Double { min(1, done / total) }
 
         /// In seconds; `nil` before the first full step.
-        public var estimatedRemaining: Double? {
+        package var estimatedRemaining: Double? {
             guard fullCount > 0 else { return nil }
             let full = secondsFull / Double(fullCount)
             let reducedAverage = reducedDone > 0 ? secondsReduced / Double(reducedDone) : full
@@ -340,7 +340,7 @@ public final class Engine: Sendable {
                 + Double(remainingDecodings) * (decoding ?? Progress.decodingWeights * full)
         }
 
-        public mutating func receive(_ event: Event) {
+        package mutating func receive(_ event: Event) {
             switch event {
             case .start(let plan):
                 // A single `Progress` for an app's whole life: a render's time remaining is drawn
@@ -390,7 +390,7 @@ public final class Engine: Sendable {
     /// the default QoS, and the system would treat it as background work.
     static let file = DispatchQueue(label: "siliconed.engine", qos: .userInitiated)
 
-    public init() {}
+    package init() {}
 }
 
 // ── the spectral schedule, which is a product rule ────────────────────────────────────

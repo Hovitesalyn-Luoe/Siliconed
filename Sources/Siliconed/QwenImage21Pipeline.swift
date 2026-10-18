@@ -135,12 +135,6 @@ package enum QwenImage21Pipeline {
         guard acceptedSteps.contains(steps) else { throw Failure.steps(steps) }
     }
 
-    /// The full schedule of `steps` steps — the same at every size.
-    package static func sigmas(steps: Int, scheduler: Scheduler) throws -> [Float] {
-        try check(steps: steps)
-        return scheduler.sigmas
-    }
-
     /// **ComfyUI's σ for Qwen-Image-2.1** (`SigmaSchedule.comfyUI`): `ModelSamplingFlux` with
     /// `shift 0.69` — a table of 10,000 σ, `e^μ / (e^μ + (1/t − 1))` at `t = k/10000` — read by the
     /// `simple` scheduler at `int(x · 10000/N)` from its end, then 0. Each operation as torch does it

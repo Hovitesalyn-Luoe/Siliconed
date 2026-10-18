@@ -95,7 +95,7 @@ final class AppTests: XCTestCase {
         XCTAssertEqual(f.rank, 64)
         XCTAssertEqual(f.resolution, "1024x1024")
         XCTAssertNil(f.trainedOn, "an empty metadata field is not a value")
-        XCTAssertEqual(f.entry(strength: 0.5), LoRAEntry("/s/niji.lora.silicon", strength: 0.5))
+        XCTAssertEqual(f.path, "/s/niji.lora.silicon")
         XCTAssertNil(LoRACard(header: header(nil), path: "x"), "without a target: refused at render time, absent from the catalog")
         XCTAssertNil(LoRACard(header: header("anima", kind: "z-image-turbo-dit"), path: "x"))
     }
@@ -151,7 +151,6 @@ final class AppTests: XCTestCase {
             (Safetensors.Failure.cannotMap("/vae", ENOMEM), .fileUnreadable(path: "/vae")),
             (Safetensors.Failure.missingTensor(file: "/vae", name: "w"), .corruptMap(file: "/vae")),
             (ImageRGB.Failure.unreadable("/a.png"), .imageUnreadable(file: "/a.png")),
-            (ImageRGB.Failure.encoding, .imageEncodingFailed),
             (Request.Failure.emptyPrompt, .emptyPrompt),
             (Request.Failure.steps(0), .invalidSteps(steps: 0, allowed: [])),
             (QwenImage21Pipeline.Failure.steps(6), .invalidSteps(steps: 6, allowed: [8])),

@@ -15,7 +15,7 @@ import Foundation
 /// The Turbo spends 6 of its 8 steps above σ 0.84 and ends in two long jumps; ComfyUI's spreads them
 /// and keeps three under 0.55. Checked to the bit against ComfyUI's own code
 /// (ComfyUI's own code run once, `QwenImage21PipelineTests`).
-public enum SigmaSchedule: String, CaseIterable, Sendable, Codable {
+package enum SigmaSchedule: String, CaseIterable, Sendable, Codable {
     case official
     case comfyUI = "comfyui"
 }

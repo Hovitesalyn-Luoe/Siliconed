@@ -40,7 +40,7 @@ import Foundation
 ///     `final_sigmas_type = "zero"`): σ' = 0 makes `λ' = +∞`, and the step lands on `x̂₀`, like Euler.
 ///   - **The ancestral rule renoises entirely** (diffusers' `stochastic_sampling`, not k-diffusion's
 ///     `eta`): the whole `σ'` part of the next sample is fresh noise.
-public enum Solver: String, CaseIterable, Sendable, Codable {
+package enum Solver: String, CaseIterable, Sendable, Codable {
     case euler
     case eulerAncestral = "euler-ancestral"
     case dpmpp2m = "dpmpp-2m"

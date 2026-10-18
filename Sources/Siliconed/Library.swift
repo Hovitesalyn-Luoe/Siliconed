@@ -16,31 +16,31 @@ import Foundation
 /// `~` is the container and the current directory is `/`. An app therefore holds its `Library`
 /// (`~/Library/Application Support/Siliconed/`, or a folder chosen by the user) and passes it to
 /// `Model.named(_:in:)`; `Library.standard` is its own.
-public struct Library: Sendable {
-    public let root: URL
+package struct Library: Sendable {
+    package let root: URL
 
-    public init(root: URL) { self.root = root.standardizedFileURL }
+    package init(root: URL) { self.root = root.standardizedFileURL }
 
     /// `<root>/store/<name>` — a forged map, a forged LoRA.
-    public func map(_ name: String) -> String {
+    package func map(_ name: String) -> String {
         root.appendingPathComponent("store").appendingPathComponent(name).path
     }
 
     /// The machine's profile, written by the developer's bench.
     // on-disk key, kept for existing maps/profiles (file name kept)
-    public var profile: String { map("profil.json") }
+    package var profile: String { map("profil.json") }
 
     /// **The app's socket**: the Unix socket where the app open on this library listens for
     /// `silicontrol …` (`docs/REMOTE-CONTROL.md`). It exists only while the app runs.
-    public var socket: String { root.appendingPathComponent("silicontrol.sock").path }
+    package var socket: String { root.appendingPathComponent("silicontrol.sock").path }
 
     /// `~/Library/Application Support/Siliconed`: the root as the app shows it — never the account's
     /// name, which a screenshot or a published report would carry (`withoutHome`).
-    public var displayPath: String { Self.withoutHome(root.path) }
+    package var displayPath: String { Self.withoutHome(root.path) }
 
     /// **A text with the home folder written `~`**, wherever it occurs — a path, or an error message
     /// that quotes one. What the app shows and what a diagnostic publishes go through it.
-    public static func withoutHome(_ text: String) -> String {
+    package static func withoutHome(_ text: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         guard home.count > 1 else { return text }
         return text.replacingOccurrences(of: home, with: "~")

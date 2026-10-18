@@ -83,7 +83,7 @@ extension ModelCard {
     /// app's greying out alike. `ceiling`: B, this Mac's by default (`MemoryBudget.machineCeiling()`,
     /// `SILICONED_MEMORY_BUDGET_GB` included — no reading of the kernel). `references`: the edit's
     /// images, named subjects' included (0: a generation), taken at the output's size.
-    public func checkMemory(width: Int, height: Int, references: Int = 0,
+    package func checkMemory(width: Int, height: Int, references: Int = 0,
                             ceiling: Int = MemoryBudget.machineCeiling()) throws(EngineError) {
         try checkMemory(memoryRequest(width: width, height: height,
                                       references: Array(repeating: (width, height), count: references)), ceiling: ceiling)
@@ -103,7 +103,7 @@ extension ModelCard {
     /// (`MemoryNeed.of`), with what this process holds now. Above the floor the plan buys time
     /// (`MemoryPlan.choose`); at the floor the render is slower, never another image. `nil` when it
     /// cannot be computed: the model's maps are not installed, or their headers do not parse.
-    public func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int? {
+    package func memoryNeed(width: Int, height: Int, references: Int = 0) -> Int? {
         memoryNeed(memoryRequest(width: width, height: height, references: Array(repeating: (width, height), count: references)))
     }
 
@@ -128,28 +128,21 @@ extension Library {
 
     /// The models whose license was accepted, with the text accepted. Empty if the file is absent
     /// or unreadable — nothing is accepted by default.
-    public func acceptedLicenses() -> [String: String] {
+    package func acceptedLicenses() -> [String: String] {
         guard let data = FileManager.default.contents(atPath: acceptedLicensesFile),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return [:] }
         return object
     }
 
     /// Accepted, and for the license the card states today.
-    public func isLicenseAccepted(_ card: ModelCard) -> Bool {
+    package func isLicenseAccepted(_ card: ModelCard) -> Bool {
         acceptedLicenses()[card.id] == card.license.text
     }
 
     /// **Records that the user accepted `card`'s license** — what the app writes after showing it.
-    public func acceptLicense(_ card: ModelCard) throws(EngineError) {
+    package func acceptLicense(_ card: ModelCard) throws(EngineError) {
         var accepted = acceptedLicenses()
         accepted[card.id] = card.license.text
-        try writeAcceptedLicenses(accepted)
-    }
-
-    /// Withdraws an acceptance: the next render of `card` is refused until it is accepted again.
-    package func revokeLicense(_ card: ModelCard) throws(EngineError) {
-        var accepted = acceptedLicenses()
-        guard accepted.removeValue(forKey: card.id) != nil else { return }
         try writeAcceptedLicenses(accepted)
     }
 

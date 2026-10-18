@@ -211,11 +211,10 @@ final class ForgeTests: XCTestCase {
     }
 
     /// The vision tower's fused `qkv`: q and k permuted per head, v untouched — on a miniature
-    /// (2 heads of 4, one column) where each value is its published row.
+    /// (2 heads of 4): the source row of each forged row.
     func testQwen3VLVisionQKVPermutation() {
-        let v = (0..<24).map(Float.init)
-        XCTAssertEqual(ForgeText.interleaveQK(v, rows: 24, columns: 1, head: 4),
-                       [0, 2, 1, 3, 4, 6, 5, 7, 8, 10, 9, 11, 12, 14, 13, 15] + (16..<24).map(Float.init))
+        XCTAssertEqual(ForgeText.qkOrder(rows: 24, head: 4),
+                       [0, 2, 1, 3, 4, 6, 5, 7, 8, 10, 9, 11, 12, 14, 13, 15] + Array(16..<24))
     }
 
     /// The encoder's order: the vision tower first, each deepstack merger right after the block

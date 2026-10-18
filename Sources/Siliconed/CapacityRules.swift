@@ -70,46 +70,46 @@ import Foundation
 ///       · `amx_quantum` (64 under the grid, MPS's row tile), `amx_min`, `parallel`: nothing measures them.
 extension Diagnostic {
     /// **One branch, decided**: on or off, and the figures behind it.
-    public struct Decision: Codable, Sendable, Equatable {
+    package struct Decision: Codable, Sendable, Equatable {
         /// The branch is taken.
-        public var on: Bool
+        package var on: Bool
         /// Every engine the branch would use ran and computed right (within its threshold).
-        public var passed: Bool
+        package var passed: Bool
         /// The geometric mean of `gains`: what is compared to `1 + margin`.
-        public var gain: Double
+        package var gain: Double
         /// Per size (`Diagnostic.heights`, 1024 then 4096): the reference's summed time over the branch's.
-        public var gains: [Double]
+        package var gains: [Double]
 
-        public init(on: Bool, passed: Bool, gain: Double, gains: [Double]) {
+        package init(on: Bool, passed: Bool, gain: Double, gains: [Double]) {
             self.on = on; self.passed = passed
             self.gain = Diagnostic.significant(gain, 3); self.gains = gains.map { Diagnostic.significant($0, 3) }
         }
     }
 
     /// **What a map makes the engine use** — the rules above applied to one report.
-    public struct Decisions: Codable, Sendable, Equatable {
+    package struct Decisions: Codable, Sendable, Equatable {
         /// The noise a gain must clear: `max(minimumMargin, the drift witness's worst deviation)`.
-        public var margin: Double
+        package var margin: Double
         /// GPU + AMX co-execution of the DiT products (`amx`).
-        public var amx: Decision
+        package var amx: Decision
         /// The GPU's share of the rows (`amx_fraction`) when `amx` is on; `nil` otherwise.
-        public var amxFraction: Double?
+        package var amxFraction: Double?
         /// The GPU's share per weight shape and height (`amx_shares`, `Conductor.Shares`' text) when `amx` is
         /// on and the report measured `cuts`; `nil` otherwise — the shapes then take `amxFraction`.
-        public var amxShares: String?
+        package var amxShares: String?
         /// The in-house flash kernel instead of MPSGraph (`flash`).
-        public var flash: Decision
+        package var flash: Decision
         /// The SDPA's heads cut between the GPU and the CPU from S = 1024 on (`head_split`).
-        public var headSplit: Decision
+        package var headSplit: Decision
         /// The DiT's products on the bf16 weights (`gemm_tensor`, `TensorGEMM`); `nil` in a decision
         /// stored by a report of schema 5.
-        public var tensor: Decision?
+        package var tensor: Decision?
         /// The products on the published int8 weights (`gemm_int8`); `nil` before schema 8.
-        public var int8: Decision?
+        package var int8: Decision?
         /// The products on GGUF Q8_0 weights (`gemm_q8`); `nil` before schema 9.
-        public var q8: Decision?
+        package var q8: Decision?
 
-        public init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
+        package init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
                     tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
@@ -119,7 +119,7 @@ extension Diagnostic {
         }
 
         private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8 }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
             try c.encode(amxFraction, forKey: .amxFraction)
@@ -143,10 +143,10 @@ extension Diagnostic {
 
     /// The margin's floor: below it, two runs of one machine already disagree (invariant 6: 4 to 13 %
     /// over a few renders; the map's own witness ×0.990–0.997 on a quiet M1 Pro).
-    public static let minimumMargin = 0.05
+    package static let minimumMargin = 0.05
 
     /// **The rules.** Pure: the same report always gives the same decisions.
-    public static func decide(products: [Product], attention: [AttentionCapacity], widening: [Widening],
+    package static func decide(products: [Product], attention: [AttentionCapacity], widening: [Widening],
                               witness: Witness, cuts: [Cut] = []) -> Decisions {
         var drift = abs(1 - witness.gpuAfter / witness.gpuBefore)
         if let before = witness.amxBefore, let after = witness.amxAfter, before > 0 { drift = max(drift, abs(1 - after / before)) }
@@ -265,7 +265,7 @@ extension Diagnostic {
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).
-    public static func decide(_ report: Report) -> Decisions {
+    package static func decide(_ report: Report) -> Decisions {
         decide(products: report.products, attention: report.attention, widening: report.widening, witness: report.witness,
                cuts: report.cuts ?? [])
     }

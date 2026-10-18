@@ -27,9 +27,8 @@
 // `Localizable.xcstrings` (English source, fr de es it), which `tools/app.sh` synchronizes and compiles.
 // The engine's refusals are translated case by case in `Problems.swift`.
 //
-// A pure client of `Siliconed` (`import`, never `@testable`): everything called here is
-// public, exactly what a macOS 15+ app depending on the `Siliconed` product would see. The view is
-// in `MainView.swift`, the window and the app in `App.swift`.
+// A client of `Siliconed` from the same package (`import`, never `@testable`): it reaches the library's
+// `package` symbols, never its internals. The view is in `MainView.swift`, the window and the app in `App.swift`.
 
 import AppKit
 import ImageIO

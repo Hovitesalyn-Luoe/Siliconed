@@ -15,7 +15,7 @@ extension ImageRGB {
     /// rather than 12 MB of floats per image. The reference's post-processing: `(x/2 + 0.5)`,
     /// clamped to `[0, 1]`, ×255, rounded. The clamping is not cosmetic — the decoder outputs up
     /// to ±1.14, so without it the values overflow.
-    public func rgba8() -> [UInt8] {
+    package func rgba8() -> [UInt8] {
         var bytes = [UInt8](repeating: 255, count: height * width * 4)
         let plane = height * width
         for p in 0..<plane {
@@ -28,21 +28,21 @@ extension ImageRGB {
     }
 
     /// The image as an **sRGB** `CGImage`, 8 bits, RGBX.
-    public func cgImage() -> CGImage {
+    package func cgImage() -> CGImage {
         PNG.cgImage(rgba: rgba8(), height: height, width: width)
     }
 
     /// **The PNG, in memory**: sRGB, no timestamp, and the generation metadata in `iTXt` text
     /// chunks (UTF-8: a prompt is not always Latin-1), sorted by key — two identical renders
     /// yield the same bytes.
-    public func png(metadata: [String: String] = [:]) throws(EngineError) -> Data {
+    package func png(metadata: [String: String] = [:]) throws(EngineError) -> Data {
         try PNG.data(cgImage(), metadata: metadata)
     }
 }
 
 /// PNG encoding and its text chunks. Reading (`text`) serves an app that re-reads an image's
 /// parameters, like Draw Things.
-public enum PNG {
+package enum PNG {
     package static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
 
     /// 8-bit RGBX bytes → sRGB `CGImage`.
@@ -56,7 +56,7 @@ public enum PNG {
     }
 
     /// **The only way to write a PNG in the repository** — renders, checks and contact sheets.
-    public static func data(_ image: CGImage, metadata: [String: String] = [:]) throws(EngineError) -> Data {
+    package static func data(_ image: CGImage, metadata: [String: String] = [:]) throws(EngineError) -> Data {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output as CFMutableData,
                                                                  UTType.png.identifier as CFString, 1, nil) else {
@@ -68,7 +68,7 @@ public enum PNG {
     }
 
     /// Writes `data` to `path`, atomically.
-    public static func write(_ data: Data, to path: String) throws(EngineError) {
+    package static func write(_ data: Data, to path: String) throws(EngineError) {
         do { try data.write(to: URL(fileURLWithPath: path), options: .atomic) }
         catch { throw .imageWriteFailed(file: path) }
     }
@@ -115,7 +115,7 @@ public enum PNG {
     /// **Re-reads a PNG's text chunks** (uncompressed `tEXt` and `iTXt`) — so an app can recover
     /// an image's prompt and seed, and so the test target can verify it. Returns an empty
     /// dictionary if it is not a PNG.
-    public static func text(_ png: Data) -> [String: String] {
+    package static func text(_ png: Data) -> [String: String] {
         let bytes = [UInt8](png)
         guard bytes.count > 8, bytes[0..<8] == [137, 80, 78, 71, 13, 10, 26, 10] else { return [:] }
         var output: [String: String] = [:]

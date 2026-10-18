@@ -11,7 +11,7 @@ extension Engine {
     /// boundary and throws `EngineError.cancelled`, memory returned. `onProgress` is called on the
     /// render thread. A custom chain goes through a `Model(card:chain:)`. **Throws only
     /// `EngineError`**, the preflights first (`Preflight`).
-    public func render(_ request: Request, model: Model, cancellation: Cancellation? = nil,
+    package func render(_ request: Request, model: Model, cancellation: Cancellation? = nil,
                        onProgress: (@Sendable (Event) -> Void)? = nil) throws(EngineError) -> Render {
         try renderBatch(request, seeds: [request.seed], model: model, cancellation: cancellation,
                       onProgress: onProgress)[0]
@@ -21,7 +21,7 @@ extension Engine {
     /// **only once**. `request.seed` is ignored. Each image has its events (`stage(_, image: n)`,
     /// `step(image: n, …)`, `image(index: n, …)`) and its `Render`; cancellation is checked between
     /// two images as everywhere else.
-    public func renderBatch(_ request: Request, seeds: [UInt64], model: Model, cancellation: Cancellation? = nil,
+    package func renderBatch(_ request: Request, seeds: [UInt64], model: Model, cancellation: Cancellation? = nil,
                           onProgress: (@Sendable (Event) -> Void)? = nil) throws(EngineError) -> [Render] {
         try EngineError.boundary {
             try Engine.file.sync { try execute(request, seeds, model, cancellation, onProgress) }

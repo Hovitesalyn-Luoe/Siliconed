@@ -25,7 +25,7 @@ final class QwenImage21PipelineTests: XCTestCase {
     func testTheTurboScheduleIsDiffusersToTheBit() throws {
         let s = try QwenImage21Pipeline.Scheduler(config: Data(config.utf8), modelIndex: Data(modelIndex.utf8))
         XCTAssertEqual(s, QwenImage21Pipeline.Scheduler(), "the published defaults")
-        let σ = try QwenImage21Pipeline.sigmas(steps: 8, scheduler: s)
+        let σ = s.sigmas
         XCTAssertEqual(bits(σ), [0x3f800000, 0x3f7a7be5, 0x3f744524, 0x3f6d375d, 0x3f6523f6, 0x3f585b9f, 0x3f345c57,
                                  0x3ed44242, 0])
         XCTAssertEqual(bits(QwenImage21Pipeline.timesteps(σ)),
@@ -40,7 +40,8 @@ final class QwenImage21PipelineTests: XCTestCase {
         XCTAssertEqual(module.defaultSteps, 8)
         XCTAssertEqual(bits(module.sigmas(steps: 8)), bits(σ))
         XCTAssertEqual(QwenImage21Pipeline.acceptedSteps, [8])
-        for n in [5, 6, 7, 9] { XCTAssertThrowsError(try QwenImage21Pipeline.sigmas(steps: n, scheduler: s), "\(n)") }
+        XCTAssertNoThrow(try QwenImage21Pipeline.check(steps: 8))
+        for n in [5, 6, 7, 9] { XCTAssertThrowsError(try QwenImage21Pipeline.check(steps: n), "\(n)") }
     }
 
     /// **ComfyUI's σ to the bit**, as its own `ModelSamplingFlux` and `simple_scheduler` give them

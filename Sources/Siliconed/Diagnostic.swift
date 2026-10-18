@@ -78,7 +78,7 @@ import Metal
 /// It keeps the report in its preferences and hands it to `EngineSettings.load(from:map:)`; the rules
 /// (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`,
 /// `gemm_tensor`, `gemm_int8`, `gemm_q8`. The command line, the checks and the close-out never designate a map: today's defaults.
-public enum Diagnostic {
+package enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
     /// day, optional: a report without it is the same measures. **6** (17/10/2026): the bf16-weight
@@ -88,45 +88,45 @@ public enum Diagnostic {
     /// (`products[].int8`, `int8Coexecution`, `int8GPUColumns`), the `int8 convrot` and `int8 copy`
     /// widenings; the decisions add `int8`. **9** (18/10/2026): the Q8_0-weight products (`products[].q8`,
     /// `q8Coexecution`, `q8GPUColumns`), the `q8_0` and `q8_0 copy` widenings; the decisions add `q8`.
-    public static let schema = 9
-    public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
+    package static let schema = 9
+    package static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
     /// attention no further than 10⁻⁵ from the exact. Measured on the M1 Pro (14/10/2026): the
     /// products 0.80–2.1·10⁻⁶ (the worst at k = 12 288, GPU and the cut alike), the attention
     /// 2.0–4.4·10⁻⁶ (flash the closest) — 2.3× under it at the worst, and a fault is orders above.
-    public static let fp32Threshold = 1e-5
+    package static let fp32Threshold = 1e-5
     /// A half-precision output passes within this factor of its rounding floor (invariant 3).
-    public static let floorMargin = 1.25
+    package static let floorMargin = 1.25
 
     // ── the report ──────────────────────────────────────────────────────────────────────────
 
-    public struct Machine: Codable, Sendable, Equatable {
+    package struct Machine: Codable, Sendable, Equatable {
         /// `machdep.cpu.brand_string`: "Apple M1 Pro".
-        public var chip: String
+        package var chip: String
         /// `hw.model`: "MacBookPro18,3".
-        public var hardwareModel: String
-        public var performanceCores: Int
-        public var efficiencyCores: Int
+        package var hardwareModel: String
+        package var performanceCores: Int
+        package var efficiencyCores: Int
         /// IORegistry's `gpu-core-count` (`AGXAccelerator`); 0 if unreadable.
-        public var gpuCores: Int
-        public var memoryBytes: Int
+        package var gpuCores: Int
+        package var memoryBytes: Int
         /// "26.0.1 (25A…)".
-        public var macOS: String
+        package var macOS: String
         /// `CFBundleShortVersionString (CFBundleVersion)` of the app, else the git commit of the
         /// repository the binary was built in (`-dirty` if modified), else "unknown".
-        public var version: String
+        package var version: String
         /// The executable's fingerprint: the first 12 hex digits of the SHA-256 of `RenderCache.build`
         /// (path, size, date) — two builds of one commit differ here, and no local path goes public.
-        public var build: String
+        package var build: String
         /// `MTLDevice.name`: "Apple M1 Pro".
-        public var gpu: String
+        package var gpu: String
         /// The highest `MTLGPUFamily.appleN` the device supports, "apple7" on the M1 family; "" if none.
-        public var gpuFamily: String
+        package var gpuFamily: String
         /// `MTLDevice.recommendedMaxWorkingSetSize`: what Metal lets the process keep resident.
-        public var gpuWorkingSetBytes: Int
+        package var gpuWorkingSetBytes: Int
 
-        public init(chip: String, hardwareModel: String, performanceCores: Int, efficiencyCores: Int,
+        package init(chip: String, hardwareModel: String, performanceCores: Int, efficiencyCores: Int,
                     gpuCores: Int, memoryBytes: Int, macOS: String, version: String, build: String,
                     gpu: String = "", gpuFamily: String = "", gpuWorkingSetBytes: Int = 0) {
             self.chip = chip; self.hardwareModel = hardwareModel; self.performanceCores = performanceCores
@@ -136,26 +136,26 @@ public enum Diagnostic {
         }
 
         /// "16 GB": the spec sheet's figure (2³⁰), what a reader of the table compares.
-        public var memoryLabel: String { "\(Int((Double(memoryBytes) / 1_073_741_824).rounded())) GB" }
+        package var memoryLabel: String { "\(Int((Double(memoryBytes) / 1_073_741_824).rounded())) GB" }
     }
 
     /// **The state of the machine**, read before the first measurement and after the last.
-    public struct Conditions: Codable, Sendable, Equatable {
+    package struct Conditions: Codable, Sendable, Equatable {
         /// `ProcessInfo.thermalState`: nominal, fair, serious, critical. A fanless Mac throttles from fair.
-        public var thermal: String
-        public var lowPowerMode: Bool
+        package var thermal: String
+        package var lowPowerMode: Bool
         /// The machine runs on its battery; `nil` when the power source does not say.
-        public var onBattery: Bool?
+        package var onBattery: Bool?
         /// `vm.swapusage`'s used bytes: another process's swap, and memory this one may lack.
-        public var swapUsedBytes: Int
-        public init(thermal: String, lowPowerMode: Bool, onBattery: Bool?, swapUsedBytes: Int) {
+        package var swapUsedBytes: Int
+        package init(thermal: String, lowPowerMode: Bool, onBattery: Bool?, swapUsedBytes: Int) {
             self.thermal = thermal; self.lowPowerMode = lowPowerMode; self.onBattery = onBattery
             self.swapUsedBytes = swapUsedBytes
         }
 
         private enum CodingKeys: String, CodingKey { case thermal, lowPowerMode, onBattery, swapUsedBytes }
         /// Explicit `null`s, as everywhere in the report: "unknown" is said, not dropped.
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(thermal, forKey: .thermal); try c.encode(lowPowerMode, forKey: .lowPowerMode)
             try c.encode(onBattery, forKey: .onBattery); try c.encode(swapUsedBytes, forKey: .swapUsedBytes)
@@ -166,28 +166,28 @@ public enum Diagnostic {
     /// pass]`** — forty of them as objects made the report too long for an issue link (9 690 bytes
     /// against ~8 000); the thresholds they were judged by are the report's `thresholds`, and a
     /// half-precision product's own `threshold`.
-    public struct Measure: Codable, Sendable, Equatable {
+    package struct Measure: Codable, Sendable, Equatable {
         /// TFLOP/s for a product or an attention (`2·m·k·n`, `4·S²·H·Dh`), G values/s for a widening;
         /// four significant digits.
-        public var rate: Double
+        package var rate: Double
         /// The worst row's relative error against the exact (fp64), three significant digits. A
         /// non-finite error — a NaN in the output — is written as the largest finite double.
-        public var error: Double
+        package var error: Double
         /// At or under the item's threshold, judged before the rounding.
-        public var pass: Bool
+        package var pass: Bool
 
-        public init(rate: Double, error: Double, threshold: Double) {
+        package init(rate: Double, error: Double, threshold: Double) {
             self.rate = Diagnostic.significant(rate, 4)
             self.error = Diagnostic.significant(error, 3)
             self.pass = error.isFinite && error <= threshold
         }
 
-        public init(from decoder: any Decoder) throws {
+        package init(from decoder: any Decoder) throws {
             var c = try decoder.unkeyedContainer()
             rate = try c.decode(Double.self); error = try c.decode(Double.self); pass = try c.decode(Bool.self)
         }
 
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.unkeyedContainer()
             try c.encode(rate); try c.encode(error); try c.encode(pass)
         }
@@ -195,53 +195,53 @@ public enum Diagnostic {
 
     /// **What the measures were judged by**: one threshold for every fp32 output, 0 for a widening
     /// (exact by construction), and the margin over its floor a half-precision output gets.
-    public struct Thresholds: Codable, Sendable, Equatable {
-        public var fp32: Double
-        public var widening: Double
-        public var floorMargin: Double
-        public init(fp32: Double = Diagnostic.fp32Threshold, widening: Double = 0, floorMargin: Double = Diagnostic.floorMargin) {
+    package struct Thresholds: Codable, Sendable, Equatable {
+        package var fp32: Double
+        package var widening: Double
+        package var floorMargin: Double
+        package init(fp32: Double = Diagnostic.fp32Threshold, widening: Double = 0, floorMargin: Double = Diagnostic.floorMargin) {
             self.fp32 = fp32; self.widening = widening; self.floorMargin = floorMargin
         }
     }
 
     /// **An fp32 product of a DiT block** — `[m, k] · [k, n]`, the weight stored `[input, output]` as
     /// the forge lays it out.
-    public struct Product: Codable, Sendable, Equatable {
+    package struct Product: Codable, Sendable, Equatable {
         /// The model whose block gives the shape: "z-image", "qwen-image-2.1".
-        public var model: String
+        package var model: String
         /// "up" `[m, d]·[d, ffn]`, "down" `[m, ffn]·[ffn, d]`.
-        public var product: String
-        public var m, k, n: Int
+        package var product: String
+        package var m, k, n: Int
         /// MPS through `GEMM.linear`, the conductor off.
-        public var gpu: Measure
+        package var gpu: Measure
         /// `BNNSMatMul` through `Conductor.multiply`, on the calling thread; `nil` when BNNS refuses.
-        public var amx: Measure?
+        package var amx: Measure?
         /// `gpu.rate / (gpu.rate + amx.rate)`: the share of rows the GPU would take — `amxFraction`.
-        public var gpuShare: Double?
+        package var gpuShare: Double?
         /// `GEMM.linear` through the conductor, its cut frozen at `gpuShare`.
-        public var coexecution: Measure?
+        package var coexecution: Measure?
         /// The rows the cut gave the GPU (`Conductor.cut`, a multiple of `amx_quantum`); `m` when the
         /// cut does not apply (`m < amx_min`).
-        public var coexecutionGPURows: Int?
+        package var coexecutionGPURows: Int?
         /// `TensorGEMM` (`gemm_tensor`): the same product on the weight in bf16, the activations fp32;
         /// `nil` without Metal 4, or in a report of schema 5.
-        public var tensor: Measure?
+        package var tensor: Measure?
         /// `gemm_int8`: the product on a published int8 weight (convrot of 256, one scale), read as it is
         /// (`WeightProducts.int8Product`, the GPU alone); `nil` without Metal 4, or before schema 8.
-        public var int8: Measure?
+        package var int8: Measure?
         /// The same with the AMX on the last columns at `gpuShare` (`int8GPUColumns` to the GPU), the AMX's
         /// slice widened while the GPU computes; `nil` when the cut does not apply.
-        public var int8Coexecution: Measure?
-        public var int8GPUColumns: Int?
+        package var int8Coexecution: Measure?
+        package var int8GPUColumns: Int?
         /// `gemm_q8`: the product on a GGUF Q8_0 weight (int8, a scale per 32 rows and column), read as it
         /// is (`WeightProducts.int8Product` on a block plan, the GPU alone); `nil` without Metal 4, when this
         /// macOS's compiler refuses the kernel (`TensorGEMM.readsBlocks`), or before schema 9.
-        public var q8: Measure?
+        package var q8: Measure?
         /// The same beside the AMX on the last columns at `gpuShare` (`q8GPUColumns` to the GPU).
-        public var q8Coexecution: Measure?
-        public var q8GPUColumns: Int?
+        package var q8Coexecution: Measure?
+        package var q8GPUColumns: Int?
 
-        public init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
+        package init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
                     gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?, tensor: Measure? = nil,
                     int8: Measure? = nil, int8Coexecution: Measure? = nil, int8GPUColumns: Int? = nil,
                     q8: Measure? = nil, q8Coexecution: Measure? = nil, q8GPUColumns: Int? = nil) {
@@ -256,7 +256,7 @@ public enum Diagnostic {
             case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor, int8, int8Coexecution, int8GPUColumns,
                  q8, q8Coexecution, q8GPUColumns
         }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(model, forKey: .model); try c.encode(product, forKey: .product)
             try c.encode(m, forKey: .m); try c.encode(k, forKey: .k); try c.encode(n, forKey: .n)
@@ -272,24 +272,24 @@ public enum Diagnostic {
     }
 
     /// **An fp32 attention** at a model's heads — `q`, `k`, `v` `[S, H·Dh]` as the GEMMs write them.
-    public struct AttentionCapacity: Codable, Sendable, Equatable {
-        public var model: String
-        public var heads, headDim, sequence: Int
+    package struct AttentionCapacity: Codable, Sendable, Equatable {
+        package var model: String
+        package var heads, headDim, sequence: Int
         /// `MPSGraph.scaledDotProductAttention` (`Attention`), the engine's default.
-        public var graph: Measure?
+        package var graph: Measure?
         /// The in-house matrix flash kernel (`FlashMatrix`, the `flash` setting); `nil` when it refuses the device.
-        public var flash: Measure?
+        package var flash: Measure?
         /// The heads cut between the GPU and the CPU (`HeadSplitAttention`, its `cpuFraction`).
-        public var headSplit: Measure?
+        package var headSplit: Measure?
 
-        public init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
+        package init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
                     headSplit: Measure?) {
             self.model = model; self.heads = heads; self.headDim = headDim; self.sequence = sequence
             self.graph = graph; self.flash = flash; self.headSplit = headSplit
         }
 
         private enum CodingKeys: String, CodingKey { case model, heads, headDim, sequence, graph, flash, headSplit }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(model, forKey: .model); try c.encode(heads, forKey: .heads)
             try c.encode(headDim, forKey: .headDim); try c.encode(sequence, forKey: .sequence)
@@ -298,21 +298,21 @@ public enum Diagnostic {
     }
 
     /// **A weight widened to fp32**, CPU against GPU — what `widen_gpu` chooses between.
-    public struct Widening: Codable, Sendable, Equatable {
+    package struct Widening: Codable, Sendable, Equatable {
         /// "bf16" (a shift), "int8" (`Float(q) · s`, one bf16 scale per column), "bf16 copy" (what
         /// `gemm_tensor` does instead of the widening: `Widen.copyBfloat16`, CPU only).
-        public var kind: String
-        public var values: Int
-        public var cpu: Measure
+        package var kind: String
+        package var values: Int
+        package var cpu: Measure
         /// `nil` when the kernel does not build on the device.
-        public var gpu: Measure?
+        package var gpu: Measure?
 
-        public init(kind: String, values: Int, cpu: Measure, gpu: Measure?) {
+        package init(kind: String, values: Int, cpu: Measure, gpu: Measure?) {
             self.kind = kind; self.values = values; self.cpu = cpu; self.gpu = gpu
         }
 
         private enum CodingKeys: String, CodingKey { case kind, values, cpu, gpu }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(kind, forKey: .kind); try c.encode(values, forKey: .values)
             try c.encode(cpu, forKey: .cpu); try c.encode(gpu, forKey: .gpu)
@@ -321,23 +321,23 @@ public enum Diagnostic {
 
     /// **A product in fp16 or bf16** — the fleet question: does this machine compute half precision
     /// fast, and where.
-    public struct LowPrecision: Codable, Sendable, Equatable {
+    package struct LowPrecision: Codable, Sendable, Equatable {
         /// "mpsgraph" (the GPU through `MPSGraph`), "bnns" (the CPU's matrix unit), "matmul2d" (Metal 4's
         /// tensor operation — the M5's neural accelerators where there are some).
-        public var engine: String
+        package var engine: String
         /// The operands' type: "fp16", "bf16".
-        public var type: String
+        package var type: String
         /// The result's type: the operands' for `MPSGraph`, "fp32" for the two others.
-        public var output: String
-        public var m, k, n: Int
+        package var output: String
+        package var m, k, n: Int
         /// `nil` when the engine refuses the type or the device has no such engine.
-        public var measure: Measure?
+        package var measure: Measure?
         /// The exact rounded to `output`: the error no implementation passes under.
-        public var floor: Double
+        package var floor: Double
         /// `max(thresholds.fp32, floorMargin · floor)`.
-        public var threshold: Double
+        package var threshold: Double
 
-        public init(engine: String, type: String, output: String, m: Int, k: Int, n: Int, measure: Measure?, floor: Double,
+        package init(engine: String, type: String, output: String, m: Int, k: Int, n: Int, measure: Measure?, floor: Double,
                     threshold: Double) {
             self.engine = engine; self.type = type; self.output = output; self.m = m; self.k = k; self.n = n
             self.measure = measure; self.floor = Diagnostic.significant(floor, 3)
@@ -345,7 +345,7 @@ public enum Diagnostic {
         }
 
         private enum CodingKeys: String, CodingKey { case engine, type, output, m, k, n, measure, floor, threshold }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(engine, forKey: .engine); try c.encode(type, forKey: .type); try c.encode(output, forKey: .output)
             try c.encode(m, forKey: .m); try c.encode(k, forKey: .k); try c.encode(n, forKey: .n)
@@ -358,17 +358,17 @@ public enum Diagnostic {
     /// together, measured in co-execution (`measureCuts`); the grid the frozen cut's formula reads
     /// (`amx_shares`, `Conductor.Shares`). **Written `[k, n, m, share]`**: twenty-two of them, the issue
     /// link's bytes are counted.
-    public struct Cut: Codable, Sendable, Equatable {
-        public var k, n, m: Int
-        public var share: Double
-        public init(k: Int, n: Int, m: Int, share: Double) {
+    package struct Cut: Codable, Sendable, Equatable {
+        package var k, n, m: Int
+        package var share: Double
+        package init(k: Int, n: Int, m: Int, share: Double) {
             self.k = k; self.n = n; self.m = m; self.share = Diagnostic.significant(share, 3)
         }
-        public init(from decoder: any Decoder) throws {
+        package init(from decoder: any Decoder) throws {
             var c = try decoder.unkeyedContainer()
             k = try c.decode(Int.self); n = try c.decode(Int.self); m = try c.decode(Int.self); share = try c.decode(Double.self)
         }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.unkeyedContainer()
             try c.encode(k); try c.encode(n); try c.encode(m); try c.encode(share)
         }
@@ -376,56 +376,56 @@ public enum Diagnostic {
 
     /// **The first product, timed again at the end** (TFLOP/s): the drift over the diagnostic, which
     /// frames every figure of it (invariant 6). `before` is `products[0]`'s.
-    public struct Witness: Codable, Sendable, Equatable {
-        public var gpuBefore, gpuAfter: Double
-        public var amxBefore, amxAfter: Double?
+    package struct Witness: Codable, Sendable, Equatable {
+        package var gpuBefore, gpuAfter: Double
+        package var amxBefore, amxAfter: Double?
 
-        public init(gpuBefore: Double, gpuAfter: Double, amxBefore: Double?, amxAfter: Double?) {
+        package init(gpuBefore: Double, gpuAfter: Double, amxBefore: Double?, amxAfter: Double?) {
             self.gpuBefore = gpuBefore; self.gpuAfter = Diagnostic.significant(gpuAfter, 4)
             self.amxBefore = amxBefore; self.amxAfter = amxAfter.map { Diagnostic.significant($0, 4) }
         }
 
         private enum CodingKeys: String, CodingKey { case gpuBefore, gpuAfter, amxBefore, amxAfter }
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(gpuBefore, forKey: .gpuBefore); try c.encode(gpuAfter, forKey: .gpuAfter)
             try c.encode(amxBefore, forKey: .amxBefore); try c.encode(amxAfter, forKey: .amxAfter)
         }
     }
 
-    public struct Report: Codable, Sendable, Equatable {
-        public var schema: Int
+    package struct Report: Codable, Sendable, Equatable {
+        package var schema: Int
         /// ISO 8601, UTC.
-        public var date: String
+        package var date: String
         /// The whole diagnostic, wall clock.
-        public var seconds: Double
-        public var machine: Machine
+        package var seconds: Double
+        package var machine: Machine
         /// The CPU's `hw.optional.arm.*` flags that bear on the products (`FEAT_BF16`, `FEAT_I8MM`,
         /// `FEAT_SME`, `FEAT_SME2`…) and `sme_max_svl_b`, as `sysctl` returns them; a flag this macOS does
         /// not know is absent.
-        public var cpuFeatures: [String: Int]
+        package var cpuFeatures: [String: Int]
         /// Every engine setting that is not its default, `"value (provenance)"`: a profile or an
         /// environment variable must not pass for the chip.
-        public var settings: [String: String]
-        public var before: Conditions
-        public var after: Conditions
-        public var products: [Product]
+        package var settings: [String: String]
+        package var before: Conditions
+        package var after: Conditions
+        package var products: [Product]
         /// The GPU's share per weight shape and height (`Cut`); `nil` in a report before schema 7.
-        public var cuts: [Cut]?
-        public var lowPrecision: [LowPrecision]
-        public var attention: [AttentionCapacity]
-        public var widening: [Widening]
-        public var witness: Witness
+        package var cuts: [Cut]?
+        package var lowPrecision: [LowPrecision]
+        package var attention: [AttentionCapacity]
+        package var widening: [Widening]
+        package var witness: Witness
         /// **The seconds of each stage** (`Stage.key`), so the map's budget is read, not guessed;
         /// `nil` in a report of schema 5.
-        public var stages: [String: Double]?
-        public var thresholds: Thresholds
+        package var stages: [String: Double]?
+        package var thresholds: Thresholds
         /// **What these measures make this Mac use** (`Diagnostic.decide`), written so a shared report says
         /// it; `nil` in a report that predates it. The engine never reads this field: it applies the
         /// rules to the measures again (`EngineSettings.load(from:map:)`).
-        public var decisions: Decisions?
+        package var decisions: Decisions?
 
-        public init(schema: Int = Diagnostic.schema, date: String, seconds: Double, machine: Machine,
+        package init(schema: Int = Diagnostic.schema, date: String, seconds: Double, machine: Machine,
                     cpuFeatures: [String: Int], settings: [String: String] = [:], before: Conditions, after: Conditions,
                     products: [Product], lowPrecision: [LowPrecision], attention: [AttentionCapacity],
                     widening: [Widening], witness: Witness, thresholds: Thresholds = Thresholds(),
@@ -441,24 +441,24 @@ public enum Diagnostic {
         }
 
         /// What the report is valid for: the machine and the binary that measured it.
-        public var fingerprint: Fingerprint { Fingerprint(machine) }
+        package var fingerprint: Fingerprint { Fingerprint(machine) }
         /// **The report still describes this process's machine and build** — what an app checks before
         /// handing it to `EngineSettings.load(from:map:)`; when it does not, the app offers to measure again.
-        public var isCurrent: Bool { schema == Diagnostic.schema && fingerprint == .current }
+        package var isCurrent: Bool { schema == Diagnostic.schema && fingerprint == .current }
 
         /// Every measure of the report, in its order.
-        public var measures: [Measure] {
+        package var measures: [Measure] {
             products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution, $0.tensor, $0.int8, $0.int8Coexecution, $0.q8, $0.q8Coexecution].compactMap { $0 } }
                 + lowPrecision.compactMap(\.measure)
                 + attention.flatMap { [$0.graph, $0.flash, $0.headSplit].compactMap { $0 } }
                 + widening.flatMap { [$0.cpu] + [$0.gpu].compactMap { $0 } }
         }
         /// Every engine that ran computed right.
-        public var passes: Bool { measures.allSatisfy(\.pass) }
+        package var passes: Bool { measures.allSatisfy(\.pass) }
 
         /// **Stable JSON**: sorted keys, so two reports diff line by line. `pretty: false` for the
         /// issue URL, where every byte counts.
-        public func json(pretty: Bool = true) throws -> Data {
+        package func json(pretty: Bool = true) throws -> Data {
             let encoder = JSONEncoder()
             encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                                               : [.sortedKeys, .withoutEscapingSlashes]
@@ -470,7 +470,7 @@ public enum Diagnostic {
         /// which the issue's body then carries (the script that aggregates the reports reads it back from there).
         /// `includingReport: false` leaves `report` empty, the other fields filled: for a JSON too long
         /// for a link (browsers and GitHub cut beyond ~8 000 characters), pasted by the user instead.
-        public func issueURL(includingReport: Bool = true) throws -> URL {
+        package func issueURL(includingReport: Bool = true) throws -> URL {
             var fields = [
                 ("template", "diagnostic.yml"),
                 ("labels", "diagnostic"),
@@ -515,15 +515,15 @@ public enum Diagnostic {
 
     /// **The stage the diagnostic is at**, as `run` reports it to `onProgress` — an app says it in its
     /// own language; `description` is the English the command line prints.
-    public enum Stage: String, Sendable, CaseIterable, CustomStringConvertible {
+    package enum Stage: String, Sendable, CaseIterable, CustomStringConvertible {
         case products = "fp32 matrix products"
         case lowPrecision = "fp16 and bf16 products"
         case attention = "attention"
         case widening = "weight widening"
         case witness = "drift witness"
-        public var description: String { rawValue }
+        package var description: String { rawValue }
         /// Its key in the report's `stages`: short, the issue link's bytes are counted.
-        public var key: String {
+        package var key: String {
             switch self {
             case .products: return "products"
             case .lowPrecision: return "lowPrecision"
@@ -541,7 +541,7 @@ public enum Diagnostic {
     /// never beside a render of this process) and holds the machine's render lock (a render of
     /// another process refuses it: `renderAlreadyRunning`). `cancellation` is checked between two
     /// measurements (`cancelled`).
-    public static func run(cancellation: Cancellation? = nil,
+    package static func run(cancellation: Cancellation? = nil,
                            onProgress: (@Sendable (_ stage: Stage) -> Void)? = nil) throws(EngineError) -> Report {
         dispatchPrecondition(condition: .notOnQueue(Engine.file))
         let result = Engine.file.sync {
@@ -594,7 +594,7 @@ public enum Diagnostic {
 
     // ── the machine ─────────────────────────────────────────────────────────────────────────
 
-    public static func machine() -> Machine {
+    package static func machine() -> Machine {
         let device = MTLCreateSystemDefaultDevice()
         return Machine(chip: sysctlString("machdep.cpu.brand_string"), hardwareModel: sysctlString("hw.model"),
                        performanceCores: sysctlInteger("hw.perflevel0.physicalcpu") ?? 0,
@@ -621,26 +621,26 @@ public enum Diagnostic {
     /// that measured it (its version and its build stamp). Any of them changing — a new Mac restored from
     /// a backup, a macOS update that moves MPS, an app update that moves a kernel — makes the map stale:
     /// the stale one is not applied, and the app offers to measure again (~23 s).
-    public struct Fingerprint: Codable, Sendable, Equatable, CustomStringConvertible {
-        public var hardwareModel, chip, macOS, version, build: String
+    package struct Fingerprint: Codable, Sendable, Equatable, CustomStringConvertible {
+        package var hardwareModel, chip, macOS, version, build: String
 
-        public init(hardwareModel: String, chip: String, macOS: String, version: String, build: String) {
+        package init(hardwareModel: String, chip: String, macOS: String, version: String, build: String) {
             self.hardwareModel = hardwareModel; self.chip = chip; self.macOS = macOS; self.version = version
             self.build = build
         }
 
-        public init(_ machine: Machine) {
+        package init(_ machine: Machine) {
             self.init(hardwareModel: machine.hardwareModel, chip: machine.chip, macOS: machine.macOS,
                       version: machine.version, build: machine.build)
         }
 
         /// This process's, read without Metal (`sysctl`, the bundle, the executable's stamp).
-        public static var current: Fingerprint {
+        package static var current: Fingerprint {
             Fingerprint(hardwareModel: sysctlString("hw.model"), chip: sysctlString("machdep.cpu.brand_string"),
                         macOS: macOSLabel(), version: binaryVersion(), build: buildStamp())
         }
 
-        public var description: String { "\(chip) (\(hardwareModel)) · macOS \(macOS) · \(version) · \(build)" }
+        package var description: String { "\(chip) (\(hardwareModel)) · macOS \(macOS) · \(version) · \(build)" }
     }
 
     /// **The CPU flags a product can use**, read: half-precision arithmetic (`FEAT_FP16`, `FEAT_FHM`),

@@ -2,8 +2,8 @@
 //
 // What a user of Draw Things or ComfyUI downloads
 // — Z-Image Turbo, Qwen-Image-2.1, Anima and Krea 2 in front, nothing preinstalled, each license accepted
-// before its first byte, a measure of the machine that it can report. A pure client of the `Siliconed` library (`import`,
-// never `@testable`): everything it calls is public.
+// before its first byte, a measure of the machine that it can report. A client of the `Siliconed` library in the same package (`import`,
+// never `@testable`): everything it calls is `package`.
 //
 // The files: `App.swift` (the app, its menus, its window), `AppState.swift` and `AppState+….swift` (the state and the
 // calls to the library), `MainView.swift` (the window's view and the canvas), `Sidebar.swift` (the

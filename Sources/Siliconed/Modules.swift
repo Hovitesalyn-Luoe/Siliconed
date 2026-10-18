@@ -15,16 +15,16 @@ import Foundation
 
 // ── Z-Image ─────────────────────────────────────────────────────────────────────────────────
 
-public struct ZImageTextModule: TextModule {
-    public var map: String
+package struct ZImageTextModule: TextModule {
+    package var map: String
     /// The published repository's `tokenizer/` folder.
-    public var tokenizer: String
-    public var output: TextFormat { .zImage }
-    public var name: String { "Qwen3-4B" }
+    package var tokenizer: String
+    package var output: TextFormat { .zImage }
+    package var name: String { "Qwen3-4B" }
 
-    public init(map: String, tokenizer: String) { self.map = map; self.tokenizer = tokenizer }
+    package init(map: String, tokenizer: String) { self.map = map; self.tokenizer = tokenizer }
 
-    public func encoder(_ prompt: String, context: Context) throws -> Conditioning {
+    package func encoder(_ prompt: String, context: Context) throws -> Conditioning {
         let begin = Date()
         var identifiers: [Int] = [], realCount = 0
         // **Two scopes, not one**: a 151 k-entry dictionary and a Metal arena do not leave the same
@@ -48,20 +48,20 @@ public struct ZImageTextModule: TextModule {
 }
 
 /// Z-Image's S3 DiT under its sampler (negation, every evaluation at full size).
-public struct ZImageDenoisingModule: DenoisingModule {
-    public var map: String
+package struct ZImageDenoisingModule: DenoisingModule {
+    package var map: String
 
-    public var model: String { "z-image" }
-    public var name: String { "DiT Z-Image" }
-    public var entry: TextFormat { .zImage }
-    public var space: LatentSpace { .flux }
-    public var defaultSteps: Int { 8 }
+    package var model: String { "z-image" }
+    package var name: String { "DiT Z-Image" }
+    package var entry: TextFormat { .zImage }
+    package var space: LatentSpace { .flux }
+    package var defaultSteps: Int { 8 }
     /// Every `Solver`: its sampler walks them all (`SolverWalk`).
-    public var solvers: [Solver] { Solver.allCases }
+    package var solvers: [Solver] { Solver.allCases }
 
-    public init(map: String) { self.map = map }
+    package init(map: String) { self.map = map }
 
-    public func sigmas(steps: Int) -> [Float] { FlowMatchSchedule(steps: steps).sigmas }
+    package func sigmas(steps: Int) -> [Float] { FlowMatchSchedule(steps: steps).sigmas }
 
     /// **Every evaluation at full size: no spectral schedule** (since 0.8.2). Half-size first steps
     /// were judged clean on the seven-evaluation schedule of before 0.8.2; on the recipe's eight
@@ -72,13 +72,13 @@ public struct ZImageDenoisingModule: DenoisingModule {
     ///
     /// Evaluations are counted from the start to the end: every step moves (`FlowMatchSchedule`),
     /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s` in img2img.
-    public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
+    package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let σ = FlowMatchSchedule(steps: steps).sigmas
         return DenoisingPlan(startStep: start, startSigma: σ[start], evaluations: steps - start,
                              reduced: 0, reducedHeight: height, reducedWidth: width)
     }
 
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
+    package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                           context: Context) throws {
         let (height, width) = (latent.height, latent.width)
         let dit: DiT
@@ -116,13 +116,13 @@ public struct ZImageDenoisingModule: DenoisingModule {
     }
 }
 
-public struct FluxDecodingModule: DecodingModule {
-    public var path: String
-    public var space: LatentSpace { .flux }
-    public var name: String { "VAE Flux" }
-    public init(path: String) { self.path = path }
+package struct FluxDecodingModule: DecodingModule {
+    package var path: String
+    package var space: LatentSpace { .flux }
+    package var name: String { "VAE Flux" }
+    package init(path: String) { self.path = path }
 
-    public func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
+    package func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
         let vae = try VAE(path: path, latentHeight: latent.height, latentWidth: latent.width)
         let (image, seconds) = try latent.values.withUnsafeBufferPointer { try vae.decode(latent: $0.baseAddress!) }
         context.timings.decoding = seconds
@@ -131,13 +131,13 @@ public struct FluxDecodingModule: DecodingModule {
 }
 
 /// The Flux VAE's encoder (img2img): the image at the render's format → `(mean − 0.1159) × 0.3611`.
-public struct FluxEncodingModule: ImageEncodingModule {
-    public var path: String
-    public var space: LatentSpace { .flux }
-    public var name: String { "VAE Flux" }
-    public init(path: String) { self.path = path }
+package struct FluxEncodingModule: ImageEncodingModule {
+    package var path: String
+    package var space: LatentSpace { .flux }
+    package var name: String { "VAE Flux" }
+    package init(path: String) { self.path = path }
 
-    public func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
+    package func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
         try encoderImage(image, path: path, family: .flux, space: space, context: context)
     }
 }
@@ -156,21 +156,21 @@ func encoderImage(_ image: ImageRGB, path: String, family: VAEEncoder.Family, sp
 // ── Anima ───────────────────────────────────────────────────────────────────────────────────
 
 /// Two tokenizers, Qwen3-0.6B (`last_hidden_state`), then Anima's conditioner (T5 + adapter).
-public struct AnimaTextModule: TextModule {
-    public var map: String
-    public var tokenizerQwen: String
-    public var tokenizerT5: String
+package struct AnimaTextModule: TextModule {
+    package var map: String
+    package var tokenizerQwen: String
+    package var tokenizerT5: String
     /// The published Turbo file, which carries the adapter's weights.
-    public var adapter: String
-    public var output: TextFormat { .anima }
-    public var name: String { "Qwen3-0.6B + T5" }
+    package var adapter: String
+    package var output: TextFormat { .anima }
+    package var name: String { "Qwen3-0.6B + T5" }
 
-    public init(map: String, tokenizerQwen: String, tokenizerT5: String, adapter: String) {
+    package init(map: String, tokenizerQwen: String, tokenizerT5: String, adapter: String) {
         self.map = map; self.tokenizerQwen = tokenizerQwen; self.tokenizerT5 = tokenizerT5
         self.adapter = adapter
     }
 
-    public func encoder(_ prompt: String, context: Context) throws -> Conditioning {
+    package func encoder(_ prompt: String, context: Context) throws -> Conditioning {
         let begin = Date()
         // `padding="longest", max_length=512, truncation=True` for a single prompt: no padding,
         // and Qwen truncated to 512 — T5 keeps its `</s>` under truncation.
@@ -198,29 +198,29 @@ public struct AnimaTextModule: TextModule {
 }
 
 /// Anima Turbo's Cosmos DiT: Euler, CFG 1.
-public struct AnimaDenoisingModule: DenoisingModule {
-    public var map: String
-    public var model: String { "anima" }
-    public var name: String { "DiT Anima" }
-    public var entry: TextFormat { .anima }
-    public var space: LatentSpace { .qwenImage }
-    public var defaultSteps: Int { 8 }
+package struct AnimaDenoisingModule: DenoisingModule {
+    package var map: String
+    package var model: String { "anima" }
+    package var name: String { "DiT Anima" }
+    package var entry: TextFormat { .anima }
+    package var space: LatentSpace { .qwenImage }
+    package var defaultSteps: Int { 8 }
 
-    public init(map: String) { self.map = map }
+    package init(map: String) { self.map = map }
 
     /// Every `Solver`: `euler` walks them on Anima's own σ, judged against diffusers' schedulers.
-    public var solvers: [Solver] { Solver.allCases }
+    package var solvers: [Solver] { Solver.allCases }
     /// No Detail: the lie about σ makes mosaic blocks or nothing visible (`Detail`).
-    public var acceptsDetail: Bool { false }
+    package var acceptsDetail: Bool { false }
 
-    public func sigmas(steps: Int) -> [Float] { AnimaDiT.sigmas(steps: steps) }
+    package func sigmas(steps: Int) -> [Float] { AnimaDiT.sigmas(steps: steps) }
 
-    public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
+    package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
                          reduced: 0, reducedHeight: height, reducedWidth: width)
     }
 
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
+    package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                           context: Context) throws {
         let dit = try AnimaDiT(artifact: try Artifact(path: map), latentHeight: latent.height,
                                latentWidth: latent.width,
@@ -240,24 +240,24 @@ public struct AnimaDenoisingModule: DenoisingModule {
 
 /// The Qwen-Image VAE's encoder (img2img), for Anima and Krea 2 — same weights, two files: the
 /// image at the render's format → `(mean − mean_c) / std_c`.
-public struct QwenImageEncodingModule: ImageEncodingModule {
-    public var path: String
-    public var space: LatentSpace { .qwenImage }
-    public var name: String { "VAE Qwen-Image" }
-    public init(path: String) { self.path = path }
+package struct QwenImageEncodingModule: ImageEncodingModule {
+    package var path: String
+    package var space: LatentSpace { .qwenImage }
+    package var name: String { "VAE Qwen-Image" }
+    package init(path: String) { self.path = path }
 
-    public func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
+    package func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
         try encoderImage(image, path: path, family: .qwenImage, space: space, context: context)
     }
 }
 
-public struct QwenImageDecodingModule: DecodingModule {
-    public var path: String
-    public var space: LatentSpace { .qwenImage }
-    public var name: String { "VAE Qwen-Image" }
-    public init(path: String) { self.path = path }
+package struct QwenImageDecodingModule: DecodingModule {
+    package var path: String
+    package var space: LatentSpace { .qwenImage }
+    package var name: String { "VAE Qwen-Image" }
+    package init(path: String) { self.path = path }
 
-    public func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
+    package func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
         let vae = try AnimaVAE(path: path, latentHeight: latent.height, latentWidth: latent.width)
         let (image, seconds) = try latent.values.withUnsafeBufferPointer { try vae.decode(latent: $0.baseAddress!) }
         context.timings.decoding = seconds
@@ -319,19 +319,19 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
 // ── Krea 2 ──────────────────────────────────────────────────────────────────────────────────
 
 /// Template, Qwen tokenizer, Qwen3-VL-4B with its twelve layers taken. Not the fusion: that is the DiT's.
-public struct Krea2TextModule: TextModule {
-    public var map: String
-    public var tokenizer: String
+package struct Krea2TextModule: TextModule {
+    package var map: String
+    package var tokenizer: String
     /// The layers taken, read from `model_index.json`.
-    public var sockets: [Int]
-    public var output: TextFormat { .krea2 }
-    public var name: String { "Qwen3-VL-4B" }
+    package var sockets: [Int]
+    package var output: TextFormat { .krea2 }
+    package var name: String { "Qwen3-VL-4B" }
 
-    public init(map: String, tokenizer: String, sockets: [Int]) {
+    package init(map: String, tokenizer: String, sockets: [Int]) {
         self.map = map; self.tokenizer = tokenizer; self.sockets = sockets
     }
 
-    public func encoder(_ prompt: String, context: Context) throws -> Conditioning {
+    package func encoder(_ prompt: String, context: Context) throws -> Conditioning {
         let begin = Date()
         let ids = Krea2Text.identifiers(prompt, tokenizer: try Tokenizer(directory: tokenizer))
         let tokens = ids.count - Krea2Text.templateTokens
@@ -349,30 +349,30 @@ public struct Krea2TextModule: TextModule {
 
 /// The text fusion and `txt_in`, then the Krea 2 DiT: Euler, CFG 0. Both read the same map and the
 /// LoRA touches both — which is why the fusion lives here and not in the text stage.
-public struct Krea2DenoisingModule: DenoisingModule {
-    public var map: String
-    public var model: String { "krea2" }
-    public var name: String { "DiT Krea 2" }
-    public var entry: TextFormat { .krea2 }
-    public var space: LatentSpace { .qwenImage }
-    public var defaultSteps: Int { 8 }
+package struct Krea2DenoisingModule: DenoisingModule {
+    package var map: String
+    package var model: String { "krea2" }
+    package var name: String { "DiT Krea 2" }
+    package var entry: TextFormat { .krea2 }
+    package var space: LatentSpace { .qwenImage }
+    package var defaultSteps: Int { 8 }
 
-    public init(map: String) { self.map = map }
+    package init(map: String) { self.map = map }
 
     /// Every `Solver`: `euler` walks them on Krea 2's own σ (the exponential shift), judged against
     /// diffusers' schedulers (`SolverTests`).
-    public var solvers: [Solver] { Solver.allCases }
+    package var solvers: [Solver] { Solver.allCases }
     /// No Detail: the node's bell changes the pose and the face, not the texture (`Detail`).
-    public var acceptsDetail: Bool { false }
+    package var acceptsDetail: Bool { false }
 
-    public func sigmas(steps: Int) -> [Float] { Krea2DiT.sigmas(steps: steps) }
+    package func sigmas(steps: Int) -> [Float] { Krea2DiT.sigmas(steps: steps) }
 
-    public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
+    package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
                          reduced: 0, reducedHeight: height, reducedWidth: width)
     }
 
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
+    package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                           context: Context) throws {
         let artifact = try Artifact(path: map)
         let tokens = text.rows
@@ -428,16 +428,16 @@ public struct Krea2DenoisingModule: DenoisingModule {
 /// **Qwen3-VL-8B on the prompt and the references together** — the raw template, each image its
 /// `<imageN>` slot, the vision tower, the last layer before the final norm. The references arrive at
 /// the DiT's size (`QwenImage21DenoisingModule.preparedReferences`): the copy the VAE encodes too.
-public struct QwenImage21TextModule: ImageTextModule {
-    public var map: String
+package struct QwenImage21TextModule: ImageTextModule {
+    package var map: String
     /// The published `processor/` folder (its `tokenizer.json`).
-    public var tokenizer: String
-    public var output: TextFormat { .qwenImage21 }
-    public var name: String { "Qwen3-VL-8B" }
+    package var tokenizer: String
+    package var output: TextFormat { .qwenImage21 }
+    package var name: String { "Qwen3-VL-8B" }
 
-    public init(map: String, tokenizer: String) { self.map = map; self.tokenizer = tokenizer }
+    package init(map: String, tokenizer: String) { self.map = map; self.tokenizer = tokenizer }
 
-    public func encoder(_ prompt: String, images: [ImageRGB], context: Context) throws -> Conditioning {
+    package func encoder(_ prompt: String, images: [ImageRGB], context: Context) throws -> Conditioning {
         let begin = Date()
         let tokenizer = try Tokenizer(directory: tokenizer)
         // Already at their size: `pixels` refuses one that `smart_resize` would resample.
@@ -462,20 +462,20 @@ public struct QwenImage21TextModule: ImageTextModule {
 
 /// **The Qwen-Image-2.1-Turbo DiT**: Euler without CFG, 8 steps on the published `sample_sigmas`, one
 /// prefill per render. The user's LoRAs, if any, apply to the Turbo's map itself. See `QwenImage21Pipeline`.
-public struct QwenImage21DenoisingModule: DenoisingModule {
-    public var map: String
+package struct QwenImage21DenoisingModule: DenoisingModule {
+    package var map: String
     package var scheduler: QwenImage21Pipeline.Scheduler
     /// `output_resolution`: the references' area (`R²`), and the edit format's.
-    public var resolution: Int
+    package var resolution: Int
     /// Where the K/V cache lives — `nil`: the policy (`QwenImage21CachePolicy`). Set by the checks that measure.
     package var storage: QwenImage21DiT.CacheStorage? = nil
-    public var model: String { Family.qwenImage21.rawValue }
-    public var name: String { "DiT Qwen-Image-2.1" }
-    public var entry: TextFormat { .qwenImage21 }
-    public var space: LatentSpace { .qwenImage21 }
-    public var defaultSteps: Int { QwenImage21Pipeline.defaultSteps }
+    package var model: String { Family.qwenImage21.rawValue }
+    package var name: String { "DiT Qwen-Image-2.1" }
+    package var entry: TextFormat { .qwenImage21 }
+    package var space: LatentSpace { .qwenImage21 }
+    package var defaultSteps: Int { QwenImage21Pipeline.defaultSteps }
     /// The pipeline's edits: 1 to 3 references.
-    public var maxReferences: Int { 3 }
+    package var maxReferences: Int { 3 }
 
     package init(map: String, scheduler: QwenImage21Pipeline.Scheduler,
                 resolution: Int = QwenImage21Pipeline.outputResolution) {
@@ -484,11 +484,11 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
 
     /// The published schedule, the same at every size. An unsupported count gives it too:
     /// `check(steps:)` has refused that count before.
-    public func sigmas(steps: Int) -> [Float] { scheduler.sigmas }
+    package func sigmas(steps: Int) -> [Float] { scheduler.sigmas }
 
     /// The official σ, or ComfyUI's for this architecture (`SigmaSchedule`) — a comparison.
-    public var schedules: [SigmaSchedule] { SigmaSchedule.allCases }
-    public func sigmas(steps: Int, schedule: SigmaSchedule) -> [Float] {
+    package var schedules: [SigmaSchedule] { SigmaSchedule.allCases }
+    package func sigmas(steps: Int, schedule: SigmaSchedule) -> [Float] {
         switch schedule {
         case .official: return sigmas(steps: steps)
         case .comfyUI: return QwenImage21Pipeline.comfySigmas(steps: steps)
@@ -515,7 +515,7 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     /// in an edit — the plan cannot see the references, the chain zeroes it (`DenoisingPlan.unreduced`)
     /// and the denoiser ignores it with references. `SILICONED_SPECTRAL` forces `k` (a measurement),
     /// within the same floor.
-    public func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
+    package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let halvable = Spectral.divisible(height: height, width: width, by: 2,
                                           floor: Spectral.floor(factor: space.factor))
         let rule = withLoRA ? 0 : QwenImage21DenoisingModule.spectralSteps
@@ -535,34 +535,34 @@ public struct QwenImage21DenoisingModule: DenoisingModule {
     /// builds it too), a few milliseconds and, for a generation, a prefill fused into the first step.
     package static func keepsDenoiser(reduced: Int) -> Bool { reduced == 0 }
 
-    public func check(steps: Int, startImage: Bool) throws {
+    package func check(steps: Int, startImage: Bool) throws {
         try QwenImage21Pipeline.check(steps: steps)
         if startImage { throw QwenImage21Pipeline.Failure.imageToImage }
     }
 
     /// Its pipeline has no img2img: the image encoder serves the references only.
-    public var acceptsStartImage: Bool { false }
+    package var acceptsStartImage: Bool { false }
     /// Its noise leaves in the last two evaluations: an early x̂₀ is blurred and grainy (`Sketch`).
-    public var sketches: Bool { false }
+    package var sketches: Bool { false }
     /// Every `Solver`: its sampler walks them all (`SolverWalk`), Euler in its own loop.
-    public var solvers: [Solver] { Solver.allCases }
+    package var solvers: [Solver] { Solver.allCases }
 
     /// Pillow's Lanczos to `calculate_dimensions(R², w/h)`, each at its own ratio.
-    public func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB] {
+    package func preparedReferences(_ images: [ImageRGB]) throws -> [ImageRGB] {
         images.map { QwenImage21Pipeline.preparedReference($0, resolution: resolution) }
     }
 
-    public func editFormat(referenceWidth: Int, referenceHeight: Int) -> (width: Int, height: Int) {
+    package func editFormat(referenceWidth: Int, referenceHeight: Int) -> (width: Int, height: Int) {
         QwenImage21Pipeline.outputSize(referenceWidth: referenceWidth, referenceHeight: referenceHeight,
                                        resolution: resolution)
     }
 
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
+    package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                         context: Context) throws {
         try denoise(&latent, text: text, steps: steps, start: start, references: [], lora: lora, context: context)
     }
 
-    public func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int,
+    package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int,
                         references: [Latent], lora: LoRA?, context: Context) throws {
         guard references.allSatisfy({ $0.space == space }), references.count <= maxReferences else {
             throw Request.Failure.references(references.count, max: maxReferences)
@@ -655,16 +655,16 @@ extension QwenImage21DenoisingModule {
 /// The constructors and `named` take the library under the same label, `in:` — that of
 /// `ModelCard.missing(in:)`. A custom chain becomes a model through
 /// `Model(card:chain:)`: it is the only thing `render`, `renderBatch` and `events` take.
-public struct Model: Sendable {
+package struct Model: Sendable {
     /// The name, the license, the recommended formats: what the catalog knows without opening anything.
-    public let card: ModelCard
-    public let chain: Chain
+    package let card: ModelCard
+    package let chain: Chain
     /// The library it was built from — where its renders keep what they do not redo
     /// (`Library.cacheFolder`). `nil` for a hand-composed chain: nothing is cached.
     package let library: Library?
 
     /// A hand-composed chain, under the sheet of the model whose denoiser it holds.
-    public init(card: ModelCard, chain: Chain) { self.card = card; self.chain = chain; self.library = nil }
+    package init(card: ModelCard, chain: Chain) { self.card = card; self.chain = chain; self.library = nil }
 
     package init(card: ModelCard, library: Library, chain: Chain) {
         self.card = card; self.chain = chain; self.library = library
@@ -672,14 +672,14 @@ public struct Model: Sendable {
 
     /// `z-image`, `anima`, `krea2`, `qwen-image-2.1` — what `--model` accepts; an imported model is
     /// called `<family>/<name>` (`z-image/my-model`).
-    public var identifier: String { card.id }
-    public var name: String { card.name }
+    package var identifier: String { card.id }
+    package var name: String { card.name }
     /// The architecture — the target a LoRA declares.
-    public var family: Family { card.family }
+    package var family: Family { card.family }
     /// To be recalled to anyone distributing an image or the model.
-    public var license: License { card.license }
+    package var license: License { card.license }
 
-    public static let identifiers = ModelCard.allCards.map(\.id)
+    package static let identifiers = ModelCard.allCards.map(\.id)
 
     package enum Failure: Error, CustomStringConvertible {
         case unknown(String)
@@ -693,7 +693,7 @@ public struct Model: Sendable {
 
     /// The model `identifier` of the library — `EngineError.modelNotInstalled` if a file is missing
     /// (`ModelCard.missing(in:)` says which), `unknownModel` if there is no such model.
-    public static func named(_ identifier: String, in b: Library) throws(EngineError) -> Model {
+    package static func named(_ identifier: String, in b: Library) throws(EngineError) -> Model {
         try building(identifier) { try make(identifier, in: b) }
     }
 
@@ -735,7 +735,7 @@ public struct Model: Sendable {
     }
 
     /// Z-Image Turbo — the product's default. `denoising`: a denoiser on another map.
-    public static func zImage(in b: Library, denoising: ZImageDenoisingModule? = nil) throws(EngineError) -> Model {
+    package static func zImage(in b: Library, denoising: ZImageDenoisingModule? = nil) throws(EngineError) -> Model {
         try building(ModelCard.zImage.id) { try zImage(in: b, card: .zImage, dit: b.ditMap(.zImage), denoising: denoising) }
     }
 
@@ -750,7 +750,7 @@ public struct Model: Sendable {
     }
 
     /// Anima Turbo v1.1. ⚠️ Non-commercial license: never a product's default.
-    public static func anima(in b: Library) throws(EngineError) -> Model {
+    package static func anima(in b: Library) throws(EngineError) -> Model {
         try building(ModelCard.anima.id) { try anima(in: b, card: .anima, dit: b.ditMap(.anima)) }
     }
 
@@ -771,7 +771,7 @@ public struct Model: Sendable {
 
     /// Krea 2 Turbo. ⚖️ Krea 2 Community license: commercial under $1M annual revenue, mandatory
     /// content filter at deployment (§4.2), "Krea" at the head of a distributed model (§3.1).
-    public static func krea2(in b: Library) throws(EngineError) -> Model {
+    package static func krea2(in b: Library) throws(EngineError) -> Model {
         try building(ModelCard.krea2.id) { try krea2(in: b, card: .krea2, dit: b.ditMap(.krea2)) }
     }
 
@@ -787,7 +787,7 @@ public struct Model: Sendable {
 
     /// Qwen-Image-2.1-Turbo: 8 steps, generation and editing by instruction (1 to 3
     /// references, which its encoder sees). ⚠️ Qwen Research license: non-commercial.
-    public static func qwenImage21(in b: Library) throws(EngineError) -> Model {
+    package static func qwenImage21(in b: Library) throws(EngineError) -> Model {
         try building(ModelCard.qwenImage21.id) { try qwenImage21(in: b, card: .qwenImage21, dit: b.ditMap(.qwenImage21)) }
     }
 

@@ -1,8 +1,8 @@
 import Foundation
 
-// **One public error: `EngineError`, a closed enumeration.**
+// **One error leaves the engine: `EngineError`, a closed enumeration.**
 //
-// Everything that can refuse or fail in the engine is a named case, and every public function that
+// Everything that can refuse or fail in the engine is a named case, and every function the app calls that
 // throws throws it (`throws(EngineError)`: the compiler holds the door). An app translates it case by
 // case: `code` is the stable key of the sentence (`"disk_full"`, …), the associated values are its
 // parameters, `errorDescription` is the English source, `recoverySuggestion` what the user can do.
@@ -11,12 +11,12 @@ import Foundation
 //
 // Inside the package, the readers and kernels keep their own `Failure`s (`Artifact`, `Safetensors`,
 // `GEMM`, `Arena`, the forge's `Numerics`…): they say *where* things broke, which the checks and the
-// CLI print. They are `package`, and `EngineError(_:)` folds each into its public case at the door
+// CLI print. They are `package`, and `EngineError(_:)` folds each into its `EngineError` case at the door
 // (`EngineError.boundary`). A new internal failure that reaches the door unmapped becomes
 // `internalFailure` — a breakdown, never a silent "operation couldn't be completed".
 
 /// **Everything the engine refuses or fails on, by name.**
-public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStringConvertible {
+package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStringConvertible {
 
     // ── the library: models, files, installation ──────────────────────────────────────────
 
@@ -133,7 +133,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     case internalFailure(component: String, detail: String)
 
     /// Why a format is refused — `code` refines into `format_refused.<rawValue>`.
-    public enum FormatRefusal: String, Sendable, Equatable, CaseIterable {
+    package enum FormatRefusal: String, Sendable, Equatable, CaseIterable {
         /// A side that is not a multiple of the model's `Format.multiple(for:)` (16: VAE ×8, patch ×2;
         /// Qwen-Image-2.1 32: VAE ×16, patch ×2).
         case notMultiple = "not_multiple"
@@ -144,7 +144,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     }
 
     /// Why a prompt's alternatives do not parse — `code` refines into `prompt_syntax.<rawValue>`.
-    public enum PromptRefusal: String, Sendable, Equatable, CaseIterable {
+    package enum PromptRefusal: String, Sendable, Equatable, CaseIterable {
         /// A `{` that no `}` closes.
         case unclosedGroup = "unclosed_group"
         /// A `}` that closes no group.
@@ -154,7 +154,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     }
 
     /// Why an XY grid is refused — `code` refines into `grid_refused.<rawValue>`.
-    public enum GridRefusal: String, Sendable, Equatable, CaseIterable {
+    package enum GridRefusal: String, Sendable, Equatable, CaseIterable {
         /// An axis without a value.
         case emptyAxis = "empty_axis"
         /// X and Y vary the same setting (the seed twice, the same group, the same LoRA).
@@ -175,7 +175,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     }
 
     /// Why a LoRA is refused — `code` refines into `unsupported_lora.<rawValue>`.
-    public enum LoRARefusal: String, Sendable, Equatable, CaseIterable {
+    package enum LoRARefusal: String, Sendable, Equatable, CaseIterable {
         /// The map is a model, not an adapter.
         case notALoRA = "not_a_lora"
         /// The map does not say which model it was forged for: forge it again.
@@ -188,7 +188,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
 
     /// **The stable key of the case** — what an app looks its translated sentence up by. Never
     /// renamed once published; a new case takes a new code.
-    public var code: String {
+    package var code: String {
         switch self {
         case .modelNotInstalled: return "model_not_installed"
         case .unknownModel: return "unknown_model"
@@ -236,7 +236,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         }
     }
 
-    public var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .modelNotInstalled(let model): return "The model \(model) is not installed."
         case .unknownModel(let model): return "There is no model called \(model)."
@@ -336,7 +336,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         }
     }
 
-    public var recoverySuggestion: String? {
+    package var recoverySuggestion: String? {
         switch self {
         case .modelNotInstalled: return "Install the model, or choose the library it is installed in."
         case .unknownModel: return "Choose a model from the list of installed models, or install it first."
@@ -400,7 +400,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     }
 
     /// The sentence and its suggestion — what the CLI prints; an import's diagnostic follows it.
-    public var description: String {
+    package var description: String {
         let text = [errorDescription, recoverySuggestion].compactMap { $0 }.joined(separator: " ")
         if case let .importRefused(_, detail) = self { return text + " (\(detail))" }
         return text
@@ -410,7 +410,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
 
     /// **The fold.** An `EngineError` comes back as is; each internal failure becomes the case an
     /// app can name; anything else is an `internalFailure`.
-    public init(_ error: any Error) {
+    package init(_ error: any Error) {
         switch error {
         case let e as EngineError: self = e
         case is CancellationError: self = .cancelled
@@ -440,8 +440,6 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case let e as ImageRGB.Failure:
             switch e {
             case .unreadable(let file): self = .imageUnreadable(file: file)
-            case .encoding: self = .imageEncodingFailed
-            case .writing(let file): self = .imageWriteFailed(file: file)
             }
         case let e as LoRA.Failure:
             switch e {
@@ -449,7 +447,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
                 self = .loraForOtherModel(lora: name, target: forgedFor, model: model)
             case let .notALoRA(path, _): self = .unsupportedLoRA(file: path, reason: .notALoRA)
             case .missingTarget(let path): self = .unsupportedLoRA(file: path, reason: .noTarget)
-            case .inconsistentRank(let target, _, _), .inconsistentShape(let target, _):
+            case .inconsistentShape(let target, _):
                 self = .unsupportedLoRA(file: target, reason: .inconsistent)
             }
         case let e as Chain.Failure:
@@ -506,7 +504,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         }
     }
 
-    /// **The door**: runs `body` and throws only `EngineError`. Every public function that throws
+    /// **The door**: runs `body` and throws only `EngineError`. Every function the app calls that throws
     /// passes through it (or throws an `EngineError` itself).
     package static func boundary<T>(_ body: () throws -> T) throws(EngineError) -> T {
         do { return try body() } catch { throw EngineError(error) }

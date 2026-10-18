@@ -13,7 +13,11 @@ import Metal
 ///   - `swiglu`  : `a ← a·b / (1 + e^{−a})` — `a·b` as a pair, `e^{−a}` as a pair (`exp_pair`), a
 ///     corrected quotient: one final rounding instead of the four of `Ops.siluGate`;
 ///   - `sigmoid_gate` (Swift: `carries`): `x ← x / (1 + e^{−g})`, the attention's sigmoid gate, same quotient;
-///   - `residual`: `x ← x + gate[d] · y`, in one `fma` (the CPU rounds twice);
+///   - `residual`: `x ← x + gate[d] · y` in **two roundings**, the product then the sum, as torch computes
+///     `x + gate * y` on the CPU (and `Ops.gatedResidual`): one `fma` was closer to the exact and moved
+///     one value in nine by an ulp away from the reference. `.safe` does not forbid the contraction of
+///     `a * b + c` into an FMA; the kernel turns it off (`#pragma METAL fp contract(off)`), and
+///     `siliconed-dev elementwise` checks it to the bit against the CPU;
 ///
 /// **The norms are not there, and it is a refutation**: an RMSNorm with compensated sum,
 /// more accurate than the CPU's according to the judge, nonetheless moved the trajectory away from its fp64 reference (step 3:
@@ -77,9 +81,12 @@ package final class ElementwiseGPU {
     kernel void residual(device float *x [[buffer(0)]], device const float *y [[buffer(1)]],
                        device const float *gate [[buffer(2)]], constant uint &cols [[buffer(3)]],
                        uint2 p [[thread_position_in_grid]]) {
+        // Two roundings, as torch: no contraction of the product and the sum into one FMA.
+        #pragma METAL fp contract(off)
         if (p.x >= cols) return;
         uint i = p.y * cols + p.x;
-        x[i] = fma(y[i], gate[p.x], x[i]);
+        float product = gate[p.x] * y[i];
+        x[i] = x[i] + product;
     }
 
     """

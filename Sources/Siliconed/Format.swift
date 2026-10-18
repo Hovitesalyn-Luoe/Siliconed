@@ -22,10 +22,10 @@ import Foundation
 ///   before any computation: 848×1216 would otherwise die after the encoder.
 /// - **Anima: each side at most 2048 px** — the reference's RoPE table holds 128 positions per side
 ///   (`AnimaDiT.Config.ropePositions`); past it the reference fails, and the engine would extrapolate.
-public enum Format {
+package enum Format {
     /// The smallest side, in pixels: `Spectral.minimumSide` latent cells of 8 px.
-    public static let minimumSide = Spectral.minimumSide * 8
-    public static let multiple = 16
+    package static let minimumSide = Spectral.minimumSide * 8
+    package static let multiple = 16
     /// **The area ceiling, in pixels: that of 1024×1536, measured.**
     ///
     /// The 16 GB criterion had only been measured at 1024², and an app lets users type 2048×2048.
@@ -37,20 +37,20 @@ public enum Format {
     /// models fit at 1024×1536 — measured peaks (`/usr/bin/time -l`, footprint): **Krea 2
     /// 7.8 GB** (439 s), **Z-Image 7.5 GB** (with PopArt, 174 s), **Anima 7.6 GB** (91 s), all at
     /// decoding. Beyond that, nothing is measured: the ceiling is the last format that was.
-    public static let maxSurface = 1024 * 1536
+    package static let maxSurface = 1024 * 1536
 
     /// The longest side the area ceiling leaves above the floor: 1536·1024 / 512 = 3072 px.
-    public static let maximumSide = maxSurface / minimumSide
+    package static let maximumSide = maxSurface / minimumSide
 
     /// **The multiple each side of `family` must be**: 32 for Qwen-Image-2.1 (VAE ×16, patch ×2), 16
     /// otherwise.
-    public static func multiple(for family: Family) -> Int {
+    package static func multiple(for family: Family) -> Int {
         family == .qwenImage21 ? 32 : multiple
     }
 
     /// **The longest side `family` renders**, in pixels: Anima's RoPE table (128 positions × patch 2 ×
     /// VAE 8 = 2048), `maximumSide` otherwise.
-    public static func maximumSide(for family: Family) -> Int {
+    package static func maximumSide(for family: Family) -> Int {
         switch family {
         case .anima:
             return min(maximumSide, AnimaDiT.Config.publishedRopePositions * 2 * LatentSpace.qwenImage.factor)
@@ -60,13 +60,13 @@ public enum Format {
 
     /// Throws if the format is not renderable by any model. The order of the rules is that of the
     /// most useful error.
-    public static func check(width: Int, height: Int) throws(EngineError) {
+    package static func check(width: Int, height: Int) throws(EngineError) {
         try check(width: width, height: height, multiple: multiple, maximumSide: maximumSide)
     }
 
     /// **Throws if `family` does not render the format** — the general rules, then the family's own:
     /// what the preflight checks, what the app's size field judges.
-    public static func check(width: Int, height: Int, family: Family) throws(EngineError) {
+    package static func check(width: Int, height: Int, family: Family) throws(EngineError) {
         try check(width: width, height: height, multiple: multiple(for: family), maximumSide: maximumSide(for: family))
     }
 
@@ -88,7 +88,7 @@ public enum Format {
 
     /// **`LxH`: width × height**, the order of Draw Things and of screens — `832x1216` is a
     /// portrait. `×` counts as `x`; a lone integer is a square. Checks nothing but the syntax.
-    public static func parse(_ text: String) -> (width: Int, height: Int)? {
+    package static func parse(_ text: String) -> (width: Int, height: Int)? {
         let pieces = text.lowercased().replacingOccurrences(of: "×", with: "x")
             .split(separator: "x", omittingEmptySubsequences: false)
         switch pieces.count {

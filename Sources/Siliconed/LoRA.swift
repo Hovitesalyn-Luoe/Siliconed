@@ -30,7 +30,7 @@ import Foundation
 /// Krea 2, paid during denoising only, against 2.3 s of materialization per evaluation.
 /// Z-Image had only 16 to 68 MB of free pages in a measured render: that is why it was not done
 /// there, and why each model measures it.
-public final class LoRA {
+package final class LoRA {
 
     /// A forged map and the strength applied to it.
     package struct Layer {
@@ -44,7 +44,6 @@ public final class LoRA {
 
     package enum Failure: Error, CustomStringConvertible {
         case notALoRA(String, String)
-        case inconsistentRank(target: String, expected: Int, found: Int)
         case inconsistentShape(target: String, reason: String)
         case missingTarget(String)
         case wrongTarget(path: String, name: String, forgedFor: String, model: String)
@@ -53,9 +52,6 @@ public final class LoRA {
             case .notALoRA(let path, let kind):
                 return "\(path): `kind` is “\(kind)”, not “lora” — it is a model map, "
                      + "not an adapter. Import the LoRA's .safetensors instead."
-            case .inconsistentRank(let target, let expected, let found):
-                return "\(target): rank \(found) instead of \(expected) — the two halves of one "
-                     + "LoRA do not agree"
             case .inconsistentShape(let target, let reason):
                 return "\(target): \(reason)"
             case .missingTarget(let path):

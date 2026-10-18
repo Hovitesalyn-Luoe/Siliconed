@@ -168,14 +168,6 @@ package enum QwenImage21VAE {
 
     // ── pure functions: the latent layout and the shortcuts' index arithmetic ─────────────────
 
-    /// `_pack_latents`: planar `[C, h, w]` → the DiT's tokens `[h·w, C]` (row-major grid).
-    package static func pack(_ planar: [Float], channels: Int, height: Int, width: Int) -> [Float] {
-        let plane = height * width
-        var tokens = [Float](repeating: 0, count: planar.count)
-        for c in 0..<channels { for p in 0..<plane { tokens[p * channels + c] = planar[c * plane + p] } }
-        return tokens
-    }
-
     /// `_unpack_latents`: tokens `[h·w, C]` → planar `[C, h, w]`.
     package static func unpack(_ tokens: [Float], channels: Int, height: Int, width: Int) -> [Float] {
         let plane = height * width
@@ -812,13 +804,13 @@ package final class QwenImage21VAEEncoder {
 
 /// Qwen-Image-2.1's decoder: the RGBA it decodes, **alpha dropped without compositing** — what the
 /// oracle's `pil.convert("RGB")` writes.
-public struct QwenImage21DecodingModule: DecodingModule {
-    public var path: String
-    public var space: LatentSpace { .qwenImage21 }
-    public var name: String { "VAE Qwen-Image-2.1" }
-    public init(path: String) { self.path = path }
+package struct QwenImage21DecodingModule: DecodingModule {
+    package var path: String
+    package var space: LatentSpace { .qwenImage21 }
+    package var name: String { "VAE Qwen-Image-2.1" }
+    package init(path: String) { self.path = path }
 
-    public func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
+    package func decode(_ latent: Latent, context: Context) throws -> ImageRGB {
         let vae = try QwenImage21VAEDecoder(path: path, latentHeight: latent.height, latentWidth: latent.width)
         let (rgba, seconds) = try vae.decode(latent: latent.values)
         context.timings.decoding = seconds
@@ -830,13 +822,13 @@ public struct QwenImage21DecodingModule: DecodingModule {
 /// Qwen-Image-2.1's encoder, for the edit references and img2img: the image made **RGBA** (alpha +1,
 /// as `convert("RGBA")` makes an opaque image; the image's own straight RGBA when it has transparency,
 /// as `preprocess` hands the RGBA reference: no compositing), then `(mean − mean_c) / std_c`.
-public struct QwenImage21EncodingModule: ImageEncodingModule {
-    public var path: String
-    public var space: LatentSpace { .qwenImage21 }
-    public var name: String { "VAE Qwen-Image-2.1" }
-    public init(path: String) { self.path = path }
+package struct QwenImage21EncodingModule: ImageEncodingModule {
+    package var path: String
+    package var space: LatentSpace { .qwenImage21 }
+    package var name: String { "VAE Qwen-Image-2.1" }
+    package init(path: String) { self.path = path }
 
-    public func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
+    package func encoder(_ image: ImageRGB, context: Context) throws -> Latent {
         let encoder = try QwenImage21VAEEncoder(path: path, height: image.height, width: image.width)
         let output = try encoder.encode(rgba: QwenImage21EncodingModule.rgba(image))
         context.footprints.encoding = Arena.processFootprint()   // before the release

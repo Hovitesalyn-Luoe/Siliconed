@@ -19,17 +19,17 @@ import Synchronization
 /// read from the process itself) plus the render's computed need (`MemoryNeed`). Not the page cache
 /// of the maps it reads (clean, file-backed, nobody's footprint: `MemoryPlan`), nor the frameworks'
 /// constants no shape gives (`OperatorFootprint`), which the render's check reports.
-public enum MemoryBudget {
+package enum MemoryBudget {
 
     /// **B = ¾ · RAM − 2 GiB** (decided on 12/10/2026): 8 GiB → 4, 16 → 10, 24 → 16, 32 → 22, 64 → 46.
     /// A RAM is counted in GiB (`ProcessInfo.physicalMemory` of a "16 GB" Mac is 16 GiB), and so is B.
     /// **Below 8 GiB nothing is aimed at**: the formula still answers — 6 GiB gives 2.5 (2.68 GB),
     /// which refuses Z-Image (bf16) from 1024² (3.28 GB) and takes its 512² and every Qwen-Image-2.1
     /// request (≤ 2.46 GB, 12/10) — nothing measured there; under 2⅔ GiB, 0: every render refused.
-    public static func ceiling(physical: Int) -> Int { max(0, physical / 4 * 3 - 2 * gib) }
+    package static func ceiling(physical: Int) -> Int { max(0, physical / 4 * 3 - 2 * gib) }
 
     /// **The smallest RAM whose B covers `need`**, in whole GiB — the inverse of `ceiling(physical:)`.
-    public static func physicalNeeded(for need: Int) -> Int {
+    package static func physicalNeeded(for need: Int) -> Int {
         var n = max(1, ((max(0, need) + 2 * gib) * 4 + 3 * gib - 1) / (3 * gib))
         while n > 1, ceiling(physical: (n - 1) * gib) >= need { n -= 1 }
         while ceiling(physical: n * gib) < need { n += 1 }
@@ -39,11 +39,11 @@ public enum MemoryBudget {
     /// **The memory sizes Macs are sold with**, in GB (Apple silicon, 2020–2026). A table, on purpose: a
     /// « needs a Mac with 9 GB » answers nobody, the question is which Mac. It moves once a chip
     /// generation; a size missing here falls to the next one listed, never to a figure that is not sold.
-    public static let soldSizes = [8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512]
+    package static let soldSizes = [8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512]
 
     /// **The N of the app's « Needs a Mac with N GB of memory »**: the smallest size sold whose B covers
     /// `need` (`physicalNeeded` rounded up to `soldSizes`); beyond the largest, the raw inverse.
-    public static func macNeeded(for need: Int) -> Int {
+    package static func macNeeded(for need: Int) -> Int {
         let raw = physicalNeeded(for: need)
         return soldSizes.first { $0 >= raw } ?? raw
     }
@@ -51,7 +51,7 @@ public enum MemoryBudget {
     /// **B for this Mac**: the forcing (`SILICONED_MEMORY_BUDGET_GB`) when set, otherwise
     /// `ceiling(physical:)` of its RAM. What the preflight refuses on, the app greys out with, and the
     /// plan is chosen in.
-    public static func machineCeiling(environment: [String: String]? = nil) -> Int {
+    package static func machineCeiling(environment: [String: String]? = nil) -> Int {
         let environment = environment ?? liveEnvironment([forcingVariable])
         return forcedCeiling(environment) ?? ceiling(physical: Int(ProcessInfo.processInfo.physicalMemory))
     }

@@ -162,9 +162,6 @@ final class EngineErrorTests: XCTestCase {
         XCTAssertTrue(library.isLicenseAccepted(.qwenImage21))
         XCTAssertEqual(Library(root: library.root).acceptedLicenses(),
                        ["qwen-image-2.1": "Qwen Research (non-commercial)", "z-image": "Apache 2.0"])
-        try library.revokeLicense(.qwenImage21)
-        XCTAssertFalse(library.isLicenseAccepted(.qwenImage21))
-        XCTAssertTrue(library.isLicenseAccepted(.zImage))
         // A license whose text changed asks again.
         let file = URL(fileURLWithPath: library.acceptedLicensesFile)
         try Data(#"{"z-image": "MIT"}"#.utf8).write(to: file)

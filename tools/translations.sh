@@ -34,10 +34,18 @@ for d in .build/out/Products/Release .build/out/Products/Debug .build/release/Mo
 done
 [[ -n $module ]] || { echo "translations: build the module first (swift build --product SiliconedApp)" >&2; exit 1 }
 
+# The library is `package`, not `public`: the app's files see it only as members of the same package,
+# so the compiler must be told the package's name — the one SwiftPM gives it, derived from the
+# clone's folder, not from `Package.swift`: lowercased, every character that cannot be in an
+# identifier turned into `_`, and `_` before a leading digit (`My-Clone.2` → `my_clone_2`).
+package_name=${${PWD:t}:l}
+package_name=${package_name//[^a-z0-9_]/_}
+[[ $package_name == [0-9]* ]] && package_name=_$package_name
+
 folder=.build/translations
 rm -rf $folder && mkdir -p $folder
 xcrun swiftc -c -wmo -Onone -parse-as-library -swift-version 6 -target arm64-apple-macosx15.0 \
-  -I $module -I Sources/AMXLegacy/include -module-name SiliconedApp -o $folder/app.o \
+  -I $module -I Sources/AMXLegacy/include -module-name SiliconedApp -package-name $package_name -o $folder/app.o \
   -emit-localized-strings -emit-localized-strings-path $folder Sources/SiliconedApp/*.swift
 data=()
 for f in $folder/*.stringsdata; do data+=(--stringsdata $f); done

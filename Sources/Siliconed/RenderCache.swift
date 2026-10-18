@@ -145,12 +145,6 @@ package struct RenderCache: Sendable {
     /// `SLCACHE1`, the header's length (UInt32 LE), the header (JSON), the floats (fp32 LE).
     private static let magic = Array("SLCACHE1".utf8)
 
-    package static func encode(header: [String: Any], values: [Float]) throws -> Data {
-        var data = try prefix(header: header)
-        values.withUnsafeBytes { data.append(contentsOf: $0) }
-        return data
-    }
-
     /// Everything before the floats: magic, length, header. `write` sends the floats after it from
     /// the array itself — no copy of a conditioning of tens of MB in `malloc`.
     private static func prefix(header: [String: Any]) throws -> Data {
@@ -301,10 +295,10 @@ package protocol CacheIdentified {
 extension Library {
     /// `<root>/cache/` — what renders keep between them (`RenderCache`). Everything in it can be
     /// thrown away: it only saves recomputing.
-    public var cacheFolder: URL { root.appendingPathComponent("cache") }
+    package var cacheFolder: URL { root.appendingPathComponent("cache") }
 
     /// **Empties the render cache** (`cacheFolder`). A render reading it meanwhile keeps its open file.
-    public func emptyCache() throws(EngineError) {
+    package func emptyCache() throws(EngineError) {
         if Self.exists(cacheFolder.path) { try EngineError.boundary { try FileManager.default.removeItem(at: cacheFolder) } }
     }
 

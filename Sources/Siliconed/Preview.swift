@@ -25,19 +25,19 @@ extension Engine {
     /// against 10 to 38 s of evaluation. **Off by default** (`Request.previews`): without it, nothing is computed or
     /// copied. It works on a read of the latent, never on the latent itself: the denoising's fp32
     /// computation is untouched.
-    public struct Preview: Sendable {
+    package struct Preview: Sendable {
         /// The batch image (0 outside a batch) and the evaluation, from 1 to `total`.
-        public let image: Int
-        public let index: Int
-        public let total: Int
+        package let image: Int
+        package let index: Int
+        package let total: Int
         /// The latent grid: one pixel per cell.
-        public let height: Int
-        public let width: Int
+        package let height: Int
+        package let width: Int
         /// 8-bit RGBA, row by row, opaque alpha, **sRGB** — like `ImageRGB.rgba8()`.
-        public let rgba: [UInt8]
+        package let rgba: [UInt8]
 
         /// The preview as an sRGB `CGImage`, to be enlarged on display (nearest neighbor, or smoothed).
-        public func cgImage() -> CGImage { PNG.cgImage(rgba: rgba, height: height, width: width) }
+        package func cgImage() -> CGImage { PNG.cgImage(rgba: rgba, height: height, width: width) }
     }
 }
 

@@ -25,13 +25,13 @@ import Foundation
 extension Engine {
     /// **Renders an image without blocking** — `onProgress` is called on the render thread (see
     /// `Event`); a UI does its `MainActor` hop there, or prefers `events(_:seeds:model:)`.
-    public func render(_ request: Request, model: Model,
+    package func render(_ request: Request, model: Model,
                        onProgress: (@Sendable (Event) -> Void)? = nil) async throws(EngineError) -> Render {
         try await renderBatch(request, seeds: [request.seed], model: model, onProgress: onProgress)[0]
     }
 
     /// A batch, without blocking.
-    public func renderBatch(_ request: Request, seeds: [UInt64], model: Model,
+    package func renderBatch(_ request: Request, seeds: [UInt64], model: Model,
                           onProgress: (@Sendable (Event) -> Void)? = nil) async throws(EngineError) -> [Render] {
         let cancellation = Cancellation()
         do {
@@ -60,7 +60,7 @@ extension Engine {
     /// stream then ends without throwing (`AsyncThrowingStream`'s rule). The
     /// buffer is **unbounded** so as to lose neither a step nor an image: events are rare (a few
     /// dozen); only the previews weigh (64 KB per preview at 1024²).
-    public func events(_ request: Request, seeds: [UInt64]? = nil,
+    package func events(_ request: Request, seeds: [UInt64]? = nil,
                            model: Model) -> AsyncThrowingStream<Event, Error> {
         let cancellation = Cancellation()
         let (stream, continuation) = AsyncThrowingStream<Event, Error>.makeStream()

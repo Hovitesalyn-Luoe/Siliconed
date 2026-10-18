@@ -11,7 +11,7 @@ import os
 // Qwen-Image's — and `Chain` refuses it at construction, not after a minute of encoder.
 //
 // The system is **closed** (the Reason vision, not ComfyUI): the modules are the repository's,
-// ported and verified here. The protocols are public so a caller can compose its chains, not so
+// ported and verified here. The protocols are open to the package so a caller can compose its chains, not so
 // it can write new links.
 //
 // What does not change, and must be read as a constraint: **each stage lives in its own scope**.
@@ -22,58 +22,58 @@ import os
 
 /// **What a text encoder produces, and therefore what a denoiser accepts.** Two formats are equal
 /// only if they have the same name: the name describes the encoder, the layer taken and the shape.
-public struct TextFormat: Hashable, Sendable, CustomStringConvertible {
-    public let name: String
+package struct TextFormat: Hashable, Sendable, CustomStringConvertible {
+    package let name: String
     /// **The text stage reads the reference images too** (`ImageTextModule`): the encoder sees them
     /// with the prompt, and the denoiser expects the slots they left in the sequence.
-    public let readsImages: Bool
-    public init(_ name: String, readsImages: Bool = false) { self.name = name; self.readsImages = readsImages }
-    public var description: String { name }
+    package let readsImages: Bool
+    package init(_ name: String, readsImages: Bool = false) { self.name = name; self.readsImages = readsImages }
+    package var description: String { name }
 
     /// Qwen3-4B, chat template, second-to-last layer: `[tokens, 2560]`.
-    public static let zImage = TextFormat("qwen3-4b · chat · penultimate layer")
+    package static let zImage = TextFormat("qwen3-4b · chat · penultimate layer")
     /// Qwen3-0.6B + T5 → Anima's conditioner: `[rows, 1024]`.
-    public static let anima = TextFormat("qwen3-0.6b + t5 · conditioner anima")
+    package static let anima = TextFormat("qwen3-0.6b + t5 · conditioner anima")
     /// Qwen3-VL-4B, twelve layers taken, template stripped: `[tokens, 12 × 2560]`. The fusion and
     /// `txt_in` belong to the DiT (the LoRA touches them), hence to the denoiser.
-    public static let krea2 = TextFormat("qwen3-vl-4b · 12 taps")
+    package static let krea2 = TextFormat("qwen3-vl-4b · 12 taps")
     /// Qwen3-VL-8B on the prompt **and the reference images** (raw template, `<imageN>` slots), the
     /// last layer before the final norm, system turn dropped: `[T, 4096]` and the `image_pad_mask` of
     /// its `T` rows (`Conditioning.imageSlots`). `txt_in` and the images' latents belong to the DiT.
-    public static let qwenImage21 = TextFormat("qwen3-vl-8b · prompt + images · last layer before norm",
+    package static let qwenImage21 = TextFormat("qwen3-vl-8b · prompt + images · last layer before norm",
                                                readsImages: true)
 }
 
 /// **A latent's space**: the VAE that defined it. The same number of channels does not mean the
 /// same space — Flux and Qwen-Image both have sixteen channels and do not decode each other.
-public struct LatentSpace: Hashable, Sendable, CustomStringConvertible {
-    public let name: String
-    public let channels: Int
+package struct LatentSpace: Hashable, Sendable, CustomStringConvertible {
+    package let name: String
+    package let channels: Int
     /// Pixels per latent cell, along one side.
-    public let factor: Int
-    public var description: String { name }
+    package let factor: Int
+    package var description: String { name }
 
-    public static let flux = LatentSpace(name: "VAE Flux", channels: 16, factor: 8)
-    public static let qwenImage = LatentSpace(name: "VAE Qwen-Image", channels: 16, factor: 8)
+    package static let flux = LatentSpace(name: "VAE Flux", channels: 16, factor: 8)
+    package static let qwenImage = LatentSpace(name: "VAE Qwen-Image", channels: 16, factor: 8)
     /// Qwen-Image-2.1's VAE (`AutoencoderKLQwenImage21`): 64 channels, 16 pixels per cell, **no
     /// packing** — planar `[64, H/16, W/16]`, normalized per channel `(z − mean_c) / std_c`; the DiT's
     /// tokens are its transpose `[h·w, 64]` (`QwenImage21VAE.pack` / `unpack`). The VAE itself reads and
     /// writes RGBA (`QwenImage21EncodingModule`, `QwenImage21DecodingModule`).
-    public static let qwenImage21 = LatentSpace(name: "VAE Qwen-Image-2.1", channels: 64, factor: 16)
+    package static let qwenImage21 = LatentSpace(name: "VAE Qwen-Image-2.1", channels: 64, factor: 16)
 }
 
 /// The encoded text, ready for a denoiser of the same format.
-public struct Conditioning: Sendable {
-    public let format: TextFormat
+package struct Conditioning: Sendable {
+    package let format: TextFormat
     /// `values` is `[rows, width]`, row by row.
-    public let rows: Int
-    public let width: Int
-    public let values: [Float]
+    package let rows: Int
+    package let width: Int
+    package let values: [Float]
     /// The prompt's tokens, for display — not always `rows` (Anima).
-    public let tokens: Int
+    package let tokens: Int
     /// **Which rows stand for an image** (`image_pad_mask`), one entry per row — empty for a format
     /// that does not read images (`TextFormat.readsImages`).
-    public let imageSlots: [Bool]
+    package let imageSlots: [Bool]
 
     /// An already-encoded text — a golden tensor's, so a check can drive one of the product's
     /// denoisers without going back through the encoder.
@@ -84,13 +84,13 @@ public struct Conditioning: Sendable {
 }
 
 /// A planar latent `[channels, height, width]`, and the space that gives it meaning.
-public struct Latent: Sendable {
-    public let space: LatentSpace
-    public let height: Int
-    public let width: Int
-    public var values: [Float]
+package struct Latent: Sendable {
+    package let space: LatentSpace
+    package let height: Int
+    package let width: Int
+    package var values: [Float]
 
-    public init(space: LatentSpace, height: Int, width: Int, values: [Float]) {
+    package init(space: LatentSpace, height: Int, width: Int, values: [Float]) {
         self.space = space; self.height = height; self.width = width; self.values = values
     }
 
@@ -98,7 +98,7 @@ public struct Latent: Sendable {
     /// model, not diffusers'. It is drawn in planar order: a square therefore yields the same bits
     /// as before rectangles arrived. **Qwen-Image-2.1 is the exception**: its noise is
     /// `torch.randn((1, 1, 64, h, w))` to the bit (`TorchNoise`), so a seed gives diffusers' image.
-    public static func noise(_ space: LatentSpace, height: Int, width: Int, seed: UInt64) -> Latent {
+    package static func noise(_ space: LatentSpace, height: Int, width: Int, seed: UInt64) -> Latent {
         var values = [Float](repeating: 0, count: space.channels * height * width)
         if space == .qwenImage21 {
             var noise = TorchNoise(seed: seed)
@@ -119,15 +119,15 @@ public struct Latent: Sendable {
 /// (what every model but one reads), and `rgba` the source's own bytes, unpremultiplied, alpha
 /// included — what Qwen-Image-2.1's edit reads, as diffusers hands its references in RGBA
 /// (`QwenImage21Pipeline.preparedReference`). An opaque image has no `rgba`: nothing changes for it.
-public struct ImageRGB: Sendable, Equatable {
-    public let pixels: [Float]
-    public let height: Int
-    public let width: Int
+package struct ImageRGB: Sendable, Equatable {
+    package let pixels: [Float]
+    package let height: Int
+    package let width: Int
     /// `[height, width, 4]` interleaved 8-bit RGBA, **straight** (not premultiplied: a transparent
     /// pixel keeps its colour), when some pixel's alpha is under 255; `nil` for an opaque image.
     package let rgba: [UInt8]?
 
-    public init(pixels: [Float], height: Int, width: Int) {
+    package init(pixels: [Float], height: Int, width: Int) {
         self.init(pixels: pixels, height: height, width: width, rgba: nil)
     }
 
@@ -142,28 +142,28 @@ public struct ImageRGB: Sendable, Equatable {
 
 /// What a denoiser announces before starting: where it starts, how many evaluations, of which how
 /// many reduced.
-public struct DenoisingPlan: Sendable {
+package struct DenoisingPlan: Sendable {
     /// The first step executed of the full schedule: 0 in txt2img, `t_start` in img2img.
-    public let startStep: Int
+    package let startStep: Int
     /// The starting σ, `σ[startStep]`: 1 in txt2img.
-    public let startSigma: Float
+    package let startSigma: Float
     /// The evaluations actually paid for, from the starting step to the end.
-    public let evaluations: Int
+    package let evaluations: Int
     /// Half-size evaluations (Qwen-Image-2.1's spectral schedule); 0 elsewhere.
-    public let reduced: Int
+    package let reduced: Int
     /// The latent grid of the reduced evaluations.
-    public let reducedHeight: Int
-    public let reducedWidth: Int
+    package let reducedHeight: Int
+    package let reducedWidth: Int
 
     /// The same plan at full size from its first evaluation: an edit's (no spectral schedule).
-    public var unreduced: DenoisingPlan {
+    package var unreduced: DenoisingPlan {
         DenoisingPlan(startStep: startStep, startSigma: startSigma, evaluations: evaluations,
                       reduced: 0, reducedHeight: reducedHeight, reducedWidth: reducedWidth)
     }
 
     /// **The same plan, stopped as a sketch** (`Request.sketch`): its first `n` evaluations — what an
     /// app estimates a sketch's duration from. `n` at or past `evaluations`: the plan itself.
-    public func sketched(_ n: Int) -> DenoisingPlan {
+    package func sketched(_ n: Int) -> DenoisingPlan {
         let kept = min(max(1, n), evaluations)
         return DenoisingPlan(startStep: startStep, startSigma: startSigma, evaluations: kept,
                              reduced: min(reduced, kept), reducedHeight: reducedHeight, reducedWidth: reducedWidth)
@@ -191,18 +191,18 @@ public struct DenoisingPlan: Sendable {
 /// seen through the app, blurred and grainy, and still at 5 (22 dB) — it removes the noise in its
 /// last two evaluations. A sketch of it saves 15 s of 51 for an image no one can judge: its cells
 /// are finished images.
-public enum Sketch {
-    public static let threshold: Float = 0.8
+package enum Sketch {
+    package static let threshold: Float = 0.8
 
     /// The evaluations a sketch of `sigmas` (a full schedule, ending in 0, one evaluation per step)
     /// takes. Never fewer than 1, never more than the schedule's.
-    public static func evaluations(sigmas: [Float]) -> Int {
+    package static func evaluations(sigmas: [Float]) -> Int {
         for i in 0..<max(0, sigmas.count - 1) where sigmas[i + 1] <= threshold { return i + 1 }
         return max(1, sigmas.count - 1)
     }
 }
 
-public extension Model {
+package extension Model {
     /// The evaluations a sketch of this model takes at this format (`Sketch`); `steps` nil: the
     /// model's default.
     func sketchEvaluations(steps: Int?, width: Int, height: Int) -> Int {
@@ -224,7 +224,7 @@ public extension Model {
 ///
 /// **Public in name only**: the module protocols cite it, but nothing in it is usable outside the
 /// package (`package`) — only the engine and the CLI checks construct it.
-public final class Context {
+package final class Context {
     package let reproducible: Bool
     /// The render's token; the modules pass it to their DiTs and encoders (between layers).
     package let cancellation: Cancellation?
@@ -265,8 +265,8 @@ public final class Context {
     /// **Whose σ** (`Request.schedule`): the official recipe unless asked otherwise.
     package var schedule: SigmaSchedule = .official
 
-    /// The σs the DiT is told, for a full schedule of which steps `start…` run.
-    package func told(_ sigmas: [Float], start: Int, bell: Detail.Bell = .standard) -> [Float] {
+    /// The σs the DiT is told, for a full schedule of which steps `start…` run; no bell, the σ themselves.
+    package func told(_ sigmas: [Float], start: Int, bell: Detail.Bell? = nil) -> [Float] {
         detail.modelSigmas(sigmas, start: start, bell: bell, scale: detailScale)
     }
     /// x̂₀ at the sketch's last evaluation, `[channels, fullHeight, fullWidth]`.
@@ -321,7 +321,7 @@ public final class Context {
 }
 
 /// The text stage: a prompt goes in, a `Conditioning` comes out. It returns its memory on exit.
-public protocol TextModule: Sendable {
+package protocol TextModule: Sendable {
     /// What an app displays on the module's box ("Qwen3-VL-4B").
     var name: String { get }
     var output: TextFormat { get }
@@ -331,11 +331,11 @@ public protocol TextModule: Sendable {
 /// **A text stage that sees the reference images** (Qwen-Image-2.1's Qwen3-VL): the prompt and the
 /// references go in together — already at the denoiser's size (`DenoisingModule.preparedReferences`),
 /// the very copy the image encoder then reads. Without references, it is an ordinary text stage.
-public protocol ImageTextModule: TextModule {
+package protocol ImageTextModule: TextModule {
     func encoder(_ prompt: String, images: [ImageRGB], context: Context) throws -> Conditioning
 }
 
-public extension ImageTextModule {
+package extension ImageTextModule {
     func encoder(_ prompt: String, context: Context) throws -> Conditioning {
         try encoder(prompt, images: [], context: context)
     }
@@ -347,7 +347,7 @@ public extension ImageTextModule {
 /// **The starting step** (`start`) is the whole of img2img on the denoiser's side: it unrolls its
 /// full schedule, computed for `step` (shift and μ included), but executes only steps
 /// `start … step − 1`. The latent it receives is already noised to `σ[start]` (`Latent.start`).
-public protocol DenoisingModule: Sendable {
+package protocol DenoisingModule: Sendable {
     /// The identifier of the model whose DiT it carries (`z-image`, `anima`, `krea2`): the target
     /// a LoRA must declare for it to be applied. See `LoRA.checkTarget`.
     var model: String { get }
@@ -403,20 +403,20 @@ public protocol DenoisingModule: Sendable {
 
 /// The image encoding stage (img2img): an image in the render's format goes in, a latent of its
 /// space comes out — normalized as the denoiser expects. It returns its memory on exit.
-public protocol ImageEncodingModule: Sendable {
+package protocol ImageEncodingModule: Sendable {
     var name: String { get }
     var space: LatentSpace { get }
     func encoder(_ image: ImageRGB, context: Context) throws -> Latent
 }
 
 /// The decoding stage: a latent of its space goes in, an image comes out.
-public protocol DecodingModule: Sendable {
+package protocol DecodingModule: Sendable {
     var name: String { get }
     var space: LatentSpace { get }
     func decode(_ latent: Latent, context: Context) throws -> ImageRGB
 }
 
-public extension DenoisingModule {
+package extension DenoisingModule {
     /// The plan of a request without a LoRA.
     func plan(height: Int, width: Int, steps: Int, start: Int) -> DenoisingPlan {
         plan(height: height, width: width, steps: steps, start: start, withLoRA: false)
@@ -466,10 +466,10 @@ public extension DenoisingModule {
 
 /// A module without a name of its own carries its type's: a hand-composed chain can still be
 /// drawn.
-public extension TextModule { var name: String { String(describing: Self.self) } }
-public extension DenoisingModule { var name: String { String(describing: Self.self) } }
-public extension ImageEncodingModule { var name: String { String(describing: Self.self) } }
-public extension DecodingModule { var name: String { String(describing: Self.self) } }
+package extension TextModule { var name: String { String(describing: Self.self) } }
+package extension DenoisingModule { var name: String { String(describing: Self.self) } }
+package extension ImageEncodingModule { var name: String { String(describing: Self.self) } }
+package extension DecodingModule { var name: String { String(describing: Self.self) } }
 
 // ── the chain ───────────────────────────────────────────────────────────────────────────────
 
@@ -478,11 +478,11 @@ public extension DecodingModule { var name: String { String(describing: Self.sel
 /// The encoder is optional **in the type** (a chain without it only does txt2img) and present in
 /// every `Model` of the catalog. Its wire is the same as the decoder's: it must speak the
 /// denoiser's space.
-public struct Chain: Sendable {
-    public let text: any TextModule
-    public let denoising: any DenoisingModule
-    public let decoding: any DecodingModule
-    public let encoding: (any ImageEncodingModule)?
+package struct Chain: Sendable {
+    package let text: any TextModule
+    package let denoising: any DenoisingModule
+    package let decoding: any DecodingModule
+    package let encoding: (any ImageEncodingModule)?
 
     package enum Failure: Error, CustomStringConvertible {
         case incompatibleText(output: TextFormat, entry: TextFormat)
@@ -503,7 +503,7 @@ public struct Chain: Sendable {
         }
     }
 
-    public init(text: any TextModule, denoising: any DenoisingModule,
+    package init(text: any TextModule, denoising: any DenoisingModule,
                 decoding: any DecodingModule, encoding: (any ImageEncodingModule)? = nil) throws(EngineError) {
         guard text.output == denoising.entry else {
             throw EngineError(Failure.incompatibleText(output: text.output, entry: denoising.entry))
@@ -524,8 +524,8 @@ public struct Chain: Sendable {
     }
 
     /// **An input of the chain**: what an app must offer the user to feed it.
-    public struct Entry: Sendable, Hashable {
-        public enum Kind: Sendable, Hashable {
+    package struct Entry: Sendable, Hashable {
+        package enum Kind: Sendable, Hashable {
             /// The prompt (`Request.prompt`).
             case text
             /// The starting image (`Request.image`, `Request.strength`).
@@ -534,17 +534,17 @@ public struct Chain: Sendable {
             /// `DenoisingModule.maxReferences`.
             case reference
         }
-        public let kind: Kind
+        package let kind: Kind
         /// Without it, the render is refused; optional, it only changes what it does.
-        public let isRequired: Bool
+        package let isRequired: Bool
         /// The module that receives it ("Qwen3-VL-4B", "VAE Flux").
-        public let module: String
+        package let module: String
     }
 
     /// **What the chain accepts, in signal order** — what an app draws as inputs instead of a
     /// fixed form. The text always, the image if there is an image
     /// encoder and the denoiser starts from one, the references if it reads them.
-    public var entries: [Entry] {
+    package var entries: [Entry] {
         [Entry(kind: .text, isRequired: true, module: text.name)]
             + (encoding.flatMap { denoising.acceptsStartImage
                                      ? [Entry(kind: .image, isRequired: false, module: $0.name)] : nil } ?? [])

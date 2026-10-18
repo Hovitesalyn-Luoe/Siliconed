@@ -41,42 +41,42 @@ import Foundation
 // its labels, without parsing the prompt a second time.
 
 /// **A prompt with alternatives**, parsed: its pieces, its groups, and the prompts it stands for.
-public struct PromptAlternatives: Equatable, Sendable {
+package struct PromptAlternatives: Equatable, Sendable {
 
     /// A run of literal text (escapes already resolved), or a group of alternatives.
-    public enum Piece: Equatable, Sendable {
+    package enum Piece: Equatable, Sendable {
         case text(String)
         case alternatives([String])
     }
 
     /// One prompt of the expansion, and what was chosen in each group to make it, in reading order.
-    public struct Variant: Equatable, Sendable {
-        public let prompt: String
+    package struct Variant: Equatable, Sendable {
+        package let prompt: String
         /// The alternative taken in each group, as typed (escapes resolved, spaces kept; `""` for an
         /// empty alternative). Empty for a prompt without groups.
-        public let choices: [String]
+        package let choices: [String]
     }
 
     /// **The most prompts one expansion may make.** The app's queue holds that many renders.
-    public static let maxCombinations = 64
+    package static let maxCombinations = 64
 
-    public let pieces: [Piece]
+    package let pieces: [Piece]
 
     /// Parses `prompt`, and refuses a syntax error or an expansion beyond `limit` prompts.
-    public init(_ prompt: String, limit: Int = maxCombinations) throws(EngineError) {
+    package init(_ prompt: String, limit: Int = maxCombinations) throws(EngineError) {
         pieces = try Self.parse(prompt)
         let n = count
         guard n <= limit else { throw .tooManyPromptVariants(count: n, max: limit) }
     }
 
     /// The alternatives of each group, in reading order.
-    public var groups: [[String]] {
+    package var groups: [[String]] {
         pieces.compactMap { if case .alternatives(let a) = $0 { return a } else { return nil } }
     }
 
     /// How many prompts the expansion makes: the product of the groups' sizes, 1 without a group.
     /// Saturates at `Int.max` rather than overflow: a count that large is refused anyway.
-    public var count: Int {
+    package var count: Int {
         groups.reduce(1) { n, g in
             let (p, overflow) = n.multipliedReportingOverflow(by: g.count)
             return overflow ? .max : p
@@ -84,10 +84,10 @@ public struct PromptAlternatives: Equatable, Sendable {
     }
 
     /// The prompt has at least one group: rendering it is a series, not one render.
-    public var hasAlternatives: Bool { !groups.isEmpty }
+    package var hasAlternatives: Bool { !groups.isEmpty }
 
     /// **The prompts, in reading order** — the first group varies the slowest.
-    public var variants: [Variant] {
+    package var variants: [Variant] {
         var result = [Variant(prompt: "", choices: [])]
         for piece in pieces {
             switch piece {
@@ -102,13 +102,13 @@ public struct PromptAlternatives: Equatable, Sendable {
     }
 
     /// The expanded prompts alone.
-    public var prompts: [String] { variants.map(\.prompt) }
+    package var prompts: [String] { variants.map(\.prompt) }
 
     /// **`text` written to parse back to itself**: its braces escaped. What a form shows when it
     /// reopens an expanded prompt (a history image's), so that « Redo » renders that one prompt and
     /// not a series. `|` needs nothing: outside a group it is a character. The one prompt this
     /// cannot write is a backslash right before a brace — the syntax has no escape for `\` itself.
-    public static func escaping(_ text: String) -> String {
+    package static func escaping(_ text: String) -> String {
         guard text.contains(where: { $0 == "{" || $0 == "}" }) else { return text }
         var s = ""
         for c in text {

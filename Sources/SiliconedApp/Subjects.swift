@@ -18,9 +18,6 @@
 // **Incognito, like the history**: the subjects live in this process and die with it. A picture is
 // read whole into memory when it is named (the file can go afterwards); nothing is written to disk —
 // and the `subjects/` folder an earlier version kept in the library is deleted at launch.
-//
-// The rewrite (`NamedSubjects`) is public — the app is a pure client, and `tools/translations.sh`
-// compiles its files without the package's name.
 
 import AppKit
 import ImageIO

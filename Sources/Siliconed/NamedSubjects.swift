@@ -41,19 +41,19 @@ import Foundation
 ///
 /// Every word the model reads is in `Phrasing`, **provisional: to be judged by eye** on a series of
 /// renders: the reference form (`<image1>`, Qwen's own convention), the instructions, where the legend goes.
-public enum NamedSubjects {
+package enum NamedSubjects {
 
     /// **The most images one render takes**, the edit's own included.
-    public static let maxImages = 3
+    package static let maxImages = 3
     /// A subject's pictures: one, or two of the same subject.
-    public static let maxPictures = 2
+    package static let maxPictures = 2
     /// A name's length, in characters.
-    public static let maxNameLength = 32
+    package static let maxNameLength = 32
 
     // ── the kinds ──
 
     /// **What a subject is, hence what the model keeps of its picture** — a closed list.
-    public enum Kind: String, CaseIterable, Codable, Sendable {
+    package enum Kind: String, CaseIterable, Codable, Sendable {
         case person, garment, object, place, style
     }
 
@@ -62,18 +62,18 @@ public enum NamedSubjects {
     /// **A frame on a picture**, in fractions of the upright image (EXIF orientation applied): a
     /// rectangle, never a mask (by design: no masks in the app). The frame is kept, not a cropped copy: the
     /// picture can be reframed later.
-    public struct Frame: Codable, Equatable, Hashable, Sendable {
-        public var x, y, width, height: Double
+    package struct Frame: Codable, Equatable, Hashable, Sendable {
+        package var x, y, width, height: Double
 
-        public init(x: Double, y: Double, width: Double, height: Double) {
+        package init(x: Double, y: Double, width: Double, height: Double) {
             self.x = x; self.y = y; self.width = width; self.height = height
         }
 
-        public static let whole = Frame(x: 0, y: 0, width: 1, height: 1)
+        package static let whole = Frame(x: 0, y: 0, width: 1, height: 1)
 
         /// Inside the image, at least `minimum` of each side — what a hand-edited JSON or a drag past
         /// the edge leaves usable.
-        public func clamped(minimum: Double = 0.02) -> Frame {
+        package func clamped(minimum: Double = 0.02) -> Frame {
             let w = min(max(width.isFinite ? width : 1, minimum), 1)
             let h = min(max(height.isFinite ? height : 1, minimum), 1)
             return Frame(x: min(max(x.isFinite ? x : 0, 0), 1 - w), y: min(max(y.isFinite ? y : 0, 0), 1 - h),
@@ -82,7 +82,7 @@ public enum NamedSubjects {
 
         /// **The pixels it covers** on an upright `width × height` image: its ends rounded
         /// (invariant 4, `first · n / slices` — never `size × index`), at least one pixel each way.
-        public func pixels(width W: Int, height H: Int) -> (x: Int, y: Int, width: Int, height: Int) {
+        package func pixels(width W: Int, height H: Int) -> (x: Int, y: Int, width: Int, height: Int) {
             let f = clamped()
             func span(_ start: Double, _ length: Double, _ n: Int) -> (Int, Int) {
                 let a = min(max(Int((start * Double(n)).rounded()), 0), max(n - 1, 0))
@@ -95,20 +95,20 @@ public enum NamedSubjects {
     }
 
     /// One picture of a subject: its file (inside the subject's folder) and its frame.
-    public struct Picture: Codable, Equatable, Sendable {
-        public var file: String
-        public var frame: Frame
-        public init(file: String, frame: Frame = .whole) { self.file = file; self.frame = frame }
+    package struct Picture: Codable, Equatable, Sendable {
+        package var file: String
+        package var frame: Frame
+        package init(file: String, frame: Frame = .whole) { self.file = file; self.frame = frame }
     }
 
     /// **A subject of the library**: its name (without `@`), its kind, one or two pictures.
-    public struct Subject: Codable, Equatable, Sendable, Identifiable {
-        public var name: String
-        public var kind: Kind
-        public var pictures: [Picture]
-        public var id: String { NamedSubjects.key(name) }
+    package struct Subject: Codable, Equatable, Sendable, Identifiable {
+        package var name: String
+        package var kind: Kind
+        package var pictures: [Picture]
+        package var id: String { NamedSubjects.key(name) }
 
-        public init(name: String, kind: Kind, pictures: [Picture]) {
+        package init(name: String, kind: Kind, pictures: [Picture]) {
             self.name = name; self.kind = kind; self.pictures = pictures
         }
     }
@@ -116,20 +116,20 @@ public enum NamedSubjects {
     // ── names and mentions ──
 
     /// Two names are the same subject when they are equal ignoring case: `@Alice` cites `alice`.
-    public static func key(_ name: String) -> String { name.lowercased() }
+    package static func key(_ name: String) -> String { name.lowercased() }
 
     private static func isNameCharacter(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "-" || c == "_" }
     private static func isJoiner(_ c: Character) -> Bool { c == "-" || c == "_" }
 
     /// What a name typed at creation can be refused for.
-    public enum NameProblem: Equatable, Sendable {
+    package enum NameProblem: Equatable, Sendable {
         case empty, tooLong, characters, taken
     }
 
     /// **A name a mention can cite whole**: 1 to `maxNameLength` letters, digits, `-` or `_`, not
     /// starting or ending with `-` `_` (a mention would stop before them), and not one of `taken`
     /// (ignoring case).
-    public static func check(name: String, taken: [String] = []) -> NameProblem? {
+    package static func check(name: String, taken: [String] = []) -> NameProblem? {
         if name.isEmpty { return .empty }
         if name.count > maxNameLength { return .tooLong }
         guard name.allSatisfy(isNameCharacter), let a = name.first, let z = name.last,
@@ -140,7 +140,7 @@ public enum NamedSubjects {
 
     /// A name made of what was typed or of a file's name: spaces and other characters become `-`,
     /// cut at `maxNameLength` — what the creation sheet proposes, never imposed.
-    public static func suggestedName(_ text: String) -> String {
+    package static func suggestedName(_ text: String) -> String {
         var s = ""
         for c in text {
             if isNameCharacter(c) { s.append(c) } else if !(s.last.map(isJoiner) ?? true) { s.append("-") }
@@ -151,16 +151,16 @@ public enum NamedSubjects {
     }
 
     /// **A `@name` in a prompt**: the name, and the range of `@name` in the prompt.
-    public struct Mention: Equatable, Sendable {
-        public let name: String
-        public let range: Range<String.Index>
+    package struct Mention: Equatable, Sendable {
+        package let name: String
+        package let range: Range<String.Index>
     }
 
     /// **The mentions of a prompt, in reading order.** A mention is `@` followed by name characters
     /// (letters, digits, `-`, `_`), its trailing `-` `_` left out (`@alice_` is `alice` then `_`).
     /// An `@` after a letter or a digit is not one (`me@home.org`), nor an `@` followed by nothing
     /// a name has.
-    public static func mentions(in prompt: String) -> [Mention] {
+    package static func mentions(in prompt: String) -> [Mention] {
         var found: [Mention] = []
         var i = prompt.startIndex
         var previous: Character?
@@ -191,7 +191,7 @@ public enum NamedSubjects {
     // ── the rewrite ──
 
     /// **What refuses a prompt before any render** — each said in the user's language by the app.
-    public enum Failure: Error, Equatable, Sendable, CustomStringConvertible {
+    package enum Failure: Error, Equatable, Sendable, CustomStringConvertible {
         /// `@name` names no subject of the library.
         case unknownSubject(name: String)
         /// The images the render would take — the edit's and the subjects' — exceed the maximum.
@@ -201,7 +201,7 @@ public enum NamedSubjects {
         /// A subject without a picture (a hand-edited folder).
         case noPicture(name: String)
 
-        public var description: String {
+        package var description: String {
             switch self {
             case .unknownSubject(let n): "no subject is called @\(n)"
             case let .tooManyImages(n, max): "\(n) images: a render takes \(max) at most"
@@ -212,24 +212,24 @@ public enum NamedSubjects {
     }
 
     /// One image of the render: whose, which picture, and the number the prompt gives it.
-    public struct Placed: Equatable, Sendable {
-        public let subject: Subject
-        public let picture: Picture
-        public let number: Int
+    package struct Placed: Equatable, Sendable {
+        package let subject: Subject
+        package let picture: Picture
+        package let number: Int
     }
 
     /// **The prompt the model reads, and its images in order.** `placed` is empty when the prompt
     /// cites nobody — then `prompt` is the user's, character for character.
-    public struct Rewritten: Equatable, Sendable {
-        public let prompt: String
-        public let placed: [Placed]
+    package struct Rewritten: Equatable, Sendable {
+        package let prompt: String
+        package let placed: [Placed]
         /// The subjects cited, in order of first appearance.
-        public let cited: [Subject]
+        package let cited: [Subject]
     }
 
     /// **Rewrites `prompt`** for a model whose encoder reads `capacity` images (0: none), after
     /// `first − 1` images already placed (an edit's). `capacity` is capped at `maxImages`.
-    public static func rewrite(_ prompt: String, subjects: [Subject], capacity: Int,
+    package static func rewrite(_ prompt: String, subjects: [Subject], capacity: Int,
                                 first: Int = 1) throws(Failure) -> Rewritten {
         let found = mentions(in: prompt)
         guard !found.isEmpty else { return Rewritten(prompt: prompt, placed: [], cited: []) }
@@ -276,14 +276,14 @@ public enum NamedSubjects {
     // ── the image's metadata ──
 
     /// The PNG key that keeps the model's prompt, beside `prompt`.
-    public static let modelPromptKey = "model_prompt"
+    package static let modelPromptKey = "model_prompt"
 
     /// **A render's metadata, the prompt the user typed in front** (`Engine.Render.metadata`): the
     /// engine read the rewrite, but what « Reuse » and a PNG dropped on the canvas give back
     /// (`Engine.Render.Recipe.prompt`) is the prompt with its `@names`; the model's prompt is kept in
     /// addition, under its own key. `modelPrompt` `nil` (nobody cited): `metadata` unchanged.
     /// Civitai's `parameters` (`Infotext`) shows the typed prompt too: it opens with the engine's.
-    public static func metadata(_ metadata: [String: String], typed: String, modelPrompt: String?) -> [String: String] {
+    package static func metadata(_ metadata: [String: String], typed: String, modelPrompt: String?) -> [String: String] {
         guard let modelPrompt else { return metadata }
         var m = metadata
         if let parameters = m["parameters"], let engine = m["prompt"], parameters.hasPrefix(engine) {

@@ -193,13 +193,8 @@ package enum ForgeText {
         }, progressHandler: progressHandler)
     }
 
-    /// A fused `[q | k | v]` (axis 0, `rows` = 3 × width): q and k permuted per head like
-    /// `ForgeDiT.interleave`, v untouched.
-    static func interleaveQK(_ v: [Float], rows: Int, columns: Int, head: Int) -> [Float] {
-        ForgeDiT.permutingRows(v, qkOrder(rows: rows, head: head), columns: columns)
-    }
-
-    /// The source row of each row of `interleaveQK`.
+    /// The source row of each row of a fused `[q | k | v]` (axis 0, `rows` = 3 × width): q and k
+    /// permuted per head like `ForgeDiT.interleave`, v untouched.
     static func qkOrder(rows: Int, head: Int) -> [Int] {
         let third = rows / 3, within = ForgeDiT.interleaveOrder(rows: third, head: head)
         return within + within.map { third + $0 } + Array((2 * third)..<rows)

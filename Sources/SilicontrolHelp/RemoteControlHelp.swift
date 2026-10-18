@@ -15,10 +15,8 @@
 
 import Foundation
 
-// `public`, not `package`: `tools/translations.sh` compiles the app's files alone, without the
-// package's name, and a `package` symbol would not be seen there. This module is no part of the
-// engine: only the app and `silicontrol` link it.
-public enum RemoteControlHelp {
+// This module is no part of the engine: only the app and `silicontrol` link it.
+package enum RemoteControlHelp {
     /// One language's pages: the overview, and a page per topic — and the refusal of an unknown topic.
     struct Pages: Sendable {
         let noHelp: @Sendable (_ topic: String) -> String
@@ -44,7 +42,7 @@ public enum RemoteControlHelp {
     /// `<command> --help` (or `-h`), and nothing at all (the overview). A page is
     /// `{"ok": true, "help": …}`; an unknown topic, the usage failure (`"error": "usage"`, with the
     /// topics as `"hint"`).
-    public static func answer(_ argv: [String]) -> [String: Any]? { answer(argv, preferred) }
+    package static func answer(_ argv: [String]) -> [String: Any]? { answer(argv, preferred) }
 
     static func answer(_ argv: [String], _ pages: Pages) -> [String: Any]? {
         let subject: String?

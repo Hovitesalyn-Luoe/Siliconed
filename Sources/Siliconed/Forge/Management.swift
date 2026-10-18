@@ -10,48 +10,48 @@ extension Library {
     /// **An app's library**: `~/Library/Application Support/Siliconed/` — the app's own space,
     /// outside any repository. It is also the command line's last resort (`processWide`): the app
     /// and the CLI then share the same maps, never two copies.
-    public static var standard: Library {
+    package static var standard: Library {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return Library(root: support.appendingPathComponent("Siliconed"))
     }
 
     /// **What the library occupies**, in bytes — read from disk (sizes and headers), never a weight.
-    public struct Occupancy: Sendable {
+    package struct Occupancy: Sendable {
         /// A vendor family: its three parts, each absent (0) or not.
-        public struct FamilyPart: Sendable, Identifiable {
-            public var id: Family { family }
-            public let family: Family
+        package struct FamilyPart: Sendable, Identifiable {
+            package var id: Family { family }
+            package let family: Family
             /// Tokenizers, VAE, configs (`store/composants/<famille>/`).
-            public let components: Int
+            package let components: Int
             /// The text encoder map.
-            public let encoder: Int
+            package let encoder: Int
             /// The vendor's DiT (and Anima's adapter).
-            public let dit: Int
+            package let dit: Int
             /// The version on disk (`nil`: nothing of the family's own is there).
-            public let variant: Variant?
+            package let variant: Variant?
             /// Enough to render with a DiT, its own or an imported one.
-            public let isReady: Bool
-            public var total: Int { components + encoder + dit }
+            package let isReady: Bool
+            package var total: Int { components + encoder + dit }
             /// Something of the family is on disk.
-            public var present: Bool { total > 0 }
+            package var present: Bool { total > 0 }
         }
 
-        public let families: [FamilyPart]
-        public let imported: [(card: ModelCard, bytes: Int)]
-        public let loras: [(card: LoRACard, bytes: Int)]
+        package let families: [FamilyPart]
+        package let imported: [(card: ModelCard, bytes: Int)]
+        package let loras: [(card: LoRACard, bytes: Int)]
         /// What an interrupted installation or import left behind: `telechargements/` (the files
         /// downloaded in full are reused by the next attempt, sha256 checked), and the `.partiel` a
         /// crash left in `store/` (`Library.partials`). `emptyDownloads()` gives it back.
-        public let downloads: Int
+        package let downloads: Int
         /// What renders keep between them (`Library.cacheFolder`): conditionings, and the K/V of
         /// Qwen-Image-2.1's last edit (up to 6.4 GB). `emptyCache()` gives it back. Not in `total`:
         /// the app empties it at launch and at exit (incognito), so it is never something installed.
-        public let cache: Int
+        package let cache: Int
         /// The free space on the library's volume, if the system reports it.
-        public let free: Int?
+        package let free: Int?
 
         /// A shared encoder map counts only once.
-        public var total: Int {
+        package var total: Int {
             var encoders: [String: Int] = [:]
             for p in families {
                 let name = p.family.encoderMap(p.variant ?? .standard)
@@ -62,7 +62,7 @@ extension Library {
         }
     }
 
-    public func occupancy() -> Occupancy {
+    package func occupancy() -> Occupancy {
         let i = Installer(library: self)
         let partials = self.partials()
         // A `.partiel` under a family's components counts once, with the downloads.
@@ -103,7 +103,7 @@ extension Library {
     /// **Uninstalls a vendor family**: its DiT, its components, and its encoder. The family's imported models and LoRAs stay — they belong to the user;
     /// they will only render once the family is reinstalled (`install(_:baseDiT: false)` is
     /// enough for an imported model).
-    public func uninstall(_ f: Family) throws(EngineError) {
+    package func uninstall(_ f: Family) throws(EngineError) {
         let fm = FileManager.default
         var targets = [Installer(library: self).componentsFolder(f)] + Installer(library: self).supersededFiles(f)
         for v in f.variants {
@@ -128,7 +128,7 @@ extension Library {
     /// Standard whose DiT map is there (its alone), else the Compact if the 8-bit encoder it shares
     /// with the Light is there. Standard when nothing is installed (`installedVariant(of:)` says
     /// whether something is).
-    public func variant(of f: Family) -> Variant {
+    package func variant(of f: Family) -> Variant {
         guard f.variants.count > 1 else { return .standard }
         let complete = f.variants.filter { isComplete(f, $0) }
         let candidates = complete.isEmpty ? f.variants : complete
@@ -141,7 +141,7 @@ extension Library {
 
     /// The version of the family's own installation; `nil` when nothing of it is on disk (an
     /// encoder map alone does not make a family installed).
-    public func installedVariant(of f: Family) -> Variant? { isOwn(f) ? variant(of: f) : nil }
+    package func installedVariant(of f: Family) -> Variant? { isOwn(f) ? variant(of: f) : nil }
 
     /// A version whose maps are all there: its encoder, and its DiT — unless no version has a DiT.
     func isComplete(_ f: Family, _ v: Variant) -> Bool {
@@ -224,31 +224,31 @@ extension Library {
 
     /// **What an installation will do, before its first byte** — what the app states above « Accept
     /// and Install », and what `install(_:variant:baseDiT:)` follows.
-    public struct InstallPlan: Sendable, Equatable {
+    package struct InstallPlan: Sendable, Equatable {
         /// The version installed (`variant: nil` keeps the one there, Standard if none; `baseDiT`
         /// false always keeps it).
-        public let variant: Variant
+        package let variant: Variant
         /// The other version on disk, replaced: removed **once the new one is complete** — the render
         /// reads it until then — or before the first byte if `removesFirst`.
-        public let replacing: Variant?
+        package let replacing: Variant?
         /// Bytes on disk the installation adds once done (`Family.installedSize` of the parts
         /// missing; an encoder already there, shared or not, counts for nothing).
-        public let added: Int
+        package let added: Int
         /// Bytes the replaced version gives back.
-        public let freed: Int
+        package let freed: Int
         /// The peak while forging: the parts missing plus the sources of the largest (`spaceNeeded`).
-        public let peak: Int
+        package let peak: Int
         /// **The disk cannot hold both versions at once**: the replaced one is removed before the
         /// first download, and a stop or a failure then leaves the family without a complete version
         /// until the installation is resumed. To be said before the user accepts.
-        public let removesFirst: Bool
+        package let removesFirst: Bool
         /// The installation fits — the replaced version's space counted when it goes first.
-        public let fits: Bool
+        package let fits: Bool
     }
 
     /// The plan of `install(_:variant:baseDiT:)` against the free space now. Throws if the version
     /// asked does not exist, or contradicts the one installed when `baseDiT` is false.
-    public func installPlan(_ f: Family, variant: Variant? = nil, baseDiT: Bool = true) throws(EngineError) -> InstallPlan {
+    package func installPlan(_ f: Family, variant: Variant? = nil, baseDiT: Bool = true) throws(EngineError) -> InstallPlan {
         try EngineError.boundary { try installPlan(f, variant: variant, baseDiT: baseDiT, free: freeSpace()) }
     }
 
@@ -282,7 +282,7 @@ extension Library {
     /// a crash left in `store/` — never one being written: a forge (`MapWriter`) and a download
     /// hold theirs locked, and a locked one is left alone (the app also offers this only while
     /// nothing installs, `managementPossible`).
-    public func emptyDownloads() throws(EngineError) {
+    package func emptyDownloads() throws(EngineError) {
         let t = Installer(library: self).downloads
         if Self.exists(t) { try EngineError.boundary { try FileManager.default.removeItem(atPath: t) } }
         for p in partials() {
@@ -349,7 +349,7 @@ extension Library {
 
 extension ModelImport {
     /// Removes a forged LoRA (the original `.safetensors` was no longer read anyway).
-    public static func remove(_ lora: LoRACard) throws(EngineError) {
+    package static func remove(_ lora: LoRACard) throws(EngineError) {
         try EngineError.boundary { try FileManager.default.removeItem(atPath: lora.path) }
     }
 }
@@ -363,7 +363,7 @@ extension Family {
     /// the Standard's encoder; Krea 2's DiT and encoder from Comfy-Org's int8 convrot, its Light's DiT
     /// from vantagewithai's GGUF Q4_K_M. An installation needs more while forging: the sources, about as
     /// large as the map, then thrown away (`spaceNeeded`).
-    public func installedSize(_ variant: Variant) -> (dit: Int, encoder: Int, components: Int) {
+    package func installedSize(_ variant: Variant) -> (dit: Int, encoder: Int, components: Int) {
         if variant == .light {
             // The DiT maps measured as installed; the encoder is the Compact's.
             switch self {

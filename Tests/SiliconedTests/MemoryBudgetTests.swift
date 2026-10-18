@@ -56,7 +56,7 @@ final class MemoryBudgetTests: XCTestCase {
         // The check compares the process's peaks with needs that hold the same base.
         let check = MemoryCheck(need: app, marks: [("text", app.need(of: .text)! - 1)])
         XCTAssertEqual(check.baseBytes, 300_000_000)
-        XCTAssertFalse(check.isDefect)
+        XCTAssertTrue(check.exceeded.isEmpty)
         XCTAssertEqual(check.slack.count, 1)
     }
 

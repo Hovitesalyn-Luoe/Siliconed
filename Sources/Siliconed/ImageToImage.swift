@@ -17,16 +17,12 @@ import ImageIO
 // ── the input image ────────────────────────────────────────────────────────────────────────
 
 extension ImageRGB {
-    /// What fails when reading an image or writing its PNG.
+    /// What fails when reading an image (writing its PNG throws `EngineError` itself, `ImagePNG.swift`).
     package enum Failure: Error, CustomStringConvertible {
         case unreadable(String)
-        case encoding
-        case writing(String)
         package var description: String {
             switch self {
             case .unreadable(let path): return "unreadable image: \(path) (PNG, JPEG, HEIC… anything ImageIO can read)"
-            case .encoding: return "PNG: ImageIO refused to encode the image"
-            case .writing(let path): return "PNG: cannot write \(path)"
             }
         }
     }
@@ -35,7 +31,7 @@ extension ImageRGB {
     /// format can have (`Format.maxSurface / Format.minimumSide`, 1536·1024/512). Beyond
     /// that, the pixels would only be reduced by `fitted` — a 48 Mpx photo decoded at full size
     /// would weigh 576 MB of floats.
-    public static let maximumDecodedSide = Format.maxSurface / Format.minimumSide
+    package static let maximumDecodedSide = Format.maxSurface / Format.minimumSide
 
     /// **An image of any size, read by ImageIO** — PNG, JPEG, HEIC, TIFF… — returned as
     /// `[3, h, w]` in `[-1, 1]` (`2x − 1`, like `VaeImageProcessor.normalize`).
@@ -48,7 +44,7 @@ extension ImageRGB {
     /// - the rest is `init(cgImage:)`'s: 8-bit sRGB, transparency over white — and, for an image with
     ///   transparency, its straight RGBA (`rgba`), read from the full image: ImageIO's thumbnail comes
     ///   premultiplied, which would lose the colour of the transparent pixels.
-    public init(contentsOf url: URL, maxSide: Int = ImageRGB.maximumDecodedSide) throws(EngineError) {
+    package init(contentsOf url: URL, maxSide: Int = ImageRGB.maximumDecodedSide) throws(EngineError) {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let l = properties[kCGImagePropertyPixelWidth] as? Int,
@@ -80,13 +76,13 @@ extension ImageRGB {
     /// side exceeds it is drawn **directly** into a smaller context, proportions kept — a 20k × 20k
     /// pasted image would otherwise take 1.6 GB of bytes, then 4.8 GB of floats, before `Request`
     /// fits it to the format. An image within the bound comes out bit for bit as before.
-    public init(cgImage image: CGImage, maxSide: Int = ImageRGB.maximumDecodedSide) throws(EngineError) {
+    package init(cgImage image: CGImage, maxSide: Int = ImageRGB.maximumDecodedSide) throws(EngineError) {
         try self.init(cgImage: image, name: "CGImage \(image.width)×\(image.height)", maxSide: maxSide, straight: nil)
     }
 
     /// **The size an image is drawn at**: as it is when its longest side is within `maxSide`,
     /// otherwise scaled so that it is `maxSide`, each side rounded and at least 1.
-    public static func decodedSize(width: Int, height: Int, maxSide: Int = ImageRGB.maximumDecodedSide)
+    package static func decodedSize(width: Int, height: Int, maxSide: Int = ImageRGB.maximumDecodedSide)
             -> (width: Int, height: Int) {
         let longest = max(width, height), bound = max(1, maxSide)
         guard longest > bound else { return (width, height) }
@@ -180,7 +176,7 @@ extension ImageRGB {
     /// **Fill, then center-crop**: `fitted`'s geometry, without pixels. The image is scaled by
     /// `max(L/l, H/h)` — it covers the format on both sides, with no band — then the center is
     /// kept.
-    public static func crop(source: (width: Int, height: Int), target: (width: Int, height: Int))
+    package static func crop(source: (width: Int, height: Int), target: (width: Int, height: Int))
             -> (width: Int, height: Int, x0: Int, y0: Int) {
         let scale = max(Double(target.width) / Double(source.width),
                           Double(target.height) / Double(source.height))
@@ -207,7 +203,7 @@ extension ImageRGB {
     /// The resampling is vImage's high quality (Lanczos), on floats — like the PIL Lanczos that
     /// diffusers takes —, then clamped to `[-1, 1]` (Lanczos overshoots). An image already at the
     /// format comes back as is, bit for bit.
-    public func fitted(width L: Int, height H: Int) -> ImageRGB {
+    package func fitted(width L: Int, height H: Int) -> ImageRGB {
         if L == width && H == height { return self }
         let zone = ImageRGB.zoneSource(source: (width, height), target: (L, H))
         var output = [Float](repeating: 0, count: 3 * H * L)
@@ -271,16 +267,16 @@ extension ImageRGB {
 ///      VAE round trip. Every schedule here moves at every step (Z-Image's too since 0.8.2: no
 ///      final 0 → 0), so `t_start ≤ N − 1` as soon as s > 0 and the refusal only guards a
 ///      denoiser whose plan would say otherwise.
-public enum Strength {
+package enum Strength {
     /// That of `ZImageImg2ImgPipeline` and `QwenImageImg2ImgPipeline` — not Anima's 0.9, which at
     /// eight steps ignores the image.
-    public static let defaultValue = 0.6
+    package static let defaultValue = 0.6
 
     /// **`t_start`** — the first step of the full schedule that is executed.
     ///
     /// ⚠️ **In Double, and truncated**, like Python's `int()`: at N = 50 and s = 0.56, `N·s` is
     /// 28.000000000000004 in double, and `t_start` is **21**, not 22. In `Float`, we would miss.
-    public static func startStep(steps n: Int, strength s: Double) -> Int {
+    package static func startStep(steps n: Int, strength s: Double) -> Int {
         let initial = min(Double(n) * s, Double(n))
         return Int(max(Double(n) - initial, 0))
     }

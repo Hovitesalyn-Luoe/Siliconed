@@ -757,7 +757,7 @@ package final class QwenImage21DiT {
         }
     }
 
-    /// `x += tanh(gate) · o` per band, on the GPU (one `fma`).
+    /// `x += tanh(gate) · o` per band, on the GPU (two roundings, as torch).
     private func residual(_ xs: UnsafeMutablePointer<Float>, rows n: Int,
                           bands: [(row: Int, count: Int, modulation: UnsafeMutablePointer<Float>)], gate: Int) throws {
         let d = config.dim

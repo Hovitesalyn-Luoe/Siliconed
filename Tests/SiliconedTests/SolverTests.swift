@@ -259,8 +259,8 @@ final class SolverTests: XCTestCase {
     func testZImageModelTimeIsThePipelines() {
         let want: [UInt32] = [0x0, 0x3d3a2e98, 0x3dcccccd, 0x3e2aaaac, 0x3e800000, 0x3eb6db6f, 0x3f000000, 0x3f333333]
         let s = FlowMatchSchedule(steps: 8)
-        XCTAssertEqual((0..<8).map { s.modelTime(at: $0).bitPattern }, want)
-        XCTAssertNotEqual(1 - s.sigmas[1], s.modelTime(at: 1))
+        XCTAssertEqual((0..<8).map { FlowMatchSchedule.modelTime(sigma: s.sigmas[$0]).bitPattern }, want)
+        XCTAssertNotEqual(1 - s.sigmas[1], FlowMatchSchedule.modelTime(sigma: s.sigmas[1]))
     }
 
     /// **What the DiT is told under DPM++ and UniPC**: diffusers' int64 `timesteps`, printed by the

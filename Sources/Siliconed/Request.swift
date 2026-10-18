@@ -9,10 +9,10 @@ import Foundation
 ///
 /// **A strength is a `Double` everywhere in the API** (a LoRA's as well as img2img's); the LoRA
 /// brings it down to `Float` at merge time, where it multiplies fp32 weights.
-public struct LoRAEntry: Sendable, Hashable {
-    public var path: String
-    public var strength: Double
-    public init(_ path: String, strength: Double = 1) { self.path = path; self.strength = strength }
+package struct LoRAEntry: Sendable, Hashable {
+    package var path: String
+    package var strength: Double
+    package init(_ path: String, strength: Double = 1) { self.path = path; self.strength = strength }
 
     /// `carte.silicon:0.8,autre.silicon:0.5` — the syntax of `SILICONED_LORA`. A missing or
     /// unreadable strength is 1. An entry made only of colons (`:`) names no file: it is kept as
@@ -41,29 +41,29 @@ public struct LoRAEntry: Sendable, Hashable {
 /// **Building a request reads nothing** — neither the machine's profile nor a file: what depends
 /// on them (`reproducible` left at `nil`) is resolved at render time. An app can therefore hold
 /// one in its state before having chosen its library and loaded its profile.
-public struct Request: Sendable, Equatable {
-    public var prompt: String
+package struct Request: Sendable, Equatable {
+    package var prompt: String
     /// The image's format, in pixels. See `Format` for what is accepted. Changing it refits the
     /// input image — from the **already-fitted** image: to change format without losing edges,
     /// set the source image again (`image = …`) after the format.
-    public var width: Int { didSet { fit() } }
-    public var height: Int { didSet { fit() } }
-    public var seed: UInt64
+    package var width: Int { didSet { fit() } }
+    package var height: Int { didSet { fit() } }
+    package var seed: UInt64
     /// `nil`: the denoiser's default (`ModelCard.defaultSteps`). At least 1, otherwise the render
     /// throws `EngineError.invalidSteps` before any computation.
-    public var steps: Int?
-    public var loras: [LoRAEntry]
+    package var steps: Int?
+    package var loras: [LoRAEntry]
     /// **Same seed, same bits**: the GPU/AMX split is not servo-controlled. See `Conductor.driven`.
     /// `nil`: the machine's setting (`EngineSettings.effective.frozenCut`, true by default), **read at
     /// render time**, not at construction.
-    public var reproducible: Bool?
+    package var reproducible: Bool?
     /// **The img2img starting image.** Set at any size, it is **immediately** filled and
     /// center-cropped to the request's format (`ImageRGB.fitted`): a request never keeps a
     /// full-size photo (48 Mpx would weigh 576 MB of floats for the whole render). `nil`: txt2img
     /// — one way of doing things, not two APIs.
-    public var image: ImageRGB? { didSet { fit() } }
+    package var image: ImageRGB? { didSet { fit() } }
     /// diffusers' `strength` (`Strength`), in `]0 ; 1]`. No effect without `image`.
-    public var strength: Double
+    package var strength: Double
     /// **The editing reference images** ("change her jacket to red"): the denoiser re-reads them
     /// at each layer, and the generated image starts from noise — nothing to do with `image`,
     /// which is its starting point. Each keeps **its own** aspect ratio, at the size the denoiser
@@ -72,10 +72,10 @@ public struct Request: Sendable, Equatable {
     /// Qwen-Image-2.1's encoder also SEES them: the prompt names them `<image1>`, `<image2>`… in this
     /// order, and the first is the image being edited. Empty: no editing. Only the denoisers that
     /// announce it read them (`maxReferences`: 3 for Qwen-Image-2.1).
-    public var references: [ImageRGB] = []
+    package var references: [ImageRGB] = []
     /// **A preview at each step** (`Event.preview`, `Engine.Preview`). False by default: nothing
     /// is then computed or copied.
-    public var previews: Bool
+    package var previews: Bool
     /// **A sketch: stop after this many evaluations** and decode the denoiser's estimate of the
     /// final image, x̂₀ = x − σ·v, instead of the image. `nil`: the whole render. The estimate is free
     /// (the evaluation computed `v` anyway) and speaks early: on Z-Image at 512², after 3 of its
@@ -84,31 +84,31 @@ public struct Request: Sendable, Equatable {
     /// evaluations done are **the first ones of the whole render, bit for bit** — a sketch is a
     /// prefix, not another render: the same request without `sketch` finishes the image it showed.
     /// Under 1, one evaluation; at or past the plan's count, the whole render (`Render.sketch` nil).
-    public var sketch: Int?
+    package var sketch: Int?
     /// **More detail** (`Detail`): the denoiser is told, mid-trajectory, that a little less noise
     /// remains than really does, and leaves finer texture. Same evaluations, same cost; `normal` is
     /// the render without it, to the bit. The models whose `DenoisingModule.acceptsDetail` says so
     /// honour it — Z-Image and Qwen-Image-2.1, not Anima nor Krea 2.
-    public var detail: Detail = .normal
+    package var detail: Detail = .normal
     /// **The update rule of each step** (`Solver`): Euler, the one the Turbo models were distilled
     /// for, unless another is asked — the same steps, the same σ, another walk between them. Only the
     /// models whose `DenoisingModule.solvers` name it accept it; the app offers them in Developer Mode.
-    public var solver: Solver = .euler
+    package var solver: Solver = .euler
     /// **Whose σ** (`SigmaSchedule`): the official recipe, or what ComfyUI walks for the model — a
     /// comparison. Only the models whose `DenoisingModule.schedules` name it accept it (Qwen-Image-2.1);
     /// the app offers it in Developer Mode.
-    public var schedule: SigmaSchedule = .official
+    package var schedule: SigmaSchedule = .official
     /// **Variations** (`Variation`): the seed's starting noise turned towards other seeds', in order —
     /// cousins of the image `seed` gives, its composition kept in proportion to `strength`
     /// (`Variation.Amount`). Empty: the seed's noise, to the bit. Only the noise changes:
     /// the text, the images and the render cache's keys do not see it. In a batch, each seed is turned
     /// by the same variations.
-    public var variations: [Variation] = []
+    package var variations: [Variation] = []
 
     /// The most steps a request may ask for. The Turbo models are distilled for 6 to 8; the cap is
     /// there for what does not come from the stepper — a PNG's metadata, `silicontrol --steps`, the
     /// API — where 2·10⁹ steps would allocate the schedule (8 GB) before the first evaluation.
-    public static let maximumSteps = 50
+    package static let maximumSteps = 50
 
     /// What a request refuses, before any computation.
     package enum Failure: Error, CustomStringConvertible, Equatable {
@@ -140,7 +140,7 @@ public struct Request: Sendable, Equatable {
         }
     }
 
-    public init(_ prompt: String, width: Int, height: Int, seed: UInt64 = 42, steps: Int? = nil,
+    package init(_ prompt: String, width: Int, height: Int, seed: UInt64 = 42, steps: Int? = nil,
                 loras: [LoRAEntry] = [], image: ImageRGB? = nil, strength: Double = Strength.defaultValue,
                 previews: Bool = false, reproducible: Bool? = nil) {
         self.prompt = prompt; self.width = width; self.height = height; self.seed = seed
@@ -150,7 +150,7 @@ public struct Request: Sendable, Equatable {
     }
 
     /// The `resolution × resolution` square — the common case, written short.
-    public init(_ prompt: String, resolution: Int = 1024, seed: UInt64 = 42, steps: Int? = nil,
+    package init(_ prompt: String, resolution: Int = 1024, seed: UInt64 = 42, steps: Int? = nil,
                 loras: [LoRAEntry] = [], image: ImageRGB? = nil, strength: Double = Strength.defaultValue,
                 previews: Bool = false, reproducible: Bool? = nil) {
         self.init(prompt, width: resolution, height: resolution, seed: seed, steps: steps,

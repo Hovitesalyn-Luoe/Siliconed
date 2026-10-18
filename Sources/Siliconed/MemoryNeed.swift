@@ -253,7 +253,7 @@ package struct MemoryNeed: Sendable, Equatable {
 // ── the product's own verification ───────────────────────────────────────────────────────────
 
 /// **How a render's peaks were read** (`FootprintInterval`).
-public enum PeakMethod: String, Codable, Sendable, Equatable {
+package enum PeakMethod: String, Codable, Sendable, Equatable {
     /// The kernel's `ri_interval_max_phys_footprint`, reset at each boundary: exact.
     case kernelInterval
     /// `phys_footprint` sampled every 10 ms, the kernel's reset missing or failing: a lower bound.
@@ -265,55 +265,54 @@ public enum PeakMethod: String, Codable, Sendable, Equatable {
 /// whose measured peak passes its need is a **defect of the code** (an allocation outside our hand
 /// found), logged under the `memory` category and carried by the render's result; never a figure to
 /// fold back into the formula.
-public struct MemoryCheck: Codable, Sendable, Equatable {
+package struct MemoryCheck: Codable, Sendable, Equatable {
     /// One phase of the render, as `PhaseBoundary` marked it.
-    public struct Phase: Codable, Sendable, Equatable {
+    package struct Phase: Codable, Sendable, Equatable {
         /// The boundary's name (`text`, `vision`, `reference 1`, `denoising`, `decoding`…).
-        public var name: String
+        package var name: String
         /// The formula's need for this phase, crossing and base included; `nil` for a boundary the
         /// formula has no phase for (`start`, `denoiser released`: charged to their neighbours).
-        public var needBytes: Int?
+        package var needBytes: Int?
         /// `phys_footprint`'s maximum over the phase (the kernel's interval maximum).
-        public var measuredBytes: Int
+        package var measuredBytes: Int
         /// Measured minus need: positive is a defect.
-        public var gapBytes: Int?
-        public init(name: String, needBytes: Int?, measuredBytes: Int) {
+        package var gapBytes: Int?
+        package init(name: String, needBytes: Int?, measuredBytes: Int) {
             self.name = name; self.needBytes = needBytes; self.measuredBytes = measuredBytes
             gapBytes = needBytes.map { measuredBytes - $0 }
         }
         private enum CodingKeys: String, CodingKey { case name, needBytes, measuredBytes, gapBytes }
         /// Explicit `null`s, as the diagnostic's JSON writes them: "no need for this boundary" is said.
-        public func encode(to encoder: any Encoder) throws {
+        package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(name, forKey: .name); try c.encode(needBytes, forKey: .needBytes)
             try c.encode(measuredBytes, forKey: .measuredBytes); try c.encode(gapBytes, forKey: .gapBytes)
         }
     }
     /// The formula's peak (`MemoryNeed.peak`).
-    public var needBytes: Int
+    package var needBytes: Int
     /// The render's own peak: the largest phase's.
-    public var measuredBytes: Int
-    public var phases: [Phase]
+    package var measuredBytes: Int
+    package var phases: [Phase]
     /// Measured minus need, over the whole render.
-    public var gapBytes: Int
+    package var gapBytes: Int
     /// How the phases' peaks were read (`FootprintInterval`): exact, or sampled every 10 ms.
-    public var peakMethod: PeakMethod
+    package var peakMethod: PeakMethod
     /// **The process's footprint when the render started** (`MemoryNeed.Request.base`), inside every
     /// need above: the peaks are the process's, the app's interface and history or the command line's
     /// runtime included, and so are the needs. `nil` in a report written before it was carried.
-    public var baseBytes: Int?
-    public init(needBytes: Int, measuredBytes: Int, phases: [Phase],
+    package var baseBytes: Int?
+    package init(needBytes: Int, measuredBytes: Int, phases: [Phase],
                 peakMethod: PeakMethod = .kernelInterval, baseBytes: Int? = nil) {
         self.needBytes = needBytes; self.measuredBytes = measuredBytes; self.phases = phases
         self.peakMethod = peakMethod; self.baseBytes = baseBytes
         gapBytes = measuredBytes - needBytes
     }
     /// **The phases above their need** — each one a defect.
-    public var exceeded: [Phase] {
+    package var exceeded: [Phase] {
         phases.filter { ($0.gapBytes ?? 0) > 0 } + (gapBytes > 0 && !phases.contains { ($0.gapBytes ?? 0) > 0 }
             ? [Phase(name: "render", needBytes: needBytes, measuredBytes: measuredBytes)] : [])
     }
-    public var isDefect: Bool { !exceeded.isEmpty }
 
     /// The engine's memory log: `log stream --predicate 'subsystem == "dev.gwenn-ha.siliconed" && category == "memory"'`.
     package static let log = Logger(subsystem: "dev.gwenn-ha.siliconed", category: "memory")
@@ -342,7 +341,7 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
     }
 
     /// One line per defect, for the log and the CLI.
-    public var defects: [String] {
+    package var defects: [String] {
         exceeded.map {
             String(format: "memory defect: %@ peaked at %.0f MB, its need is %.0f MB (+%.0f MB)", $0.name as NSString,
                    Double($0.measuredBytes) / 1e6, Double($0.needBytes ?? needBytes) / 1e6,
@@ -353,7 +352,7 @@ public struct MemoryCheck: Codable, Sendable, Equatable {
     /// **The phases below their need**, one line each — reported, never a failure: a check that only
     /// looks up is blind to an over-charge, and an over-charge can hide an under-charge in the same
     /// phase (two terms compensating). The slack is what the formula charges that the render did not take.
-    public var slack: [String] {
+    package var slack: [String] {
         phases.compactMap { phase -> String? in
             guard let need = phase.needBytes, let gap = phase.gapBytes, gap < 0 else { return nil }
             return String(format: "memory slack: %@ peaked at %.0f MB, its need is %.0f MB (%.0f MB)", phase.name as NSString,

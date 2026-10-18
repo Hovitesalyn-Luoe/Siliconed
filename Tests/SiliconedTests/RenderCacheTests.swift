@@ -136,9 +136,13 @@ final class RenderCacheTests: XCTestCase {
     /// A read touches its entry: after it, the other one is the least recently used.
     func testAReadMakesAnEntryRecent() throws {
         let one = Conditioning(format: .zImage, rows: 1, width: 64, values: [Float](repeating: 1, count: 64), tokens: 1)
-        let probe = try RenderCache.encode(header: RenderCache.header(one, key: key(["a"])), values: one.values).count
-        let cache = RenderCache(directory: folder, budget: 2 * probe + probe / 2)
         let a = key(["a"]), b = key(["b"]), c = key(["c"])
+        // One entry's size on disk, from a cache with room for everything (all three keys weigh the same).
+        let sizer = RenderCache(directory: folder.appendingPathComponent("sizer"), budget: 1 << 40)
+        sizer.store(one, key: a)
+        let probe = try XCTUnwrap(try FileManager.default.attributesOfItem(
+            atPath: sizer.conditioningFolder.appendingPathComponent(a.hex + ".bin").path)[.size] as? Int)
+        let cache = RenderCache(directory: folder, budget: 2 * probe + probe / 2)
         cache.store(one, key: a)
         cache.store(one, key: b)
         let past = Date(timeIntervalSince1970: 1_000)

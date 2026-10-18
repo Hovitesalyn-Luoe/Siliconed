@@ -601,7 +601,7 @@ package struct Installer {
 extension Family {
     /// **The license files an installation of `variant` links**, at the revisions it downloads: the
     /// publisher's (`ModelCard.license.urls`), then — for a Compact or a Light — each third party's model card.
-    public func licenseURLs(_ variant: Variant) -> [URL] { Installer.licenseURLs(self, variant) }
+    package func licenseURLs(_ variant: Variant) -> [URL] { Installer.licenseURLs(self, variant) }
 }
 
 /// Safetensors headers read remotely (`Range` requests): names, shapes, dtypes — not a weight.

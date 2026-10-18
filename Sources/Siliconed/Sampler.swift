@@ -38,10 +38,7 @@ package struct FlowMatchSchedule {
         sigmas = values
     }
 
-    /// What the DiT receives: the inverted time.
-    package func modelTime(at step: Int) -> Float { Self.modelTime(sigma: sigmas[step]) }
-
-    /// `timestep = (1000 − t) / 1000`, `t = σ · 1000` (`scheduler.timesteps`), each operation a float32
+    /// **What the DiT receives: the inverted time.** `timestep = (1000 − t) / 1000`, `t = σ · 1000` (`scheduler.timesteps`), each operation a float32
     /// rounding as torch does them — `ZImagePipeline.__call__`, and its img2img's.
     package static func modelTime(sigma: Float) -> Float {
         let t = sigma * 1000

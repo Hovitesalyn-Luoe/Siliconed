@@ -6,7 +6,6 @@ let package = Package(
     name: "Siliconed",
     platforms: [.macOS(.v15)],   // MPSGraph.scaledDotProductAttention : macOS 15+
     products: [
-        .library(name: "Siliconed", targets: ["Siliconed"]),
         .executable(name: "SiliconedApp", targets: ["SiliconedApp"]),
         .executable(name: "silicontrol", targets: ["Silicontrol"]),
     ],
@@ -16,8 +15,10 @@ let package = Package(
         .target(name: "Siliconed", dependencies: ["AMXLegacy"], cSettings: [.define("ACCELERATE_NEW_LAPACK")]),
         // `BNNSMatMul`, deprecated and kept: isolated in C, where the deprecation is acknowledged once.
         .target(name: "AMXLegacy", linkerSettings: [.linkedFramework("Accelerate")]),
-        // **The app, `Siliconed.app` — the product.** A client of the library as any app would be
-        // (no `@testable`): what it calls is `public`, the rest is `package`. The target is `SiliconedApp`, not
+        // **The app, `Siliconed.app` — the product.** The library is not a product of its own: the app
+        // reaches its `package` symbols from this package (no `@testable`, so never its internals), and
+        // `tools/translations.sh`, which compiles the app's files outside SwiftPM, passes the package's
+        // name to do the same. The target is `SiliconedApp`, not
         // `Siliconed`: the library holds that name, and the file system does not tell it from
         // `siliconed`. `tools/app.sh` copies its binary to `Siliconed.app/Contents/MacOS/Siliconed`.
         // Its phrases (`Localizable.xcstrings`, English source, fr de es it translations) are not a resource of it:
@@ -45,7 +46,7 @@ let package = Package(
 // **A maintainer's command line, when present.** The checks against the reference implementations
 // (diffusers and transformers in fp32) live outside this repository; when their sources sit in
 // `Sources/CLI`, they build with the package as `siliconed-dev`, reaching its `package` symbols.
-// A clone without them builds the library, the app and `silicontrol` alone.
+// A clone without them builds the app and `silicontrol` alone (and the library they link).
 if FileManager.default.fileExists(atPath: Context.packageDirectory + "/Sources/CLI") {
     package.products.append(.executable(name: "siliconed-dev", targets: ["CLI"]))
     package.targets.append(.executableTarget(name: "CLI", dependencies: ["Siliconed", "AMXLegacy"],

@@ -71,8 +71,8 @@ final class PureFunctionsTests: XCTestCase {
         // The DiT receives `(1000 − t)/1000 = 1 − σ`. Confusing it with σ gives a plausible and
         // wrong image — it is the first of the three traps of `Sampler`.
         let s = FlowMatchSchedule(steps: 8)
-        XCTAssertEqual(s.modelTime(at: 0), 0, accuracy: 1e-6)
-        XCTAssertEqual(s.modelTime(at: 8), 1, accuracy: 1e-6)
+        XCTAssertEqual(FlowMatchSchedule.modelTime(sigma: s.sigmas[0]), 0, accuracy: 1e-6)
+        XCTAssertEqual(FlowMatchSchedule.modelTime(sigma: s.sigmas[8]), 1, accuracy: 1e-6)
     }
 
     // ── the spectral schedule ──────────────────────────────────────────────────────────────

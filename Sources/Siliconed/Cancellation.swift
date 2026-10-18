@@ -22,14 +22,14 @@ import Synchronization
 /// unmapped on leaving scope (`Arena.deinit`) — `Arena.live` returns to zero, which the
 /// cancellation check verifies, model by model.
 ///
-/// The error thrown is `EngineError.cancelled` — the one public error; a cancelled `Task` that throws
+/// The error thrown is `EngineError.cancelled` — the one error that leaves the engine; a cancelled `Task` that throws
 /// Swift's `CancellationError` folds into the same case at the door (`EngineError(_:)`).
-public final class Cancellation: Sendable {
+package final class Cancellation: Sendable {
     private let flag = Atomic<Bool>(false)
     /// A token this one also obeys: raised, it raises this one — never the reverse.
     private let parent: Cancellation?
 
-    public init() { parent = nil }
+    package init() { parent = nil }
 
     /// A token raised by its own `cancel()` **or** by `parent`'s: what stops one part of a job
     /// (an installation's download running beside a forge) without stopping the whole.
@@ -37,12 +37,12 @@ public final class Cancellation: Sendable {
 
     /// Raises the flag. Idempotent, lock-free, callable from any thread (a signal handler
     /// included: a relaxed atomic store).
-    public func cancel() { flag.store(true, ordering: .relaxed) }
+    package func cancel() { flag.store(true, ordering: .relaxed) }
 
-    public var isCancelled: Bool { flag.load(ordering: .relaxed) || parent?.isCancelled == true }
+    package var isCancelled: Bool { flag.load(ordering: .relaxed) || parent?.isCancelled == true }
 
     /// Throws `EngineError.cancelled` if the flag is raised.
-    public func check() throws(EngineError) {
+    package func check() throws(EngineError) {
         if isCancelled { throw .cancelled }
     }
 }
@@ -65,12 +65,12 @@ extension Optional where Wrapped == Cancellation {
 ///   that is the caller's choice.
 ///
 /// One render at a time (the `Engine` queue): a single current receiver suffices, no stack.
-public enum Warnings {
+package enum Warnings {
     private static let current = Mutex<(@Sendable (String) -> Void)?>(nil)
     private static let outsideRenderState = Mutex<(@Sendable (String) -> Void)?>(nil)
 
     /// The receiver of warnings emitted outside a render.
-    public static var outsideRender: (@Sendable (String) -> Void)? {
+    package static var outsideRender: (@Sendable (String) -> Void)? {
         get { outsideRenderState.withLock { $0 } }
         set { outsideRenderState.withLock { $0 = newValue } }
     }

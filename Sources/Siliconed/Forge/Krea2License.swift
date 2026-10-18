@@ -7,15 +7,15 @@
 // breaks and hyphenation artefacts removed, not a word changed.
 
 /// The Krea 2 Community License Agreement v.1 (June 22, 2026), and the notice its § 3.1 has kept.
-public enum Krea2License {
+package enum Krea2License {
     /// The PDF the text was read from.
-    public static let sha256 = "b82a2805162bde714a4eb27b9063c4fc3345d08a30be055134a6160e5430ba74"
+    package static let sha256 = "b82a2805162bde714a4eb27b9063c4fc3345d08a30be055134a6160e5430ba74"
 
     /// § 3.1 (c): the attribution notice, word for word.
-    public static let attribution = "Krea 2 is licensed under the Krea 2 Community License Agreement. For more information, visit https://krea.ai/krea-2-licensing."
+    package static let attribution = "Krea 2 is licensed under the Krea 2 Community License Agreement. For more information, visit https://krea.ai/krea-2-licensing."
 
     /// The Agreement, one paragraph per block.
-    public static let text = #"""
+    package static let text = #"""
 KREA 2 COMMUNITY LICENSE AGREEMENT
 
 KREA 2 Community License Agreement v.1, Date: June 22, 2026

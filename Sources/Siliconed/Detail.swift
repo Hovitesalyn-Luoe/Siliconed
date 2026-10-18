@@ -37,7 +37,7 @@ import Foundation
 ///
 /// **`normal` is the identity, to the bit**: `modelSigmas` returns its argument, and every sampler
 /// passes the same σ it passed before. Judged on the products' md5.
-public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
+package enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     case normal, more, most
 
     /// The node's knobs. None of them reaches the app: `more` and `most` fix them (`schedule`).
@@ -58,8 +58,9 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     /// **Where a denoiser's bell sits.** The node lays it over step *indices*, so where it falls in
     /// σ depends on the schedule — and one shape fits no two families:
     ///
-    ///   - `standard`, the node's defaults (start 0.2, end 0.8, bias 0.5): no family's any more, kept
-    ///     as the node's reference shape (`DetailTests`). It was Z-Image's while Z-Image ran 7 evaluations (σ 1, 0.947, 0.882,
+    ///   - no bell (`nil`): the families that refuse Detail (Anima, Krea 2) are told their σ themselves.
+    ///     The node's defaults (start 0.2, end 0.8, bias 0.5, `Schedule`'s) are no family's any more.
+    ///     They were Z-Image's while Z-Image ran 7 evaluations (σ 1, 0.947, 0.882,
     ///     0.8, 0.692, 0.545, 0.333): peak at σ 0.69, clean up to amount 2. On the 8 of the
     ///     official recipe (0.8.2) the same indices fall on σ 0.9 ×¼, 0.833 ×¾, 0.75 ×1, 0.643 ×½,
     ///     and More already moved the pose; at 1.5, the framing.
@@ -70,7 +71,7 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     σ 0.5 ×½ too) sharpens more per amount but specks at 2.5 already.
     ///   - `late` (start 0.6, end 1.0), for Qwen-Image-2.1. ⚠️ Calibrated before the official Turbo,
     ///     on the 6 steps of the third-party turbo LoRA the family carried until 10/10/2026 (512²: σ = 1,
-    ///     0.96, 0.92, 0.84, 0.63, 0.36): the standard bell landed on σ 0.92 and 0.84, where the
+    ///     0.96, 0.92, 0.84, 0.63, 0.36): the node's default bell landed on σ 0.92 and 0.84, where the
     ///     composition is still being decided — amount 0.5 already changed the woman and her clothes,
     ///     1 grew a bird on branches; the late bell touched only the 5th step (σ 0.63) — same picture,
     ///     finer texture; up to 1.3 clean, at 1.6 white crackle lines. On the Turbo's 8 fixed steps
@@ -79,18 +80,18 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///
     /// **Anima has none** (`AnimaDenoisingModule.acceptsDetail`): it does not answer a lie with
     /// finer texture but with **mosaic blocks** — flat squares of one colour, 16 to 32 pixels, on the
-    /// shelves first, then the clothes (the standard bell's More already moved seed 42's pose; Z-Image's
+    /// shelves first, then the clothes (the node's default bell's More already moved seed 42's pose; Z-Image's
     /// bell at 1.5 still tiled seed 7's shelves). At Z-Image's place and amounts 0.5 and 1 the three
     /// seeds stay clean, with no measurable gain of |Laplacian| (−2 to +1 %): a choice that changes
     /// nothing visible is not offered.
     ///
     /// **Krea 2 has none either** (`Krea2DenoisingModule.acceptsDetail`): on its 8 steps (σ 1, 0.957,
-    /// 0.905, 0.840, 0.760, 0.655, 0.513, 0.311) the standard bell lands on σ 0.84–0.66, where the
+    /// 0.905, 0.840, 0.760, 0.655, 0.513, 0.311) the node's default bell lands on σ 0.84–0.66, where the
     /// picture is still being decided. Judged at 512², seed 42: More (1) keeps the woman and her pose,
     /// adds a ring and earrings, and no texture (mean |Laplacian| −3 %); Most (2) changes her face and
     /// her pose (PSNR to Normal 16.6 dB) for +1.5 %. A Detail that redraws instead of sharpening is not
     /// offered.
-    package enum Bell: Sendable { case standard, zImage, late }
+    package enum Bell: Sendable { case zImage, late }
 
     /// **The calibrated settings**, by eye at 512², the library prompt, on the families that offer it
     /// at their default steps. `more` ≈ +10 % of high-frequency energy (mean |Laplacian| of the
@@ -103,11 +104,11 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     Most gave +20 %: the σ that sharpened then sat between two of today's.
     ///   - Qwen-Image-2.1 (seeds 42, 7): judged on the third-party turbo's 6 steps, not yet
     ///     on the Turbo's 8.
-    package func schedule(_ bell: Bell = .standard) -> Schedule? {
+    /// No bell, no schedule: a family without one refuses Detail before any computation.
+    package func schedule(_ bell: Bell?) -> Schedule? {
+        guard let bell else { return nil }
         switch (self, bell) {
         case (.normal, _): return nil
-        case (.more, .standard): return Schedule(amount: 1)
-        case (.most, .standard): return Schedule(amount: 2)
         case (.more, .zImage): return Schedule(amount: 2, start: 0.4, end: 0.9)
         case (.most, .zImage): return Schedule(amount: 2.5, start: 0.4, end: 0.9)
         case (.more, .late): return Schedule(amount: 1, start: 0.6, end: 1)
@@ -133,9 +134,9 @@ public enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     }
 
     /// **The σ each evaluation hands the model**, for a full schedule (`steps + 1` values, ending in
-    /// 0) of which steps `start…` run. `normal`: `sigmas` itself. `scale`: `Detail.scale` of the
+    /// 0) of which steps `start…` run. `normal`, or no bell: `sigmas` itself. `scale`: `Detail.scale` of the
     /// render's size (1 at 512²).
-    package func modelSigmas(_ sigmas: [Float], start: Int = 0, bell: Bell = .standard, scale: Double = 1) -> [Float] {
+    package func modelSigmas(_ sigmas: [Float], start: Int = 0, bell: Bell?, scale: Double = 1) -> [Float] {
         guard var schedule = schedule(bell), sigmas.count - start >= 2 else { return sigmas }
         schedule.amount *= scale
         return Detail.adjusted(sigmas, start: start, schedule)

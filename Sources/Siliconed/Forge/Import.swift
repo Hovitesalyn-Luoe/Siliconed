@@ -9,20 +9,20 @@ import Foundation
 ///
 /// This is Draw Things' idea (`BaseModelImporter`, `LoRAImporter`): the architecture is detected,
 /// only the DiT is converted, the rest is the family's.
-public enum ModelImport {
-    public enum Kind: String, Sendable { case lora = "LoRA", model = "model" }
+package enum ModelImport {
+    package enum Kind: String, Sendable { case lora = "LoRA", model = "model" }
 
-    public struct Outcome: Sendable {
-        public let kind: Kind
-        public let family: Family
+    package struct Outcome: Sendable {
+        package let kind: Kind
+        package let family: Family
         /// The displayed name.
-        public let name: String
+        package let name: String
         /// The forged map.
-        public let path: String
+        package let path: String
         /// What happened, line by line (naming recognized, dtypes, roundings, installations).
-        public let journal: [String]
+        package let journal: [String]
         /// The identifier to pass to `Model.named` (a model) — `nil` for a LoRA.
-        public var identifier: String? {
+        package var identifier: String? {
             kind == .model ? "\(family.rawValue)/" + ((path as NSString).lastPathComponent as NSString).deletingPathExtension : nil
         }
     }
@@ -69,7 +69,7 @@ public enum ModelImport {
 
     /// **Imports** a `.safetensors` or a `.gguf`. `name`: a model's displayed name (by default, the file).
     /// `journal` receives the progress. `cancellation`: kept for the callers; nothing downloads.
-    public static func importFile(_ file: String, name: String? = nil, in b: Library,
+    package static func importFile(_ file: String, name: String? = nil, in b: Library,
                                 cancellation: Cancellation? = nil,
                                 journal: @escaping @Sendable (String) -> Void = { _ in }) throws(EngineError) -> Outcome {
         try refusingAs(file) {
@@ -148,7 +148,7 @@ public enum ModelImport {
     }
 
     /// Removes an imported model (its map, and an Anima's adapter).
-    public static func remove(_ card: ModelCard) throws(EngineError) {
+    package static func remove(_ card: ModelCard) throws(EngineError) {
         guard let map = card.map else { throw .notAnImportedModel(model: card.name) }
         try EngineError.boundary { try FileManager.default.removeItem(atPath: map) }
         try? FileManager.default.removeItem(atPath: adapterPath(fromMap: map))
@@ -156,19 +156,13 @@ public enum ModelImport {
 }
 
 extension Library {
-    /// The families whose encoder and components are installed — enough to render with an imported DiT.
-    public func readyFamilies() -> [Family] {
-        let i = Installer(library: self)
-        return Family.allCases.filter { i.isReady($0) }
-    }
-
     /// **Installs a family** from the vendor (downloads, forges, throws away the sources).
     /// `variant`: Standard, Compact or Light (`Family.variants`); `nil`, the version already there, Standard
     /// if none. Installing the other version **replaces** the one there once the new one is complete
     /// (before, only if the disk cannot hold both: `installPlan(_:variant:baseDiT:)` says so).
     /// `baseDiT`: also the vendor's DiT — useless if one only renders with an imported model; without
     /// it the version installed is kept, and another one asked is refused.
-    public func install(_ family: Family, variant: Variant? = nil, baseDiT: Bool = true, cancellation: Cancellation? = nil,
+    package func install(_ family: Family, variant: Variant? = nil, baseDiT: Bool = true, cancellation: Cancellation? = nil,
                           journal: @escaping @Sendable (String) -> Void = { _ in }) throws(EngineError) {
         var i = Installer(library: self)
         i.journal = journal

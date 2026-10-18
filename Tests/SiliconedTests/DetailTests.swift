@@ -74,23 +74,29 @@ final class DetailTests: XCTestCase {
     func testNormalIsTheIdentity() {
         for steps in [1, 4, 6, 8, 9] {
             let σ = FlowMatchSchedule(steps: steps).sigmas
-            XCTAssertEqual(Detail.normal.modelSigmas(σ).map(\.bitPattern), σ.map(\.bitPattern))
-            for level in [Detail.more, .most] {
-                let m = level.modelSigmas(σ)
-                XCTAssertEqual(m.count, σ.count)
-                // (At 1 step the node puts its whole bell on the only step: faithful, and harmless.)
-                if steps >= 4 { XCTAssertEqual(m.first, σ.first) }
-                for (a, b) in zip(m, σ) { XCTAssertLessThanOrEqual(a, b) }
+            for bell in [Detail.Bell.zImage, .late] {
+                XCTAssertEqual(Detail.normal.modelSigmas(σ, bell: bell).map(\.bitPattern), σ.map(\.bitPattern))
+                for level in [Detail.more, .most] {
+                    let m = level.modelSigmas(σ, bell: bell)
+                    XCTAssertEqual(m.count, σ.count)
+                    // (At 1 step the node puts its whole bell on the only step: faithful, and harmless.)
+                    if steps >= 4 { XCTAssertEqual(m.first, σ.first) }
+                    for (a, b) in zip(m, σ) { XCTAssertLessThanOrEqual(a, b) }
+                }
+            }
+            // No bell (Anima, Krea 2 — they refuse Detail upstream): the σ themselves, whatever the level.
+            for level in Detail.allCases {
+                XCTAssertEqual(level.modelSigmas(σ, bell: nil).map(\.bitPattern), σ.map(\.bitPattern))
             }
         }
-        for bell in [Detail.Bell.standard, .zImage, .late] {
+        for bell in [Detail.Bell.zImage, .late] {
             XCTAssertNil(Detail.normal.schedule(bell))
             XCTAssertGreaterThan(Detail.most.schedule(bell)!.amount, Detail.more.schedule(bell)!.amount)
         }
         // 6 steps (the count the late bell was calibrated on): only the 5th. The Turbo's 8: the 6th at
         // half and the 7th (`[0, 0, 0, 0, 0, 0.5, 1, 0]`), not judged by eye yet.
         XCTAssertEqual(Detail.multipliers(steps: 6, Detail.more.schedule(.late)!), [0, 0, 0, 0, 1, 0])
-        XCTAssertNotEqual(Detail.more.modelSigmas(FlowMatchSchedule(steps: 8).sigmas), FlowMatchSchedule(steps: 8).sigmas)
+        XCTAssertNotEqual(Detail.more.modelSigmas(FlowMatchSchedule(steps: 8).sigmas, bell: .zImage), FlowMatchSchedule(steps: 8).sigmas)
     }
 
     /// **Z-Image's bell**: on its 8 evaluations, σ 0.75 at half and σ 0.643 in full, nothing
@@ -114,16 +120,21 @@ final class DetailTests: XCTestCase {
     }
 
     /// **The amount shrinks as the image grows**, whatever the bell: ×1 at 512², ×½ at 1024², ×0.41
-    /// at 1024×1536 (Most 0.82) — Most at 1024² is More at 512², to the bit; the late bell (Qwen) too.
+    /// at 1024×1536 — the calibrated amount times the scale, to the bit, on both bells.
     func testTheAmountFollowsTheSide() {
         XCTAssertEqual(Detail.scale(width: 512, height: 512), 1)
         XCTAssertEqual(Detail.scale(width: 1024, height: 1024), 0.5)
         XCTAssertEqual(Detail.scale(width: 1024, height: 1536), 0.4082, accuracy: 1e-4)
         let σ = FlowMatchSchedule(steps: 8).sigmas
-        XCTAssertEqual(Detail.most.modelSigmas(σ, scale: 0.5).map(\.bitPattern), Detail.more.modelSigmas(σ).map(\.bitPattern))
+        for bell in [Detail.Bell.zImage, .late] {
+            var half = Detail.most.schedule(bell)!
+            half.amount *= 0.5
+            XCTAssertEqual(Detail.most.modelSigmas(σ, bell: bell, scale: 0.5).map(\.bitPattern),
+                           Detail.adjusted(σ, start: 0, half).map(\.bitPattern))
+        }
         let q: [Float] = [1, 0.963, 0.923, 0.837, 0.632, 0.36, 0]
         XCTAssertLessThan(Detail.most.modelSigmas(q, bell: .late)[4], Detail.most.modelSigmas(q, bell: .late, scale: 0.5)[4])
-        XCTAssertEqual(Detail.normal.modelSigmas(σ, scale: 0.5).map(\.bitPattern), σ.map(\.bitPattern))
+        XCTAssertEqual(Detail.normal.modelSigmas(σ, bell: .zImage, scale: 0.5).map(\.bitPattern), σ.map(\.bitPattern))
     }
 
     /// The PNG says it only when it is not `normal`, and gives it back; an unknown value is said.

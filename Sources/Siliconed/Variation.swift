@@ -29,12 +29,12 @@ import Foundation
 ///     close to it, not to its parent. Since each step keeps a standard normal, so does the chain.
 ///   - computed in fp64 element by element, rounded once to fp32 — the order of operations of one
 ///     element is fixed, so the same pair of seeds gives the same bits on any machine.
-public struct Variation: Sendable, Hashable {
-    public var seed: UInt64
+package struct Variation: Sendable, Hashable {
+    package var seed: UInt64
     /// In `[0, 1]`: 0 the original noise, 1 the variation seed's. Outside, clamped; not finite, 0.
-    public var strength: Double
+    package var strength: Double
 
-    public init(seed: UInt64, strength: Double) { self.seed = seed; self.strength = strength }
+    package init(seed: UInt64, strength: Double) { self.seed = seed; self.strength = strength }
 
     /// **The two strengths an app offers**, named and never shown as numbers — calibrated at 512²,
     /// seed 42:
@@ -55,10 +55,10 @@ public struct Variation: Sendable, Hashable {
     ///     the clothes and the framing that move. Z-Image keeps its framing longer (its seeds vary
     ///     little), at 0.7 it starts to change shot; Qwen at 0.7 is nearly another image. Krea 2 at 0.5:
     ///     another woman in the same blouse and pose, other shelves — the same kind of shot.
-    public enum Amount: String, CaseIterable, Sendable {
+    package enum Amount: String, CaseIterable, Sendable {
         case subtle, strong
 
-        public func strength(for family: Family) -> Double {
+        package func strength(for family: Family) -> Double {
             switch (self, family) {
             case (.subtle, .qwenImage21), (.subtle, .krea2): 0.05
             case (.subtle, _): 0.1
@@ -67,7 +67,7 @@ public struct Variation: Sendable, Hashable {
         }
 
         /// The amount whose strength this is, for some family — to name a variation read back.
-        public static func named(_ strength: Double) -> Amount? {
+        package static func named(_ strength: Double) -> Amount? {
             allCases.first { a in Family.allCases.contains { a.strength(for: $0) == strength } }
         }
     }

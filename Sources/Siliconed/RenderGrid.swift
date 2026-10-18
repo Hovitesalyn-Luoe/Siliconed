@@ -50,11 +50,11 @@ import Foundation
 //   history; the sheet is the comparison.
 
 /// **An XY grid**: the base settings, one or two axes, and the cells they make.
-public struct RenderGrid: Equatable, Sendable {
+package struct RenderGrid: Equatable, Sendable {
 
     /// **What an axis varies.** Indices count from 0 (`group` in `PromptAlternatives.groups`, `slot`
     /// in the LoRA stack).
-    public enum Axis: Equatable, Sendable {
+    package enum Axis: Equatable, Sendable {
         /// The alternatives of the prompt's `group`-th `{…}`, in the order typed.
         case prompt(group: Int)
         /// These seeds, in this order.
@@ -77,7 +77,7 @@ public struct RenderGrid: Equatable, Sendable {
     }
 
     /// One value of an axis, as an app labels it (and formats it in its language).
-    public enum Value: Equatable, Sendable {
+    package enum Value: Equatable, Sendable {
         /// An alternative of a group, as typed (`""` for an empty one).
         case alternative(String)
         case seed(UInt64)
@@ -93,15 +93,15 @@ public struct RenderGrid: Equatable, Sendable {
 
     /// **What every cell shares**, unless an axis says otherwise. `prompt` is the prompt as typed,
     /// its `{…}` groups included; `loraStrengths` the stack's strengths, in its order.
-    public struct Base: Equatable, Sendable {
-        public var prompt: String
-        public var seed: UInt64
-        public var steps: Int
-        public var loraStrengths: [Double]
+    package struct Base: Equatable, Sendable {
+        package var prompt: String
+        package var seed: UInt64
+        package var steps: Int
+        package var loraStrengths: [Double]
         /// How many images the edit has — what an image axis splits (0: no edit).
-        public var images: Int
+        package var images: Int
 
-        public init(prompt: String, seed: UInt64, steps: Int, loraStrengths: [Double] = [], images: Int = 0) {
+        package init(prompt: String, seed: UInt64, steps: Int, loraStrengths: [Double] = [], images: Int = 0) {
             self.prompt = prompt
             self.seed = seed
             self.steps = steps
@@ -111,42 +111,42 @@ public struct RenderGrid: Equatable, Sendable {
     }
 
     /// **One render of the grid**: where it sits on the sheet, and its settings.
-    public struct Cell: Equatable, Sendable {
-        public let column: Int, row: Int
+    package struct Cell: Equatable, Sendable {
+        package let column: Int, row: Int
         /// The expanded prompt — no brace left but the escaped ones, resolved.
-        public let prompt: String
-        public let seed: UInt64
+        package let prompt: String
+        package let seed: UInt64
         /// `nil`: the cell's model's own count — a model axis without a steps axis.
-        public let steps: Int?
-        public let loraStrengths: [Double]
+        package let steps: Int?
+        package let loraStrengths: [Double]
         /// The cell's model; `nil`: the base's (no model axis).
-        public let model: String?
+        package let model: String?
         /// The LoRA this cell adds to the stack, and its strength; `nil`: none.
-        public let addedLoRA: String?
-        public let addedStrength: Double
+        package let addedLoRA: String?
+        package let addedStrength: Double
         /// The one edit image this cell starts from (index in the base's); `nil`: all of them, read
         /// together (no image axis).
-        public let image: Int?
+        package let image: Int?
         /// The cell's solver; `nil`: the base's (no solver axis).
-        public let solver: Solver?
+        package let solver: Solver?
     }
 
     /// **The most cells a grid may have** — the app's queue holds that many renders.
-    public static let maxCells = PromptAlternatives.maxCombinations
+    package static let maxCells = PromptAlternatives.maxCombinations
 
-    public let base: Base
+    package let base: Base
     /// The columns.
-    public let x: Axis
+    package let x: Axis
     /// The rows; `nil`: one row.
-    public let y: Axis?
+    package let y: Axis?
     /// The prompt, parsed: its groups are the prompt axes' values.
-    public let alternatives: PromptAlternatives
+    package let alternatives: PromptAlternatives
 
     /// Checks the grid, and refuses — before any render — what would not make one: a prompt that
     /// does not parse (`promptSyntax`), an axis without a value or naming what is not there, X and Y
     /// varying the same setting, a group that is no axis, a value no render takes
     /// (`gridRefused`), more than `limit` cells (`tooManyGridCells`).
-    public init(_ base: Base, x: Axis, y: Axis? = nil, limit: Int = maxCells) throws(EngineError) {
+    package init(_ base: Base, x: Axis, y: Axis? = nil, limit: Int = maxCells) throws(EngineError) {
         // The groups' product is no limit here: the axes are, and every group must be one.
         let alternatives = try PromptAlternatives(base.prompt, limit: .max)
         let groups = alternatives.groups
@@ -224,13 +224,13 @@ public struct RenderGrid: Equatable, Sendable {
         }
     }
 
-    public var columns: Int { Self.size(x, alternatives.groups, images: base.images) }
-    public var rows: Int { y.map { Self.size($0, alternatives.groups, images: base.images) } ?? 1 }
+    package var columns: Int { Self.size(x, alternatives.groups, images: base.images) }
+    package var rows: Int { y.map { Self.size($0, alternatives.groups, images: base.images) } ?? 1 }
     /// How many renders the grid queues: one per cell.
-    public var count: Int { columns * rows }
+    package var count: Int { columns * rows }
 
     /// **The values of an axis**, in its order — a column's or a row's label.
-    public func values(of axis: Axis) -> [Value] {
+    package func values(of axis: Axis) -> [Value] {
         switch axis {
         case .prompt(let g): alternatives.groups[g].map(Value.alternative)
         case .seeds(let s): s.map(Value.seed)
@@ -245,7 +245,7 @@ public struct RenderGrid: Equatable, Sendable {
     }
 
     /// **The cells, row by row** — X varies the fastest: the sheet's reading order, and the queue's.
-    public var cells: [Cell] {
+    package var cells: [Cell] {
         let xs = values(of: x)
         let ys: [Value?] = y.map { values(of: $0).map { Optional($0) } } ?? [nil]
         var result: [Cell] = []
@@ -295,7 +295,7 @@ public struct RenderGrid: Equatable, Sendable {
 
     /// **The sheet's title**: the prompt as typed, its groups written back as `{a|b}` (escapes
     /// resolved — a title is read, not parsed).
-    public var title: String {
+    package var title: String {
         alternatives.pieces.map { piece in
             switch piece {
             case .text(let t): t
@@ -321,7 +321,7 @@ public struct RenderGrid: Equatable, Sendable {
     /// not of a language. `loras`: the stack's names, in its order. What does not read is
     /// `gridRefused(.unreadableAxis)`; a LoRA not in `loras`, `gridRefused(.noSuchLoRA)`. The
     /// grid's own checks (`init`) come after.
-    public static func axis(_ text: String, loras: [String] = []) throws(EngineError) -> Axis {
+    package static func axis(_ text: String, loras: [String] = []) throws(EngineError) -> Axis {
         let t = text.trimmingCharacters(in: .whitespaces)
         let (head, list): (Substring, Substring?) = {
             guard let eq = t.firstIndex(of: "=") else { return (t[...], nil) }
@@ -390,7 +390,7 @@ public struct RenderGrid: Equatable, Sendable {
     // ── the sheet ──
 
     /// The sheet of this grid, for renders of `width × height`.
-    public func sheet(imageWidth: Int, imageHeight: Int) -> Sheet {
+    package func sheet(imageWidth: Int, imageHeight: Int) -> Sheet {
         Sheet(columns: columns, rows: rows, imageWidth: imageWidth, imageHeight: imageHeight, rowLabels: y != nil)
     }
 
@@ -405,23 +405,23 @@ public struct RenderGrid: Equatable, Sendable {
     ///       margin, rowLabelWidth (0 without Y), gap between cells
     ///
     /// Pure arithmetic: an app draws the images and the text in these rectangles.
-    public struct Sheet: Equatable, Sendable {
+    package struct Sheet: Equatable, Sendable {
         /// A cell's long side at most: a 1024² render is reduced to 512 on the sheet.
-        public static let maxCellSide = 512
+        package static let maxCellSide = 512
         /// All the cells together at most (pixels): the sheet of 64 cells stays near 14 Mpx.
-        public static let maxCellsArea = 12_000_000
+        package static let maxCellsArea = 12_000_000
         /// A cell's long side at least, however many cells.
-        public static let minCellSide = 128
+        package static let minCellSide = 128
 
-        public let columns: Int, rows: Int
-        public let cellWidth: Int, cellHeight: Int
+        package let columns: Int, rows: Int
+        package let cellWidth: Int, cellHeight: Int
         /// The font sizes, in pixels: they follow the cells, so that a label reads at the cells' scale.
-        public let labelSize: Int, titleSize: Int
-        public let margin: Int, gap: Int
-        public let titleHeight: Int, headerHeight: Int, rowLabelWidth: Int
-        public let width: Int, height: Int
+        package let labelSize: Int, titleSize: Int
+        package let margin: Int, gap: Int
+        package let titleHeight: Int, headerHeight: Int, rowLabelWidth: Int
+        package let width: Int, height: Int
 
-        public init(columns: Int, rows: Int, imageWidth: Int, imageHeight: Int, rowLabels: Bool) {
+        package init(columns: Int, rows: Int, imageWidth: Int, imageHeight: Int, rowLabels: Bool) {
             let columns = max(1, columns), rows = max(1, rows)
             let long = max(1, imageWidth, imageHeight), short = max(1, min(imageWidth, imageHeight))
             // The long side such that all the cells together stay within `maxCellsArea`.
@@ -446,23 +446,23 @@ public struct RenderGrid: Equatable, Sendable {
         private var left: Int { margin + (rowLabelWidth > 0 ? rowLabelWidth + gap : 0) }
         private var top: Int { margin + titleHeight + headerHeight }
 
-        public func cell(column: Int, row: Int) -> CGRect {
+        package func cell(column: Int, row: Int) -> CGRect {
             CGRect(x: left + column * (cellWidth + gap), y: top + row * (cellHeight + gap),
                    width: cellWidth, height: cellHeight)
         }
 
         /// Above its column, the width of a cell.
-        public func columnLabel(_ column: Int) -> CGRect {
+        package func columnLabel(_ column: Int) -> CGRect {
             CGRect(x: left + column * (cellWidth + gap), y: margin + titleHeight, width: cellWidth, height: headerHeight)
         }
 
         /// Left of its row, the height of a cell; empty without a Y axis.
-        public func rowLabel(_ row: Int) -> CGRect {
+        package func rowLabel(_ row: Int) -> CGRect {
             CGRect(x: margin, y: top + row * (cellHeight + gap), width: rowLabelWidth, height: cellHeight)
         }
 
         /// The title band, the sheet's width inside the margins.
-        public var title: CGRect {
+        package var title: CGRect {
             CGRect(x: margin, y: margin, width: width - 2 * margin, height: titleHeight - gap)
         }
     }

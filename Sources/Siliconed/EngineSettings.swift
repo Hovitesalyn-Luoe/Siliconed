@@ -30,7 +30,7 @@ import Synchronization
 /// (`Diagnostic.Fingerprint`). **Each is refused if it does not match** — a profile measured on an
 /// M4 Pro applied here would pass its constants off as ours, and that is exactly the confusion this
 /// file exists to prevent.
-public struct EngineSettings: Sendable {
+package struct EngineSettings: Sendable {
 
     // ── what is tunable ────────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ public struct EngineSettings: Sendable {
     /// The servo is not buried for all that: `SILICONED_REPRODUCIBLE=0` turns it back on, and it
     /// keeps its reason for being — absorbing a thermal drift that 116 s do not show, and serving
     /// a machine whose throughput ratio is not this one's (rule 1 above).
-    public var frozenCut = true
+    package var frozenCut = true
 
     /// The in-house matrix flash kernel (`FlashMatrix.swift`). **A tie** on this machine:
     /// 1.673 against 1.667 TFLOP/s, −132 MB. A chip with a larger fp32 accumulator budget would
@@ -178,7 +178,7 @@ public struct EngineSettings: Sendable {
     /// text stage's output, the image encoder's latents, Qwen-Image-2.1's K/V of the last edit — kept
     /// under `<root>/cache/` and read back, bit for bit, by the next render that needs it. A setting
     /// of time and disk, never of the image: a profile may write it.
-    public var cache = true
+    package var cache = true
 
     // ── where each value comes from ───────────────────────────────────────────────────────────
 
@@ -197,7 +197,7 @@ public struct EngineSettings: Sendable {
     /// **What the reading refused** — a profile from another machine, a setting a profile is not
     /// allowed to write. The library writes nothing to standard error: the caller displays them
     /// (the CLI at startup, an app wherever it likes).
-    public private(set) var warnings: [String] = []
+    package private(set) var warnings: [String] = []
 
     // ── the machine ─────────────────────────────────────────────────────────────────────────
 
@@ -247,7 +247,7 @@ public struct EngineSettings: Sendable {
     // ── reading ─────────────────────────────────────────────────────────────────────────
 
     /// The process's active settings, read once, on first access. The whole engine goes through here.
-    public static let effective: EngineSettings = EngineSettings()
+    package static let effective: EngineSettings = EngineSettings()
 
     /// What an app designated before the first access (`load(from:map:)`): its profile, its map.
     private static let designated = Mutex<(profile: String?, map: Diagnostic.Report?)>((nil, nil))
@@ -290,7 +290,7 @@ public struct EngineSettings: Sendable {
     /// `isCurrent`** (another machine, another macOS, another build): the defaults then apply, and the
     /// app measures again. **It never changes settings already read**: an app without a current map defers this
     /// call until its measure — taken in another process, so that nothing here reads the settings before it.
-    public static func load(from library: Library, map: Diagnostic.Report? = nil) throws(EngineError) {
+    package static func load(from library: Library, map: Diagnostic.Report? = nil) throws(EngineError) {
         let path = library.profile
         // Designate and read under the same lock: a render that read `effective` between the two
         // cannot make the result lie.
