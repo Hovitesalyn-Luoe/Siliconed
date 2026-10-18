@@ -19,7 +19,7 @@ import Metal
 /// What sets it apart — what a port of the MPS path by analogy would get wrong:
 ///
 ///   - **the speed is the machine's, never assumed**: on an M5 `matmul2d` runs on the GPU's neural
-///     accelerators (6.0 TFLOP/s bf16 × bf16 against 2.9 for MPS fp32, M225); on the M1 Pro, on the
+///     accelerators (6.0 TFLOP/s bf16 × bf16 against 2.9 for MPS fp32); on the M1 Pro, on the
 ///     shader cores, slower than MPS (2.36 against 3.46). Hence a setting the map decides, not a path
 ///     chosen by chip;
 ///   - **the weight is copied, not wrapped**: the reserve keeps its fp32 size, the bf16 weight takes

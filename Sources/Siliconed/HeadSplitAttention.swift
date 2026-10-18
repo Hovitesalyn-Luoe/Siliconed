@@ -3,6 +3,7 @@ internal import AMXLegacy
 import Foundation
 import Metal
 import MetalPerformanceShadersGraph
+import Synchronization
 
 /// **The SDPA cut by heads between the GPU and the AMX** — Z-Image's only SDPA path at
 /// S ≥ 1024 (judged at threshold on its goldens), and
@@ -43,6 +44,10 @@ import MetalPerformanceShadersGraph
 /// - **The softmax is not free on the CPU.** It is 17 M `exp` per head at S = 4128 — half of a head's
 ///   time on one thread (GEMMs 9.9 ms, softmax 10.5 ms); it is why the CPU part wants all the
 ///   P cores and not only one thread per AMX block, unlike the GEMM cut.
+/// - **GQA cuts by group, never inside one** (Krea 2, 48 `q` heads over 12 `k`/`v`): the `g` `q` heads that read one
+///   `k`/`v` head stay on one engine, so the GPU's graph slices whole groups and broadcasts them as `Attention`
+///   does, and a CPU thread packs a group's `K`/`V` once for its `g` heads. `kvHeads == heads` is the old path,
+///   graph and bits.
 /// - **BNNS on one thread per call.** Several threads share one AMX block per cluster; the work
 ///   is parallelized here, by blocks, and `n_threads = 1` keeps BNNS from spawning its own.
 ///   Not `cblas_sgemm`: its threading switch (`BLASSetThreading`) is process-wide, and the engine
@@ -54,6 +59,9 @@ package final class HeadSplitAttention {
     /// that also reads a prefix (Qwen-Image-2.1's target on the conditions' keys).
     package let keys: Int
     package let headDim: Int
+    /// The `k`/`v` heads (GQA): `heads` without grouping; `q` head `h` reads `k`/`v` head `h / (heads / kvHeads)`.
+    package let kvHeads: Int
+    private var group: Int { heads / kvHeads }
     /// Heads `[0, gpuHeads)` go to the GPU, `[gpuHeads, heads)` to the CPU.
     package let gpuHeads: Int
     package var cpuHeads: Int { heads - gpuHeads }
@@ -79,9 +87,11 @@ package final class HeadSplitAttention {
     }
 
     /// **Which heads go where, defined once.** `fraction` is the share of heads handed to the CPU,
-    /// rounded to the nearest head; the GPU keeps at least one head, the CPU may get none.
-    package static func partition(heads: Int, fraction: Double) -> (gpu: Range<Int>, cpu: Range<Int>) {
-        let cpu = max(0, min(heads - 1, Int((Double(heads) * fraction).rounded())))
+    /// rounded to the nearest head — to the nearest `group` of heads under GQA; the GPU keeps at least one
+    /// group, the CPU may get none.
+    package static func partition(heads: Int, fraction: Double, group: Int = 1) -> (gpu: Range<Int>, cpu: Range<Int>) {
+        let groups = heads / group
+        let cpu = group * max(0, min(groups - 1, Int((Double(groups) * fraction).rounded())))
         return (0..<(heads - cpu), (heads - cpu)..<heads)
     }
 
@@ -119,7 +129,7 @@ package final class HeadSplitAttention {
         /// Sized for the largest of the instance's products (`workspaceBytes`), `nil` when BNNS asks for none.
         let workspace: UnsafeMutableRawPointer?
         let workspaceBytes: Int
-        /// The head whose keys and values `packedK`/`packedV` hold, `-1` for none (set per `run`).
+        /// The `k`/`v` head whose keys and values `packedK`/`packedV` hold, `-1` for none (set per `run`).
         var packedHead = -1
         var failures = 0
         init(_ arena: Arena, thread t: Int, rows: Int, keys: Int, headDim: Int, workspace: Int) throws {
@@ -145,19 +155,23 @@ package final class HeadSplitAttention {
     /// - Parameter cpuFraction: the share of heads handed to the CPU; the product's is `cpuFraction`,
     ///   other values serve the `sdpa` check's sweep.
     /// - Parameter keys: the rows of `k`/`v`, `nil` for `sequence`.
+    /// - Parameter kvHeads: the `k`/`v` heads under GQA, `nil` for `heads`.
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
-                 keys: Int? = nil, cpuFraction: Double = HeadSplitAttention.cpuFraction,
+                 keys: Int? = nil, kvHeads: Int? = nil, cpuFraction: Double = HeadSplitAttention.cpuFraction,
                  threads: Int = EngineSettings.effective.machine.performanceCores) throws {
-        let (gpu, cpu) = HeadSplitAttention.partition(heads: heads, fraction: cpuFraction)
+        let kvHeads = kvHeads ?? heads
+        precondition(heads % kvHeads == 0, "\(heads) heads over \(kvHeads) k/v heads")
+        let group = heads / kvHeads
+        let (gpu, cpu) = HeadSplitAttention.partition(heads: heads, fraction: cpuFraction, group: group)
         self.queue = queue
         let keys = keys ?? sequence
-        self.heads = heads; self.sequence = sequence; self.keys = keys; self.headDim = headDim
+        self.heads = heads; self.sequence = sequence; self.keys = keys; self.headDim = headDim; self.kvHeads = kvHeads
         self.gpuHeads = gpu.count
         self.threads = max(1, threads)
         work = HeadSplitAttention.items(cpu: cpu, sequence: sequence, rows: HeadSplitAttention.blockRows)
         let host = try Arena(capacity: HeadSplitAttention.hostBytes(heads: heads, sequence: sequence, keys: keys,
-                                                                    headDim: headDim, cpuFraction: cpuFraction,
-                                                                    threads: threads))
+                                                                    headDim: headDim, group: group,
+                                                                    cpuFraction: cpuFraction, threads: threads))
         self.host = host
         spill = try host.reserve("spill", bytes: 4 * HeadSplitAttention.spillFloats(sequence: sequence, cpuHeads: cpu.count,
                                                                                     headDim: headDim))
@@ -171,7 +185,7 @@ package final class HeadSplitAttention {
         self.graph = graph
         let n = { (x: Int) in NSNumber(value: x) }
         let shape: [NSNumber] = [1, n(sequence), n(heads), n(headDim)]
-        let kvShape: [NSNumber] = [1, n(keys), n(heads), n(headDim)]
+        let kvShape: [NSNumber] = [1, n(keys), n(kvHeads), n(headDim)]
         let q = graph.placeholder(shape: shape, dataType: .float32, name: "q")
         let k = graph.placeholder(shape: kvShape, dataType: .float32, name: "k")
         let v = graph.placeholder(shape: kvShape, dataType: .float32, name: "v")
@@ -180,9 +194,37 @@ package final class HeadSplitAttention {
             let sliced = cpu.isEmpty ? t : graph.sliceTensor(t, dimension: 2, start: 0, length: gpu.count, name: nil)
             return graph.transposeTensor(sliced, dimension: 1, withDimension: 2, name: nil)
         }
-        let attended = graph.scaledDotProductAttention(query: gpuPart(q), key: gpuPart(k), value: gpuPart(v),
-                                                       mask: nil, scale: 1 / Float(headDim).squareRoot(), name: "sdpa")
-        let back = graph.transposeTensor(attended, dimension: 1, withDimension: 2, name: nil)
+        let back: MPSGraphTensor
+        if group == 1 {
+            let attended = graph.scaledDotProductAttention(query: gpuPart(q), key: gpuPart(k), value: gpuPart(v),
+                                                           mask: nil, scale: 1 / Float(headDim).squareRoot(), name: "sdpa")
+            back = graph.transposeTensor(attended, dimension: 1, withDimension: 2, name: nil)
+        } else {
+            // As `Attention`'s GQA graph, on the GPU's groups: `q` [1, Gk, g, S, Dh], `k`/`v` [1, Gk, 1, K, Dh]
+            // broadcast over `g`, in query slices that keep each matrix under `Attention.maxMatrix`.
+            let kvGPU = gpu.count / group
+            func kvPart(_ t: MPSGraphTensor) -> MPSGraphTensor {
+                let sliced = cpu.isEmpty ? t : graph.sliceTensor(t, dimension: 2, start: 0, length: kvGPU, name: nil)
+                return graph.reshape(graph.transposeTensor(sliced, dimension: 1, withDimension: 2, name: nil),
+                                     shape: [1, n(kvGPU), 1, n(keys), n(headDim)], name: nil)
+            }
+            let qg = graph.reshape(gpuPart(q), shape: [1, n(kvGPU), n(group), n(sequence), n(headDim)], name: nil)
+            let (kh, vh) = (kvPart(k), kvPart(v))
+            let slices = Attention.groupedSlices(heads: gpu.count, rows: sequence, keys: keys)
+            let length = (sequence + slices - 1) / max(1, slices)
+            var pieces: [MPSGraphTensor] = []
+            var begin = 0
+            while begin < sequence {
+                let l = min(length, sequence - begin)
+                let slice = slices > 1 ? graph.sliceTensor(qg, dimension: 3, start: begin, length: l, name: nil) : qg
+                pieces.append(graph.scaledDotProductAttention(query: slice, key: kh, value: vh, mask: nil,
+                                                              scale: 1 / Float(headDim).squareRoot(), name: nil))
+                begin += l
+            }
+            let grouped = pieces.count > 1 ? graph.concatTensors(pieces, dimension: 3, name: nil) : pieces[0]
+            let merged = graph.reshape(grouped, shape: [1, n(gpu.count), n(sequence), n(headDim)], name: nil)
+            back = graph.transposeTensor(merged, dimension: 1, withDimension: 2, name: nil)
+        }
         out = cpu.isEmpty ? back : graph.padTensor(back, with: .constant, leftPadding: [0, 0, 0, 0],
                                                    rightPadding: [0, 0, n(cpu.count), 0], constantValue: 0, name: nil)
     }
@@ -195,10 +237,10 @@ package final class HeadSplitAttention {
     /// **The slices of the instance's arena, in the order `init` reserves them**, bytes — the spill,
     /// then per thread a `Scratch`: the scores block `[rows, K]`, its sums, the packed `Q_b`, `K_h`,
     /// `V_h`, and the BNNS workspace (`workspaceBytes`; no slice when BNNS asks for none).
-    package static func hostSlices(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int,
+    package static func hostSlices(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int, group: Int = 1,
                                    cpuFraction: Double = HeadSplitAttention.cpuFraction,
                                    threads: Int = EngineSettings.effective.machine.performanceCores) -> [Int] {
-        let cpu = partition(heads: heads, fraction: cpuFraction).cpu.count, k = keys ?? sequence, rows = blockRows
+        let cpu = partition(heads: heads, fraction: cpuFraction, group: group).cpu.count, k = keys ?? sequence, rows = blockRows
         let workspace = workspaceBytes(sequence: sequence, keys: k, headDim: headDim, cpuHeads: cpu)
         let perThread = [rows * k, rows, rows * headDim, k * headDim, k * headDim].map { $0 * 4 }
             + (workspace > 0 ? [workspace] : [])
@@ -209,10 +251,10 @@ package final class HeadSplitAttention {
     /// **The host memory one instance holds**: its arena, `hostSlices` each rounded to the page — all
     /// of it, mapped by `init` and unmapped by `deinit`. The memory need charges it whole, as the
     /// head split's term beside the GPU heads' query copy (`OperatorFootprint.sdpaQueries`).
-    package static func hostBytes(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int,
+    package static func hostBytes(heads: Int, sequence: Int, keys: Int? = nil, headDim: Int, group: Int = 1,
                                   cpuFraction: Double = HeadSplitAttention.cpuFraction,
                                   threads: Int = EngineSettings.effective.machine.performanceCores) -> Int {
-        Arena.capacity(slices: hostSlices(heads: heads, sequence: sequence, keys: keys, headDim: headDim,
+        Arena.capacity(slices: hostSlices(heads: heads, sequence: sequence, keys: keys, headDim: headDim, group: group,
                                           cpuFraction: cpuFraction, threads: threads))
     }
 
@@ -248,7 +290,7 @@ package final class HeadSplitAttention {
                      out outPointer: UnsafeMutablePointer<Float>) -> (gpu: Double, cpu: Double) {
         let n = { (x: Int) in NSNumber(value: x) }
         let shape: [NSNumber] = [1, n(sequence), n(heads), n(headDim)]
-        let kvShape: [NSNumber] = [1, n(keys), n(heads), n(headDim)]
+        let kvShape: [NSNumber] = [1, n(keys), n(kvHeads), n(headDim)]
         func data(_ b: MTLBuffer, _ s: [NSNumber]) -> MPSGraphTensorData { MPSGraphTensorData(b, shape: s, dataType: .float32) }
         // **The graph may commit by itself** (`commitAndContinue`, as in `Attention.run`): at
         // 1024×1536 it does, and committing a wrapped `MTLCommandBuffer` afterwards was the fatal
@@ -262,9 +304,17 @@ package final class HeadSplitAttention {
         graph.encode(to: commands,
                      feeds: [q: data(qBuffer, shape), k: data(kBuffer, kvShape), v: data(vBuffer, kvShape)],
                      targetOperations: nil, resultsDictionary: [out: data(outBuffer, shape)], executionDescriptor: nil)
+        // The GPU part's time is the wall time to the completion of the buffer the graph left current:
+        // the root's own GPU time covers only its first segment when the graph committed by itself
+        // (Krea 2 at 1024²: 0.96 s reported for ~4 s of work).
+        let finished = Atomic<UInt64>(0), done = DispatchSemaphore(value: 0)
+        commands.commandBuffer.addCompletedHandler { _ in
+            finished.store(DispatchTime.now().uptimeNanoseconds, ordering: .releasing)
+            done.signal()
+        }
+        let started = DispatchTime.now().uptimeNanoseconds
         commands.commit()
 
-        let started = DispatchTime.now().uptimeNanoseconds
         if !work.isEmpty {
             // A thread takes a contiguous run of items (bounds by endpoints), hence one or two heads,
             // each packed once; a free-for-all would repack a head at nearly every item.
@@ -282,16 +332,15 @@ package final class HeadSplitAttention {
         let root = commands.rootCommandBuffer
         root.waitUntilCompleted()
         let what = "SDPA (head split) S=\(sequence) H=\(gpuHeads)/\(heads)"
-        let gpu: Double
         if root.error != nil || root.gpuEndTime > root.gpuStartTime {
-            gpu = Attention.verdict(root, what: what)
-        } else {
-            // Committed by the graph itself (1024×1536): the work ran in buffers MPS made, whose GPU
-            // time we do not hold — wall time, as `Attention` does for its split graphs. The image
-            // stays at 77.9 dB of the graph alone, as at 512².
-            if outPointer[probe].bitPattern == sentinel { Attention.report("\(what): the output was never written") }
-            gpu = Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
+            _ = Attention.verdict(root, what: what)
+        } else if outPointer[probe].bitPattern == sentinel {
+            // Committed by the graph itself (1024×1536): the work ran in buffers MPS made, whose
+            // verdict we do not hold — the sentinel says whether it ran.
+            Attention.report("\(what): the output was never written")
         }
+        done.wait()
+        let gpu = Double(finished.load(ordering: .acquiring) - started) * 1e-9
         if cpuHeads > 0 {
             let width = heads * headDim, spilled = cpuHeads * headDim, column = gpuHeads * headDim
             HeadSplitAttention.perform(threads) { t in
@@ -322,6 +371,7 @@ package final class HeadSplitAttention {
     private func block(_ item: (head: Int, row: Int, rows: Int), _ s: Scratch,
                        q: UnsafePointer<Float>, k: UnsafePointer<Float>, v: UnsafePointer<Float>) {
         let width = heads * headDim, column = item.head * headDim
+        let kvHead = item.head / group, kvWidth = kvHeads * headDim, kvColumn = kvHead * headDim
         let spilledWidth = cpuHeads * headDim, spilledColumn = (item.head - gpuHeads) * headDim
         let o = spill + item.row * spilledWidth + spilledColumn
         // Packed, not read in place: at Qwen's 32 × 128 the row stride is 16 KB, and in place every row
@@ -329,11 +379,14 @@ package final class HeadSplitAttention {
         func pack(_ source: UnsafePointer<Float>, rows: Int, into destination: UnsafeMutablePointer<Float>) {
             for r in 0..<rows { (destination + r * headDim).update(from: source + r * width, count: headDim) }
         }
+        func packKV(_ source: UnsafePointer<Float>, into destination: UnsafeMutablePointer<Float>) {
+            for r in 0..<keys { (destination + r * headDim).update(from: source + r * kvWidth, count: headDim) }
+        }
         pack(q + item.row * width + column, rows: item.rows, into: s.packedQ)
-        if s.packedHead != item.head {
-            pack(k + column, rows: keys, into: s.packedK)
-            pack(v + column, rows: keys, into: s.packedV)
-            s.packedHead = item.head
+        if s.packedHead != kvHead {
+            packKV(k + kvColumn, into: s.packedK)
+            packKV(v + kvColumn, into: s.packedV)
+            s.packedHead = kvHead
         }
         // scores [rows, K] = Q_b [rows, Dh] · K_hᵀ
         multiply(s, a: s.packedQ, aRows: item.rows, aColumns: headDim, aStride: headDim,

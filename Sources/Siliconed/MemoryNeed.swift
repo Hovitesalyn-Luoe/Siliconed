@@ -181,11 +181,11 @@ package struct MemoryNeed: Sendable, Equatable {
     /// it: cut by heads (`HeadSplitAttention`: its host arena, ours, and MPSGraph's copy of the GPU
     /// heads' queries) or in one MPSGraph SDPA (its queries' copy, and its causal mask in our pages).
     package static func attention(_ name: String, heads: Int, rows: Int, keys: Int, headDim: Int, causal: Bool,
-                                  split: Bool, threads: Int) -> [Term] {
+                                  split: Bool, threads: Int, group: Int = 1) -> [Term] {
         if split {
-            let gpu = HeadSplitAttention.partition(heads: heads, fraction: HeadSplitAttention.cpuFraction).gpu.count
+            let gpu = HeadSplitAttention.partition(heads: heads, fraction: HeadSplitAttention.cpuFraction, group: group).gpu.count
             return [Term("\(name) head split", HeadSplitAttention.hostBytes(heads: heads, sequence: rows, keys: keys,
-                                                                           headDim: headDim, threads: threads)),
+                                                                           headDim: headDim, group: group, threads: threads)),
                     Term("\(name) SDPA queries", OperatorFootprint.sdpaQueries(rows: rows, heads: gpu, headDim: headDim),
                          outside: true)]
         }

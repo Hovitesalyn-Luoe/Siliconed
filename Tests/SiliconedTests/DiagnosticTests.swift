@@ -48,7 +48,9 @@ final class DiagnosticTests: XCTestCase {
                                  settings: ["flash": "true (env)"], before: conditions, after: conditions,
                                  products: products, lowPrecision: lowPrecision, attention: attention, widening: widening,
                                  witness: .init(gpuBefore: 3.461, gpuAfter: 3.4721, amxBefore: 2.223, amxAfter: 2.149),
-                                 stages: stages)
+                                 stages: stages,
+                                 cuts: Diagnostic.cutDepths.flatMap { k in Diagnostic.heights.map { m in
+                                     Diagnostic.Cut(k: k, n: Diagnostic.cutWidth, m: m, share: k < 8192 ? 0.6234 : 0.6876) } })
     }
 
     // ── the JSON ────────────────────────────────────────────────────────────────────────────
@@ -63,8 +65,10 @@ final class DiagnosticTests: XCTestCase {
         // Sorted keys: `attention` before `machine` before `products` before `schema` before `widening`.
         let order = ["\"attention\"", "\"machine\"", "\"products\"", "\"schema\"", "\"widening\""].map { text.range(of: $0)!.lowerBound }
         XCTAssertEqual(order, order.sorted())
-        XCTAssertTrue(text.contains("\"schema\" : 6"))
-        XCTAssertEqual(Diagnostic.schema, 6)
+        XCTAssertTrue(text.contains("\"schema\" : 7"))
+        XCTAssertEqual(Diagnostic.schema, 7)
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(Diagnostic.Cut(k: 16384, n: 6144, m: 4096, share: 0.68764)), as: UTF8.self),
+                       "[16384,6144,4096,0.688]", "a cut is a quadruple, its share rounded")
     }
 
     /// **Schema 6 is the capacity map**: nothing of the model-rendering diagnostic survives in it.
@@ -75,7 +79,7 @@ final class DiagnosticTests: XCTestCase {
             XCTAssertFalse(text.contains(gone), gone)
         }
         for key in ["products", "lowPrecision", "attention", "widening", "witness", "thresholds", "cpuFeatures",
-                    "gpuShare", "coexecution", "headSplit", "floor", "tensor", "stages", "bf16 copy"] {
+                    "gpuShare", "coexecution", "headSplit", "floor", "tensor", "stages", "bf16 copy", "cuts"] {
             XCTAssertTrue(text.contains("\"\(key)\""), key)
         }
     }

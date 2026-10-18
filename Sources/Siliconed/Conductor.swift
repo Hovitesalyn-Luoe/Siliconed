@@ -130,6 +130,10 @@ package final class Conductor: @unchecked Sendable {
     /// throughput ratio nor the same sensitivity to `m`: a single `T` would serve one and
     /// penalize the other.
     package private(set) var fraction: [String: Double] = [:]
+    /// **The frozen cut's `T` computed per product** (`Shares`, from the map's `cuts` through
+    /// `EngineSettings.amxShares`): with a grid, it replaces `initialFraction`. The diagnostic empties it to
+    /// measure at its own share.
+    package var shares = EngineSettings.effective.amxShares
     /// **The GPU's share before the servo moves it** — the whole of a frozen cut's `T`:
     /// `amxFraction` by default; the diagnostic sets the share it has just measured on the product.
     package var initialFraction = EngineSettings.effective.amxFraction
@@ -301,7 +305,7 @@ package final class Conductor: @unchecked Sendable {
         // The starting point is the measured throughput ratio (3.364 / 5.333). It does not stay
         // long: the first shapes correct it within a few blocks — unless the cut is
         // frozen, in which case it is the end-to-end value, and `fraction` stays empty.
-        let T = fraction[key] ?? initialFraction
+        let T = fraction[key] ?? shares.share(k: k, n: n, m: m) ?? initialFraction
         // A multiple of `quantum` (256 by default), so a multiple of any tile: a slice that falls
         // in the middle of a tile makes the GPU pay for a partial row, and that is the kind of loss
         // that does not show in a total. **The cut is quantized, and not merely aligned.**
@@ -353,6 +357,85 @@ package final class Conductor: @unchecked Sendable {
             fraction[key] = min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, T + 0.25 * (target - T)))
         }
         return wall
+    }
+
+    /// **The GPU's share of a product, computed from its shape and the machine's map** — never a constant of
+    /// a machine or of a model:
+    ///
+    ///     T(k, n, m) = 1 / (1 + ρ(k, n, m))
+    ///     ρ(k, n, m) = ρ(k, w, m) · ρ(w, n, m) / ρ(w, w, m)      ρ = the AMX's rate over the GPU's, side by side
+    ///
+    /// The map (`Diagnostic.Cut`) measures `ρ` along two axes through one square shape `w × w`: `k` at
+    /// `n = w`, `n` at `k = w`, at both heights. Each axis is read linearly in `log k` or `log n` (the
+    /// nearest point outside), the two composed, then read between the heights in `log m`. Any model's
+    /// product enters by its own `k`, `n` and `m`: the grid is the machine's, the shapes the model's.
+    ///
+    /// Why two axes (measured on an M1 Pro): the AMX's rate falls with the length of its dot products `k` — the
+    /// map's ρ goes from 0.52 at `k` = 2 048 to 0.36 at 16 384 (1 024 rows), and the engine's servo balances
+    /// Anima's 2 048 × 8 192 at 0.63 and its 8 192 × 2 048 at 0.76, the same weight —; the width `n` may move
+    /// it too (Krea 2's servo: 6 144 × 16 384 at 0.75, 6 144 × 6 144 at 0.69), and a measured axis lets it
+    /// enter. This Mac's `n` axis came out flat (0.68–0.70 at `k` = 6 144), the gap with the engine not
+    /// explained. Against one share for every shape, an evaluation: Anima −2 % at 512², −4 % at 1024²,
+    /// Z-Image −2.7 %, Krea 2 −1.5 % at 1024², +2.5 % at 512² (its 6 144 × 16 384 at 0.677).
+    ///
+    /// **Pure**: the same map, shape and height give the same share — the frozen cut stays reproducible bit
+    /// for bit on one machine. An empty grid gives `nil`: the scalar `amxFraction` then serves. A grid
+    /// without its square point reads its `k` axis only.
+    package struct Shares: Equatable, Sendable, CustomStringConvertible {
+        /// `ρ` measured on the product `k × n` at height `m`.
+        package struct Point: Equatable, Sendable {
+            package let k, n, m: Int
+            package let ratio: Double
+            package init(k: Int, n: Int, m: Int, ratio: Double) { self.k = k; self.n = n; self.m = m; self.ratio = ratio }
+        }
+        package let points: [Point]
+        package init(_ points: [Point]) {
+            self.points = points.sorted { ($0.m, $0.k, $0.n) < ($1.m, $1.k, $1.n) }
+        }
+        package static let none = Shares([])
+        package var isEmpty: Bool { points.isEmpty }
+
+        /// `T(k, n, m)`, clamped to `Conductor.fractionRange`.
+        package func share(k: Int, n: Int, m: Int) -> Double? {
+            let heights = Array(Set(points.map(\.m))).sorted()
+            guard !heights.isEmpty else { return nil }
+            /// Linear in `log x` between the two points around `x`, the nearest outside.
+            func between<T>(_ items: [T], _ x: Int, at: (T) -> Int, value: (T) -> Double) -> Double {
+                let sorted = items.sorted { at($0) < at($1) }
+                if x <= at(sorted[0]) { return value(sorted[0]) }
+                if x >= at(sorted[sorted.count - 1]) { return value(sorted[sorted.count - 1]) }
+                let i = sorted.firstIndex { at($0) >= x }!
+                let (a, b) = (sorted[i - 1], sorted[i])
+                let t = log(Double(x) / Double(at(a))) / log(Double(at(b)) / Double(at(a)))
+                return value(a) + t * (value(b) - value(a))
+            }
+            func ratio(at h: Int) -> Double {
+                let level = points.filter { $0.m == h }
+                guard let pivot = level.first(where: { $0.k == $0.n }) else { return between(level, k, at: \.k, value: \.ratio) }
+                let depth = between(level.filter { $0.n == pivot.n }, k, at: \.k, value: \.ratio)
+                let width = between(level.filter { $0.k == pivot.k }, n, at: \.n, value: \.ratio)
+                return depth * width / pivot.ratio
+            }
+            let ratio = between(heights.map { ($0, ratio(at: $0)) }, m, at: \.0, value: \.1)
+            return min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, 1 / (1 + ratio)))
+        }
+
+        /// `2048×6144@1024=0.601,…` — `k×n@m=ρ`, the setting's text (`amx_shares`), the profile's and the
+        /// environment's.
+        package var description: String {
+            points.map { "\($0.k)×\($0.n)@\($0.m)=\(String(format: "%.3f", $0.ratio))" }.joined(separator: ",")
+        }
+        /// The text `description` writes; `nil` when a piece does not read. Empty: no grid.
+        package init?(text: String) {
+            var points: [Point] = []
+            for piece in text.split(separator: ",") {
+                let parts = piece.split(whereSeparator: { "×@=".contains($0) }).map(String.init)
+                guard parts.count == 4, let k = Int(parts[0]), let n = Int(parts[1]), let m = Int(parts[2]),
+                      let ratio = Double(parts[3]) else { return nil }
+                points.append(Point(k: k, n: n, m: m, ratio: ratio))
+            }
+            self.init(points)
+        }
     }
 
     /// What the cut returned, in a word — to display next to the GEMM census.

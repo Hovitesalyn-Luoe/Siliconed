@@ -235,16 +235,27 @@ final class MemoryNeedKrea2Tests: XCTestCase {
         XCTAssertEqual(need(1024, 1024, tokens: 546), need(1024, 1024, tokens: 4000))
     }
 
-    /// **The GQA SDPA past `maxMatrix` runs by query slices** — 1024×1536, or 1024² past 49 text rows —
-    /// and MPSGraph concatenates them: one more copy of the queries' size.
+    /// **The GQA SDPA past `maxMatrix` runs by query slices** — 1024×1536 — and MPSGraph concatenates them:
+    /// one more copy of the queries' size. Cut by groups, the GPU holds 7 of the 12 groups, 28 of the 48 heads:
+    /// its slices and its copies are theirs, and the CPU's five groups are the head split's arena.
     func testTheSlicedAttentionIsCharged() {
         XCTAssertEqual(Attention.groupedSlices(heads: 48, rows: 4121, keys: 4121), 1)
         XCTAssertEqual(Attention.groupedSlices(heads: 48, rows: 4608, keys: 4608), 2)
         XCTAssertEqual(Attention.groupedSlices(heads: 48, rows: 6169, keys: 6169), 3)
+        XCTAssertEqual(HeadSplitAttention.partition(heads: 48, fraction: HeadSplitAttention.cpuFraction, group: 4).cpu, 28..<48)
+        XCTAssertEqual(Attention.groupedSlices(heads: 28, rows: 4121, keys: 4121), 1)
+        XCTAssertEqual(Attention.groupedSlices(heads: 28, rows: 6169, keys: 6169), 2)
         XCTAssertEqual(need(1024, 1024).phases[2].bytes("DiT SDPA concatenation"), 0)
         let tall = need(1024, 1536)
-        XCTAssertEqual(tall.phases[2].bytes("DiT SDPA concatenation"), 6169 * 6144 * 4)
-        XCTAssertEqual(tall.phases[2].bytes("DiT SDPA queries"), 6169 * 6144 * 4)
+        XCTAssertEqual(tall.phases[2].bytes("DiT SDPA concatenation"), 6169 * 28 * 128 * 4)
+        XCTAssertEqual(tall.phases[2].bytes("DiT SDPA queries"), 6169 * 28 * 128 * 4)
+        XCTAssertEqual(tall.phases[2].bytes("DiT head split"),
+                       HeadSplitAttention.hostBytes(heads: 48, sequence: 6169, headDim: 128, group: 4,
+                                                    threads: MemoryFixtures.krea2Request(1024, 1536, tokens: 59, ranks: [], references: [], maps: MemoryFixtures.krea2Maps()).threads))
+        // At 512² (1,024 image rows) the attention is not cut (`Krea2DiT.headSplitRows`): one SDPA, all 48 heads.
+        let small = need(512, 512)
+        XCTAssertEqual(small.phases[2].bytes("DiT head split"), 0)
+        XCTAssertGreaterThan(need(1024, 1024).phases[2].bytes("DiT head split"), 0)
     }
 
     /// **A LoRA costs three things in the DiT** — its `mid` slice, the cache of every module it may touch

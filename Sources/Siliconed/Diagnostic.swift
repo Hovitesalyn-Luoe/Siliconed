@@ -62,9 +62,9 @@ import Metal
 /// **Deliberately not measured**: the disk (no decision reads its speed); a model's step (its
 /// weights, its plan and the page cache decide it, and a render's own figures already say it); the
 /// memory (B is a function of the RAM alone, ¾ · RAM − 2 GiB); the SDPA in fp16 (`sdpa_fp16` is a
-/// render option the image decides, not a capacity). The peak `phys_footprint` is 0.90 GB on the
-/// M1 Pro (14/10/2026), the products' operands (~600 MB, released before the attention) its larger
-/// part — under B on the smallest Mac (8 GB, B = 4 GiB).
+/// render option the image decides, not a capacity). The peak `phys_footprint` is 1.37 GB on the
+/// M1 Pro (18/10/2026), the products' operands (~1.1 GB with the cuts' grid, released before the attention)
+/// its larger part — under B on the smallest Mac (8 GB, B = 4 GiB).
 ///
 /// **The engine reads it in the app, and only there**: when the user measures (« Report My
 /// Configuration », never in the background), the app keeps the report in its preferences and hands it
@@ -77,7 +77,9 @@ public enum Diagnostic {
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
     /// day, optional: a report without it is the same measures. **6** (17/10/2026): the bf16-weight
     /// products (`products[].tensor`), the `bf16 copy` widening and `stages`; the decisions add `tensor`.
-    public static let schema = 6
+    /// **7** (18/10/2026): `cuts`, the GPU's balanced share on a grid of shapes (`k` and `n` axes, both
+    /// heights); the decisions add `amxShares`.
+    public static let schema = 7
     public static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
@@ -317,6 +319,26 @@ public enum Diagnostic {
         }
     }
 
+    /// **The GPU's share of one weight shape at one height** — the share that ends the GPU and the AMX
+    /// together, measured in co-execution (`measureCuts`); the grid the frozen cut's formula reads
+    /// (`amx_shares`, `Conductor.Shares`). **Written `[k, n, m, share]`**: twenty-two of them, the issue
+    /// link's bytes are counted.
+    public struct Cut: Codable, Sendable, Equatable {
+        public var k, n, m: Int
+        public var share: Double
+        public init(k: Int, n: Int, m: Int, share: Double) {
+            self.k = k; self.n = n; self.m = m; self.share = Diagnostic.significant(share, 3)
+        }
+        public init(from decoder: any Decoder) throws {
+            var c = try decoder.unkeyedContainer()
+            k = try c.decode(Int.self); n = try c.decode(Int.self); m = try c.decode(Int.self); share = try c.decode(Double.self)
+        }
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.unkeyedContainer()
+            try c.encode(k); try c.encode(n); try c.encode(m); try c.encode(share)
+        }
+    }
+
     /// **The first product, timed again at the end** (TFLOP/s): the drift over the diagnostic, which
     /// frames every figure of it (invariant 6). `before` is `products[0]`'s.
     public struct Witness: Codable, Sendable, Equatable {
@@ -353,6 +375,8 @@ public enum Diagnostic {
         public var before: Conditions
         public var after: Conditions
         public var products: [Product]
+        /// The GPU's share per weight shape and height (`Cut`); `nil` in a report before schema 7.
+        public var cuts: [Cut]?
         public var lowPrecision: [LowPrecision]
         public var attention: [AttentionCapacity]
         public var widening: [Widening]
@@ -370,14 +394,15 @@ public enum Diagnostic {
                     cpuFeatures: [String: Int], settings: [String: String] = [:], before: Conditions, after: Conditions,
                     products: [Product], lowPrecision: [LowPrecision], attention: [AttentionCapacity],
                     widening: [Widening], witness: Witness, thresholds: Thresholds = Thresholds(),
-                    stages: [String: Double]? = nil) {
+                    stages: [String: Double]? = nil, cuts: [Cut]? = nil) {
             self.schema = schema; self.date = date; self.seconds = Diagnostic.significant(seconds, 3)
             self.thresholds = thresholds
             self.machine = machine; self.cpuFeatures = cpuFeatures; self.settings = settings
             self.before = before; self.after = after; self.products = products; self.lowPrecision = lowPrecision
-            self.attention = attention; self.widening = widening; self.witness = witness
+            self.attention = attention; self.widening = widening; self.witness = witness; self.cuts = cuts
             self.stages = stages?.mapValues { Diagnostic.significant($0, 3) }
-            self.decisions = Diagnostic.decide(products: products, attention: attention, widening: widening, witness: witness)
+            self.decisions = Diagnostic.decide(products: products, attention: attention, widening: widening, witness: witness,
+                                               cuts: cuts ?? [])
         }
 
         /// What the report is valid for: the machine and the binary that measured it.
@@ -474,7 +499,7 @@ public enum Diagnostic {
         }
     }
 
-    /// **Runs the diagnostic**: 14 s and 0.9 GB at the peak on the M1 Pro, no weights. Synchronous and
+    /// **Runs the diagnostic**: 23 s and 1.4 GB at the peak on the M1 Pro, no weights. Synchronous and
     /// heavy: call it off the main thread, and never from the engine's queue.
     ///
     /// **It passes the doors a render passes**: it waits its turn on the engine's queue (`Engine.file`:
@@ -508,9 +533,13 @@ public enum Diagnostic {
             return try body()
         }
         do {
-            // The products' operands (~700 MB) are released before the attention's peak.
+            // The products' operands (~1.1 GB) are released before the attention's peak.
             var operands: Operands? = Operands()
-            let products = try stage(.products) { try measureProducts(operands!, bench) }
+            let (products, cuts) = try stage(.products) { () throws -> ([Product], [Cut]) in
+                let products = try measureProducts(operands!, bench)
+                let shares = products.compactMap(\.gpuShare).sorted()
+                return (products, try measureCuts(operands!, bench, start: shares.isEmpty ? 0.631 : shares[shares.count / 2]))
+            }
             let lowPrecision = try stage(.lowPrecision) { try measureLowPrecision(operands!, bench) }
             operands = nil
             let attention = try stage(.attention) { try measureAttention(bench) }
@@ -522,7 +551,7 @@ public enum Diagnostic {
             return Report(date: ISO8601DateFormatter().string(from: started), seconds: Date().timeIntervalSince(started),
                           machine: machine(), cpuFeatures: cpuFeatures(), settings: forced, before: before,
                           after: conditions(), products: products, lowPrecision: lowPrecision, attention: attention,
-                          widening: widening, witness: witness, stages: stages)
+                          widening: widening, witness: witness, stages: stages, cuts: cuts)
         } catch {
             throw EngineError(error)
         }
@@ -556,7 +585,7 @@ public enum Diagnostic {
     /// **What a map is valid for**: the hardware model, the chip, macOS with its build, and the binary
     /// that measured it (its version and its build stamp). Any of them changing — a new Mac restored from
     /// a backup, a macOS update that moves MPS, an app update that moves a kernel — makes the map stale:
-    /// the stale one is not applied, and the app offers to measure again (14 s).
+    /// the stale one is not applied, and the app offers to measure again (~23 s).
     public struct Fingerprint: Codable, Sendable, Equatable, CustomStringConvertible {
         public var hardwareModel, chip, macOS, version, build: String
 

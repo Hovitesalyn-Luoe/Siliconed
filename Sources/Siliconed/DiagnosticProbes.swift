@@ -57,6 +57,17 @@ extension Diagnostic {
         }
     }
 
+    /// **The grid the AMX/GPU ratio is measured on** (`measureCuts`), two axes through one point: inner
+    /// dimensions `k` from 2 048 to 16 384 at `n` = 6 144, and widths `n` from 1 536 to 16 384 at `k` = 6 144 —
+    /// the span of every DiT's products today (Anima's 2 048 to Krea 2's 16 384), at both `heights`. Not a
+    /// model's shapes: `Conductor.Shares` reads any product's `k` and `n` along these axes.
+    package static let cutDepths = [2048, 3072, 4096, 6144, 8192, 12288, 16384]
+    package static let cutWidths = [1536, 3072, 12288, 16384]
+    package static let cutWidth = 6144
+    package static var cutShapes: [(k: Int, n: Int)] {
+        cutDepths.map { (k: $0, n: cutWidth) } + cutWidths.map { (k: cutWidth, n: $0) }
+    }
+
     // ── the clock and the operands ──────────────────────────────────────────────────────────
 
     /// **Median wall seconds of three runs after a warm-up** (pipelines built, pages wired, clocks
@@ -147,7 +158,8 @@ extension Diagnostic {
     final class Operands {
         let a, b, c, bf16: Pages
         init() {
-            let shapes = Diagnostic.shapes
+            let m = Diagnostic.heights.max()!
+            let shapes = Diagnostic.shapes.map { (m: $0.m, k: $0.k, n: $0.n) } + Diagnostic.cutShapes.map { (m: m, k: $0.k, n: $0.n) }
             let (aFloats, bFloats) = (shapes.map { $0.m * $0.k }.max()!, shapes.map { $0.k * $0.n }.max()!)
             a = Pages(bytes: aFloats * 4); b = Pages(bytes: bFloats * 4); bf16 = Pages(bytes: bFloats * 2)
             c = Pages(bytes: shapes.map { $0.m * $0.n }.max()! * 4)
@@ -219,6 +231,53 @@ extension Diagnostic {
                                     gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows, tensor: tensor))
         }
         return products
+    }
+
+    /// **The GPU's share on the grid** (`cuts` → `amx_shares`): each `cutShapes` product at each of
+    /// `heights`, through the conductor at a frozen share; the share that would have ended both engines
+    /// together is read from the time each spent waiting (`Conductor.perShape`), then measured three times at
+    /// that share, the median kept. In co-execution, not from the two engines alone: side by side they do
+    /// not keep their solo rates — 93 % of the sum at 4 096 rows, 70 % at 1 024 (Z-Image's up
+    /// projection) —, and the share that balances them is theirs together. Not judged against the exact: the
+    /// products above judge the cut's arithmetic, which no share changes.
+    static func measureCuts(_ o: Operands, _ bench: Bench, start: Double) throws -> [Cut] {
+        let gemm = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false)
+        guard let conductor = gemm.conductor else { return [] }
+        conductor.shares = .none
+        let a = try gemm.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a")
+        let b = try gemm.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b")
+        let c = try gemm.wrap(o.c.base, bytes: o.c.capacity, name: "diagnostic.c")
+        var cuts: [Cut] = []
+        for shape in cutShapes {
+            for m in heights {
+                try bench.check()
+                let key = "\(shape.k)×\(shape.n)"
+                var share = start
+                /// One product at `share`, and the share that would have balanced it.
+                func balanced() -> Double {
+                    conductor.initialFraction = share
+                    // As in a render, the weight was just widened by the CPU (`Artifact.materialize`): the AMX
+                    // finds it in the caches the CPU left warm, the GPU does not.
+                    Widen.bfloat16ToFloat32(source: o.bf16.base, destination: o.b.base, count: shape.k * shape.n)
+                    let before = conductor.perShape[key] ?? Conductor.ShapeRecord()
+                    _ = gemm.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true)
+                    guard let after = conductor.perShape[key] else { return share }
+                    let wall = after.wall - before.wall
+                    let t = Double(Conductor.cut(m, share)) / Double(m)
+                    let gpu = t / max(1e-9, wall - (after.idleGPU - before.idleGPU))
+                    let amx = (1 - t) / max(1e-9, wall - (after.idleAMX - before.idleAMX))
+                    return min(Conductor.fractionRange.upperBound, max(Conductor.fractionRange.lowerBound, gpu / (gpu + amx)))
+                }
+                _ = balanced()          // the warm-up: the operators built, the pages wired
+                share = balanced()
+                // Three estimates at that share, their median: a 1 024-row product lasts a few milliseconds,
+                // and one estimate moved ρ by ±0.05 from one point of the grid to the next.
+                let estimates = [balanced(), balanced(), balanced()].sorted()
+                share = estimates[1]
+                cuts.append(Cut(k: shape.k, n: shape.n, m: m, share: share))
+            }
+        }
+        return cuts
     }
 
     // ── fp16 and bf16 products ──────────────────────────────────────────────────────────────

@@ -97,9 +97,23 @@ package final class Krea2DiT {
     private let arena: Arena
     /// The sizing grid, which is that of every evaluation (no spectral schedule here).
     private let latentHeight, latentWidth, imageTokens, maxText, maxRows: Int
-    /// The GQA SDPA, per sequence length. The flash kernel (`FlashMatrix`) is no longer
-    /// wired in: it wants repeated `k`/`v`, and it tied on Krea 2.
+    /// The GQA SDPA, per sequence length: cut by groups of heads between the GPU and the CPU where
+    /// `headSplit`, one MPSGraph SDPA otherwise. The flash kernel (`FlashMatrix`) is no
+    /// longer wired in: it wants repeated `k`/`v`, and it tied on Krea 2.
     private var attentions: [Int: Attention] = [:]
+    /// The common share, 0.4, gives 5 of the 12 groups to the CPU: swept at 1024² (3, 4, 5 groups), 5 is
+    /// ahead, SDPA 7.04–7.17 → 4.59–4.76 s an evaluation; no constant of Krea 2's own.
+    private var splits: [Int: HeadSplitAttention] = [:]
+
+    /// **Where Krea 2 cuts its attention by heads**: where `HeadSplitAttention.applies`, from
+    /// `headSplitRows` rows. At 512² (1,024 image rows) the cut saves 0.18 s of 7.6 an evaluation and
+    /// tips the ill-conditioned step 3 of the 512² trajectory past its clouds' bar (median 5.47·10⁻⁴
+    /// against 5.38); at 1024² it saves ~2.5 s of 29 and the trajectory holds. The memory need reads
+    /// the same condition.
+    package static func headSplit(sequence: Int) -> Bool {
+        HeadSplitAttention.applies(sequence: sequence) && sequence >= headSplitRows
+    }
+    package static let headSplitRows = 2048
 
     private let x, normed, q, k, v, gate, merged, o, h1, h2: UnsafeMutablePointer<Float>
     private let reserve, tokens, projected, freqs: UnsafeMutablePointer<Float>
@@ -444,6 +458,24 @@ package final class Krea2DiT {
 
     private func attend(rows n: Int) throws {
         let d = config.dim, kv = config.kvWidth
+        if Krea2DiT.headSplit(sequence: n) {
+            let split: HeadSplitAttention
+            if let s = splits[n] { split = s } else {
+                split = try HeadSplitAttention(device: gemm.device, queue: gemm.queue, heads: config.heads, sequence: n,
+                                               headDim: config.headDim, kvHeads: config.kvHeads)
+                splits[n] = split
+            }
+            let qb = try gemm.wrap(UnsafeMutableRawPointer(q), bytes: maxRows * d * 4, name: "q")
+            let kb = try gemm.wrap(UnsafeMutableRawPointer(k), bytes: maxRows * kv * 4, name: "k")
+            let vb = try gemm.wrap(UnsafeMutableRawPointer(v), bytes: maxRows * kv * 4, name: "v")
+            let ob = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: maxRows * d * 4, name: "merged")
+            timed("sdpa wall") {
+                let (gpu, cpu) = split.run(q: qb, k: kb, v: vb, into: ob, q: q, k: k, v: v, out: merged)
+                timings["sdpa GPU", default: 0] += gpu
+                timings["sdpa CPU", default: 0] += cpu
+            }
+            return
+        }
         let attention: Attention
         if let a = attentions[n] { attention = a } else {
             attention = Attention(device: gemm.device, queue: gemm.queue, heads: config.heads,

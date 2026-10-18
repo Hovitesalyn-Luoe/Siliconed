@@ -104,7 +104,7 @@ final class CapacityRulesTests: XCTestCase {
         XCTAssertEqual(d.settings["gemm_tensor"] as? Bool, false)
     }
 
-    /// **The M5's map of 17/10/2026** (M225), its `matmul2d` at the bf16 × bf16 rate it measured (6.0):
+    /// **The M5's map of 17/10/2026**, its `matmul2d` at the bf16 × bf16 rate it measured (6.0):
     /// the bf16 path beats MPS + AMX, takes the products, and turns the AMX off in the settings.
     func testM5TakesTheBf16Path() {
         var r = m1Pro
@@ -280,5 +280,66 @@ final class CapacityRulesTests: XCTestCase {
         var otherSchema = fresh
         otherSchema.schema = Diagnostic.schema + 1
         XCTAssertFalse(otherSchema.isCurrent)
+    }
+
+    // ── the GPU's share per shape (`cuts` → `amx_shares` → `Conductor.Shares`) ───────────────────────
+
+    /// **A map with its grid gives each product its own share**: `ρ = (1 − T*) / T*` at every point,
+    /// handed to the engine as text with MPS's row tile as quantum; the share read back at a measured
+    /// point is the point's.
+    func testCutsGiveEachShapeItsShare() throws {
+        var r = report(m1Pro)
+        r.cuts = Diagnostic.cutDepths.flatMap { k in Diagnostic.heights.map { m in
+            Diagnostic.Cut(k: k, n: Diagnostic.cutWidth, m: m, share: k < 8192 ? 0.62 : 0.69) } }
+        let d = Diagnostic.decide(r)
+        let text = try XCTUnwrap(d.amxShares)
+        XCTAssertEqual(d.settings["amx_shares"] as? String, text)
+        XCTAssertEqual(d.settings["amx_quantum"] as? Int, 64)
+        let shares = try XCTUnwrap(Conductor.Shares(text: text))
+        XCTAssertEqual(shares.points.count, Diagnostic.cutDepths.count * Diagnostic.heights.count)
+        XCTAssertEqual(shares.share(k: 4096, n: 6144, m: 1024)!, 0.62, accuracy: 0.001)
+        XCTAssertEqual(shares.share(k: 16384, n: 2048, m: 4096)!, 0.69, accuracy: 0.001)
+        XCTAssertNil(Diagnostic.decide(report(m1Pro)).amxShares, "no grid: the scalar share serves")
+    }
+
+    /// **The co-execution off, no grid in the settings**: the shares are the conductor's, and there is none.
+    func testCutsWithoutCoexecutionGiveNoShares() {
+        var rates = m1Pro
+        rates.amxError = 1e-3
+        var off = report(rates)
+        off.cuts = [Diagnostic.Cut(k: 2048, n: 6144, m: 1024, share: 0.6)]
+        let d = Diagnostic.decide(off)
+        XCTAssertFalse(d.amx.on)
+        XCTAssertNil(d.amxShares)
+        XCTAssertNil(d.settings["amx_shares"])
+    }
+
+    /// **The formula, pure**: two axes through the square point, `ρ(k, n) = ρ(k, w) · ρ(w, n) / ρ(w, w)`, each
+    /// read linearly in `log k` or `log n` (the geometric middle gives the mean ratio), then in `log m`; the
+    /// nearest point outside the grid; clamped to `Conductor.fractionRange`; a grid without its square point
+    /// reads `k` only; the text reads back; an empty grid gives no share.
+    func testSharesComposeTheTwoAxes() throws {
+        func point(_ k: Int, _ n: Int, _ m: Int, _ ratio: Double) -> Conductor.Shares.Point { .init(k: k, n: n, m: m, ratio: ratio) }
+        let shares = Conductor.Shares([point(2048, 4096, 1024, 0.6), point(4096, 4096, 1024, 0.5), point(8192, 4096, 1024, 0.4),
+                                       point(4096, 1024, 1024, 0.25), point(4096, 16384, 1024, 1.0),
+                                       point(2048, 4096, 4096, 0.8), point(4096, 4096, 4096, 0.7), point(8192, 4096, 4096, 0.6),
+                                       point(4096, 1024, 4096, 0.35), point(4096, 16384, 4096, 1.4)])
+        XCTAssertEqual(shares.share(k: 4096, n: 4096, m: 1024)!, 1 / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(shares.share(k: 8192, n: 16384, m: 1024)!, 1 / 1.8, accuracy: 1e-12)
+        XCTAssertEqual(shares.share(k: 2048, n: 2048, m: 1024)!, 1 / 1.45, accuracy: 1e-12)
+        XCTAssertEqual(shares.share(k: 4096, n: 4096, m: 2048)!, 1 / 1.6, accuracy: 1e-12)
+        XCTAssertEqual(shares.share(k: 1024, n: 4096, m: 512)!, 1 / 1.6, accuracy: 1e-12, "the nearest point outside")
+        XCTAssertEqual(shares.share(k: 4096, n: 65536, m: 8192)!, 1 / 2.4, accuracy: 1e-12)
+        let depthOnly = Conductor.Shares([point(2048, 6144, 1024, 0.6), point(8192, 6144, 1024, 0.4)])
+        XCTAssertEqual(depthOnly.share(k: 4096, n: 1, m: 1024)!, 1 / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(depthOnly.share(k: 4096, n: 1, m: 1024), depthOnly.share(k: 4096, n: 65536, m: 1024))
+        let skewed = Conductor.Shares([point(2048, 6144, 1024, 10), point(8192, 6144, 1024, 0)])
+        XCTAssertEqual(skewed.share(k: 2048, n: 6144, m: 1024), Conductor.fractionRange.lowerBound)
+        XCTAssertEqual(skewed.share(k: 8192, n: 6144, m: 1024), Conductor.fractionRange.upperBound)
+        XCTAssertEqual(Conductor.Shares(text: shares.description), shares)
+        XCTAssertTrue(shares.description.hasPrefix("2048×4096@1024=0.600,"))
+        XCTAssertEqual(Conductor.Shares(text: ""), Conductor.Shares.none)
+        XCTAssertNil(Conductor.Shares(text: "2048@1024=0.5"), "a grid without its n does not read")
+        XCTAssertNil(Conductor.Shares.none.share(k: 4096, n: 6144, m: 1024))
     }
 }

@@ -46,7 +46,9 @@ public struct EngineSettings: Sendable {
     /// The spinning flag, which returns **wrong** results. It serves only to make the check
     /// fail, and it has no place in a profile.
     package var amxSpin = false
-    /// The split's step in tokens. 256 leaves sixteen servo points at 4,128 rows.
+    /// The split's step in tokens. 256 leaves sixteen servo points at 4,128 rows. Under a map's grid
+    /// (`amxShares`) the map sets 64, MPS's row tile: at a 512² image's ~1 040 rows, 256 only offers the GPU
+    /// 0.49 or 0.74 of the rows, and the computed shares fall between.
     package var amxQuantum = 256
     /// Below that, the split costs more than the computation handed over (the text blocks run at m = 32).
     package var amxMinimumRows = 512
@@ -59,6 +61,10 @@ public struct EngineSettings: Sendable {
     /// engine, so moving the split redistributes the work without ever re-associating a sum. That
     /// is what makes the reproducible mode possible without turning the AMX off.
     package var amxFraction = 0.631
+    /// **The frozen cut computed per product** (`Conductor.Shares`: `T = 1 / (1 + ρ(k, n, m))`, `ρ` measured by
+    /// the map on this Mac); none by default — no machine's figures in the code —, and then `amxFraction`.
+    /// `SILICONED_AMX_SHARES=<k×n@m=ρ,…>` hands the command line a map's grid.
+    package var amxShares = Conductor.Shares.none
     /// **The frozen split** (`SILICONED_REPRODUCIBLE`): no more servo, `T = amxFraction` from the
     /// first GEMM to the last. Two renders of the same seed then yield the same bits.
     ///
@@ -346,6 +352,7 @@ public struct EngineSettings: Sendable {
         read("SILICONED_AMX_QUANTUM", "amx_quantum")
         read("SILICONED_AMX_MIN", "amx_min")
         read("SILICONED_AMX_FRACTION", "amx_fraction")
+        read("SILICONED_AMX_SHARES", "amx_shares")
         read("SILICONED_REPRODUCIBLE", "coupe_figee")
         read("SILICONED_FLASH", "flash")
         read("SILICONED_HEAD_SPLIT", "head_split")
@@ -432,6 +439,10 @@ public struct EngineSettings: Sendable {
         integer("amx_quantum", &amxQuantum)
         integer("amx_min", &amxMinimumRows)
         real("amx_fraction", &amxFraction)
+        if let raw = values["amx_shares"] {
+            if let shares = Conductor.Shares(text: "\(raw)") { amxShares = shares; provenance["amx_shares"] = source }
+            else { warnings.append("⚠ « amx_shares » unreadable (\(raw)): the scalar share applies.") }
+        }
         flag("coupe_figee", &frozenCut)
         flag("flash", &flash)
         flag("head_split", &headSplit)
@@ -479,6 +490,7 @@ public struct EngineSettings: Sendable {
             ("amx", "\(amx)"), ("amx_quantum", "\(amxQuantum)"),
             ("amx_min", "\(amxMinimumRows)"), ("amx_spin", "\(amxSpin)"),
             ("amx_fraction", String(format: "%.3f", amxFraction)),
+            ("amx_shares", amxShares.isEmpty ? "none" : "\(amxShares.points.count) points"),
             ("coupe_figee", "\(frozenCut)"),
             ("flash", "\(flash)"),
             ("head_split", "\(headSplit)"),
@@ -499,7 +511,7 @@ public struct EngineSettings: Sendable {
     package var values: [String: Any] {
         [
             "amx": amx, "amx_quantum": amxQuantum,
-            "amx_min": amxMinimumRows, "amx_fraction": amxFraction,
+            "amx_min": amxMinimumRows, "amx_fraction": amxFraction, "amx_shares": amxShares.description,
             "coupe_figee": frozenCut,
             "flash": flash, "head_split": headSplit, "sdpa_fp16": sdpaFp16,
             "widen_gpu": widenGPU, "gemm_tensor": gemmTensor,
