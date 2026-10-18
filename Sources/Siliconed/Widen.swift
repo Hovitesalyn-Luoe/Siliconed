@@ -416,6 +416,33 @@ extension Widen {
         }
     }
 
+    /// **Columns `slice` of an int8 `[k, n]` times its fp32 scales**, written `[k, slice.count]` — the AMX's
+    /// share beside the GPU's int8 product (`WeightProducts`). `Float(q) · s` is exact (8 bits × at most
+    /// 24): the same values as `dequantize`'s, any scale layout but `.rows`.
+    package static func dequantizeColumns(_ values: UnsafeRawPointer, rows k: Int, columns n: Int,
+                                          scales: UnsafePointer<Float>, layout: ScaleLayout, columns slice: Range<Int>,
+                                          into destination: UnsafeMutablePointer<Float>) {
+        let width = slice.count, per = (k + 63) / 64, jobs = (k + per - 1) / per
+        nonisolated(unsafe) let (q, s, d) = (values.assumingMemoryBound(to: Int8.self), scales, destination)
+        DispatchQueue.concurrentPerform(iterations: jobs) { j in
+            for r in (j * per)..<min(k, (j + 1) * per) {
+                let row = q + r * n + slice.lowerBound, out = d + r * width
+                switch layout {
+                case .tensor:
+                    for c in 0..<width { out[c] = Float(row[c]) * s[0] }
+                case .columns:
+                    let f = s + slice.lowerBound
+                    for c in 0..<width { out[c] = Float(row[c]) * f[c] }
+                case .blocks(_, let b):
+                    let f = s + (r / b) * n + slice.lowerBound
+                    for c in 0..<width { out[c] = Float(row[c]) * f[c] }
+                case .rows:
+                    preconditionFailure("dequantizeColumns: scales per row of a published tensor")
+                }
+            }
+        }
+    }
+
     /// The columns a tile of `dequantizeRotated` covers at most.
     package static let rotationTileWidth = 4096
 

@@ -118,6 +118,11 @@ public struct EngineSettings: Sendable {
     /// scale after the sums, a convrot rotation moved to the activation), the AMX off on them. Off by
     /// default, as `gemm_tensor`: a path the map turns on where it measures it faster.
     package var gemmInt8 = false
+    /// **The products read GGUF Q8_0 as published** (`TensorGEMM.linear_q8`: q · s per block of 32 rows
+    /// into threadgroup memory, then `matmul2d`), beside the AMX on its columns. Off: on the M1 Pro,
+    /// ×0.29 the widened path's speed at 4 096 rows — the threadgroup fp32 operand runs at half MPS's
+    /// rate and its fill costs as much again. A branch for a chip where it would win.
+    package var gemmQ8 = false
 
     /// Qwen-Image-2.1's spectral schedule, **when forced** (`SILICONED_SPECTRAL`): `k` half-size
     /// evaluations, 0 = full schedule, within the 512-px floor (`Spectral.forced`). Not forced, the
@@ -363,6 +368,7 @@ public struct EngineSettings: Sendable {
         read("SILICONED_WIDEN_GPU", "widen_gpu")
         read("SILICONED_GEMM_TENSOR", "gemm_tensor")
         read("SILICONED_GEMM_INT8", "gemm_int8")
+        read("SILICONED_GEMM_Q8", "gemm_q8")
         read("SILICONED_SPECTRAL", "spectral")
         read("SILICONED_VAE_BLOCK", "vae_bloc_requetes")
         read("SILICONED_VAE_TILE", "vae_tuile")
@@ -454,6 +460,7 @@ public struct EngineSettings: Sendable {
         flag("widen_gpu", &widenGPU)
         flag("gemm_tensor", &gemmTensor)
         flag("gemm_int8", &gemmInt8)
+        flag("gemm_q8", &gemmQ8)
         integer("spectral", &spectral)
         integer("vae_bloc_requetes", &vaeRequestBlock)
         integer("vae_tuile", &vaeTile)
@@ -503,6 +510,7 @@ public struct EngineSettings: Sendable {
             ("widen_gpu", "\(widenGPU)"),
             ("gemm_tensor", "\(gemmTensor)"),
             ("gemm_int8", "\(gemmInt8)"),
+            ("gemm_q8", "\(gemmQ8)"),
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
             ("vae_tuile", vaeTile == 0 ? "no" : "\(vaeTile) (overlap \(vaeOverlap))"),
@@ -520,7 +528,7 @@ public struct EngineSettings: Sendable {
             "amx_min": amxMinimumRows, "amx_fraction": amxFraction, "amx_shares": amxShares.description,
             "coupe_figee": frozenCut,
             "flash": flash, "head_split": headSplit, "sdpa_fp16": sdpaFp16,
-            "widen_gpu": widenGPU, "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8,
+            "widen_gpu": widenGPU, "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,
         ]

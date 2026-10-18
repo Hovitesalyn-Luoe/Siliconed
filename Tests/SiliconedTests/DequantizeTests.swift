@@ -255,4 +255,29 @@ final class DequantizeTests: XCTestCase {
         XCTAssertNil(WeightProducts.int8Plan(k: k, n: n, capacity: k * n / 4 + 8192, perColumn: true, group: 256, amxColumns: 0))
         XCTAssertNotNil(WeightProducts.int8Plan(k: k, n: n, capacity: k * n / 4 + 8192, perColumn: true, group: nil, amxColumns: 0))
     }
+
+    /// A Q8_0 weight's scales, one per 32 rows and column, are an eighth of `q` again: the slice goes past them.
+    func testQ8PlanHoldsItsBlockScales() {
+        let (k, n) = (2048, 8192)
+        guard let p = WeightProducts.int8Plan(k: k, n: n, capacity: k * n, perColumn: false, group: nil,
+                                              amxColumns: 2048, block: 32) else { return XCTFail("no plan") }
+        XCTAssertEqual(p.layout, .blocks(columns: 0, rows: 32))
+        XCTAssert(p.sliceOffset >= p.scalesOffset + k / 32 * n * 4 && p.sliceOffset + k * 2048 * 4 <= k * n * 4)
+    }
+
+    /// The AMX's columns of a Q8_0 weight are `dequantize`'s, at the bit, block scales included.
+    func testColumnsAreTheWholeBlocksColumns() {
+        let (k, n, b) = (96, 40, 32)
+        let q = (0..<(k * n)).map { Int8(truncatingIfNeeded: $0 * 37 % 255 - 127) }
+        let s = (0..<(k / b * n)).map { Float(1 + $0 % 7) / 113 }
+        var whole = [Float](repeating: 0, count: k * n), slice = [Float](repeating: 0, count: k * 24)
+        q.withUnsafeBytes { qb in s.withUnsafeBytes { sb in
+            Widen.dequantize(qb.baseAddress!, kind: .int8, count: k * n, scale: sb.baseAddress!, scaleType: .float32,
+                             layout: .blocks(columns: n, rows: b), into: &whole)
+            Widen.dequantizeColumns(qb.baseAddress!, rows: k, columns: n,
+                                    scales: sb.baseAddress!.assumingMemoryBound(to: Float.self),
+                                    layout: .blocks(columns: n, rows: b), columns: 16..<40, into: &slice)
+        } }
+        for r in 0..<k { XCTAssertEqual(Array(whole[(r * n + 16)..<(r * n + 40)]), Array(slice[(r * 24)..<(r * 24 + 24)])) }
+    }
 }

@@ -150,8 +150,9 @@ package final class GEMM {
     /// compiles it; `nil` otherwise, and every product widens as before. A caller asks
     /// `Artifact.stage` for the bf16 weight and, given one, calls `linear(a:bf16:…)`.
     package private(set) var tensor: TensorGEMM?
-    /// What `tensor` takes: bf16 weights (`gemm_tensor`), published int8 ones (`gemm_int8`).
-    package let tensorBF16, tensorInt8: Bool
+    /// What `tensor` takes: bf16 weights (`gemm_tensor`), published int8 ones (`gemm_int8`), GGUF Q8_0
+    /// ones (`gemm_q8`).
+    package let tensorBF16, tensorInt8, tensorQ8: Bool
 
     /// - Parameter freezeCut: the GPU/AMX cut is not servo-controlled. This is the reproducible mode:
     ///   `T` stays the profile's, so `cut` is a pure function and two renders of the same
@@ -159,10 +160,12 @@ package final class GEMM {
     /// - Parameter coexecution: the GPU/AMX conductor, `Conductor.enabled` by default. The diagnostic
     ///   asks for both on any chip: the GPU alone and the cut, measured on the same product.
     /// - Parameter tensorWeights: the bf16-weight product (`gemm_tensor`); the diagnostic asks for it on
-    ///   any chip that has it, to measure it. `int8Weights`: the published-int8 one (`gemm_int8`).
+    ///   any chip that has it, to measure it. `int8Weights`: the published-int8 one (`gemm_int8`);
+    ///   `q8Weights`: the Q8_0 one (`gemm_q8`).
     package init(freezeCut: Bool = EngineSettings.effective.frozenCut, coexecution: Bool = Conductor.enabled,
                  tensorWeights: Bool = EngineSettings.effective.gemmTensor,
-                 int8Weights: Bool = EngineSettings.effective.gemmInt8) throws {
+                 int8Weights: Bool = EngineSettings.effective.gemmInt8,
+                 q8Weights: Bool = EngineSettings.effective.gemmQ8) throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.noDevice
         }
@@ -180,11 +183,12 @@ package final class GEMM {
         if coexecution {
             conductor = Conductor(queue: queue, driven: !freezeCut)
         }
-        if tensorWeights || int8Weights {
+        if tensorWeights || int8Weights || q8Weights {
             tensor = TensorGEMM(device: device, queue: queue)
         }
         tensorBF16 = tensor != nil && tensorWeights
         tensorInt8 = tensor != nil && int8Weights
+        tensorQ8 = tensor?.readsBlocks == true && q8Weights
     }
 
     package enum Failure: Error, CustomStringConvertible {

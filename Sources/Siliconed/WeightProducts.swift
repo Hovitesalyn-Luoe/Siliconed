@@ -9,7 +9,8 @@ import Metal
 ///              ├─ gemm_tensor, a bf16 weight   copied as it is (`Artifact.stage`)       ─▶ TensorGEMM
 ///              ├─ gemm_int8, a published int8  copied as it is, scale fp32 after it     ─▶ TensorGEMM, × s after the
 ///              │                                (convrot: x · R by chunks of rows in the reserve's tail)  sums
-///              │     + the AMX, a convrot one   its columns widened alone, while the GPU   ─▶ BNNS on them
+///              │     gemm_q8, a GGUF Q8_0       (scales per 32 rows: q · s in threadgroup memory)
+///              │     + the AMX                  its columns widened alone, while the GPU   ─▶ BNNS on them
 ///              │                                computes the others
 ///              ├─ widen_gpu                    widened on the GPU (`WidenGPU`)           ─▶ MPS (+ AMX)
 ///              └─ otherwise                    widened on the CPU (`Artifact.materialize`) ─▶ MPS (+ AMX)
@@ -133,20 +134,28 @@ package final class WeightProducts {
         package let scalesOffset, sliceOffset, rotatedOffset, chunk, amxColumns: Int
         package let perColumn: Bool
         package let group: Int?
+        /// Scales per block of this many rows and column (GGUF Q8_0); `nil`: per column or tensor.
+        package var block: Int? = nil
+        package var layout: Widen.ScaleLayout {
+            if let block { return .blocks(columns: 0, rows: block) }
+            return perColumn ? .columns(0) : .tensor
+        }
     }
 
     /// Where an int8 `[k, n]` weight, the AMX's widened columns and the rotated activation fit in
     /// `capacity` floats, or `nil` when fewer than 64 rows would: the reserve is the model's, never
     /// grown for this path.
-    package static func int8Plan(k: Int, n: Int, capacity: Int, perColumn: Bool, group: Int?, amxColumns: Int) -> Int8Plan? {
+    package static func int8Plan(k: Int, n: Int, capacity: Int, perColumn: Bool, group: Int?, amxColumns: Int,
+                                 block: Int? = nil) -> Int8Plan? {
         func page(_ bytes: Int) -> Int { (bytes + 16383) / 16384 * 16384 }
-        let scalesOffset = page(k * n), sliceOffset = page(scalesOffset + (perColumn ? n : 1) * 4)
+        let scales = block.map { (k + $0 - 1) / $0 * n } ?? (perColumn ? n : 1)
+        let scalesOffset = page(k * n), sliceOffset = page(scalesOffset + scales * 4)
         let rotatedOffset = page(sliceOffset + k * amxColumns * 4)
         guard rotatedOffset <= capacity * 4 else { return nil }
         let rows = (capacity * 4 - rotatedOffset) / (k * 4) / 64 * 64
         guard group == nil || rows >= 64 else { return nil }
         return Int8Plan(scalesOffset: scalesOffset, sliceOffset: sliceOffset, rotatedOffset: rotatedOffset,
-                        chunk: rows, amxColumns: amxColumns, perColumn: perColumn, group: group)
+                        chunk: rows, amxColumns: amxColumns, perColumn: perColumn, group: group, block: block)
     }
 
     /// **The GPU's share of a convrot int8 product's columns** beside the AMX, `nil` for the GPU alone.
@@ -160,18 +169,23 @@ package final class WeightProducts {
     package static func int8Product(gemm: GEMM, plan: Int8Plan, reserve w: MTLBuffer, a: MTLBuffer, c: MTLBuffer,
                                     m: Int, k: Int, n: Int) -> (gpu: Double, widening: Double, status: Int32) {
         let rotation = plan.group.map { (group: $0, scratch: w, offset: plan.rotatedOffset, chunk: plan.chunk) }
-        guard plan.amxColumns > 0, let conductor = gemm.conductor, let group = plan.group else {
+        guard plan.amxColumns > 0, let conductor = gemm.conductor else {
             return (gemm.tensor!.linear(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset, perColumn: plan.perColumn,
-                                        rotation: rotation, c: c, m: m, k: k, n: n), 0, 0)
+                                        block: plan.block, rotation: rotation, c: c, m: m, k: k, n: n), 0, 0)
         }
         let g = n - plan.amxColumns
-        let commands = gemm.tensor!.submit(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset,
-                                           perColumn: plan.perColumn, rotation: rotation, c: c, m: m, k: k, n: n, columns: g)
-        let raw = w.contents(), slice = raw + plan.sliceOffset
+        let commands = gemm.tensor!.submit(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset, perColumn: plan.perColumn,
+                                           block: plan.block, rotation: rotation, c: c, m: m, k: k, n: n, columns: g)
+        let raw = w.contents(), slice = raw + plan.sliceOffset, scales = raw + plan.scalesOffset
         let started = DispatchTime.now().uptimeNanoseconds
-        Widen.dequantizeRotated(raw, rows: k, columns: n, group: group, scale: raw + plan.scalesOffset,
-                                scaleType: .float32, layout: plan.perColumn ? .columns(n) : .tensor,
-                                columns: g..<n, into: slice.assumingMemoryBound(to: Float.self))
+        if let group = plan.group {
+            Widen.dequantizeRotated(raw, rows: k, columns: n, group: group, scale: scales,
+                                    scaleType: .float32, layout: plan.perColumn ? .columns(n) : .tensor,
+                                    columns: g..<n, into: slice.assumingMemoryBound(to: Float.self))
+        } else {
+            Widen.dequantizeColumns(raw, rows: k, columns: n, scales: scales.assumingMemoryBound(to: Float.self),
+                                    layout: plan.layout, columns: g..<n, into: slice.assumingMemoryBound(to: Float.self))
+        }
         let widening = Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
         let status = conductor.columns(a: a.contents(), slice: slice, c: c.contents(), m: m, k: k, n: n,
                                        first: g, width: plan.amxColumns)
@@ -179,10 +193,10 @@ package final class WeightProducts {
         return (Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)"), widening, status)
     }
 
-    /// The AMX's columns: a multiple of 64 (the GPU's tile), 0 without a conductor, under its
-    /// `minimumRows`, or for an unrotated weight (whose slice nothing widens alone yet).
-    private func amxColumns(k: Int, n: Int, m: Int, rotated: Bool) -> Int {
-        guard rotated, n >= 128, let conductor = gemm.conductor, m >= Conductor.minimumRows else { return 0 }
+    /// The AMX's columns: a multiple of 64 (the GPU's tile), 0 without a conductor or under its
+    /// `minimumRows`.
+    private func amxColumns(k: Int, n: Int, m: Int) -> Int {
+        guard n >= 128, let conductor = gemm.conductor, m >= Conductor.minimumRows else { return 0 }
         let T = int8Share?(k, n, m) ?? conductor.shares.share(k: k, n: n, m: m) ?? conductor.initialFraction
         guard T < 1 else { return 0 }
         return Self.amxColumns(n: n, share: T)
@@ -206,13 +220,15 @@ package final class WeightProducts {
             try expect(got)
             return .bf16
         }
-        if gemm.tensorInt8, transposed, let tensor = artifact.tensors[name], tensor.dtype == .int8,
-           let scale = tensor.scale, scale.block == nil, scale.shape.count <= 1, tensor.shape == [count / n, n] {
+        if transposed, let tensor = artifact.tensors[name], tensor.dtype == .int8,
+           let scale = tensor.scale, tensor.shape == [count / n, n],
+           scale.block == nil ? gemm.tensorInt8 && scale.shape.count <= 1 : gemm.tensorQ8 && scale.shape.count == 2 {
             let (k, perColumn, group) = (count / n, scale.shape.count == 1, tensor.rotation?.group)
-            let columns = amxColumns(k: k, n: n, m: m, rotated: group != nil)
+            let columns = amxColumns(k: k, n: n, m: m)
             guard let plan = Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group,
-                                           amxColumns: columns)
-                    ?? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group, amxColumns: 0)
+                                           amxColumns: columns, block: scale.block)
+                    ?? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group, amxColumns: 0,
+                                     block: scale.block)
             else { return try widen(name, count: count, into: w) }
             try expect(tensor.count)
             try timed("staging") { try artifact.stageInt8(name, into: UnsafeMutableRawPointer(reserve),

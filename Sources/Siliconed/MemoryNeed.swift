@@ -202,13 +202,13 @@ package struct MemoryNeed: Sendable, Equatable {
     /// servo's `T` held in `Conductor.fractionRange`: the bound is its lower end (and the frozen cut's).
     /// MPS's own state is not charged: no shape gives it (`OperatorFootprint`). `bounded`: the products
     /// whose height follows the prompt's tokens — a bound, not the height (`GEMM.tierBytes`). Under
-    /// `int8` (`gemm_int8`) the AMX may take a product's last columns instead, all `m` rows
+    /// `int8` (`gemm_int8` or `gemm_q8`) the AMX may take a product's last columns instead, all `m` rows
     /// (`Conductor.columnWorkspaceBytes`, larger: 151 against 109 MB at Krea 2's 4096 × 16384 × 6144),
     /// at the same bound on the share — counted for every product, the map's dtype unknown here.
     package static func gemm(_ name: String, products: [(m: Int, k: Int, n: Int)] = [],
                              bounded: [(m: Int, k: Int, n: Int)] = [], rank: Int = 0,
                              amx: Bool = EngineSettings.effective.amx,
-                             int8: Bool = EngineSettings.effective.gemmInt8) -> [Term] {
+                             int8: Bool = EngineSettings.effective.gemmInt8 || EngineSettings.effective.gemmQ8) -> [Term] {
         var workspace = 0
         if amx {
             for p in products + bounded where p.m >= Conductor.minimumRows {

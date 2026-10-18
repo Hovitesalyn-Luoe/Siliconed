@@ -10,6 +10,8 @@ import Metal
 ///     gemm_tensor     bf16 copied into the reserve's head     matmul2d  float × bfloat → float
 ///     gemm_int8       int8 copied, its scales fp32 after it   matmul2d  float × int8_t → float, × s after;
 ///                                                             convrot: x · R first, on the GPU
+///     gemm_q8         Q8_0 copied, its block scales fp32      q · s per 64 rows of K into threadgroup memory,
+///                                                             matmul2d  float × float → float, accumulated
 ///
 /// **Nothing is rounded that the default path does not round**: the weights *are* bf16 values (P19,
 /// the widening is a shift), the activations stay fp32 — the header's `float × bfloat → float`
@@ -47,6 +49,10 @@ package final class TensorGEMM {
     private let byColumns, byRows: MTLComputePipelineState
     /// The int8 product, the scale's pass, the rotation of the activation (`linear(a:int8:…)`).
     private let int8, scaleColumns, rotateGroups: MTLComputePipelineState
+    /// The product on scales per block of rows (GGUF Q8_0), `nil` when this macOS's compiler refuses
+    /// a threadgroup operand: those weights are then widened, as before.
+    private let blocks: MTLComputePipelineState?
+    package var readsBlocks: Bool { blocks != nil }
 
     static let source = """
     #include <metal_stdlib>
@@ -103,6 +109,42 @@ package final class TensorGEMM {
         tile(op, A.slice(0, y), B.slice(x, 0), C.slice(x, y));
     }
 
+    // GGUF Q8_0 as published: q int8 [K, N], s fp32 [K/B, N] (one per block of B rows and column). Per
+    // chunk of 64 rows of K, the threadgroup writes its 64 columns' q · s (exact in fp32: 8 bits × an
+    // fp16) into threadgroup memory, and matmul2d accumulates A[64, 64] · W[64, 64] into the
+    // cooperative destination. One matmul2d per 32-block was ×5 slower: the scale must not cut the sum.
+    // Exact, but on the M1 Pro ×0.29 the widened path at 4096 rows: the threadgroup fp32 operand runs at
+    // half MPS's rate, and the fill (each weight 32 times, once per 64-row tile) costs as much again.
+    kernel void linear_q8(device float *a [[buffer(0)]], device const int8_t *q [[buffer(1)]], device float *c [[buffer(2)]],
+                          constant uint3 &mkn [[buffer(3)]], device const float *s [[buffer(4)]],
+                          constant uint &B [[buffer(5)]],
+                          uint2 g [[threadgroup_position_in_grid]], uint2 tp [[thread_position_in_threadgroup]],
+                          uint2 tn [[threads_per_threadgroup]]) {
+        const int M = mkn.x, K = mkn.y, N = mkn.z, x = g.x * 64, y = g.y * 64;
+        threadgroup float wt[64 * 64];
+        tensor<device float, dextents<int32_t, 2>, tensor_inline> A(a, dextents<int32_t, 2>(K, M));
+        tensor<device float, dextents<int32_t, 2>, tensor_inline> C(c, dextents<int32_t, 2>(N, M));
+        tensor<threadgroup float, extents<int32_t, 64, 64>, tensor_inline> W(wt, extents<int32_t, 64, 64>());
+        // multiply_accumulate: the default `multiply` overwrites the destination at each chunk of K.
+        constexpr auto d = matmul2d_descriptor(64, 64, 64, false, false, false,
+                                               matmul2d_descriptor::mode::multiply_accumulate);
+        matmul2d<d, execution_simdgroups<4>> op;
+        auto Ay = A.slice(0, y);
+        auto acc = op.template get_destination_cooperative_tensor<decltype(Ay), decltype(W), float>();
+        for (uint16_t i = 0; i < acc.get_capacity(); ++i) { if (acc.is_valid_element(i)) acc[i] = 0; }
+        for (int k0 = 0; k0 < K; k0 += 64) {
+            for (uint i = tp.x; i < 64 * 64; i += tn.x) {
+                const int row = k0 + int(i / 64), col = x + int(i % 64);
+                wt[i] = (row < K && col < N) ? float(q[row * N + col]) * s[(row / int(B)) * N + col] : 0.0f;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            auto As = A.slice(k0, y);
+            op.run(As, W, acc);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        acc.store(C.slice(x, y));
+    }
+
     // C[r, j] *= s[j · stride] for the first `width` columns of C [M, N]: the scale, per column
     // (stride 1) or for the tensor (0); the columns past `width` are the AMX's, already scaled.
     kernel void scale_columns(device float *c [[buffer(0)]], device const float *s [[buffer(1)]],
@@ -152,6 +194,7 @@ package final class TensorGEMM {
               let rotateGroups = pipeline("rotate_groups") else { return nil }
         self.queue = queue; self.byColumns = byColumns; self.byRows = byRows
         self.int8 = int8; self.scaleColumns = scaleColumns; self.rotateGroups = rotateGroups
+        blocks = pipeline("linear_q8")
     }
 
     /// `C [m, n] = A [m, k] · W`, `A` and `C` fp32, `W` bf16 — `[k, n]` when `weightIsTransposed`
@@ -183,22 +226,40 @@ package final class TensorGEMM {
     /// reserve's tail), each chunk's product written where its rows go. One submission; returns the
     /// GPU seconds.
     package func linear(a: MTLBuffer, int8 w: MTLBuffer, scales: MTLBuffer, scalesOffset: Int, perColumn: Bool,
-                        rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
+                        block: Int? = nil, rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
                         c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
         let commands = submit(a: a, int8: w, scales: scales, scalesOffset: scalesOffset, perColumn: perColumn,
-                              rotation: rotation, c: c, m: m, k: k, n: n, columns: n)
+                              block: block, rotation: rotation, c: c, m: m, k: k, n: n, columns: n)
         commands.waitUntilCompleted()
         return Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)")
     }
 
     /// The same on the first `columns` of `C` only, **committed and not awaited**: the caller computes
-    /// the other columns meanwhile (the AMX, `WeightProducts`), then waits on the buffer.
+    /// the other columns meanwhile (the AMX, `WeightProducts`), then waits on the buffer. `block`: the
+    /// scales are per block of that many rows and column (GGUF Q8_0, `[k / block, n]`), applied inside
+    /// the product — no rotation then (`Artifact` refuses one there).
     package func submit(a: MTLBuffer, int8 w: MTLBuffer, scales: MTLBuffer, scalesOffset: Int, perColumn: Bool,
-                        rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
+                        block: Int? = nil, rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
                         c: MTLBuffer, m: Int, k: Int, n: Int, columns: Int) -> MTLCommandBuffer {
         let commands = queue.makeCommandBuffer()!
         let encoder = commands.makeComputeCommandEncoder()!
-        var mkn = SIMD3<UInt32>(0, UInt32(k), UInt32(n))
+        var mkn = SIMD3<UInt32>(UInt32(m), UInt32(k), UInt32(n))
+        if let block, let blocks {
+            encoder.setComputePipelineState(blocks)
+            encoder.setBuffer(a, offset: 0, index: 0)
+            encoder.setBuffer(w, offset: 0, index: 1)
+            encoder.setBuffer(c, offset: 0, index: 2)
+            encoder.setBytes(&mkn, length: MemoryLayout<SIMD3<UInt32>>.stride, index: 3)
+            encoder.setBuffer(scales, offset: scalesOffset, index: 4)
+            var rows = UInt32(block)
+            encoder.setBytes(&rows, length: 4, index: 5)
+            encoder.dispatchThreadgroups(MTLSize(width: (columns + 63) / 64, height: (m + 63) / 64, depth: 1),
+                                         threadsPerThreadgroup: MTLSize(width: blocks.threadExecutionWidth * 4,
+                                                                        height: 1, depth: 1))
+            encoder.endEncoding()
+            commands.commit()
+            return commands
+        }
         func product(_ x: MTLBuffer, _ xOffset: Int, first: Int, rows: Int) {
             encoder.setComputePipelineState(int8)
             encoder.setBuffer(x, offset: xOffset, index: 0)
