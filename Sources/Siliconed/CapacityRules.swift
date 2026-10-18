@@ -15,6 +15,8 @@ import Foundation
 ///        │                                         / Σ [t(bf16 weight) + t(copy k·n)]    ─▶ gemm_tensor
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen convrot k·n)]
 ///        │                                         / Σ [t(int8 weight) + t(copy k·n)]    ─▶ gemm_int8
+///        │                                     g_m = Σ [t(fp32 path) + t(widen Q8_0 k·n)]
+///        │                                         / Σ [t(Q8_0 weight) + t(copy k·n)]    ─▶ gemm_q8
 ///        ├─ attention, S = 1024 and 4096       g_S = Σ t(MPSGraph) / Σ t(flash)          ─▶ flash
 ///        │                                     g_S = Σ t(MPSGraph) / Σ t(head split)     ─▶ head_split
 ///        └─ a branch is on iff   every engine it would use passed its check (none missing)
@@ -49,6 +51,11 @@ import Foundation
 ///     beside the AMX on its columns when the AMX stays on (`amx` on, `gemm_tensor` off), alone otherwise.
 ///     It keeps the AMX: it reads its own widened columns. A map measures it on synthetic convrot weights
 ///     whatever is installed; on a bf16 map the setting does nothing;
+///   - **`gemm_q8` the same way, on its own**: a GGUF Q8_0 map (Anima Compact) widens with its block scales
+///     ("q8_0"), the candidate copies the bytes and the scales ("q8_0 copy"). A separate decision, not
+///     `gemm_int8`'s: on the M1 Pro the int8 product wins and the Q8_0 one loses (×0.29–0.67: the
+///     operand written into threadgroup memory runs `matmul2d` at ~2.3 TFLOP/s) — one setting for both
+///     would have bought one path's gain with the other's loss;
 ///   - **flash and the head split are not exclusive**: Z-Image's blocks take flash before the split
 ///     (`Block`), Qwen-Image-2.1's target only has the split. So flash goes on only if it also beats the
 ///     split where the split goes on — otherwise Z-Image would trade a faster path for a slower one;
@@ -99,16 +106,19 @@ extension Diagnostic {
         public var tensor: Decision?
         /// The products on the published int8 weights (`gemm_int8`); `nil` before schema 8.
         public var int8: Decision?
+        /// The products on GGUF Q8_0 weights (`gemm_q8`); `nil` before schema 9.
+        public var q8: Decision?
 
         public init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
-                    tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil) {
+                    tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
             self.amxShares = amxShares
             self.flash = flash; self.headSplit = headSplit; self.tensor = tensor; self.int8 = int8
+            self.q8 = q8
         }
 
-        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8 }
+        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8 }
         public func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
@@ -116,13 +126,15 @@ extension Diagnostic {
             try c.encode(amxShares, forKey: .amxShares)
             try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
             try c.encode(tensor, forKey: .tensor); try c.encode(int8, forKey: .int8)
+            try c.encode(q8, forKey: .q8)
         }
 
         /// The settings they write, under `EngineSettings`' keys (those of `store/profil.json`).
         package var settings: [String: Any] {
             let tensorOn = tensor?.on == true
             var values: [String: Any] = ["amx": amx.on && !tensorOn, "flash": flash.on, "head_split": headSplit.on,
-                                         "gemm_tensor": tensorOn, "gemm_int8": int8?.on == true]
+                                         "gemm_tensor": tensorOn, "gemm_int8": int8?.on == true,
+                                         "gemm_q8": q8?.on == true]
             if amx.on, !tensorOn, let amxFraction { values["amx_fraction"] = amxFraction }
             if amx.on, !tensorOn, let amxShares { values["amx_shares"] = amxShares; values["amx_quantum"] = 64 }
             return values
@@ -203,29 +215,33 @@ extension Diagnostic {
         }
         let tensor = decision(passed: tensorPassed, gains: tensorGains)
 
-        // ── gemm_int8: the int8 product against the convrot widening + the fp32 path, preparations included ──
+        // ── gemm_int8 and gemm_q8: the 8-bit product against the widening + the fp32 path, preparations included ──
         // The AMX runs beside it when it stays on in the settings (`amx` on, `gemm_tensor` off).
         let amxRuns = amx.on && !tensor.on
-        let rotated = widening.first { $0.kind == "int8 convrot" }?.cpu, copy8 = widening.first { $0.kind == "int8 copy" }?.cpu
-        let int8Candidate = { (p: Product) in amxRuns ? p.int8Coexecution : p.int8 }
-        let int8Passed = !products.isEmpty && rotated?.pass == true && copy8?.pass == true
-            && products.allSatisfy { p in p.int8?.pass == true && int8Candidate(p)?.pass == true
-                                          && (!amxRuns || p.coexecution?.pass == true) }
-        let int8Gains: [Double] = heights.compactMap { h in
-            let these = products.filter { $0.m == h }
-            guard !these.isEmpty else { return nil }
-            var (tReference, tCandidate) = (0.0, 0.0)
-            for p in these {
-                let reference = amxRuns ? p.coexecution : p.gpu
-                guard let r = reference?.rate, let t = int8Candidate(p)?.rate, let w = rotated?.rate, let c = copy8?.rate,
-                      r > 0, t > 0, w > 0, c > 0 else { return .nan }
-                let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
-                tReference += flops / r + values / w
-                tCandidate += flops / t + values / c
+        func eightBit(widened: String, copied: String, alone: (Product) -> Measure?, beside: (Product) -> Measure?) -> Decision {
+            let widen = widening.first { $0.kind == widened }?.cpu, copy = widening.first { $0.kind == copied }?.cpu
+            func candidate(_ p: Product) -> Measure? { amxRuns ? beside(p) : alone(p) }
+            let passed = !products.isEmpty && widen?.pass == true && copy?.pass == true
+                && products.allSatisfy { p in alone(p)?.pass == true && candidate(p)?.pass == true
+                                              && (!amxRuns || p.coexecution?.pass == true) }
+            let gains: [Double] = heights.compactMap { h in
+                let these = products.filter { $0.m == h }
+                guard !these.isEmpty else { return nil }
+                var (tReference, tCandidate) = (0.0, 0.0)
+                for p in these {
+                    let reference = amxRuns ? p.coexecution : p.gpu
+                    guard let r = reference?.rate, let t = candidate(p)?.rate, let w = widen?.rate, let c = copy?.rate,
+                          r > 0, t > 0, w > 0, c > 0 else { return .nan }
+                    let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
+                    tReference += flops / r + values / w
+                    tCandidate += flops / t + values / c
+                }
+                return tReference / tCandidate
             }
-            return tReference / tCandidate
+            return decision(passed: passed, gains: gains)
         }
-        let int8 = decision(passed: int8Passed, gains: int8Gains)
+        let int8 = eightBit(widened: "int8 convrot", copied: "int8 copy", alone: \.int8, beside: \.int8Coexecution)
+        let q8 = eightBit(widened: "q8_0", copied: "q8_0 copy", alone: \.q8, beside: \.q8Coexecution)
 
         // ── the attention: flash and the head split against MPSGraph ──
         let attentionFlops = { (a: AttentionCapacity) in
@@ -245,7 +261,7 @@ extension Diagnostic {
         let shares = amx.on && !cuts.isEmpty
             ? Conductor.Shares(cuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) }).description : nil
         return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor,
-                         amxShares: shares, int8: int8)
+                         amxShares: shares, int8: int8, q8: q8)
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).

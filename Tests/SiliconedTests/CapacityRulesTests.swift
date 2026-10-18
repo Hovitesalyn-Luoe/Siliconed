@@ -24,6 +24,9 @@ final class CapacityRulesTests: XCTestCase {
         var int8: [[Double]]? = nil, int8Both: [[Double]]? = nil
         /// The CPU's convrot widening and int8 copy, G values/s (the M1 Pro's: 11.3 and 77).
         var rotated = 11.3, copy8 = 77.0
+        /// The Q8_0 products, likewise; and the CPU's Q8_0 widening and copy.
+        var q8: [[Double]]? = nil, q8Both: [[Double]]? = nil
+        var q8Widen = 23.0, q8Copy = 70.0
     }
 
     private static let machine = Diagnostic.Machine(chip: "Apple M1 Pro", hardwareModel: "MacBookPro18,3", performanceCores: 6,
@@ -42,7 +45,8 @@ final class CapacityRulesTests: XCTestCase {
                     products.append(.init(model: block.model, product: name, m: m, k: k, n: n, gpu: ok(g),
                                           amx: ok(a, r.amxError), gpuShare: g / (g + a), coexecution: ok(r.both[h][i]),
                                           coexecutionGPURows: nil, tensor: r.tensor.map { ok($0[h][i], r.tensorError) },
-                                          int8: r.int8.map { ok($0[h][i]) }, int8Coexecution: r.int8Both.map { ok($0[h][i]) }))
+                                          int8: r.int8.map { ok($0[h][i]) }, int8Coexecution: r.int8Both.map { ok($0[h][i]) },
+                                          q8: r.q8.map { ok($0[h][i]) }, q8Coexecution: r.q8Both.map { ok($0[h][i]) }))
                 }
             }
         }
@@ -61,7 +65,9 @@ final class CapacityRulesTests: XCTestCase {
                                  widening: [.init(kind: "bf16", values: 39_321_600, cpu: .init(rate: r.widen, error: 0, threshold: 0), gpu: nil),
                                             .init(kind: "bf16 copy", values: 39_321_600, cpu: .init(rate: r.copy, error: 0, threshold: 0), gpu: nil),
                                             .init(kind: "int8 convrot", values: 39_321_600, cpu: .init(rate: r.rotated, error: 0, threshold: 0), gpu: nil),
-                                            .init(kind: "int8 copy", values: 39_321_600, cpu: .init(rate: r.copy8, error: 0, threshold: 0), gpu: nil)],
+                                            .init(kind: "int8 copy", values: 39_321_600, cpu: .init(rate: r.copy8, error: 0, threshold: 0), gpu: nil),
+                                            .init(kind: "q8_0", values: 39_321_600, cpu: .init(rate: r.q8Widen, error: 0, threshold: 0), gpu: nil),
+                                            .init(kind: "q8_0 copy", values: 39_321_600, cpu: .init(rate: r.q8Copy, error: 0, threshold: 0), gpu: nil)],
                                  witness: .init(gpuBefore: first.gpu.rate, gpuAfter: first.gpu.rate * r.drift.gpu,
                                                 amxBefore: first.amx?.rate, amxAfter: first.amx.map { $0.rate * r.drift.amx }))
     }
@@ -173,6 +179,36 @@ final class CapacityRulesTests: XCTestCase {
         d = Diagnostic.decide(report(r))
         XCTAssertFalse(d.int8!.passed, "the AMX stays on: the int8 path is judged beside it, unmeasured here")
         XCTAssertEqual(d.settings["gemm_int8"] as? Bool, false)
+    }
+
+    /// **The Q8_0 product is decided apart from the int8 one** (this M1 Pro, 18/10/2026): beside the AMX it runs
+    /// ×0.45–0.67 of the widened path where the int8 one wins — `gemm_q8` off, `gemm_int8` on, from one map.
+    func testM1ProKeepsTheQ8PathOffWhereTheInt8OneWins() {
+        var r = m1Pro
+        r.drift = (1.0, 1.0)
+        r.gpu = [[3.464, 3.509, 3.457, 3.507], [3.507, 3.603, 3.490, 3.599]]
+        r.amx = [[2.232, 1.932, 2.242, 1.794], [2.393, 2.009, 2.404, 1.853]]
+        r.both = [[3.985, 4.482, 3.990, 4.518], [5.481, 4.926, 5.080, 5.056]]
+        r.tensor = [[2.309, 2.316, 2.319, 2.313], [2.334, 2.338, 2.344, 2.330]]
+        r.int8 = [[2.4, 2.4, 2.4, 2.4], [2.45, 2.45, 2.45, 2.45]]
+        r.int8Both = [[4.734, 4.122, 4.700, 4.018], [5.276, 4.547, 5.378, 4.609]]
+        r.q8 = [[1.2, 1.2, 1.2, 1.2], [1.25, 1.25, 1.25, 1.25]]
+        r.q8Both = [[2.1, 2.0, 2.1, 2.0], [2.4, 2.3, 2.4, 2.3]]
+        var d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.int8!.on)
+        XCTAssertTrue(d.q8!.passed)
+        XCTAssertFalse(d.q8!.on)
+        XCTAssertLessThan(d.q8!.gains.max()!, 1)
+        XCTAssertEqual(d.settings["gemm_q8"] as? Bool, false)
+        XCTAssertEqual(d.settings["gemm_int8"] as? Bool, true)
+        // A chip where it wins beside the AMX takes it.
+        r.q8Both = r.both.map { $0.map { $0 * 1.4 } }
+        d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.q8!.on)
+        XCTAssertEqual(d.settings["gemm_q8"] as? Bool, true)
+        // Without its widening's rate, never.
+        r.q8Widen = 0
+        XCTAssertFalse(Diagnostic.decide(report(r)).q8!.on)
     }
 
     /// **Under `gemm_tensor` the AMX is off**: the int8 product is judged alone, against the GPU alone.

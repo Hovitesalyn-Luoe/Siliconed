@@ -121,7 +121,8 @@ public struct EngineSettings: Sendable {
     /// **The products read GGUF Q8_0 as published** (`TensorGEMM.linear_q8`: q · s per block of 32 rows
     /// into threadgroup memory, then `matmul2d`), beside the AMX on its columns. Off: on the M1 Pro,
     /// ×0.29 the widened path's speed at 4 096 rows — the threadgroup fp32 operand runs at half MPS's
-    /// rate and its fill costs as much again. A branch for a chip where it would win.
+    /// rate and its fill costs as much again. A branch the map turns on where it measures it faster
+    /// (schema 9), apart from `gemm_int8`: on the M1 Pro the one wins and the other loses.
     package var gemmQ8 = false
 
     /// Qwen-Image-2.1's spectral schedule, **when forced** (`SILICONED_SPECTRAL`): `k` half-size

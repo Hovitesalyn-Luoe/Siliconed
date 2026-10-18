@@ -21,7 +21,9 @@ final class DiagnosticTests: XCTestCase {
                                amx: i == 7 ? nil : measure(2.223, 8.0e-7), gpuShare: i == 7 ? nil : 0.6091234,
                                coexecution: i == 7 ? nil : measure(5.497, 1.1e-6), coexecutionGPURows: i == 7 ? nil : 2560,
                                tensor: i == 6 ? nil : measure(2.362, 1.1e-6), int8: measure(2.871, 1.6e-6),
-                               int8Coexecution: i == 7 ? nil : measure(4.912, 1.4e-6), int8GPUColumns: i == 7 ? nil : 6656)
+                               int8Coexecution: i == 7 ? nil : measure(4.912, 1.4e-6), int8GPUColumns: i == 7 ? nil : 6656,
+                               q8: measure(1.234, 1.5e-6), q8Coexecution: i == 7 ? nil : measure(2.871, 1.3e-6),
+                               q8GPUColumns: i == 7 ? nil : 6656)
         }
         let lowPrecision = ["fp16", "bf16"].flatMap { t in
             [Diagnostic.LowPrecision(engine: "mpsgraph", type: t, output: t, m: 1024, k: 3840, n: 10240,
@@ -42,7 +44,9 @@ final class DiagnosticTests: XCTestCase {
                         Diagnostic.Widening(kind: "bf16 copy", values: 39_321_600, cpu: measure(41.37, 0), gpu: nil),
                         Diagnostic.Widening(kind: "int8", values: 39_321_600, cpu: measure(23.07, 0), gpu: nil),
                         Diagnostic.Widening(kind: "int8 convrot", values: 39_321_600, cpu: measure(6.12, 0), gpu: nil),
-                        Diagnostic.Widening(kind: "int8 copy", values: 39_321_600, cpu: measure(48.3, 0), gpu: nil)]
+                        Diagnostic.Widening(kind: "int8 copy", values: 39_321_600, cpu: measure(48.3, 0), gpu: nil),
+                        Diagnostic.Widening(kind: "q8_0", values: 39_321_600, cpu: measure(22.91, 0), gpu: nil),
+                        Diagnostic.Widening(kind: "q8_0 copy", values: 39_321_600, cpu: measure(69.4, 0), gpu: nil)]
         let stages = Dictionary(uniqueKeysWithValues: Diagnostic.Stage.allCases.enumerated().map { ($1.key, 1.234567 * Double($0 + 1)) })
         let conditions = Diagnostic.Conditions(thermal: "nominal", lowPowerMode: false, onBattery: nil, swapUsedBytes: 0)
         var features: [String: Int] = ["sme_max_svl_b": 0]
@@ -68,8 +72,8 @@ final class DiagnosticTests: XCTestCase {
         // Sorted keys: `attention` before `machine` before `products` before `schema` before `widening`.
         let order = ["\"attention\"", "\"machine\"", "\"products\"", "\"schema\"", "\"widening\""].map { text.range(of: $0)!.lowerBound }
         XCTAssertEqual(order, order.sorted())
-        XCTAssertTrue(text.contains("\"schema\" : 8"))
-        XCTAssertEqual(Diagnostic.schema, 8)
+        XCTAssertTrue(text.contains("\"schema\" : 9"))
+        XCTAssertEqual(Diagnostic.schema, 9)
         XCTAssertEqual(String(decoding: try JSONEncoder().encode(Diagnostic.Cut(k: 16384, n: 6144, m: 4096, share: 0.68764)), as: UTF8.self),
                        "[16384,6144,4096,0.688]", "a cut is a quadruple, its share rounded")
     }
@@ -164,18 +168,16 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertTrue(url.absoluteString.contains("x%2By"))
     }
 
-    /// **A whole report fits in a link**, with room for a longer chip name and a few settings: browsers
-    /// and GitHub cut beyond ~8 000 characters (schema 5 written as objects: 9 690; as triples, this one 7 066;
-    /// schema 6, its bf16-weight products and stages, the decisions left out: 7 682; `,` and `:` left
-    /// unescaped: 6 520; schema 8's int8 products: 7 938). The app no longer puts the report in the link — it
-    /// goes through the clipboard (`openIssue`) —; the command line still prints the whole link: bounded at
-    /// the cut itself.
-    func testAFullReportFitsInTheIssueLink() throws {
+    /// **The link the app opens stays short, whatever the report holds**: browsers and GitHub cut beyond
+    /// ~8 000 characters. A whole report outgrew it (schema 8: 7 938; schema 9's Q8_0 products: 8 903), so the
+    /// app leaves `report` empty and the user pastes the JSON (`openIssue`); the command line only prints the
+    /// whole link's length.
+    func testTheAppsIssueLinkStaysShort() throws {
         var report = sample()
         report.machine.chip = "Apple M5 Max"
         report.settings = ["flash": "true (profile)", "amx": "true (profile)", "widen_gpu": "true (env)"]
-        let length = try report.issueURL().absoluteString.utf8.count
-        XCTAssertLessThanOrEqual(length, 8_000, "\(length) bytes")
+        let length = try report.issueURL(includingReport: false).absoluteString.utf8.count
+        XCTAssertLessThanOrEqual(length, 1_000, "\(length) bytes")
     }
 
     /// What delimits a field is escaped, what does not is left as it is: a value holding `&`, `=`, `+`,

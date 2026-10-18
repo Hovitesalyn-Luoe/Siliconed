@@ -120,6 +120,22 @@ extension Diagnostic {
         }.map { $0 * scale }
     }
 
+    /// **The exact rows of a Q8_0 product**: `rows` of `A · W`, `W[r, j] = q[r, j] · s[r / block, j]`, in fp64
+    /// (`Float(q) · s` is exact in both). Laid out `[n, rows]`.
+    package static func exactRows(_ rows: [Int], a: UnsafePointer<Float>, q: UnsafePointer<Int8>,
+                                  blockScales s: UnsafePointer<Float>, block: Int, k: Int, n: Int) -> [Double] {
+        let scales = UnsafeMutablePointer<Double>.allocate(capacity: n)
+        defer { scales.deallocate() }
+        return exactRows(rows, a: a, k: k, n: n, rotation: nil) { k0, count, into in
+            for r in k0..<(k0 + count / n) {
+                let row = into + (r - k0) * n
+                vDSP_vflt8D(q + r * n, 1, row, 1, vDSP_Length(n))
+                vDSP_vspdp(s + r / block * n, 1, scales, 1, vDSP_Length(n))
+                vDSP_vmulD(row, 1, scales, 1, row, 1, vDSP_Length(n))
+            }
+        }
+    }
+
     private static func exactRows(_ rows: [Int], a: UnsafePointer<Float>, k: Int, n: Int, rotation group: Int?,
                                   widen: (_ k0: Int, _ count: Int, _ into: UnsafeMutablePointer<Double>) -> Void) -> [Double] {
         let r = rows.count
@@ -192,9 +208,10 @@ extension Diagnostic {
     ///
     /// `q` is the int8 weight of the `gemm_int8` products, `Int8((b · 127).rounded())` — read as a convrot
     /// weight of group 256 and scale `int8Scale`; staged in `b` (the reserve, as a model's), which the
-    /// bf16 copy then restores.
+    /// bf16 copy then restores. The `gemm_q8` products read the same `q` with `q8Scales`, fp32 values of
+    /// fp16 scales per `q8Block` rows and column.
     final class Operands {
-        let a, b, c, bf16, q: Pages
+        let a, b, c, bf16, q, q8Scales: Pages
         init() {
             let m = Diagnostic.heights.max()!
             let shapes = Diagnostic.shapes.map { (m: $0.m, k: $0.k, n: $0.n) } + Diagnostic.cutShapes.map { (m: m, k: $0.k, n: $0.n) }
@@ -209,8 +226,17 @@ extension Diagnostic {
             q = Pages(bytes: qValues)
             let (bp, qp) = (b.floats(), q.base.assumingMemoryBound(to: Int8.self))
             for i in 0..<qValues { qp[i] = Int8((bp[i] * 127).rounded()) }
+            let scaleCount = Diagnostic.shapes.map { ($0.k + q8Block - 1) / q8Block * $0.n }.max()!
+            q8Scales = Pages(bytes: scaleCount * 4)
+            let sp = q8Scales.floats()
+            for i in 0..<scaleCount { sp[i] = q8Scale(i) }
         }
     }
+
+    /// GGUF Q8_0's block along K, and its scales here: 2⁻⁷ · {1, 1.25, 1.5, 1.75}, exact in fp16, varying by
+    /// block and column so that a scale read at the wrong place shows in the error.
+    static let q8Block = 32
+    static func q8Scale(_ i: Int) -> Float { int8Scale * (1 + Float(i % 4) / 4) }
 
     /// The int8 products' scale (2⁻⁷, exact) and rotation group: ComfyUI's `int8_tensorwise` convrot.
     static let int8Scale: Float = 1.0 / 128, int8Group = 256
@@ -219,7 +245,7 @@ extension Diagnostic {
 
     static func measureProducts(_ o: Operands, _ bench: Bench) throws -> [Product] {
         let alone = try GEMM(freezeCut: true, coexecution: false, tensorWeights: true)
-        let both = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false, int8Weights: true)
+        let both = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false, int8Weights: true, q8Weights: true)
         func wrap(_ g: GEMM) throws -> (MTLBuffer, MTLBuffer, MTLBuffer) {
             (try g.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a"),
              try g.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b"),
@@ -272,14 +298,11 @@ extension Diagnostic {
                                      weightIsTransposed: true)
                 }.0
             }
-            // ── gemm_int8: the published int8 read as it is, alone, then beside the AMX on its columns ──
-            // `WeightProducts.int8Product`, the engine's own call, the weight staged in `b` as in a model's
-            // reserve of `k · n` floats; `b` restored from `bf16` after.
-            var int8: Measure?, int8Coexecution: Measure?, int8GPUColumns: Int?
-            if both.tensorInt8, s.k % int8Group == 0, (s.k * s.n) % 2 == 0 {
-                try bench.check()
-                let truth = exactRows(rows, a: o.a.floats(), q: o.q.base.assumingMemoryBound(to: Int8.self),
-                                      scale: Double(int8Scale), group: int8Group, k: s.k, n: s.n)
+            // ── gemm_int8 and gemm_q8: the published 8-bit weight read as it is, alone, then beside the AMX on
+            // its columns ── `WeightProducts.int8Product`, the engine's own call, the weight staged in `b` as in
+            // a model's reserve of `k · n` floats; `b` restored from `bf16` after.
+            func eightBit(group: Int?, block: Int?, truth: [Double]) throws -> (Measure?, Measure?, Int?) {
+                var (alone, beside, columns): (Measure?, Measure?, Int?) = (nil, nil, nil)
                 func run(_ plan: WeightProducts.Int8Plan) {
                     if WeightProducts.int8Product(gemm: both, plan: plan, reserve: bothBuffers.1, a: bothBuffers.0,
                                                   c: bothBuffers.2, m: s.m, k: s.k, n: s.n).status != 0 {
@@ -288,26 +311,47 @@ extension Diagnostic {
                 }
                 func stage(_ plan: WeightProducts.Int8Plan) {
                     Widen.copyBfloat16(source: o.q.base, destination: o.b.base, count: s.k * s.n / 2)
-                    (o.b.base + plan.scalesOffset).storeBytes(of: int8Scale, as: Float.self)
+                    if let block {
+                        (o.b.base + plan.scalesOffset).copyMemory(from: o.q8Scales.base, byteCount: (s.k + block - 1) / block * s.n * 4)
+                    } else {
+                        (o.b.base + plan.scalesOffset).storeBytes(of: int8Scale, as: Float.self)
+                    }
                 }
-                if let plan = WeightProducts.int8Plan(k: s.k, n: s.n, capacity: s.k * s.n, perColumn: false,
-                                                      group: int8Group, amxColumns: 0) {
-                    stage(plan)
-                    int8 = measure(against: truth) { run(plan) }.0
+                func plan(_ amxColumns: Int) -> WeightProducts.Int8Plan? {
+                    WeightProducts.int8Plan(k: s.k, n: s.n, capacity: s.k * s.n, perColumn: false, group: group,
+                                            amxColumns: amxColumns, block: block)
+                }
+                if let p = plan(0) {
+                    stage(p)
+                    alone = measure(against: truth) { run(p) }.0
                 }
                 if let share, both.conductor != nil, s.m >= Conductor.minimumRows,
-                   let plan = WeightProducts.int8Plan(k: s.k, n: s.n, capacity: s.k * s.n, perColumn: false, group: int8Group,
-                                                      amxColumns: WeightProducts.amxColumns(n: s.n, share: share)) {
+                   let p = plan(WeightProducts.amxColumns(n: s.n, share: share)) {
                     try bench.check()
-                    stage(plan)
-                    int8Coexecution = measure(against: truth) { run(plan) }.0
-                    int8GPUColumns = s.n - plan.amxColumns
+                    stage(p)
+                    beside = measure(against: truth) { run(p) }.0
+                    columns = s.n - p.amxColumns
                 }
                 Widen.bfloat16ToFloat32(source: o.bf16.base, destination: o.b.base, count: s.k * s.n)
+                return (alone, beside, columns)
+            }
+            let q = o.q.base.assumingMemoryBound(to: Int8.self)
+            var int8: Measure?, int8Coexecution: Measure?, int8GPUColumns: Int?
+            if both.tensorInt8, s.k % int8Group == 0, (s.k * s.n) % 2 == 0 {
+                try bench.check()
+                let truth = exactRows(rows, a: o.a.floats(), q: q, scale: Double(int8Scale), group: int8Group, k: s.k, n: s.n)
+                (int8, int8Coexecution, int8GPUColumns) = try eightBit(group: int8Group, block: nil, truth: truth)
+            }
+            var q8: Measure?, q8Coexecution: Measure?, q8GPUColumns: Int?
+            if both.tensorQ8, s.k % q8Block == 0, (s.k * s.n) % 2 == 0 {
+                try bench.check()
+                let truth = exactRows(rows, a: o.a.floats(), q: q, blockScales: o.q8Scales.floats(), block: q8Block, k: s.k, n: s.n)
+                (q8, q8Coexecution, q8GPUColumns) = try eightBit(group: nil, block: q8Block, truth: truth)
             }
             products.append(Product(model: s.model, product: s.product, m: s.m, k: s.k, n: s.n, gpu: gpu, amx: amx,
                                     gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows, tensor: tensor,
-                                    int8: int8, int8Coexecution: int8Coexecution, int8GPUColumns: int8GPUColumns))
+                                    int8: int8, int8Coexecution: int8Coexecution, int8GPUColumns: int8GPUColumns,
+                                    q8: q8, q8Coexecution: q8Coexecution, q8GPUColumns: q8GPUColumns))
         }
         return products
     }
@@ -761,6 +805,34 @@ extension Diagnostic {
         results.append(Widening(kind: "int8 copy", values: count,
                                 cpu: Measure(rate: Double(count) / tCopy8 / 1e9,
                                              error: memcmp(copy8.base, int8.base, count) == 0 ? 0 : .infinity, threshold: 0),
+                                gpu: nil))
+
+        // Q8_0: the same int8 × fp16 scales per 32 rows and column, what a GGUF Q8_0 map's default path widens
+        // on the CPU — `gemm_q8` copies the bytes and widens the scales alone (`Artifact.stageInt8`).
+        try bench.check()
+        let blockScales = (rows + q8Block - 1) / q8Block * columns
+        let halves16 = Pages(bytes: blockScales * 2)
+        nonisolated(unsafe) let h = halves16.base.assumingMemoryBound(to: Float16.self)
+        for i in 0..<blockScales { h[i] = Float16(q8Scale(i)) }
+        let q8Exact: @Sendable (Int) -> Float = { i in Float(q[i]) * Float(h[i / columns / q8Block * columns + i % columns]) }
+        results.append(Widening(
+            kind: "q8_0", values: count,
+            cpu: measure(q8Exact) {
+                Widen.dequantize(int8.base, kind: .int8, count: count, scale: halves16.base, scaleType: .float16,
+                                 layout: .blocks(columns: columns, rows: q8Block), into: floats)
+            },
+            gpu: nil))
+        let scales32 = Pages(bytes: blockScales * 4)
+        memset(copy8.base, 0x7F, count)
+        let tCopyQ8 = seconds {
+            Widen.copyBfloat16(source: int8.base, destination: copy8.base, count: count / 2)
+            Widen.float16ToFloat32(halves16.base, count: blockScales, into: scales32.floats())
+        }
+        let scalesRight = (0..<blockScales).allSatisfy { scales32.floats()[$0] == Float(h[$0]) }
+        results.append(Widening(kind: "q8_0 copy", values: count,
+                                cpu: Measure(rate: Double(count) / tCopyQ8 / 1e9,
+                                             error: memcmp(copy8.base, int8.base, count) == 0 && scalesRight ? 0 : .infinity,
+                                             threshold: 0),
                                 gpu: nil))
         return results
     }
