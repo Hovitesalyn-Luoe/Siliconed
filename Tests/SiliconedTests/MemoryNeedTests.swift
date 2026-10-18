@@ -76,8 +76,8 @@ final class MemoryNeedTests: XCTestCase {
             return LoRA.Layer(artifact: try Artifact(path: path), strength: 1, name: path)
         }
         let stack = try LoRA(layers: [
-            lora(4, [("layers.0.attention.to_q.weight", d, d), ("layers.0.feed_forward.w2.weight", hidden, d)]),
-            lora(3, [("layers.0.attention.to_q.weight", d, d)]),
+            lora(4, [("layers.0.attention.to_q", d, d), ("layers.0.feed_forward.w2", hidden, d)]),
+            lora(3, [("layers.0.attention.to_q", d, d)]),
         ])
         XCTAssertEqual(stack.maxRank, 7)
         let dit = try DiT(artifact: artifact, latentHeight: 8, latentWidth: 8, capLength: 5, lora: stack)

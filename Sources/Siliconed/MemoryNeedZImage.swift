@@ -14,7 +14,7 @@ import Foundation
 ///     decoding    the Flux decoder's two heaps and the image it returns (`VAE.plan`)              ┘
 ///                 (a batch: the images already decoded, and every latent crossing until then)
 ///
-///     peak = max(phases) + crossing + process base     S = (H/16)(W/16) + ⌈T⌉₃₂, r = Σ ranks
+///     peak = max(phases) + crossing + process base     S = ⌈(H/16)(W/16)⌉₃₂ + ⌈T⌉₃₂, r = Σ ranks
 ///
 /// Ours, each the function its allocator calls: `TextEncoder.arenaBytes`, `TextEncoder.stagingSlots`,
 /// `Artifact.stagingBytes`, `DiT.arenaBytes`, `CacheLoRA.bytes`, `LoRA.downBytes`,
@@ -35,8 +35,8 @@ import Foundation
 ///     the map's header — the card's type is there and nowhere else;
 ///   - **one attention per block, at its one length**: every evaluation runs at the full grid (Z-Image
 ///     has no half-size steps, unlike Qwen-Image-2.1), so each block keeps a single head split or graph;
-///   - **a LoRA costs three things**: the `mid [S, r]` slice in each block's arena, the `CacheLoRA` (every
-///     module `Block` can apply a stack to — the worst case), and, with more than one LoRA, the `down`
+///   - **a LoRA costs three things**: the `mid [S, r]` slice in each block's arena and the DiT's own, the
+///     `CacheLoRA` (every module a stack can touch, `DiT.loraTargets` — the worst case), and, with more than one LoRA, the `down`
 ///     staging of one module while the cache fills (`LoRA.downBytes`);
 ///   - **the VAEs hand everything back before they return** (two heaps of ours; `finish` waits until
 ///     Metal's ledger is back to its level before them, under 0.1 s): the encoder's memory is not
@@ -166,7 +166,8 @@ extension MemoryNeed {
         // image's tokens, layers at the unified sequence, context refiners at the padded caption) —
         // cut by heads where `HeadSplitAttention.applies`, MPSGraph otherwise.
         let headDim = dit.dim / dit.heads
-        let image = DiT.imageTokens(latentHeight: latentHeight, latentWidth: latentWidth, config: dit)
+        // The image's rows padded to 32 like the caption's (`x_pad_token`): 3 968 at 832×1216, not 3 952.
+        let image = DiT.imagePadded(latentHeight: latentHeight, latentWidth: latentWidth, config: dit)
         let sequence = image + capPadded
         let attentions = [("image refiners", image), ("layers", sequence), ("context refiners", capPadded)].flatMap {
             attention($0.0, heads: dit.heads, rows: $0.1, keys: $0.1, headDim: headDim, causal: false,
