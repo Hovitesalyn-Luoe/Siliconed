@@ -161,6 +161,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         // process: no Dock, no foreground window. `tools/app.sh` makes the bundle.
         NSApp.setActivationPolicy(.regular)
         MainActor.assumeIsolated {
+            // **Incognito**: nothing of the user's survives the session. The render cache (prompts'
+            // conditionings, posed images' latents, Qwen's K/V) serves during it and is emptied here —
+            // which covers a crash — and at exit.
+            MainWindow.shared.emptyRenderCache()
             MainWindow.shared.show()
             // The remote control (`silicontrol …`): the same queue, the same history.
             MainWindow.shared.remote.boot()
@@ -174,7 +178,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { MainWindow.shared.remote.stop() }
+        MainActor.assumeIsolated {
+            MainWindow.shared.remote.stop()
+            MainWindow.shared.emptyRenderCache()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -201,6 +208,10 @@ final class MainWindow: NSObject, NSWindowDelegate {
         return b
     }())
     private(set) lazy var remote = RemoteControl(app: app)
+
+    /// Empties `<root>/cache/` (incognito, `Delegate`). A failure costs nothing but disk: the next
+    /// launch tries again.
+    func emptyRenderCache() { try? app.library.emptyCache() }
 
     func show() {
         if let window {

@@ -192,12 +192,21 @@ package enum ForgeLoRA {
             for p in pairs where p.key.hasPrefix("transformer.") { config[String(p.key.dropFirst(12))] = p.value }
             for p in pairs where !p.key.contains(".") && config[p.key] == nil { config[p.key] = p.value }
             guard let alpha = config["lora_alpha"]?.double else { return nil }
+            // `NaN`, `Infinity` and `1e999` parse (Python's `json` writes them): a scale that is not a number.
+            guard alpha.isFinite else {
+                throw Numerics.Failure(description: "lora_adapter_metadata : lora_alpha \(alpha) is not finite")
+            }
             if config["use_dora"]?.boolean == true {
                 throw Numerics.Failure(description: "lora_adapter_metadata : use_dora — DoRA not supported")
             }
             var s = PEFTScale(alpha: alpha, rsLoRA: config["use_rslora"]?.boolean == true)
             s.alphaPattern = (config["alpha_pattern"]?.pairs ?? []).compactMap { p in p.value.double.map { (p.key, $0) } }
-            for (key, _) in s.alphaPattern { try checkPattern(key) }
+            for (key, value) in s.alphaPattern {
+                try checkPattern(key)
+                guard value.isFinite else {
+                    throw Numerics.Failure(description: "lora_adapter_metadata : alpha_pattern \"\(key)\" \(value) is not finite")
+                }
+            }
             return s
         }
 
@@ -206,8 +215,11 @@ package enum ForgeLoRA {
         static let maximumPattern = 256
 
         /// A key of the file becomes a regular expression (PEFT's `re.match`), matched against every
-        /// module during an import that cannot be stopped midway: a key too long, or with a
-        /// quantified group — `(a+)+`, the shape of catastrophic backtracking — is refused by name.
+        /// module during an import that cannot be stopped midway: a key too long, with a quantified
+        /// group — `(a+)+`, the shape of catastrophic backtracking — or with more than one unbounded
+        /// quantifier (`.*.*.*…z` backtracks exponentially in `^(.*\.)?(KEY)$`) is refused by name.
+        /// diffusers writes literal module names (`get_peft_kwargs`); a hand-written PEFT key is a
+        /// name or a suffix with one wildcard (`.*to_k`): both pass.
         static func checkPattern(_ key: String) throws {
             guard key.count <= maximumPattern else {
                 throw Numerics.Failure(description: "lora_adapter_metadata : an alpha_pattern key of \(key.count) characters "
@@ -216,6 +228,30 @@ package enum ForgeLoRA {
             guard key.firstMatch(#"\)[*+?{]"#) == nil else {
                 throw Numerics.Failure(description: "lora_adapter_metadata : alpha_pattern key \"\(key)\" repeats a group — not read")
             }
+            guard unboundedQuantifiers(key) <= 1 else {
+                throw Numerics.Failure(description: "lora_adapter_metadata : alpha_pattern key \"\(key)\" has more than one "
+                                       + "unbounded quantifier (*, +, {n,}) — not read")
+            }
+        }
+
+        /// The `*`, `+` and `{n,}` of a regular expression, outside escapes and character classes.
+        static func unboundedQuantifiers(_ pattern: String) -> Int {
+            let c = Array(pattern)
+            var n = 0, i = 0, inClass = false
+            while i < c.count {
+                let x = c[i]
+                if x == "\\" { i += 2; continue }
+                if inClass { if x == "]" { inClass = false }; i += 1; continue }
+                switch x {
+                case "[": inClass = true
+                case "*", "+": n += 1
+                case "{":
+                    if let close = c[i...].firstIndex(of: "}"), String(c[(i + 1)..<close]).firstMatch(#"^\d*,$"#) != nil { n += 1 }
+                default: break
+                }
+                i += 1
+            }
+            return n
         }
 
         /// `ΔW` multiplier for `module` (the published name, without prefix), of rank `r`. PEFT takes
@@ -337,9 +373,11 @@ package enum ForgeLoRA {
         }
     }
 
-    /// **Forges the LoRA.** `family`: imposed, or `nil` to recognize it from the names.
+    /// **Forges the LoRA.** `family`: imposed, or `nil` to recognize it from the names. `reference`:
+    /// the published DiT's names and shapes of a family, `nil` when it is not installed — never a
+    /// download; what it throws (a disk full, a damaged `dit.json`) is a real failure and propagates.
     package static func forge(file: String, to path: String, family imposed: Family? = nil,
-                               reference: (Family) throws -> [String: [Int]]) throws -> Report {
+                               reference: (Family) throws -> [String: [Int]]?) throws -> Report {
         let source = try TensorSource(paths: [file])
         let metadata = source.metadata
         var notes: [String] = []
@@ -388,8 +426,9 @@ package enum ForgeLoRA {
         var family = imposed
         var renamed: [String: String] = [:]                 // published module → readable module
         if flattened {
+            // Only the families installed are compared; a failure reading one is not a mismatch.
             for f in (imposed.map { [$0] } ?? Family.allCases) {
-                guard let ref = try? reference(f) else { continue }
+                guard let ref = try reference(f) else { continue }
                 var table: [String: String] = [:]
                 for c in candidates(f, reference: ref) { table[c.replacingOccurrences(of: ".", with: "_")] = c }
                 var r: [String: String] = [:]
@@ -401,7 +440,10 @@ package enum ForgeLoRA {
                 if r.count == moduleOrder.count { family = f; renamed = r; break }
             }
             guard family != nil, !renamed.isEmpty else {
-                throw Numerics.Failure(description: "kohya names (`lora_unet_…`) that no family recognizes — "
+                if let imposed, try reference(imposed) == nil {
+                    throw EngineError.importNeedsFamily(file: (file as NSString).lastPathComponent, model: ModelCard.of(imposed).id)
+                }
+                throw Numerics.Failure(description: "kohya names (`lora_unet_…`) that no installed family recognizes — "
                                       + "install the target family, or the LoRA is not for a supported model")
             }
             notes.append("flattened kohya names reconstructed")
@@ -412,7 +454,9 @@ package enum ForgeLoRA {
         guard let family else {
             throw Numerics.Failure(description: "family not recognized: neither " + Family.allCases.map(\.name).joined(separator: ", "))
         }
-        let ref = try reference(family)
+        guard let ref = try reference(family) else {
+            throw EngineError.importNeedsFamily(file: (file as NSString).lastPathComponent, model: ModelCard.of(family).id)
+        }
 
         // Z-Image: a fused qkv AND its to_q/to_k/to_v is a duplicate (Anime-Z) — diffusers skips
         // the qkv and the bare `out`; we do the same.
@@ -440,8 +484,10 @@ package enum ForgeLoRA {
             }
             let r = a[0], kTotal = a[1]
             var scale: Float = 1
+            guard r > 0 else { throw Numerics.Failure(description: "\(m) : rank 0") }
             if let al = p.alpha {
                 let v = try source.read(al).first ?? Float(r)
+                guard v.isFinite else { throw Numerics.Failure(description: "\(m) : alpha \(v) is not finite") }
                 scale = v / Float(r); alphas += 1
             } else if let peft {
                 scale = peft.scale(m, r: r); peftScaled += 1

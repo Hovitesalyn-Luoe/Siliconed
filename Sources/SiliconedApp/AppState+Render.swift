@@ -149,11 +149,13 @@ extension AppState {
                 drawingSheets[ordinal] = nil
                 endedGrids[ordinal] = (run.jobs, entry.ordinal)
                 signal(.sheet(run, entry))
+                next()
             } catch {
                 problem = Problem(EngineError(error))
                 drawingSheets[ordinal] = nil
                 endedGrids[ordinal] = (run.jobs, nil)
                 signal(.sheet(run, nil))
+                next()
             }
         }
     }
@@ -214,6 +216,8 @@ extension AppState {
     /// The diagnostic occupies the GPU and the CPU like a render: the queue waits for it (and it for the
     /// queue) — and for an installation, which reads and writes GBs (`installBlocker`). **No render
     /// without this Mac's measure** (`settingsRead`): the first job starts it, and its end calls `next`.
+    /// An « Enlarge ×4 » under way and a grid's sheet being drawn are waited for too — memory a render
+    /// would add to, never counted in its plan —; each calls `next` when it ends (`enlarged`, `addSheet`).
     func next() {
         guard currentJob == nil, !file.isEmpty, !diagnosticRunning, forgeInProgress == nil else {
             if currentJob == nil, let a = activity {
@@ -222,6 +226,7 @@ extension AppState {
             }
             return
         }
+        guard enlarging == nil, drawingSheets.isEmpty else { return }
         guard settingsRead else {
             if case .ready = diagnostic { measure() }
             return

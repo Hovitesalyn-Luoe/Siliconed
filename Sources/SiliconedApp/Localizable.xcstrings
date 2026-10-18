@@ -2437,6 +2437,34 @@
         }
       }
     },
+    "--lora expects a finite strength, not \"%@\"" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--lora erwartet eine endliche Stärke, nicht „%@“"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--lora espera una intensidad finita, no «%@»"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--lora attend une force finie, pas « %@ »"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--lora richiede un’intensità finita, non «%@»"
+          }
+        }
+      }
+    },
     "--out expects a folder" : {
       "localizations" : {
         "de" : {
@@ -9682,6 +9710,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Installa %@…"
+          }
+        }
+      }
+    },
+    "Install it from the Models sheet (⇧⌘M), then import the file again: an import downloads nothing." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installieren Sie es im Fenster „Modelle“ (⇧⌘M) und importieren Sie die Datei dann erneut: Ein Import lädt nichts herunter."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instálalo desde la hoja Modelos (⇧⌘M) y vuelve a importar el archivo: una importación no descarga nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installez-le depuis la feuille Modèles (⇧⌘M), puis importez à nouveau le fichier : un import ne télécharge rien."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installalo dalla finestra Modelli (⇧⌘M), poi importa di nuovo il file: un’importazione non scarica nulla."
           }
         }
       }
@@ -19971,6 +20027,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tempo"
+          }
+        }
+      }
+    },
+    "To import %@, install %@ first." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um %@ zu importieren, installieren Sie zuerst %@."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "To import %1$@, install %2$@ first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para importar %@, instala primero %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour importer %@, installez d’abord %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per importare %@, installa prima %@."
           }
         }
       }

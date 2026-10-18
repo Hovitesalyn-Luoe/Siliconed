@@ -276,14 +276,27 @@ final class HostileFilesTests: XCTestCase {
     /// A resumed download keeps only the chunks of the same file: another size or sha256, nothing.
     func testDownloadResumesOnlyTheSameFile() {
         let sha = String(repeating: "a", count: 64)
-        let ledger = "100 \(sha)\n0\n3\n7\n"
-        XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 100, sha: sha), [0, 3, 7])
-        XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 101, sha: sha), [])
-        XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 100, sha: String(repeating: "b", count: 64)), [])
-        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 -\n2\n", size: 100, sha: nil), [2])
-        XCTAssertEqual(Downloader.resumedChunks(ledger: "", size: 100, sha: nil), [])
+        let ledger = "100 \(sha) 10\n0\n3\n7\n"                    // 10 chunks of 10 bytes
+        XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 100, sha: sha, chunk: 10), [0, 3, 7])
+        XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 101, sha: sha, chunk: 10), [])
+        XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 100, sha: String(repeating: "b", count: 64), chunk: 10), [])
+        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 - 10\n2\n", size: 100, sha: nil, chunk: 10), [2])
+        XCTAssertEqual(Downloader.resumedChunks(ledger: "", size: 100, sha: nil, chunk: 10), [])
         // A line a crash cut ("1" of "12") is not a chunk; nor is a head without its newline.
-        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 -\n2\n1", size: 100, sha: nil), [2])
-        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 -", size: 100, sha: nil), [])
+        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 - 10\n2\n1", size: 100, sha: nil, chunk: 10), [2])
+        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 - 10", size: 100, sha: nil, chunk: 10), [])
+        // The head the downloader writes is the one it reads back.
+        XCTAssertEqual(Downloader.resumedChunks(ledger: Downloader.ledgerHead(size: 100, sha: nil) + "\n0\n", size: 100, sha: nil), [0])
+    }
+
+    /// **A damaged ledger resumes nothing** (never an index out of the file's chunks, which would
+    /// trap): a negative index, one past the end, a word, another chunk size — the download starts over.
+    func testADamagedLedgerStartsOver() {
+        for ledger in ["100 - 10\n2\n-1\n", "100 - 10\n2\n10\n", "100 - 10\n2\nx\n",
+                       "100 - 10\n2\n9223372036854775807\n", "100 - 20\n2\n"] {
+            XCTAssertEqual(Downloader.resumedChunks(ledger: ledger, size: 100, sha: nil, chunk: 10), [], ledger)
+        }
+        // The ledger of the version before (no chunk size in its head) is another one.
+        XCTAssertEqual(Downloader.resumedChunks(ledger: "100 -\n0\n", size: 100, sha: nil, chunk: 10), [])
     }
 }

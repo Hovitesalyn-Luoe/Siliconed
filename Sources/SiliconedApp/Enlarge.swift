@@ -207,7 +207,8 @@ extension AppState {
     func enlarged(_ entry: Entry, download: Bool) async throws -> Entry {
         if let refusal = enlargeRefusal(entry) { throw EnlargeFailure.refused(refusal) }
         enlarging = entry.id
-        defer { enlarging = nil; enlargeDownload = nil }
+        // A render asked meanwhile waited in the queue (`next`): it starts now.
+        defer { enlarging = nil; enlargeDownload = nil; next() }
         switch SuperResolution.state(width: entry.width, height: entry.height) {
         case .unavailable: throw EnlargeFailure.refused(String(localized: "Enlarging needs macOS 26 or later"))
         case .ready: break

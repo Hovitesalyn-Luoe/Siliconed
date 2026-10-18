@@ -63,6 +63,9 @@ extension MemoryNeed {
         package let encoder: TextEncoder.Config
         /// The largest encoder layer's staging run (`Artifact.stagingBytes`): what one of its buffers holds.
         package let encoderLayerStaging: Int
+        /// What widening the DiT's largest int8 convrot weight allocates outside every arena
+        /// (`Widen.rotationScratchBytes`): an imported Comfy-style convrot DiT; 0 otherwise.
+        package let ditRotationScratch: Int
 
         /// From the headers — pure: the tests hand it headers written in memory. `nil` when the
         /// encoder's config does not parse or its map has no tensor table.
@@ -72,6 +75,7 @@ extension MemoryNeed {
                                                 fileSize: encoderSize)
             guard staging > 0 else { return nil }
             self.dit = AnimaDiT.Config(header: dit); self.encoder = config; encoderLayerStaging = staging
+            ditRotationScratch = Widen.rotationScratchBytes(header: dit)
         }
 
         /// The maps this card renders with: its own DiT (an imported one) or the library's installed
@@ -156,6 +160,7 @@ extension MemoryNeed {
                 ? LoRA.downBytes(k: bounds.entry, rank: request.loraRanks.max() ?? 0) : 0),
             // The velocity the DiT returns (`forward`'s `[C, h, w]`); Euler keeps no history.
             Term("sampler", latent + request.solver.historyBytes(count: latent / f)),
+            Term("DiT rotation scratch", maps.ditRotationScratch),
         ] + attention("self-attention", heads: dit.heads, rows: s, keys: s, headDim: dit.headDim, causal: false,
                       split: HeadSplitAttention.applies(sequence: s), threads: request.threads)
           + attention("cross-attention", heads: dit.heads, rows: s, keys: textRows, headDim: dit.headDim, causal: false,

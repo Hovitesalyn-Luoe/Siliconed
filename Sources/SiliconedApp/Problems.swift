@@ -85,6 +85,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "The download of \(f) is corrupt: its checksum doesn't match.")
         case .importRefused(let f, _):                               // import_refused
             return String(localized: "This file can't be imported: \(file(f)).")
+        case let .importNeedsFamily(f, m):                           // import_needs_family
+            return String(localized: "To import \(file(f)), install \(name(m)) first.")
         case .notAnImportedModel(let m):                             // not_an_imported_model
             return String(localized: "\(name(m)) wasn't imported: uninstall it from the Models sheet.")
         case .emptyPrompt:                                           // empty_prompt
@@ -209,6 +211,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Start again: the damaged file was thrown away.")
         case .importRefused:
             return String(localized: "Import a LoRA or a full model of a supported family, as .safetensors (at least 8 bits) or .gguf (at least 4 bits).")
+        case .importNeedsFamily:
+            return String(localized: "Install it from the Models sheet (⇧⌘M), then import the file again: an import downloads nothing.")
         case .notAnImportedModel, .imageEncodingFailed, .cancelled:
             return nil
         case .emptyPrompt:

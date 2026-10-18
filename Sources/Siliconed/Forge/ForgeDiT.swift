@@ -236,6 +236,11 @@ package enum ForgeDiT {
         if family == .anima && permuted != 28 * 4 {
             throw Numerics.Failure(description: "RoPE permutation: \(permuted) tensors touched, 112 expected")
         }
+        // Every refusal before the map is written: a refused import leaves nothing in `store/`.
+        if family == .anima && n.adapter.isEmpty {
+            throw Numerics.Failure(description: "no text adapter (`llm_adapter.*`) in this file: "
+                                  + "an Anima is published with it (ComfyUI format)")
+        }
         let parameters = tensors.reduce(0) { $0 + $1.shape.reduce(1, *) }
         let config = config.withoutPrivateKeys
 
@@ -274,12 +279,13 @@ package enum ForgeDiT {
 
         var adapter: String?, adapterDequantized = 0
         if family == .anima {
-            guard !n.adapter.isEmpty else {
-                throw Numerics.Failure(description: "no text adapter (`llm_adapter.*`) in this file: "
-                                      + "an Anima is published with it (ComfyUI format)")
-            }
+            // A failure past the map (an adapter tensor unreadable, the disk full) takes the map with it.
             let a = adapterPath(fromMap: path)
-            adapterDequantized = try writeAdapter(source: source, keys: n.adapter, to: a)
+            do { adapterDequantized = try writeAdapter(source: source, keys: n.adapter, to: a) } catch {
+                try? FileManager.default.removeItem(atPath: a)
+                try? FileManager.default.removeItem(atPath: path)
+                throw error
+            }
             adapter = a
         }
         return Report(tally: tally, naming: n.naming, ignored: n.ignored.count, dtypesSource: dtypes,

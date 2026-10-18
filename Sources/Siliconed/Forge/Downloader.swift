@@ -171,13 +171,24 @@ package enum Downloader {
         return (0..<n).map { i in i * size / n ..< (i + 1) * size / n }
     }
 
-    /// The ledger of a chunked download: its first line names the file (size, sha256), each next
-    /// line a chunk written whole. A ledger of another file, or unreadable, resumes nothing.
-    package static func resumedChunks(ledger: String, size: Int, sha: String?) -> Set<Int> {
+    /// The ledger's first line: the file (size, sha256) and the chunk size its indices count in.
+    static func ledgerHead(size: Int, sha: String?, chunk: Int = chunkSize) -> String { "\(size) \(sha ?? "-") \(chunk)" }
+
+    /// The ledger of a chunked download: its first line names the file and the chunk size
+    /// (`ledgerHead`), each next line a chunk written whole. A ledger of another file, of another
+    /// chunk size, unreadable or damaged — a line that is not an index of this file's chunks —
+    /// resumes nothing: the download starts over.
+    package static func resumedChunks(ledger: String, size: Int, sha: String?, chunk: Int = chunkSize) -> Set<Int> {
         let lines = ledger.split(separator: "\n", omittingEmptySubsequences: false)
         // Only whole lines: the last element is "" after a final newline, or a line a crash cut.
-        guard lines.count >= 2, lines[0] == "\(size) \(sha ?? "-")" else { return [] }
-        return Set(lines.dropFirst().dropLast().compactMap { Int($0) })
+        guard lines.count >= 2, lines[0] == ledgerHead(size: size, sha: sha, chunk: chunk) else { return [] }
+        let count = chunks(size: size, chunk: chunk).count
+        var done = Set<Int>()
+        for line in lines.dropFirst().dropLast() {
+            guard let i = Int(line), (0..<count).contains(i) else { return [] }
+            done.insert(i)
+        }
+        return done
     }
 
     /// **A large file in chunks of 64 MB, 8 at a time, each over a connection of its own.** One
@@ -203,7 +214,7 @@ package enum Downloader {
         }
         if done.isEmpty {
             try? fm.removeItem(atPath: partial)
-            try "\(size) \(sha ?? "-")\n".write(toFile: ledgerPath, atomically: true, encoding: .utf8)
+            try (ledgerHead(size: size, sha: sha) + "\n").write(toFile: ledgerPath, atomically: true, encoding: .utf8)
         } else {
             journal(String(format: "  resumed: %d of %d chunks already there", done.count, all.count))
         }

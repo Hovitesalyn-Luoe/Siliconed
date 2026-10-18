@@ -152,7 +152,15 @@ package final class Artifact {
         guard FileManager.default.fileExists(atPath: path) else { throw MissingFile(path, .map) }
         guard let file = FileHandle(forReadingAtPath: path) else { throw Failure.cannotOpen(path, errno) }
         defer { try? file.close() }
-        let prologue = [UInt8](file.readData(ofLength: 16))
+        // `read(upToCount:)`, never `readData(ofLength:)`: an I/O error (EIO, a disk going away)
+        // is a Swift error here, an Objective-C exception — a crash — there.
+        func read(_ count: Int) throws -> Data {
+            do { return try file.read(upToCount: count) ?? Data() } catch {
+                let e = error as NSError
+                throw Failure.cannotOpen(path, e.domain == NSPOSIXErrorDomain ? Int32(e.code) : EIO)
+            }
+        }
+        let prologue = [UInt8](try read(16))
         guard prologue.count == 16 else { throw Failure.truncated("less than a prologue") }
         guard Array(prologue.prefix(7)) == signature, supportedVersions.contains(prologue[7]) else {
             throw Failure.badMagic(Array(prologue.prefix(8)))
@@ -165,7 +173,7 @@ package final class Artifact {
         guard let length = headerLength(raw, fileSize: Int(info.st_size)) else {
             throw Failure.truncated("header length \(raw)")
         }
-        let json = file.readData(ofLength: length)
+        let json = try read(length)
         guard json.count == length,
               let object = try JSONSerialization.jsonObject(with: json) as? [String: Any] else {
             throw Failure.badHeader("not a JSON object")

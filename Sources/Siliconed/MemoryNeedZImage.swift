@@ -62,6 +62,9 @@ extension MemoryNeed {
         private let ditLayerStaging: [Int?]
         /// `Artifact.stagingBytes` of the encoder's layers (0 when its config does not parse).
         package let encoderLayerStaging: Int
+        /// What widening the DiT's largest int8 convrot weight allocates outside every arena
+        /// (`Widen.rotationScratchBytes`): an imported Comfy-style convrot DiT; 0 otherwise.
+        package let ditRotationScratch: Int
 
         package init(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
             self.dit = dit; self.ditSize = ditSize; self.encoder = encoder; self.encoderSize = encoderSize
@@ -70,6 +73,7 @@ extension MemoryNeed {
             encoderLayerStaging = (try? TextEncoder.Config(header: encoder)).map { config in
                 Artifact.stagingBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(config), fileSize: encoderSize)
             } ?? 0
+            ditRotationScratch = Widen.rotationScratchBytes(header: dit)
         }
 
         /// `Artifact.stagingBytes` of the DiT's `layers`: the largest of each layer's span.
@@ -186,6 +190,7 @@ extension MemoryNeed {
             Term("map staging", staging),
             // The DiT's velocity `[C, h, w]`.
             Term("sampler", latent + request.solver.historyBytes(count: latent / f)),
+            Term("DiT rotation scratch", maps.ditRotationScratch),
         ] + attentions
           // The image's rows are exact; the caption's, and the unified sequence's, follow the tokens' bound.
           + gemm("DiT", products: [(image, inDim, d)],

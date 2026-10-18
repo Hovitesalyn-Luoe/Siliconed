@@ -466,6 +466,8 @@ final class RemoteControl {
                 let v = try value(a)
                 // `name:strength` — the last colon separates the strength (a path has none).
                 if let colonIndex = v.lastIndex(of: ":"), let f = Double(v[v.index(after: colonIndex)...].replacingOccurrences(of: ",", with: ".")) {
+                    // `Double` reads « nan » and « inf »: a strength that would make every weight NaN.
+                    guard f.isFinite else { throw Refusal("usage", String(localized: "--lora expects a finite strength, not \"\(v)\"")) }
                     d.loras.append((String(v[..<colonIndex]), f))
                 } else {
                     d.loras.append((v, 1))

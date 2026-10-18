@@ -51,6 +51,10 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
     case importRefused(file: String, detail: String)
     /// `ModelImport.remove` on a model that was not imported.
     case notAnImportedModel(model: String)
+    /// **An import downloads nothing**: `file` belongs to the family of `model` (an identifier), whose
+    /// components — the published DiT's names and shapes, its config, encoder and VAE — are not in the
+    /// library. Installing the family (license accepted, size shown) comes first.
+    case importNeedsFamily(file: String, model: String)
 
     // ── the request ───────────────────────────────────────────────────────────────────────
 
@@ -198,6 +202,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .downloadCorrupt: return "download_corrupt"
         case .importRefused: return "import_refused"
         case .notAnImportedModel: return "not_an_imported_model"
+        case .importNeedsFamily: return "import_needs_family"
         case .emptyPrompt: return "empty_prompt"
         case .invalidSteps: return "invalid_steps"
         case .tooManyReferences: return "too_many_references"
@@ -254,6 +259,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .downloadCorrupt(let file): return "The download of \(file) is corrupt (sha256 mismatch)."
         case .importRefused(let file, _): return "This file cannot be imported: \(file)."
         case .notAnImportedModel(let model): return "\(model) is not an imported model."
+        case let .importNeedsFamily(file, model): return "To import \(file), install \(model) first."
         case .emptyPrompt: return "The prompt is empty."
         case let .invalidSteps(steps, allowed):
             return allowed.isEmpty ? "\(steps) steps: a render takes between 1 and \(Request.maximumSteps)."
@@ -346,6 +352,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         case .downloadCorrupt: return "Start again: the damaged file was thrown away."
         case .importRefused: return "Import a LoRA or a full model of a supported family, as .safetensors (not quantized)."
         case .notAnImportedModel: return nil
+        case .importNeedsFamily: return "Install the model, then import the file again: an import downloads nothing."
         case .emptyPrompt: return "Write a prompt."
         case let .invalidSteps(_, allowed) where !allowed.isEmpty:
             return "Choose " + allowed.map(String.init).joined(separator: ", ") + " steps."
@@ -513,6 +520,7 @@ public enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStrin
         .diskFull(needed: 30_000_000_000, available: 1_000_000_000), .downloadInterrupted(file: "vae.safetensors"),
         .downloadRefused(file: "vae.safetensors", status: 403), .downloadCorrupt(file: "vae.safetensors"),
         .importRefused(file: "x.safetensors", detail: "not recognized"), .notAnImportedModel(model: "Z-Image Turbo"),
+        .importNeedsFamily(file: "x.safetensors", model: "anima"),
         .emptyPrompt, .invalidSteps(steps: 8, allowed: [5, 6, 7, 9]), .tooManyReferences(count: 4, max: 3),
         .imageTooSmall(side: 256, minimum: 512), .formatRefused(width: 1000, height: 1000, reason: .notMultiple, bound: 16),
         .formatUnreadable(text: "big"), .promptSyntax(position: 12, reason: .unclosedGroup),

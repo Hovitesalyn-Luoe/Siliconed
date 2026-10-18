@@ -148,18 +148,36 @@ enum Socket {
     static let maxReading = 8
     private static let reading = DispatchSemaphore(value: maxReading)
 
-    /// Reads the client's line (5 s at most, 1 MB at most), then hands it to `onReceive`. The slot
-    /// taken in `reading` is given back once the line is read: a long `wait` that follows holds none.
+    /// The time a client has to send its whole command line, and each write to it to go through.
+    static let readingDeadline: TimeInterval = 5
+    static let writingTimeout: TimeInterval = 5
+
+    /// `seconds` as a socket timeout — never zero, which would mean « none ».
+    static func timeout(_ seconds: TimeInterval) -> timeval {
+        let s = max(seconds, 0.001)
+        return timeval(tv_sec: Int(s), tv_usec: Int32((s - s.rounded(.down)) * 1_000_000))
+    }
+
+    /// Reads the client's line (5 s at most **in all**, 1 MB at most), then hands it to `onReceive`.
+    /// `SO_RCVTIMEO` bounds one `read`: a client trickling a byte every 4 s would hold its thread
+    /// forever, so each read gets what is left of the deadline. The slot taken in `reading` is given
+    /// back once the line is read: a long `wait` that follows holds none. `SO_SNDTIMEO`: a client
+    /// that stops reading its answers is dropped (`Connection.broken`), never a queue blocked for good.
     private static func serve(_ fd: Int32, onReceive: @Sendable ([String], String, Connection) -> Void) {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
         var enabledFlag: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabledFlag, socklen_t(MemoryLayout<Int32>.size))
-        var delay = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &delay, socklen_t(MemoryLayout<timeval>.size))
+        var sending = timeout(writingTimeout)
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sending, socklen_t(MemoryLayout<timeval>.size))
+        let deadline = Date().addingTimeInterval(readingDeadline)
         let connection = Connection(fd: fd)
         var received = Data()
         var buffer = [UInt8](repeating: 0, count: 65536)
         while !received.contains(0x0A), received.count < 1 << 20 {
+            let left = deadline.timeIntervalSinceNow
+            guard left > 0 else { break }
+            var delay = timeout(left)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &delay, socklen_t(MemoryLayout<timeval>.size))
             let n = read(fd, &buffer, buffer.count)
             if n < 0, errno == EINTR { continue }
             guard n > 0 else { break }

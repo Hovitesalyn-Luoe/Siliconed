@@ -23,10 +23,18 @@ enum MemoryFixtures {
         return ["page": page, "tensors": table, "order": order]
     }
 
+    /// A map whose 2-D weights carry Comfy's int8 `convrot` (group 256), as an imported checkpoint keeps it.
+    static func convrot(_ header: [String: Any]) -> [String: Any] {
+        var h = header, t = header["tensors"] as! [String: [String: Any]]
+        for (name, entry) in t where (entry["shape"] as? [Int])?.count == 2 { t[name]?["rotation"] = ["kind": "convrot", "group": 256] }
+        h["tensors"] = t
+        return h
+    }
+
     /// **Z-Image's maps**: the DiT's 30 layers and the encoder's 35 with the published shapes and
     /// order, the published configs — `bytesPerValue` 2 (bf16) or 1 (an 8-bit map, plus a float scale
     /// per output column).
-    static func zImageMaps(bytesPerValue: Int = 2) -> MemoryNeed.ZImageMaps {
+    static func zImageMaps(bytesPerValue: Int = 2, rotated: Bool = false) -> MemoryNeed.ZImageMaps {
         let (d, h) = (3840, 10240)
         let layer: [(String, [Int])] = [
             ("adaLN_modulation.0.bias", [4 * d]), ("adaLN_modulation.0.weight", [256, 4 * d]),
@@ -39,6 +47,7 @@ enum MemoryFixtures {
         ]
         var dit = table(layers: 30, prefix: DiT.layerPrefix, tensors: layer, bytesPerValue: bytesPerValue)
         dit["config"] = [String: Any]()   // the published defaults (`DiT.Config`)
+        if rotated { dit = convrot(dit) }
         let (e, i) = (2560, 9728)
         let encoderLayer: [(String, [Int])] = [
             ("input_layernorm.weight", [e]), ("mlp.down_proj.weight", [i, e]), ("mlp.gate_proj.weight", [e, i]),
@@ -66,7 +75,7 @@ enum MemoryFixtures {
     /// type — 2 (Standard, bf16), 1 (Compact, Q8_0), 0 for a 4-bit table (Light, Q4_K_M: half a byte a
     /// value, laid out as a quarter of bf16's) — and the formula must not read it; `encoderBytesPerValue`
     /// the encoder's, which it reads (its staging buffers).
-    static func animaMaps(ditBytesPerValue: Int = 2, encoderBytesPerValue: Int = 2) -> MemoryNeed.AnimaMaps {
+    static func animaMaps(ditBytesPerValue: Int = 2, encoderBytesPerValue: Int = 2, rotated: Bool = false) -> MemoryNeed.AnimaMaps {
         let (d, h, a) = (2048, 8192, 256)
         let block: [(String, [Int])] = [
             ("attn1.norm_k.weight", [128]), ("attn1.norm_q.weight", [128]), ("attn1.to_k.weight", [d, d]),
@@ -82,6 +91,7 @@ enum MemoryFixtures {
         var dit = table(layers: 28, prefix: { "transformer_blocks.\($0)." }, tensors: ditTensors,
                         bytesPerValue: max(1, ditBytesPerValue))
         dit["kind"] = "anima-turbo-dit"; dit["rope_layout"] = "interleaved"
+        if rotated { dit = convrot(dit) }
         dit["config"] = ["num_attention_heads": 16, "attention_head_dim": 128, "mlp_ratio": 4.0, "num_layers": 28,
                          "in_channels": 16, "patch_size": [1, 2, 2], "adaln_lora_dim": 256, "text_embed_dim": 1024,
                          "rope_scale": [1.0, 4.0, 4.0]] as [String: Any]

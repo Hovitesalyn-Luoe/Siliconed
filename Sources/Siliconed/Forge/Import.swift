@@ -1,9 +1,11 @@
 import Foundation
 
 /// **Importing what a user brings**: a `.safetensors` or a `.gguf`, LoRA or model, without VAE or encoder —
-/// this is how Civitai publishes. We recognize what it is and for which family, install what is
-/// missing from the family (tokenizers, encoder, VAE, from the vendor), and forge. The file
-/// brought can then be thrown away: the render only reads `store/`.
+/// this is how Civitai publishes. We recognize what it is and for which family, and forge it against
+/// what the family's installation left (`dit.json`, the published DiT's names and shapes; its config,
+/// encoder and VAE). **An import downloads nothing**: a family not installed is refused
+/// (`EngineError.importNeedsFamily`) — its installation shows its license and its size first. The
+/// file brought can then be thrown away: the render only reads `store/`.
 ///
 /// This is Draw Things' idea (`BaseModelImporter`, `LoRAImporter`): the architecture is detected,
 /// only the DiT is converted, the rest is the family's.
@@ -66,8 +68,7 @@ public enum ModelImport {
     }
 
     /// **Imports** a `.safetensors` or a `.gguf`. `name`: a model's displayed name (by default, the file).
-    /// `journal` receives the progress — a family installation downloads several GB;
-    /// `cancellation` stops it during these downloads.
+    /// `journal` receives the progress. `cancellation`: kept for the callers; nothing downloads.
     public static func importFile(_ file: String, name: String? = nil, in b: Library,
                                 cancellation: Cancellation? = nil,
                                 journal: @escaping @Sendable (String) -> Void = { _ in }) throws(EngineError) -> Outcome {
@@ -84,6 +85,7 @@ public enum ModelImport {
         var installer = Installer(library: b)
         installer.journal = note
         installer.cancellation = cancellation
+        let fileName = (file as NSString).lastPathComponent
         let stack = Stack()
         let logLine: (String) -> Void = { l in stack.add(l); journal(l) }
 
@@ -94,11 +96,9 @@ public enum ModelImport {
         let base = ((file as NSString).lastPathComponent as NSString).deletingPathExtension
         try FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
 
+        // Never `installer.install`: what the import needs is what the family's installation left.
         func prepare(_ f: Family) throws {
-            if !installer.isReady(f) {
-                logLine("\(f.name) : components absent — installing (tokenizers, encoder, VAE)")
-                try installer.install(f, baseDiT: false)
-            }
+            guard installer.isReady(f) else { throw EngineError.importNeedsFamily(file: fileName, model: ModelCard.of(f).id) }
         }
 
         if ForgeLoRA.isLoRA(source.names) {
@@ -106,9 +106,9 @@ public enum ModelImport {
             let loraSlug = slug(base).isEmpty ? "lora" : slug(base)
             let path = freePath(loraSlug, suffix: ".lora.silicon", in: b.map(""))
             logLine("LoRA: \((file as NSString).lastPathComponent)")
+            // A family not installed is not a candidate (`nil`); a real failure reading one that is propagates.
             let r = try ForgeLoRA.forge(file: file, to: path, reference: { f in
-                if !installer.presentComponents(f) { try prepare(f) }
-                return try installer.readReference(f)
+                installer.presentComponents(f) ? try installer.readReference(f) : nil
             })
             r.rows.forEach(logLine)
             rows = stack.rows

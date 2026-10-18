@@ -231,13 +231,16 @@ final class RenderCacheTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cache.kvFolder.path), [keep.hex + ".kv"])
     }
 
-    /// The library counts the cache in what it occupies, and gives it back.
+    /// The library reports the cache apart from what it occupies, and gives it back.
     func testTheLibraryCountsAndEmptiesTheCache() throws {
         let library = Library(root: folder)
         let cache = RenderCache(directory: library.cacheFolder)
         cache.store(Conditioning(format: .zImage, rows: 1, width: 4, values: [1, 2, 3, 4], tokens: 1), key: key(["a"]))
         XCTAssertGreaterThan(library.occupancy().cache, 16)
+        // Emptied at the app's launch and exit (incognito): never counted as something installed.
+        XCTAssertEqual(library.occupancy().total, 0)
         try library.emptyCache()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: library.cacheFolder.path))
         XCTAssertEqual(library.occupancy().cache, 0)
         XCTAssertNoThrow(try library.emptyCache())
     }

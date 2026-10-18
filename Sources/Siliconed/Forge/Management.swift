@@ -44,7 +44,8 @@ extension Library {
         /// crash left in `store/` (`Library.partials`). `emptyDownloads()` gives it back.
         public let downloads: Int
         /// What renders keep between them (`Library.cacheFolder`): conditionings, and the K/V of
-        /// Qwen-Image-2.1's last edit (up to 6.4 GB). `emptyCache()` gives it back.
+        /// Qwen-Image-2.1's last edit (up to 6.4 GB). `emptyCache()` gives it back. Not in `total`:
+        /// the app empties it at launch and at exit (incognito), so it is never something installed.
         public let cache: Int
         /// The free space on the library's volume, if the system reports it.
         public let free: Int?
@@ -57,7 +58,7 @@ extension Library {
                 encoders[name] = max(encoders[name] ?? 0, p.encoder)
             }
             return families.reduce(0) { $0 + $1.components + $1.dit } + encoders.values.reduce(0, +)
-                + imported.reduce(0) { $0 + $1.bytes } + loras.reduce(0) { $0 + $1.bytes } + downloads + cache
+                + imported.reduce(0) { $0 + $1.bytes } + loras.reduce(0) { $0 + $1.bytes } + downloads
         }
     }
 
