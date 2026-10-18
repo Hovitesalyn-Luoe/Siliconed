@@ -29,6 +29,9 @@ import SwiftUI
 struct SiliconedApplication: App {
     @NSApplicationDelegateAdaptor(Delegate.self) private var delegate
 
+    /// Launched as the capacity measure's child (`CapacityMeasure`), the process measures and exits here.
+    init() { CapacityMeasure.runIfAsked() }
+
     var body: some Scene {
         // The window is an NSWindow opened by the delegate (like Draw Things Headless's Generate
         // window): a single `AppState` per process, hence a single `EngineSettings.load` —

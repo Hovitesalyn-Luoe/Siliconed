@@ -72,8 +72,8 @@ package final class Conductor: @unchecked Sendable {
     }
     /// Read once from `EngineSettings.amx`: constant for the duration of the process.
     ///
-    /// **On by default on the reference chip only** (`EngineSettings.referenceChip`), where it was
-    /// measured in the engine; off elsewhere until the bench measures it. It changes the
+    /// **Off by default on every chip**: the app's capacity map turns it on where it measures it
+    /// faster (`CapacityRules.swift`), a developer with `SILICONED_AMX=1`. It changes the
     /// last bits, so the developer checks force it off: a verdict — a PSNR, a GEMM
     /// census, a footprint — is never skewed by a lever one forgot was on.
     package static let enabled = EngineSettings.effective.amx

@@ -177,8 +177,12 @@ private struct Footer: View {
                         .buttonStyle(.link).font(.caption)
                         .help("The largest of this model's sizes this Mac renders")
                 }
-            } else if app.diagnosticRunning {
-                Text("The diagnostic is running: renders wait for it.").font(.callout)
+            } else if case let .running(done, total, line) = app.diagnostic {
+                // Before the first render, the measure it waits for: why nothing starts yet, and how far.
+                Text(app.settingsRead ? "The diagnostic is running: renders wait for it."
+                                      : "Siliconed measures this Mac before its first render — about 30 seconds.")
+                    .font(.callout)
+                Text(verbatim: "\(line) · \(done + 1)/\(total)").font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
                 Button { app.render() } label: {

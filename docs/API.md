@@ -138,10 +138,12 @@ library (`Model.named(_:in:)` and the like); a hand-composed `Model(card:chain:)
   kernel and the attention's head split; the
   priority is default → map → profile → environment. Pass it only when `report.isCurrent` (same
   hardware, chip, macOS build and app build — its `fingerprint`); otherwise the defaults (a stale
-  map is refused with a warning. The settings stay read once, so a map measured in this process
-  applies from the next launch). Without a map (the command line, the checks), the defaults. The
-  app measures only when the user asks (« Report My Configuration »): renders before it run on the
-  defaults, after it on the map's branches.
+  map is refused with a warning. The settings stay read once, so a map measured after they were read
+  applies from the next launch). Without a map (the command line, the checks), the defaults — the
+  GPU + AMX co-execution among them, off on every chip. The app renders nothing without a current
+  map: with none (a first launch, or an update), it leaves the settings unread and measures before
+  its first render, in a child process — the diagnostic reads the settings itself —, then calls
+  `load` with the report; the user can also measure again (« Report My Configuration »).
 - Low-level access: `map(_ name: String) -> String` (`<root>/store/<name>`), `profile`. The rest
   (components, DiT reference, downloads) is internal to the package.
 
@@ -909,14 +911,15 @@ It is synchronous and occupies the GPU and the CPU (under 1 GB at the peak on th
 the main thread. It waits for the engine's queue and holds the machine's render lock, so it never
 runs beside a render — another process's refuses it (`EngineError.renderAlreadyRunning`); its
 `cancellation` is checked between two measurements (`.cancelled`). The engine reads a report only
-when an app hands it to `EngineSettings.load(from:map:)` at launch (§2.1): the app keeps the last one
-(`json(pretty: false)`, read back with `JSONDecoder`), offers to measure again when it is no longer
-`isCurrent`, and the branches follow it from the next launch.
+when an app hands it to `EngineSettings.load(from:map:)` (§2.1): the app keeps the last one (`json(pretty: false)`, read
+back with `JSONDecoder`) and measures again before a render when it is no longer `isCurrent`. A
+measure taken in the same process would read the settings first (the AMX split), so the app runs it
+in a child process — its own executable with an argument — and loads the settings with its report.
 
 ```swift
 let kept: Diagnostic.Report? = nil                          // read back from the app's preferences
 try EngineSettings.load(from: library, map: kept?.isCurrent == true ? kept : nil)
-// when the user asks: let r = try Diagnostic.run(); keep r.json(pretty: false) — used from the next launch
+// no current map: measure first (in another process), keep r.json(pretty: false), then load(from:map: r)
 ```
 
 ### 3.14 Alternatives in a prompt: `{a|b}`
@@ -1327,8 +1330,8 @@ machine's budget — the image stays the same, only the time changes.
   Nunchaku), mxfp8, fp8 E5M2, asymmetric int8, and LyCORIS / DoRA / `diff` LoRAs: refused at import,
   with the message saying why (§3.11). A quantized file stays as published on disk, but the
   computation is fp32: no int8 or 4-bit matrix product.
-- Changing machine profile or capacity map mid-process (`EngineSettings` is read once; `load` says
-  so by throwing): a new map applies at the next launch.
+- Changing machine profile or capacity map once the settings are read (`EngineSettings` is read
+  once; `load` says so by throwing): a new map then applies at the next launch.
 - Re-reading a PNG to **replay** an img2img: the source image is not in the metadata (the `image`
   key says so), and the LoRAs appear there only by file name.
 - Cancelling **in the middle** of a VAE (encoding, decoding): cancellation waits for the end of the stage (a few seconds at most).

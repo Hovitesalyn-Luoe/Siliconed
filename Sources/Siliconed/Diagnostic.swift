@@ -66,12 +66,12 @@ import Metal
 /// M1 Pro (18/10/2026), the products' operands (~1.1 GB with the cuts' grid, released before the attention)
 /// its larger part — under B on the smallest Mac (8 GB, B = 4 GiB).
 ///
-/// **The engine reads it in the app, and only there**: when the user measures (« Report My
-/// Configuration », never in the background), the app keeps the report in its preferences and hands it
-/// to `EngineSettings.load(from:map:)` from the next launch on, as long as its `Fingerprint` —
-/// hardware, chip, macOS build, the app's build — matches; the rules (`CapacityRules.swift`,
-/// `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`. The command line, the checks
-/// and the close-out never designate a map: today's defaults.
+/// **The engine reads it in the app, and only there**: the app measures before its first render when it
+/// holds no current map — none yet, or one of another `Fingerprint` (hardware, chip, macOS build, the
+/// app's build: an update measures again) — and whenever the user asks (« Report My Configuration »).
+/// It keeps the report in its preferences and hands it to `EngineSettings.load(from:map:)`; the rules
+/// (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`,
+/// `gemm_tensor`. The command line, the checks and the close-out never designate a map: today's defaults.
 public enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same

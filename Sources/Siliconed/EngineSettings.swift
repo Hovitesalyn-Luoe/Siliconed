@@ -16,7 +16,8 @@ import Synchronization
 ///    branch stays because another chip may reverse the verdict. A path that is dead (read by
 ///    nothing) or wrong (a probe that renders a false image) has no such reason, and is removed.
 /// 2. **The default is the reference machine's**, so that nothing moves unless asked: with no
-///    profile and no environment variable, the engine takes the paths measured on the M1 Pro.
+///    profile and no environment variable, the engine takes the paths measured on the M1 Pro —
+///    except `amx`, off everywhere: the GPU/AMX balance is the one thing a Mac's measure must say.
 /// 3. **The priority is: default → map → profile → environment.** The map is the diagnostic's
 ///    capacity map of *this* machine, which only an app designates (`load(from:map:)`) and the rules
 ///    of `CapacityRules.swift` turn into `amx`, `amx_fraction`, `flash`, `head_split`, `gemm_tensor`; the profile is
@@ -33,16 +34,14 @@ public struct EngineSettings: Sendable {
 
     // ── what is tunable ────────────────────────────────────────────────────────────────────
 
-    /// GPU + AMX co-execution (`SILICONED_AMX`). It gains 22 % on this machine — 512² 41.3 →
-    /// 31.0 s — so **it is on by default on the chip it was measured on** (`referenceChip`):
-    /// an app never runs the bench, and a first launch would otherwise render a third
-    /// slower than the published timings. Elsewhere it stays off until something measures it — in
-    /// the app the capacity map (`CapacityRules.swift`), which also sets `amxFraction`; for a developer
-    /// the bench's profile: the frozen split is this GPU's against this AMX, and a larger GPU would wait
-    /// on the AMX. It changes the last bits, so the developer checks force it off.
+    /// GPU + AMX co-execution (`SILICONED_AMX`). It gains 22 % on the M1 Pro — 512² 41.3 → 31.0 s —
+    /// and **it is off by default on every chip, the M1 Pro included**: whether it pays is the GPU's
+    /// throughput against the AMX's, which only a measure of the Mac says — in the app the capacity map
+    /// (`CapacityRules.swift`, which also sets `amxFraction`), taken before the first render; for a
+    /// developer `SILICONED_AMX=1` or the bench's profile. Never a chip's name: a frozen split measured
+    /// on one GPU makes a larger one wait on the AMX. It changes the last bits, so the developer checks
+    /// force it off.
     package var amx = false
-    /// The chip `amx` and `amxFraction` were measured on (`machdep.cpu.brand_string`).
-    package static let referenceChip = "Apple M1 Pro"
     /// The spinning flag, which returns **wrong** results. It serves only to make the check
     /// fail, and it has no place in a profile.
     package var amxSpin = false
@@ -279,7 +278,8 @@ public struct EngineSettings: Sendable {
     /// `map`: the diagnostic's report this app kept (`Diagnostic.run`), applied by the rules of
     /// `CapacityRules.swift` between the defaults and the profile. **Refused with a warning when it is not
     /// `isCurrent`** (another machine, another macOS, another build): the defaults then apply, and the
-    /// app offers to measure again. **It never applies mid-process**: a map measured now applies at the next launch.
+    /// app measures again. **It never changes settings already read**: an app without a current map defers this
+    /// call until its measure — taken in another process, so that nothing here reads the settings before it.
     public static func load(from library: Library, map: Diagnostic.Report? = nil) throws(EngineError) {
         let path = library.profile
         // Designate and read under the same lock: a render that read `effective` between the two
@@ -308,7 +308,6 @@ public struct EngineSettings: Sendable {
     private init() {
         EngineSettings.alreadyRead.store(true, ordering: .releasing)
         machine = Machine.detected()
-        amx = machine.chip == EngineSettings.referenceChip
         var refusal: String? = nil
 
         // ── the capacity map, if an app designated one and it is this machine's, this build's ────────

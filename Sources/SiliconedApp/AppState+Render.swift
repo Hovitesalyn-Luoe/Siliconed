@@ -202,6 +202,8 @@ extension AppState {
     /// Ready-made jobs enter the queue, in order — the path of the button and of the remote control.
     func enqueue(_ jobs: [Job]) {
         guard !jobs.isEmpty else { return }
+        // A measure that failed before the first render is retried by the next click, not by itself.
+        if !settingsRead, case .failed = diagnostic { diagnostic = .ready }
         file.append(contentsOf: jobs)
         if inProgress { flash(String(localized: "Added to the queue (\(file.count) waiting)")) }
         next()
@@ -210,13 +212,18 @@ extension AppState {
     /// Launches the queue's first job if nothing is running. Called again at the end of each render,
     /// succeeded, stopped or failed: the queue empties by itself.
     /// The diagnostic occupies the GPU and the CPU like a render: the queue waits for it (and it for the
-    /// queue) — and for an installation, which reads and writes GBs (`installBlocker`).
+    /// queue) — and for an installation, which reads and writes GBs (`installBlocker`). **No render
+    /// without this Mac's measure** (`settingsRead`): the first job starts it, and its end calls `next`.
     func next() {
         guard currentJob == nil, !file.isEmpty, !diagnosticRunning, forgeInProgress == nil else {
             if currentJob == nil, let a = activity {
                 ProcessInfo.processInfo.endActivity(a); activity = nil
                 DockTile.finished()
             }
+            return
+        }
+        guard settingsRead else {
+            if case .ready = diagnostic { measure() }
             return
         }
         if activity == nil {
@@ -413,7 +420,8 @@ extension AppState {
     /// The per-image plan that the chosen model's denoiser foresees for these settings.
     /// `withLoRA`: a LoRA or a Detail — either turns the spectral schedule off; so do references (an edit).
     func expectedPlan(steps: Int, format: RecommendedFormat, withLoRA: Bool, references: Int) -> DenoisingPlan? {
-        guard let chain else { return nil }
+        // A plan reads the settings (`Spectral.forced`): none before they are (`settingsRead`).
+        guard settingsRead, let chain else { return nil }
         let f = chain.denoising.space.factor
         let plan = chain.denoising.plan(height: format.height / f, width: format.width / f,
                                         steps: steps, start: 0, withLoRA: withLoRA)

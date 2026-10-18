@@ -3109,34 +3109,6 @@
         }
       }
     },
-    "A measure of %@ applies from the next launch; this session uses the defaults." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Messung vom %@ gilt ab dem nächsten Start; diese Sitzung verwendet die Standardwerte."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Una medición del %@ se aplica desde el próximo inicio; esta sesión usa los valores predeterminados."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Une mesure du %@ s’applique au prochain lancement ; cette session utilise les réglages par défaut."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Una misura del %@ si applica dal prossimo avvio; questa sessione usa i valori predefiniti."
-          }
-        }
-      }
-    },
     "A model (.safetensors or .gguf) or a LoRA (.safetensors), as published on Civitai" : {
       "localizations" : {
         "de" : {
@@ -3507,30 +3479,30 @@
         }
       }
     },
-    "About 30 seconds, without any model: Siliconed measures this Mac and chooses how it computes from the next launch. Never in the background." : {
+    "About 30 seconds, without any model: Siliconed measures this Mac before its first render and after each update, and chooses how it computes from it. Measured again here, it applies from the next launch." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Etwa 30 Sekunden, ohne Modell: Siliconed misst diesen Mac und wählt ab dem nächsten Start, wie er rechnet. Nie im Hintergrund."
+            "value" : "Etwa 30 Sekunden, ohne Modell: Siliconed misst diesen Mac vor dem ersten Rendering und nach jedem Update und wählt danach, wie er rechnet. Hier erneut gemessen, gilt es ab dem nächsten Start."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unos 30 segundos, sin ningún modelo: Siliconed mide este Mac y elige cómo calcula a partir del próximo inicio. Nunca en segundo plano."
+            "value" : "Unos 30 segundos, sin ningún modelo: Siliconed mide este Mac antes de su primer renderizado y tras cada actualización, y elige a partir de ello cómo calcula. Medido de nuevo aquí, se aplica desde el siguiente arranque."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Une trentaine de secondes, sans aucun modèle : Siliconed mesure ce Mac et choisit comment il calcule à partir du prochain lancement. Jamais en arrière-plan."
+            "value" : "Environ 30 secondes, sans aucun modèle : Siliconed mesure ce Mac avant son premier rendu et après chaque mise à jour, et choisit d’après elle comment il calcule. Mesuré à nouveau ici, cela s’applique au lancement suivant."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Circa 30 secondi, senza alcun modello: Siliconed misura questo Mac e sceglie come calcolare dal prossimo avvio. Mai in background."
+            "value" : "Circa 30 secondi, senza alcun modello: Siliconed misura questo Mac prima del suo primo rendering e dopo ogni aggiornamento, e sceglie in base a ciò come calcola. Misurato di nuovo qui, vale dal prossimo avvio."
           }
         }
       }
@@ -15366,6 +15338,34 @@
         }
       }
     },
+    "Siliconed measures this Mac before its first render — about 30 seconds." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed misst diesen Mac vor dem ersten Rendering – etwa 30 Sekunden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed mide este Mac antes de su primer renderizado: unos 30 segundos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed mesure ce Mac avant son premier rendu — environ 30 secondes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siliconed misura questo Mac prima del suo primo rendering: circa 30 secondi."
+          }
+        }
+      }
+    },
     "Siliconed ships no weights. The Compact version is the publisher's model republished in 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed." : {
       "localizations" : {
         "de" : {
@@ -17939,30 +17939,30 @@
         }
       }
     },
-    "The measure of %@ was taken with another macOS or another version of Siliconed: it is not used. Measure again to let Siliconed choose for this Mac." : {
+    "The measure of %@ was taken with another macOS or another version of Siliconed: this Mac is measured again before the next render." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Messung vom %@ wurde mit einem anderen macOS oder einer anderen Version von Siliconed erstellt: Sie wird nicht verwendet. Messen Sie erneut, damit Siliconed für diesen Mac wählt."
+            "value" : "Die Messung vom %@ wurde mit einem anderen macOS oder einer anderen Version von Siliconed gemacht: Dieser Mac wird vor dem nächsten Rendering erneut gemessen."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La medición del %@ se hizo con otro macOS u otra versión de Siliconed: no se usa. Mida de nuevo para que Siliconed elija para este Mac."
+            "value" : "La medición del %@ se hizo con otro macOS u otra versión de Siliconed: este Mac se mide de nuevo antes del próximo renderizado."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La mesure du %@ a été prise avec un autre macOS ou une autre version de Siliconed : elle n’est pas utilisée. Mesurez à nouveau pour que Siliconed choisisse pour ce Mac."
+            "value" : "La mesure du %@ a été prise avec un autre macOS ou une autre version de Siliconed : ce Mac est mesuré à nouveau avant le prochain rendu."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La misura del %@ è stata presa con un altro macOS o un’altra versione di Siliconed: non è usata. Misura di nuovo perché Siliconed scelga per questo Mac."
+            "value" : "La misura del %@ è stata presa con un altro macOS o un’altra versione di Siliconed: questo Mac viene misurato di nuovo prima del prossimo rendering."
           }
         }
       }
@@ -19189,6 +19189,34 @@
         }
       }
     },
+    "This Mac is measured before its first render: Siliconed chooses its compute paths from it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Mac wird vor dem ersten Rendering gemessen: Siliconed wählt danach seine Rechenwege."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este Mac se mide antes de su primer renderizado: Siliconed elige a partir de ello sus rutas de cálculo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac est mesuré avant son premier rendu : Siliconed en tire ses chemins de calcul."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo Mac viene misurato prima del suo primo rendering: Siliconed ne ricava i suoi percorsi di calcolo."
+          }
+        }
+      }
+    },
     "This family's imported models and LoRAs stay." : {
       "localizations" : {
         "de" : {
@@ -19713,34 +19741,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Questo prompt usa %@ immagini: un render ne accetta al massimo %@."
-          }
-        }
-      }
-    },
-    "This session uses Siliconed's defaults. Measuring lets it choose for this Mac, from the next launch." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diese Sitzung verwendet die Standardwerte von Siliconed. Eine Messung lässt es ab dem nächsten Start für diesen Mac wählen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esta sesión usa los valores predeterminados de Siliconed. Medir le permite elegir para este Mac, desde el próximo inicio."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette session utilise les réglages par défaut de Siliconed. Mesurer lui permet de choisir pour ce Mac, dès le prochain lancement."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questa sessione usa i valori predefiniti di Siliconed. Misurare gli permette di scegliere per questo Mac, dal prossimo avvio."
           }
         }
       }

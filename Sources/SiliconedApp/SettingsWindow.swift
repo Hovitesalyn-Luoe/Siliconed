@@ -104,7 +104,7 @@ struct SettingsView: View {
                             app.openDiagnostic()
                         }
                     } label: {
-                        titled("This Mac", "About 30 seconds, without any model: Siliconed measures this Mac and chooses how it computes from the next launch. Never in the background.")
+                        titled("This Mac", "About 30 seconds, without any model: Siliconed measures this Mac before its first render and after each update, and chooses how it computes from it. Measured again here, it applies from the next launch.")
                     }
                     Text(DiagnosticSheet.mapStatus(app)).font(.caption)
                         .fixedSize(horizontal: false, vertical: true)

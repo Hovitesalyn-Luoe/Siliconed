@@ -41,7 +41,7 @@ import UniformTypeIdentifiers
 final class AppState {
     let library: Library
     /// The warnings of the machine profile (a profile measured elsewhere, for example).
-    let profileWarnings: [String]
+    private(set) var profileWarnings: [String] = []
     /// All the known models — the publisher's, then the imported ones (`Library.cards()`).
     var cards: [ModelCard] = []
     /// The ready models (all their files present).
@@ -327,7 +327,9 @@ final class AppState {
     /// The diagnostic sheet, and where the diagnostic stands.
     var diagnosticOpen = false
     var diagnostic = DiagnosticPhase.ready
-    var diagnosticCancellation: Cancellation?
+    /// The measuring child (`CapacityMeasure`), while it runs; `diagnosticStopped` when Stop ended it.
+    var diagnosticProcess: Process?
+    var diagnosticStopped = false
     var diagnosticRunning: Bool { if case .running = diagnostic { true } else { false } }
     /// The chosen image full screen, in the window (never a file opened elsewhere).
     var fullScreen = false
@@ -401,38 +403,28 @@ final class AppState {
     init(library: Library) {
         self.library = library
         subjects = SubjectLibrary(library: library)
-        // The machine profile, read in THIS library, and the capacity map the user measured — once per
-        // process and before anything reads the settings (the sidebar's memory need does, at the first
-        // drawing): the app builds only one `AppState` (see `App.swift`). A map that no longer matches
-        // this Mac, this macOS or this build is not handed over (the engine would only refuse it): the
-        // diagnostic sheet says it is stale.
-        let stored = Self.readStoredMap()
-        let map = stored?.isCurrent == true ? stored : nil
-        var loaded = false
-        do {
-            try EngineSettings.load(from: library, map: map)
-            profileWarnings = EngineSettings.effective.warnings.map(Library.withoutHome)
-            loaded = true
-        } catch {
-            profileWarnings = [Library.withoutHome(error.localizedDescription)]
-        }
         cards = library.cards()
         readySet = Set(library.models().map(\.id))
         occupancy = library.occupancy()
         identifier = defaultIdentifier
         readEditors()
+        // The machine profile, read in THIS library, with the capacity map — once per process, and only
+        // with a current map: the app builds only one `AppState` (see `App.swift`). Without one (none yet,
+        // or one of another Mac, macOS or build: an update), the settings stay unread until the measure
+        // the first render starts (`next`).
+        let stored = Self.readStoredMap()
         storedMap = stored
-        mapInUse = loaded ? map : nil
+        if let stored, stored.isCurrent { readSettings(map: stored) }
     }
 
     // MARK: Capacity map
 
     /// **The capacity map, in the app's preferences** (`Diagnostic.Report`, its JSON): what the engine
-    /// branches on (`CapacityRules.swift`). Measured **only when the user asks** (« Report My
-    /// Configuration »), never in the background (the user, 14/10/2026): renders before it run on the
-    /// defaults, renders after it on its branches — a before/after the user can see. Without one, the
-    /// defaults; one whose `fingerprint` no longer matches (another Mac, macOS build or app build) is
-    /// ignored, and the sheet offers to measure again.
+    /// branches on (`CapacityRules.swift`). **No render without one** (the user, 18/10/2026): the defaults
+    /// are the M1 Pro's, and only a measure says what another Mac's GPU and AMX are worth. So the first
+    /// render measures first — when none is kept, or the one kept has another `fingerprint` (another
+    /// Mac, macOS build or app build) —, said in the sidebar, never in the background; the user can
+    /// also measure again (« Report My Configuration »), which then applies from the next launch.
     private static let capacityMapKey = "capacityMap"
 
     private static func readStoredMap() -> Diagnostic.Report? {
@@ -441,15 +433,32 @@ final class AppState {
 
     /// The map kept in the preferences, current or not.
     private(set) var storedMap: Diagnostic.Report?
-    /// The map this process's settings were read with — `nil`: the defaults. It never changes after
-    /// launch: the settings are read once per process, and a render's bits must not move mid-session.
+    /// The map this process's settings were read with — `nil`: not read yet, or read without one (a
+    /// refusal, `profileWarnings`). It never changes once set: the settings are read once per process,
+    /// and a render's bits must not move mid-session.
     private(set) var mapInUse: Diagnostic.Report?
+    /// **The engine's settings were read** (`EngineSettings.load`), the map with them: renders may run,
+    /// and the memory needs be computed — they read the settings (`amx` adds the AMX's operands).
+    private(set) var settingsRead = false
 
-    /// Keeps `report` as the map of the next launches — never this one's.
+    /// Keeps `report` as the map of the next launches — and of this one, when nothing read the settings yet.
     func keep(_ report: Diagnostic.Report) {
         guard let data = try? report.json(pretty: false) else { return }
         UserDefaults.standard.set(data, forKey: Self.capacityMapKey)
         storedMap = report
+        if !settingsRead { readSettings(map: report) }
+    }
+
+    /// **Reads the engine's settings**, once: the profile of THIS library and `map`.
+    private func readSettings(map: Diagnostic.Report) {
+        do {
+            try EngineSettings.load(from: library, map: map)
+            profileWarnings = EngineSettings.effective.warnings.map(Library.withoutHome)
+            mapInUse = map
+        } catch {
+            profileWarnings = [Library.withoutHome(error.localizedDescription)]
+        }
+        settingsRead = true
     }
 
     // MARK: Catalog
@@ -508,6 +517,7 @@ final class AppState {
     /// **The memory this render needs**: its floor computed from the request's shapes, with what the
     /// app already holds (`ModelCard.memoryNeed`) — what the engine's preflight compares to B. `nil` when it cannot be computed.
     var memoryNeed: Int? {
+        guard settingsRead else { return nil }
         let f = outputFormat
         return card.flatMap { $0.memoryNeed(width: f.width, height: f.height, references: references.count + subjectImageCount) }
     }
@@ -552,7 +562,7 @@ final class AppState {
     /// **The smallest Mac that renders `format` with `images` references**, in GB — `nil` when this
     /// one does. The engine's own check (`ModelCard.checkMemory`), against B.
     func macNeeded(_ format: RecommendedFormat, images: Int) -> Int? {
-        guard let card else { return nil }
+        guard settingsRead, let card else { return nil }
         do { try card.checkMemory(width: format.width, height: format.height, references: images, ceiling: memoryCeiling) }
         catch {
             guard case let .insufficientMemory(needed, _) = error else { return nil }
@@ -577,7 +587,7 @@ final class AppState {
     }
 
     var memoryRefusal: MemoryRefusal? {
-        guard let card else { return nil }
+        guard settingsRead, let card else { return nil }
         let f = outputFormat
         let images = references.count + subjectImageCount
         do { try card.checkMemory(width: f.width, height: f.height, references: images, ceiling: memoryCeiling) } catch {
@@ -752,8 +762,10 @@ final class AppState {
         }
         do { try Format.check(width: w, height: h) } catch { return Problem(error) }
         // Beyond B, refused here as the picker greys it out: the same check as the engine's.
-        do { try card?.checkMemory(width: w, height: h, references: subjectImageCount, ceiling: memoryCeiling) }
-        catch { return Problem(error) }
+        if settingsRead {
+            do { try card?.checkMemory(width: w, height: h, references: subjectImageCount, ceiling: memoryCeiling) }
+            catch { return Problem(error) }
+        }
         let f = RecommendedFormat(w, h)
         orientation = f.orientation
         format = f

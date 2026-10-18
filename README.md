@@ -169,7 +169,7 @@ chosen cell to the end with the same seed: the image its sketch announced.
   the file is refused (`docs/API.md` §3.11).
 - **Statistics and diagnostic.** The statistics palette (⌥⌘I) is a toolbar button; « Report My
   Configuration » (what the chip computes, measured, exported as JSON — and the paths the engine
-  takes on this Mac) opens from « Chain » at the head of the rack, orange until this Mac is measured.
+  takes on this Mac) opens from « Chain » at the head of the rack, orange until this Mac is measured — the first render measures it, and again after an update.
 
 Models live in `~/Library/Application Support/Siliconed` (override with `SILICONED_ROOT`).
 

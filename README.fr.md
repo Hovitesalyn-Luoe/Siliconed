@@ -176,7 +176,7 @@ rend la case choisie jusqu'au bout avec la même graine : l'image que son esqui
   sous 4 bits, le fichier est refusé (`docs/API.fr.md` §3.11).
 - **Statistiques et diagnostic.** La palette des statistiques (⌥⌘I) est un bouton de la barre d'outils ;
   « Signaler ma configuration » (ce que calcule la puce, mesuré, exporté en JSON — et les chemins que le
-  moteur prend sur ce Mac) s'ouvre par « Chaîne » en tête du rack, orange tant que ce Mac n'est pas mesuré.
+  moteur prend sur ce Mac) s'ouvre par « Chaîne » en tête du rack, orange tant que ce Mac n'est pas mesuré — le premier rendu le mesure, et de nouveau après une mise à jour.
 
 Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable avec `SILICONED_ROOT`).
 

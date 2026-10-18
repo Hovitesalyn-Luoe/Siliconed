@@ -59,8 +59,8 @@ struct DiagnosticSheet: View {
         .padding(20)
     }
 
-    /// **Where this session stands against the map** — the before/after the user can see: no map, the
-    /// defaults; a map in use since launch; a newer one waiting for the next launch; a stale one ignored.
+    /// **Where this session stands against the map**: a map in use; a newer one waiting for the next
+    /// launch; none yet, or a stale one — the first render measures.
     @ViewBuilder private var mapStatus: some View {
         Text(Self.mapStatus(app)).font(.callout).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -73,12 +73,10 @@ struct DiagnosticSheet: View {
                 ? "This session uses the choices of this Mac's measure of \(day(used.date))."
                 : "This session uses the measure of \(day(used.date)); the newer one applies from the next launch."
         }
-        if let stored = app.storedMap {
-            return stored.isCurrent
-                ? "A measure of \(day(stored.date)) applies from the next launch; this session uses the defaults."
-                : "The measure of \(day(stored.date)) was taken with another macOS or another version of Siliconed: it is not used. Measure again to let Siliconed choose for this Mac."
+        if let stored = app.storedMap, !stored.isCurrent {
+            return "The measure of \(day(stored.date)) was taken with another macOS or another version of Siliconed: this Mac is measured again before the next render."
         }
-        return "This session uses Siliconed's defaults. Measuring lets it choose for this Mac, from the next launch."
+        return "This Mac is measured before its first render: Siliconed chooses its compute paths from it."
     }
 
     /// A report's ISO date as a day the user reads.

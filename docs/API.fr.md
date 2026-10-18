@@ -142,10 +142,12 @@ cache sert aux modèles construits depuis une bibliothèque (`Model.named(_:in:)
   (Metal 4), le noyau flash et la coupe par têtes de l'attention ; la priorité est défaut → carte → profil → environnement. Ne la passer que si
   `report.isCurrent` (même matériel, même puce, même build de macOS et de l'app — son
   `fingerprint`) ; sinon, les défauts (une carte périmée est refusée avec un avertissement.
-  Les réglages se lisant une seule fois, une carte mesurée dans ce processus s'applique au lancement
-  suivant). Sans carte (la ligne de commande, les contrôles), les défauts. L'app ne mesure que quand
-  l'utilisateur le demande (« Signaler ma configuration ») : les rendus d'avant tournent sur les
-  défauts, ceux d'après sur les branchements de la carte.
+  Les réglages se lisant une seule fois, une carte mesurée après leur lecture s'applique au lancement
+  suivant). Sans carte (la ligne de commande, les contrôles), les défauts — dont la co-exécution
+  GPU + AMX, éteinte sur toutes les puces. L'app ne rend rien sans carte à jour : sans elle (premier
+  lancement, ou mise à jour), elle laisse les réglages non lus et mesure avant son premier rendu, dans
+  un processus enfant — le diagnostic lit lui-même les réglages —, puis appelle `load` avec le rapport ;
+  l'utilisateur peut aussi mesurer à nouveau (« Signaler ma configuration »).
 - Accès bas niveau : `map(_ name: String) -> String` (`<root>/store/<nom>`), `profile`. Le
   reste (composants, référence du DiT, téléchargements) est interne au paquet.
 
@@ -940,14 +942,15 @@ fil principal. Il attend la file du moteur et tient le verrou de rendu de la mac
 tourne jamais à côté d'un rendu — celui d'un autre processus le refuse
 (`EngineError.renderAlreadyRunning`) ; sa `cancellation` est consultée entre deux mesures
 (`.cancelled`). Le moteur ne lit un rapport que si une app le lui remet par
-`EngineSettings.load(from:map:)` au lancement (§2.1) : l'app garde le dernier (`json(pretty: false)`,
-relu par `JSONDecoder`), propose de mesurer à nouveau quand il n'est plus `isCurrent`, et les
-branchements le suivent dès le lancement suivant.
+`EngineSettings.load(from:map:)` (§2.1) : l'app garde le dernier (`json(pretty: false)`, relu par
+`JSONDecoder`) et mesure à nouveau avant un rendu quand il n'est plus `isCurrent`. Une mesure prise
+dans le même processus lirait d'abord les réglages (la coupe AMX) : l'app la lance dans un processus
+enfant — son propre exécutable avec un argument — et lit les réglages avec son rapport.
 
 ```swift
 let kept: Diagnostic.Report? = nil                          // relu dans les préférences de l'app
 try EngineSettings.load(from: library, map: kept?.isCurrent == true ? kept : nil)
-// quand l'utilisateur le demande : let r = try Diagnostic.run(), garder r.json(pretty: false) — utilisé au lancement suivant
+// sans carte à jour : mesurer d'abord (dans un autre processus), garder r.json(pretty: false), puis load(from:map: r)
 ```
 
 ### 3.14 Les alternatives dans un prompt : `{a|b}`
@@ -1375,8 +1378,8 @@ budget d'une autre machine — l'image reste la même, seul le temps change.
   Nunchaku), mxfp8, fp8 E5M2, int8 asymétrique, et LoRA LyCORIS / DoRA / `diff` : refusés à l'import,
   avec le message qui dit pourquoi (§3.11). Un fichier quantifié reste sur le disque tel que publié,
   mais le calcul est en fp32 : pas de produit matriciel int8 ni 4 bits.
-- Changer de profil de machine ou de carte des capacités en cours de processus (`EngineSettings` se
-  lit une seule fois ; `load` le dit en levant) : une carte nouvelle s'applique au lancement suivant.
+- Changer de profil de machine ou de carte des capacités une fois les réglages lus (`EngineSettings` se
+  lit une seule fois ; `load` le dit en levant) : une carte nouvelle s'applique alors au lancement suivant.
 - Relire un PNG pour **rejouer** un img2img : l'image source n'est pas dans les métadonnées (la
   clé `image` le dit), et les LoRA n'y figurent que par leur nom de fichier.
 - Annuler **au milieu** d'un VAE (encodage, décodage) : l'annulation attend la fin de l'étage (quelques secondes au plus).
