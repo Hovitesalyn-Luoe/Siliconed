@@ -55,7 +55,7 @@ pendant la mesure). Sur le M1 Pro des chiffres plus bas, le 18/10/2026 : co-ex�
 allumée (×1,30), attention partagée par têtes entre le GPU et le CPU allumée (×1,49), attention flash
 éteinte (×1,05, dans la marge), produits Q8_0 éteints (×0,43), produits tensoriels bf16 éteints
 (×0,53). Une autre puce mesure les siens et en décide autrement. La carte achète de la vitesse, jamais
-une autre image au-delà de l'arithmétique qu'elle a vérifiée ; Aide → **Signaler ma configuration**
+une autre image au-delà de l'arithmétique qu'elle a vérifiée ; Aide → **Mesurer ce Mac**
 la montre et permet de la partager ([Le diagnostic communautaire](#le-diagnostic-communautaire)).
 
 ## Pourquoi Siliconed
@@ -164,7 +164,7 @@ l'image que son esquisse annonçait.
   le nom de son fichier ; le nom donné par son auteur et ses mots déclencheurs s'affichent en
   infobulle.
 - **Statistiques et diagnostic.** La palette des statistiques (⌥⌘I) est un bouton de la barre
-  d'outils. « Signaler ma configuration » (menu Aide, ou « Chaîne » en tête du rack, orange tant que
+  d'outils. « Mesurer ce Mac » (menu Aide, ou « Chaîne » en tête du rack, orange tant que
   ce Mac n'est pas mesuré) montre la carte de ce Mac : ce que calcule la puce, mesuré, et les chemins
   que prend le moteur.
 
@@ -296,8 +296,8 @@ sont refusés avant tout calcul.
 
 ## Le diagnostic communautaire
 
-Une machine ne fait pas un banc. **Signaler ma configuration** (menu Aide ; *Report My
-Configuration* en anglais) montre la carte que ce Mac a mesurée avant son premier rendu, en 30 à 40
+Une machine ne fait pas un banc. **Mesurer ce Mac** (menu Aide ; *Measure This Mac*
+en anglais) montre la carte que ce Mac a mesurée avant son premier rendu, en 30 à 40
 secondes environ et sans aucun modèle : les produits matriciels des blocs des modèles sur le GPU, sur
 l'unité matricielle du CPU et sur les deux à la fois, des produits fp16 et bf16, des produits sur les
 poids int8 et Q8_0 publiés, l'attention par les trois noyaux du moteur, l'élargissement des poids sur

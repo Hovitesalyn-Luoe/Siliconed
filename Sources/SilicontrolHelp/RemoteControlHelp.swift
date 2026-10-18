@@ -247,7 +247,7 @@ package enum RemoteControlHelp {
         "diagnose": """
         silicontrol diagnose [--issue]
 
-        « Report My Configuration » (the app's Help menu), from the terminal. The sheet opens in
+        « Measure This Mac » (the app's Help menu), from the terminal. The sheet opens in
         the app and the diagnostic runs — about 30 s, no model needed: the fp32 matrix products of
         the DiT blocks on the GPU, on the CPU's matrix unit and on both, fp16 and bf16 products,
         the attention through the engine's three kernels, the weight widening on the CPU and the
@@ -907,7 +907,7 @@ package enum RemoteControlHelp {
         "diagnose": """
         silicontrol diagnose [--issue]
 
-        « Signaler ma configuration » (menu Aide de l'app), depuis le terminal. La feuille s'ouvre
+        « Mesurer ce Mac » (menu Aide de l'app), depuis le terminal. La feuille s'ouvre
         dans l'app et le diagnostic tourne — environ 30 s, sans modèle : les produits matriciels
         fp32 des blocs du DiT sur le GPU, sur l'unité matricielle du CPU et sur les deux, des
         produits fp16 et bf16, l'attention par les trois noyaux du moteur, l'élargissement des

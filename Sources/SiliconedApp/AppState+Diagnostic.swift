@@ -1,4 +1,4 @@
-// **`AppState`: the diagnostic** (« Report My Configuration »), and `unmount` when the window closes.
+// **`AppState`: the diagnostic** (« Measure This Mac »), and `unmount` when the window closes.
 // The state itself is in `AppState.swift`.
 
 import AppKit

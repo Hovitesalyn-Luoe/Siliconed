@@ -276,7 +276,7 @@ struct Problem: Equatable, Sendable {
         case .settingsAlreadyLoaded:
             return String(localized: "Quit and reopen the app.")
         case .internalFailure:
-            return String(localized: "Try again; if it persists, report it (Help ▸ Report My Configuration…).")
+            return String(localized: "Try again; if it persists, report it (Help ▸ Measure This Mac…, then Open the Issue).")
         }
     }
 }

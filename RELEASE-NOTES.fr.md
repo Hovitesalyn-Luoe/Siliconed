@@ -67,7 +67,7 @@
 - **La carte change la vitesse, pas l’image** au-delà de l’arithmétique qu’elle a vérifiée ; le même
   Mac avec la même carte donne toujours les mêmes bits.
 - **« Chaîne », en tête du rack, ouvre la mesure** : orange, avec sa puce, tant que ce Mac n’est pas
-  mesuré, puce verte ensuite. **Signaler ma configuration** (menu Aide) montre la carte et ce qu’elle
+  mesuré, puce verte ensuite. **Mesurer ce Mac** (menu Aide) montre la carte et ce qu’elle
   a décidé ; « Ouvrir le signalement » copie désormais le rapport et ouvre un court formulaire GitHub où le
   coller, le rapport ne tenant plus dans un lien ; « Copier le JSON » sert à qui l’envoie autrement.
 

@@ -423,7 +423,7 @@ final class AppState {
     /// are the M1 Pro's, and only a measure says what another Mac's GPU and AMX are worth. So the first
     /// render measures first — when none is kept, or the one kept has another `fingerprint` (another
     /// Mac, macOS build or app build) —, said in the sidebar, never in the background; the user can
-    /// also measure again (« Report My Configuration »), which then applies from the next launch.
+    /// also measure again (« Measure This Mac »), which then applies from the next launch.
     private static let capacityMapKey = "capacityMap"
 
     private static func readStoredMap() -> Diagnostic.Report? {

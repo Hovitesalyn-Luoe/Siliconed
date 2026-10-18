@@ -66,7 +66,7 @@ English · [Français](RELEASE-NOTES.fr.md)
 - **The map changes the speed, not the picture** beyond the arithmetic it checked; the same Mac
   with the same map still gives the same bits.
 - **« Chain », at the head of the rack, opens the measure**: orange, with its chip, until this Mac is
-  measured, a green chip after. **Report My Configuration** (Help menu) shows the map and what it
+  measured, a green chip after. **Measure This Mac** (Help menu) shows the map and what it
   decided; « Open the Issue » now copies the report and opens a short GitHub form to paste it into,
   since the report no longer fits in a link; « Copy JSON » serves whoever sends it another way.
 

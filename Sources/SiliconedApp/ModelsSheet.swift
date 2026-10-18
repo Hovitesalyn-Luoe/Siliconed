@@ -120,7 +120,7 @@ struct ModelManagement: View {
                 }
                 Spacer()
                 Button("Show in Finder") { app.showInFinder() }
-                Button("Report My Configuration…") { app.openDiagnostic() }
+                Button("Measure This Mac…") { app.openDiagnostic() }
                     .help("Measures what this Mac computes, then opens a prefilled GitHub issue")
             }
             if app.visibleReady.isEmpty {

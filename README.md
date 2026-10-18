@@ -52,7 +52,7 @@ of the numbers below, on 18/10/2026: GPU + AMX co-execution on (×1.30), attenti
 between the GPU and the CPU on (×1.49), flash attention off (×1.05, inside the margin), Q8_0
 products off (×0.43), bf16 tensor products off (×0.53). Another chip measures its own and decides
 otherwise. The map buys speed, never another picture beyond the arithmetic it checked; Help →
-**Report My Configuration** shows it and lets you share it ([Community diagnostic](#community-diagnostic)).
+**Measure This Mac** shows it and lets you share it ([Community diagnostic](#community-diagnostic)).
 
 ## Why Siliconed
 
@@ -155,8 +155,7 @@ chosen cell to the end with the same seed: the image its sketch announced.
   8 bits, about 5 GB in GGUF Q4_K_M, instead of 12.3 GB; each step a little slower, the computation
   stays fp32); below 4 bits, the file is refused. An imported LoRA takes its file's name; the
   trainer's name and trigger words show in a tooltip.
-- **Statistics and diagnostic.** The statistics palette (⌥⌘I) is a toolbar button. « Report My
-  Configuration » (Help menu, or « Chain » at the head of the rack, orange until this Mac is
+- **Statistics and diagnostic.** The statistics palette (⌥⌘I) is a toolbar button. « Measure This Mac » (Help menu, or « Chain » at the head of the rack, orange until this Mac is
   measured) shows this Mac's map: what the chip computes, measured, and the paths the engine takes.
 
 Models live in `~/Library/Application Support/Siliconed` (override with `SILICONED_ROOT`).
@@ -281,7 +280,7 @@ computation.
 
 ## Community diagnostic
 
-One machine is not a benchmark. **Report My Configuration** (Help menu) shows the map this Mac
+One machine is not a benchmark. **Measure This Mac** (Help menu) shows the map this Mac
 measured before its first render, in about 30 to 40 seconds and without any model: the matrix
 products of the models' blocks on the GPU, on the CPU's matrix unit and on both at once, fp16 and
 bf16 products, products on published int8 and Q8_0 weights, attention through the engine's three

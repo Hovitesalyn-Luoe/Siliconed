@@ -9,7 +9,7 @@
 // calls to the library), `MainView.swift` (the window's view and the canvas), `Sidebar.swift` (the
 // left column), `Rack.swift` (the chain, each module with its settings), `ModelsSheet.swift` (install,
 // import, remove), `LicenseSheet.swift` (a license to accept),
-// `DiagnosticSheet.swift` (« Report My Configuration »), `Problems.swift` (each `EngineError`, in the
+// `DiagnosticSheet.swift` (« Measure This Mac »), `Problems.swift` (each `EngineError`, in the
 // user's language), `Statistics.swift` (the floating statistics palette), `RemoteControl.swift` and `RemoteControlSocket.swift` (the
 // socket that `silicontrol …` drives, `docs/REMOTE-CONTROL.md`; its `help` text is the module
 // `SilicontrolHelp`, shared with `silicontrol`); the phrases are in `Localizable.xcstrings` (English source, fr de es it). To launch it:
@@ -61,7 +61,7 @@ private struct AppCommands: Commands {
                 .keyboardShortcut(",")
         }
         CommandGroup(replacing: .help) {
-            Button("Report My Configuration…") { app.openDiagnostic() }
+            Button("Measure This Mac…") { app.openDiagnostic() }
         }
         CommandGroup(replacing: .newItem) {
             Button("Siliconed Window") { window.show() }

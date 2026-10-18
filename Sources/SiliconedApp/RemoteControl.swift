@@ -349,7 +349,7 @@ final class RemoteControl {
 
     // ── diagnose ──
 
-    /// `diagnose [--issue]`: **« Report My Configuration », from the terminal** — the sheet opens in the
+    /// `diagnose [--issue]`: **« Measure This Mac », from the terminal** — the sheet opens in the
     /// app and the diagnostic runs (~30 s, no weights, the queue held meanwhile); the answer is the
     /// report, the same JSON the issue carries. `--issue` then does what the sheet's
     /// « Open the Issue » does: GitHub's form opens in the browser, prefilled — the user submits it.

@@ -74,7 +74,7 @@ import Metal
 ///
 /// **The engine reads it in the app, and only there**: the app measures before its first render when it
 /// holds no current map — none yet, or one of another `Fingerprint` (hardware, chip, macOS build, the
-/// app's build: an update measures again) — and whenever the user asks (« Report My Configuration »).
+/// app's build: an update measures again) — and whenever the user asks (« Measure This Mac »).
 /// It keeps the report in its preferences and hands it to `EngineSettings.load(from:map:)`; the rules
 /// (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`,
 /// `gemm_tensor`, `gemm_int8`, `gemm_q8`. The command line, the checks and the close-out never designate a map: today's defaults.

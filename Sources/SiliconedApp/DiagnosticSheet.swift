@@ -1,5 +1,6 @@
-// **« Report My Configuration »: what this Mac computes, measured, then sent as a GitHub issue if the
-// user wants** (`Diagnostic.swift`).
+// **« Measure This Mac »: what this Mac computes, measured — the map the engine tunes itself to —, then
+// sent as a GitHub issue only if the user wants** (`Diagnostic.swift`). The sheet says the tuning first:
+// sharing is an option, not its purpose (the user, 19/10/2026).
 //
 // Three states in one sheet: what the diagnostic does and how long (~30 s, no model needed; it occupies
 // the GPU and the CPU, so it waits for an empty queue — and the queue waits for it); its progress; then
@@ -21,8 +22,8 @@ struct DiagnosticSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Report My Configuration").font(.title2.weight(.semibold))
-                Text("Measures what this Mac's chip computes, and how fast — then, if you want, opens a prefilled GitHub issue. Nothing is sent without your click.")
+                Text("Measure This Mac").font(.title2.weight(.semibold))
+                Text("Siliconed measures what this Mac's chip computes, and how fast, then turns on only the compute paths that are right and faster here. Sharing the result is optional: a prefilled GitHub issue, opened only by your click.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
