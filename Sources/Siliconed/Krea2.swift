@@ -87,7 +87,9 @@ package final class Krea2DiT {
     package var recordBoundaries = false
     /// The token of the render in progress, consulted between two layers (see `Cancellation`).
     package var cancellation: Cancellation?
-    package private(set) var timings: [String: Double] = [:]
+    /// The weight products' phases (`WeightProducts`) added to the DiT's own.
+    package var timings: [String: Double] { ownTimings.merging(products.timings, uniquingKeysWith: +) }
+    private var ownTimings: [String: Double] = [:]
     package var census: [String: (count: Int, seconds: Double, best: Double)] { gemm.census }
     package var conductor: Conductor? { gemm.conductor }
 
@@ -129,8 +131,8 @@ package final class Krea2DiT {
     /// Its expanded weights are kept from one evaluation to the next (`CacheLoRA`, the DiT's only).
     package let lora: LoRA?
     private let cacheLoRA: CacheLoRA?
-    private let loraMid: UnsafeMutablePointer<Float>?
-    private var loraMidBuffer: MTLBuffer?
+    /// The products by a weight, and their LoRA stack.
+    private let products: WeightProducts
 
     package init(artifact: Artifact, latentHeight: Int, latentWidth: Int, maxText: Int = 512,
                 freezeCut: Bool = EngineSettings.effective.frozenCut, lora: LoRA? = nil) throws {
@@ -175,7 +177,6 @@ package final class Krea2DiT {
         freqs = slot("freqs")
         self.lora = r > 0 ? lora : nil
         if let lora, r > 0 {
-            loraMid = slot("loraMid")
             let unapplied = lora.rankPerTarget.keys.filter { !Krea2DiT.appliesLoRA($0) }.sorted()
             if let first = unapplied.first {
                 throw LoRA.Failure.inconsistentShape(target: first, reason: "a Krea 2 module the engine does not adapt "
@@ -184,8 +185,11 @@ package final class Krea2DiT {
             let served = Set(Krea2DiT.loraTargets(config: config).map(\.name))
             cacheLoRA = try CacheLoRA(lora: lora, retain: served.contains)
         } else {
-            loraMid = nil; cacheLoRA = nil
+            cacheLoRA = nil
         }
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: config.dim * config.hidden,
+                                  transposed: true, lora: cacheLoRA, mid: r > 0 ? slot("loraMid") : nil,
+                                  midFloats: maxRows * r)
     }
 
     /// The arena this DiT mapped — what the tests compare with `arenaBytes`.
@@ -237,7 +241,7 @@ package final class Krea2DiT {
 
     private func timed<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
         let started = DispatchTime.now().uptimeNanoseconds
-        defer { timings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9 }
+        defer { ownTimings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9 }
         return try body()
     }
 
@@ -383,11 +387,11 @@ package final class Krea2DiT {
         }
         try attend(rows: n)
         let (mergedb, gateb) = (try slice(merged), try slice(gate))
-        timed("gate") { timings["elementwise GPU", default: 0] += elementwise.carries((mergedb, 0), (gateb, 0), count: n * d) }
+        timed("gate") { ownTimings["elementwise GPU", default: 0] += elementwise.carries((mergedb, 0), (gateb, 0), count: n * d) }
         try linearGPU(prefix + "attn.to_out.0.weight", a: merged, into: o, m: n, k: d, n: d)
         if let tag { record(tag + "attn_out", o, n * d) }
         timed("norm") {
-            timings["elementwise GPU", default: 0] += elementwise.residual((xb, 0), plus: (ob, 0), carries: pregate,
+            ownTimings["elementwise GPU", default: 0] += elementwise.residual((xb, 0), plus: (ob, 0), carries: pregate,
                                                                           rows: n, columns: d)
         }
 
@@ -396,11 +400,11 @@ package final class Krea2DiT {
         try linearGPU(prefix + "ff.gate.weight", a: normed, into: h1, m: n, k: d, n: hh)
         try linearGPU(prefix + "ff.up.weight", a: normed, into: h2, m: n, k: d, n: hh)
         let (h1b, h2b) = (try slice(h1), try slice(h2))
-        timed("swiglu") { timings["elementwise GPU", default: 0] += elementwise.swiglu((h1b, 0), (h2b, 0), count: n * hh) }
+        timed("swiglu") { ownTimings["elementwise GPU", default: 0] += elementwise.swiglu((h1b, 0), (h2b, 0), count: n * hh) }
         try linearGPU(prefix + "ff.down.weight", a: h1, into: o, m: n, k: hh, n: d)
         if let tag { record(tag + "ff_out", o, n * d) }
         timed("norm") {
-            timings["elementwise GPU", default: 0] += elementwise.residual((xb, 0), plus: (ob, 0), carries: postgate,
+            ownTimings["elementwise GPU", default: 0] += elementwise.residual((xb, 0), plus: (ob, 0), carries: postgate,
                                                                           rows: n, columns: d)
         }
     }
@@ -471,8 +475,8 @@ package final class Krea2DiT {
             let ob = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: maxRows * d * 4, name: "merged")
             timed("sdpa wall") {
                 let (gpu, cpu) = split.run(q: qb, k: kb, v: vb, into: ob, q: q, k: k, v: v, out: merged)
-                timings["sdpa GPU", default: 0] += gpu
-                timings["sdpa CPU", default: 0] += cpu
+                ownTimings["sdpa GPU", default: 0] += gpu
+                ownTimings["sdpa CPU", default: 0] += cpu
             }
             return
         }
@@ -486,7 +490,7 @@ package final class Krea2DiT {
         let kb = try gemm.wrap(UnsafeMutableRawPointer(k), bytes: maxRows * kv * 4, name: "k")
         let vb = try gemm.wrap(UnsafeMutableRawPointer(v), bytes: maxRows * kv * 4, name: "v")
         let ob = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: maxRows * d * 4, name: "merged")
-        timed("sdpa wall") { timings["sdpa GPU", default: 0] += attention.run(q: qb, k: kb, v: vb, into: ob) }
+        timed("sdpa wall") { ownTimings["sdpa GPU", default: 0] += attention.run(q: qb, k: kb, v: vb, into: ob) }
     }
 
     /// `C[m, n] = A[m, k] · W`, W laid out `[k, n]` by the forge.
@@ -495,42 +499,9 @@ package final class Krea2DiT {
     ///   Metal wrappers are memoized by address, at their maximum size.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int, rowsA: Int? = nil, rowsC: Int? = nil) throws {
-        // Under `gemm_tensor`, a bf16 weight goes into the reserve as it is and `TensorGEMM` multiplies —
-        // under a LoRA too: its stack adds after the product, whichever path made it.
-        var staged = false
-        let got: Int
-        if gemm.tensor != nil, let count = try timed("staging", {
-            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
-        }) {
-            (got, staged) = (count, true)
-        } else {
-            got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
-        }
-        guard got == k * n else {
-            throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
-        }
         let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: (rowsA ?? maxRows) * k * 4, name: "a")
-        let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: config.dim * config.hidden * 4, name: "w")
         let cb = try gemm.wrap(UnsafeMutableRawPointer(c), bytes: (rowsC ?? maxRows) * n * 4, name: "c")
-        timed("gemm wall") {
-            timings["gemm GPU", default: 0] += staged
-                ? gemm.linear(a: ab, bf16: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
-                : gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
-        }
-        let target = String(name.dropLast(".weight".count))
-        if let lora, let cache = cacheLoRA, let mid = loraMid,
-           let stack = try timed("lora weights", { try cache.module(target, k: k, n: n) }) {
-            if loraMidBuffer == nil {
-                loraMidBuffer = try gemm.wrap(UnsafeMutableRawPointer(mid), bytes: maxRows * lora.maxRank * 4,
-                                              name: "loraMid")
-            }
-            let down = try gemm.wrap(UnsafeMutableRawPointer(stack.down), bytes: k * stack.rank * 4, name: "loraBas")
-            let up = try gemm.wrap(UnsafeMutableRawPointer(stack.up), bytes: stack.rank * n * 4, name: "loraHaut")
-            timed("lora wall") {
-                timings["lora GPU", default: 0] += gemm.lora(x: ab, down: down, mid: loraMidBuffer!, up: up, c: cb,
-                                                             m: m, k: k, r: stack.rank, n: n)
-            }
-        }
+        try products.linear(name, a: ab, c: cb, m: m, k: k, n: n)
     }
 }
 

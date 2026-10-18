@@ -86,8 +86,10 @@ package final class QwenImage21DiT {
     package var recordBoundaries = false
     /// The token of the render in progress, consulted between two layers (see `Cancellation`).
     package var cancellation: Cancellation?
-    package private(set) var timings: [String: Double] = [:]
-    package func resetTimings() { timings.removeAll() }
+    /// The weight products' phases (`WeightProducts`) added to the DiT's own.
+    package var timings: [String: Double] { ownTimings.merging(products.timings, uniquingKeysWith: +) }
+    private var ownTimings: [String: Double] = [:]
+    package func resetTimings() { ownTimings.removeAll(); products.resetTimings() }
 
     private let artifact: Artifact
     private let prefetcher: Prefetcher
@@ -246,7 +248,8 @@ package final class QwenImage21DiT {
     package let lora: LoRA?
     /// Expanded two layers at a time, the next one in the background (`StreamedLoRA`).
     private let cacheLoRA: StreamedLoRA?
-    private let loraMid: UnsafeMutablePointer<Float>?
+    /// The products by a weight, and their LoRA stack — merged into the widened weight where it pays.
+    private let products: WeightProducts
     /// The modules computed in double, outside the GEMMs.
     static let exactModules = ["time_text_embed.timestep_embedder.linear_1", "time_text_embed.timestep_embedder.linear_2",
                                "modulation.1", "norm_out.linear"]
@@ -340,14 +343,17 @@ package final class QwenImage21DiT {
         }
         self.lora = r > 0 ? lora : nil
         if let lora, r > 0 {
-            loraMid = named["loraMid"]
             cacheLoRA = try StreamedLoRA(lora: lora, layers: config.layers,
                                          retain: { !QwenImage21DiT.exactModules.contains($0) })
         } else {
-            loraMid = nil; cacheLoRA = nil
+            cacheLoRA = nil
         }
         self.arenas = arenas
         reserved = sizes
+        let loraMid = r > 0 ? named["loraMid"] : nil
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: config.dim * config.hidden,
+                                  transposed: true, lora: cacheLoRA, mid: loraMid,
+                                  midFloats: loraMid.map { sizes[$0]! / 4 } ?? 0, mergesLoRA: true)
         QwenImage21Rope.write(into: freqs, positions: sequence.positions, axes: config.axes, theta: config.theta)
     }
 
@@ -358,7 +364,7 @@ package final class QwenImage21DiT {
 
     private func timed<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
         let started = DispatchTime.now().uptimeNanoseconds
-        defer { timings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9 }
+        defer { ownTimings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9 }
         return try body()
     }
 
@@ -611,7 +617,7 @@ package final class QwenImage21DiT {
             let begin = chunk * n / chunks, rows = (chunk + 1) * n / chunks - begin
             try linearGPU(prefix + "img_mlp.gate_layer.weight", a: normed + begin * d, into: h1, m: rows, k: d, n: hh)
             try linearGPU(prefix + "img_mlp.proj.weight", a: normed + begin * d, into: h2, m: rows, k: d, n: hh)
-            timed("swiglu") { timings["elementwise GPU", default: 0] += elementwise.swiglu((h1b, 0), (h2b, 0), count: rows * hh) }
+            timed("swiglu") { ownTimings["elementwise GPU", default: 0] += elementwise.swiglu((h1b, 0), (h2b, 0), count: rows * hh) }
             try linearGPU(prefix + "img_mlp.out.weight", a: h1, into: o + begin * d, m: rows, k: hh, n: d)
         }
         try residual(xs, rows: n, bands: bands, gate: 3 * d)
@@ -758,7 +764,7 @@ package final class QwenImage21DiT {
         let (xb, ob, mb) = (try slice(xs), try slice(o), try slice(modulationSlot))
         timed("residual") {
             for band in bands {
-                timings["elementwise GPU", default: 0] += elementwise.residual(
+                ownTimings["elementwise GPU", default: 0] += elementwise.residual(
                     (xb, band.row * d), plus: (ob, band.row * d), carries: (mb, band.modulation - modulationSlot + gate),
                     rows: band.count, columns: d)
             }
@@ -813,8 +819,8 @@ package final class QwenImage21DiT {
                 timed("sdpa wall") {
                     let (gpu, cpu) = split.run(q: qb, k: kb, v: vb, into: ob, q: q + local * d, k: keys, v: values,
                                                out: merged + local * d)
-                    timings["sdpa GPU", default: 0] += gpu
-                    timings["sdpa CPU", default: 0] += cpu
+                    ownTimings["sdpa GPU", default: 0] += gpu
+                    ownTimings["sdpa CPU", default: 0] += cpu
                 }
                 continue
             }
@@ -824,7 +830,7 @@ package final class QwenImage21DiT {
                                       headDim: config.headDim, causal: causal, keySequence: visible)
                 attentions[key] = attention
             }
-            timed("sdpa wall") { timings["sdpa GPU", default: 0] += attention.run(q: qb, k: kb, v: vb, into: ob) }
+            timed("sdpa wall") { ownTimings["sdpa GPU", default: 0] += attention.run(q: qb, k: kb, v: vb, into: ob) }
         }
     }
 
@@ -847,43 +853,7 @@ package final class QwenImage21DiT {
     /// is `TensorGEMM`'s: the stack is then always added after it — merging would widen the weight again.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int) throws {
-        var staged = false
-        let got: Int
-        if gemm.tensor != nil, let count = try timed("staging", {
-            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
-        }) {
-            (got, staged) = (count, true)
-        } else {
-            got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
-        }
-        guard got == k * n else {
-            throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
-        }
-        let (ab, wb, cb) = (try slice(a), try slice(reserve), try slice(c))
-        let target = String(name.dropLast(".weight".count))
-        var lora: (down: MTLBuffer, up: MTLBuffer, rank: Int)?
-        if let cache = cacheLoRA, let stack = try timed("lora weights", { try cache.module(target, k: k, n: n) }) {
-            lora = (try gemm.wrap(UnsafeMutableRawPointer(stack.down), bytes: k * stack.rank * 4, name: "loraDown"),
-                    try gemm.wrap(UnsafeMutableRawPointer(stack.up), bytes: stack.rank * n * 4, name: "loraUp"), stack.rank)
-        }
-        let merged = lora != nil && !staged && LoRA.merges(rows: m, k: k, n: n)
-        if merged, let lora {
-            timed("lora wall") {
-                timings["lora GPU", default: 0] += gemm.accumulatedLinear(a: lora.down, b: lora.up, c: wb, m: k, k: lora.rank, n: n)
-            }
-        }
-        timed("gemm wall") {
-            timings["gemm GPU", default: 0] += staged
-                ? gemm.linear(a: ab, bf16: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
-                : gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
-        }
-        if !merged, let lora, let mid = loraMid {
-            let mb = try slice(mid)
-            timed("lora wall") {
-                timings["lora GPU", default: 0] += gemm.lora(x: ab, down: lora.down, mid: mb, up: lora.up, c: cb,
-                                                             m: m, k: k, r: lora.rank, n: n)
-            }
-        }
+        try products.linear(name, a: try slice(a), c: try slice(c), m: m, k: k, n: n)
     }
 }
 

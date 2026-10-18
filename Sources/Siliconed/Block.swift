@@ -34,14 +34,16 @@ package final class Block {
 
     /// The time per phase, accumulated over all the blocks. We measure instead of deducing: the
     /// arithmetic count gave 25 s out of 48 measured, and the gap could not be guessed by anyone.
-    package internal(set) var timings: [String: Double] = [:]
+    /// The weight products' phases (`WeightProducts`) added to the block's own.
+    package var timings: [String: Double] { ownTimings.merging(products.timings, uniquingKeysWith: +) }
+    private var ownTimings: [String: Double] = [:]
     private func timed<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
         let started = DispatchTime.now().uptimeNanoseconds
         let result = try body()
-        timings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
+        ownTimings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9
         return result
     }
-    package func resetTimings() { timings.removeAll() }
+    package func resetTimings() { ownTimings.removeAll(); products.resetTimings() }
 
     private let shapes: Shapes
     private let eps: Float
@@ -49,7 +51,8 @@ package final class Block {
     /// `x = x + norm2(sublayer(norm1(x)))`, with no scale or gate.
     package var modulation = true
     private let gemm: GEMM
-    private var widener: WidenGPU? { gemm.widener }
+    /// The seven products by a weight, and their LoRA stack.
+    private let products: WeightProducts
     /// The SwiGLU on the GPU, shared by the DiT's three sets of blocks — Krea 2's kernel,
     /// judged against the double. It was 3.1–3.4 % of an
     /// evaluation on the CPU, the first elementwise item of the budget; the norms stay on the CPU.
@@ -82,8 +85,6 @@ package final class Block {
     /// The stack's widened weights, kept from one evaluation to the next and shared by the three
     /// sets of blocks (`CacheLoRA`, owned by the DiT).
     private let cacheLoRA: CacheLoRA?
-    private let loraMid: UnsafeMutablePointer<Float>?
-    private var loraMidBuf: MTLBuffer?
     //
     // **A single reserve, and that is a measured decision.** `widen` reads the fp16 weight from the map
     // and writes its fp32 version — 157 MB for `w1` — serially in front of the GEMM that will read it: 0.90 s
@@ -128,7 +129,10 @@ package final class Block {
         qHeads = pointers["q"]!; kHeads = pointers["k"]!; vHeads = pointers["v"]!; merged = pointers["merged"]!
         hidden1 = pointers["h1"]!; hidden3 = pointers["h3"]!
         scratch = pointers["scratch"]!; weightReserve = pointers["reserve"]!; modulationSlot = pointers["modulation"]!
-        loraMid = pointers["loraMid"]
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: weightReserve,
+                                  capacity: shapes.dim * shapes.hidden, transposed: artifact.linearWeightsTransposed,
+                                  lora: cacheLoRA, mid: pointers["loraMid"],
+                                  midFloats: shapes.sequence * (lora?.maxRank ?? 0))
         // There used to be four more slices here — `halfQ`, `halfK`, `halfV` and `sdpa` —, the
         // intermediate buffers of the CPU rearrangement around the SDPA. The transposition now living
         // in the graph, `q`, `k`, `v` go out as they are and the output comes back into
@@ -159,83 +163,7 @@ package final class Block {
         }
     }
 
-    /// The weight in the reserve is bf16 (`Artifact.stage`), not fp32: the next product is
-    /// `TensorGEMM`'s. Set by `prepareWeight`, read by `product`.
-    private var staged = false
-
-    /// Puts the weight `name` into the reserve, by the shortest path available: **as it is** when
-    /// `gemm_tensor` is on and the map's weight is bf16, otherwise widened to fp32.
-    ///
-    /// The fp32 paths, GPU or CPU, produce the **same bits**: the choice is about speed, never about
-    /// correctness.
-    private func prepareWeight(_ name: String, count: Int, buffer: MTLBuffer) throws {
-        staged = false
-        if gemm.tensor != nil, let got = try timed("staging", {
-            try artifact.stage(prefix + name, into: UnsafeMutableRawPointer(weightReserve),
-                               capacity: 2 * shapes.dim * shapes.hidden)
-        }) {
-            guard got == count else {
-                throw Artifact.Failure.badHeader("\(prefix + name): \(got) values, \(count) expected")
-            }
-            staged = true
-            return
-        }
-        if let widener, let source = widener.source(prefix + name, in: artifact) {
-            guard artifact.tensors[prefix + name]?.count == count else {
-                throw Artifact.Failure.badHeader("\(prefix + name): unexpected shape")
-            }
-            try timed("widening") {
-                _ = try widener.run(source: source, destination: buffer, count: count)
-            }
-            return
-        }
-        // The fallback: an fp32 tensor in the map (`t_embedder`, `cap_embedder`), a count that
-        // is not a multiple of four, or no GPU at all. This is the previous path, intact.
-        widener?.countFallback(count)
-        try timed("widening") { try widen(name, count: count, into: weightReserve) }
-    }
-
-
-    /// `C = A · W`, `W` the weight `prepareWeight` just put in the reserve `w`, by the path it took.
-    private func product(a: MTLBuffer, w: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
-        staged ? gemm.linear(a: a, bf16: w, c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
-               : gemm.linear(a: a, b: w, c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
-    }
-
     // ── the LoRA stack ───────────────────────────────────────────────────────────────────────
-
-    /// The Metal wrappers of the three slices, memoized **at their maximum size**.
-    ///
-    /// `GEMM.wrap` memoizes by address and wraps again when a longer length is asked: wrapping a
-    /// small shape first would make the next, larger one wrap anew — `w2` (k = 10240) comes after
-    /// `to_q` (k = 3840). So we wrap once, for the worst case — the one the slices are sized for.
-    private func loraMidBuffer() throws -> MTLBuffer? {
-        guard let lora, lora.maxRank > 0, let mid = loraMid else { return nil }
-        if let m = loraMidBuf { return m }
-        let m = try gemm.wrap(UnsafeMutableRawPointer(mid),
-                              bytes: shapes.sequence * lora.maxRank * 4, name: "loraMid")
-        loraMidBuf = m
-        return m
-    }
-
-    /// **Adds this weight's LoRA stack to `c`, which already holds `x·W`.**
-    ///
-    /// Does nothing — no materialization, no submission — when no LoRA touches this
-    /// module. That is the case for the four refiners with the reference LoRA, which only targets the
-    /// thirty `layers.*`.
-    private func applyLoRA(_ weightName: String, x: MTLBuffer, c: MTLBuffer,
-                               m: Int, k: Int, n: Int) throws {
-        guard let cache = cacheLoRA, let mid = try loraMidBuffer() else { return }
-        let target = prefix + String(weightName.dropLast(".weight".count))
-        guard let stack = try timed("lora weights", { try cache.module(target, k: k, n: n) }) else { return }
-        let down = try gemm.wrap(UnsafeMutableRawPointer(stack.down), bytes: k * stack.rank * 4, name: "loraDown")
-        let up = try gemm.wrap(UnsafeMutableRawPointer(stack.up), bytes: stack.rank * n * 4, name: "loraUp")
-        timed("lora wall") {
-            timings["lora GPU", default: 0] += gemm.lora(
-                x: x, down: down, mid: mid, up: up, c: c,
-                m: m, k: k, r: stack.rank, n: n)
-        }
-    }
 
     /// **The modulation's LoRA — and it is the only place where it does not go through the GPU.**
     ///
@@ -351,7 +279,6 @@ package final class Block {
         let a = try gemm.wrap(UnsafeMutableRawPointer(normed), bytes: shapes.sequence * d * 4, name: "normed")
         let o = try gemm.wrap(UnsafeMutableRawPointer(qkv), bytes: shapes.sequence * d * 4, name: "qkv")
 
-        let w = try gemm.wrap(UnsafeMutableRawPointer(weightReserve), bytes: d * h * 4, name: "w")
         // `q`, `k`, `v` are written directly into their slice: there used to be a copy of
         // `qkv` per projection here, 1 % of an evaluation. Same bits — the same GEMM, another address.
         let qb = try gemm.wrap(UnsafeMutableRawPointer(qHeads), bytes: shapes.sequence * d * 4, name: "q")
@@ -360,9 +287,7 @@ package final class Block {
         for (name, destination, buffer, label) in [("attention.to_q.weight", qHeads, qb, "layer0_q"),
                                                    ("attention.to_k.weight", kHeads, kb, "layer0_k"),
                                                    ("attention.to_v.weight", vHeads, vb, "layer0_v")] {
-            try prepareWeight(name, count: d * d, buffer: w)
-            timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: a, w: w, c: buffer, m: s, k: d, n: d) }
-            try applyLoRA(name, x: a, c: buffer, m: s, k: d, n: d)
+            try products.linear(prefix + name, a: a, c: buffer, m: s, k: d, n: d)
             record(label, destination, s * d)
         }
 
@@ -387,21 +312,19 @@ package final class Block {
         let split = flash == nil ? try headSplit() : nil
         timed("sdpa wall") {
             if let flash {
-                timings["sdpa GPU", default: 0] += flash.run(q: qb, k: kb, v: vb, into: ob)
+                ownTimings["sdpa GPU", default: 0] += flash.run(q: qb, k: kb, v: vb, into: ob)
             } else if let split {
                 let (gpu, cpu) = split.run(q: qb, k: kb, v: vb, into: ob, q: qHeads, k: kHeads, v: vHeads, out: merged)
-                timings["sdpa GPU", default: 0] += gpu
-                timings["sdpa CPU", default: 0] += cpu
+                ownTimings["sdpa GPU", default: 0] += gpu
+                ownTimings["sdpa CPU", default: 0] += cpu
             } else {
-                timings["sdpa GPU", default: 0] += attention().run(q: qb, k: kb, v: vb, into: ob)
+                ownTimings["sdpa GPU", default: 0] += attention().run(q: qb, k: kb, v: vb, into: ob)
             }
         }
         record("layer0_sdpa_out", merged, s * d)
 
-        try prepareWeight("attention.to_out.0.weight", count: d * d, buffer: w)
         let mb = try gemm.wrap(UnsafeMutableRawPointer(merged), bytes: shapes.sequence * d * 4, name: "merged")
-        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: mb, w: w, c: o, m: s, k: d, n: d) }
-        try applyLoRA("attention.to_out.0.weight", x: mb, c: o, m: s, k: d, n: d)
+        try products.linear(prefix + "attention.to_out.0.weight", a: mb, c: o, m: s, k: d, n: d)
         record("layer0_attention_out", qkv, s * d)
 
         try widen("attention_norm2.weight", count: d, into: scratch)
@@ -418,21 +341,15 @@ package final class Block {
 
         let h1 = try gemm.wrap(UnsafeMutableRawPointer(hidden1), bytes: shapes.sequence * h * 4, name: "h1")
         let h3 = try gemm.wrap(UnsafeMutableRawPointer(hidden3), bytes: shapes.sequence * h * 4, name: "h3")
-        try prepareWeight("feed_forward.w1.weight", count: h * d, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: a, w: w, c: h1, m: s, k: d, n: h) }
-        try applyLoRA("feed_forward.w1.weight", x: a, c: h1, m: s, k: d, n: h)
+        try products.linear(prefix + "feed_forward.w1.weight", a: a, c: h1, m: s, k: d, n: h)
         record("layer0_w1_out", hidden1, s * h)
-        try prepareWeight("feed_forward.w3.weight", count: h * d, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: a, w: w, c: h3, m: s, k: d, n: h) }
-        try applyLoRA("feed_forward.w3.weight", x: a, c: h3, m: s, k: d, n: h)
+        try products.linear(prefix + "feed_forward.w3.weight", a: a, c: h3, m: s, k: d, n: h)
         record("layer0_w3_out", hidden3, s * h)
 
-        timed("swiglu") { timings["elementwise GPU", default: 0] += elementwise.swiglu((h1, 0), (h3, 0), count: s * h) }
+        timed("swiglu") { ownTimings["elementwise GPU", default: 0] += elementwise.swiglu((h1, 0), (h3, 0), count: s * h) }
         record("layer0_swiglu_out", hidden1, s * h)
 
-        try prepareWeight("feed_forward.w2.weight", count: d * h, buffer: w)
-        timed("gemm wall") { timings["gemm GPU", default: 0] += product(a: h1, w: w, c: o, m: s, k: h, n: d) }
-        try applyLoRA("feed_forward.w2.weight", x: h1, c: o, m: s, k: h, n: d)
+        try products.linear(prefix + "feed_forward.w2.weight", a: h1, c: o, m: s, k: h, n: d)
         record("layer0_feed_forward_out", qkv, s * d)
 
         try widen("ffn_norm2.weight", count: d, into: scratch)

@@ -64,7 +64,9 @@ package final class AnimaDiT {
     package var recordBoundaries = false
     /// The token of the render in progress, consulted between two layers (see `Cancellation`).
     package var cancellation: Cancellation?
-    package private(set) var timings: [String: Double] = [:]
+    /// The weight products' phases (`WeightProducts`) added to the DiT's own.
+    package var timings: [String: Double] { ownTimings.merging(products.timings, uniquingKeysWith: +) }
+    private var ownTimings: [String: Double] = [:]
     package var conductor: Conductor? { gemm.conductor }
     package var census: [String: (count: Int, seconds: Double, best: Double)] { gemm.census }
 
@@ -81,7 +83,8 @@ package final class AnimaDiT {
     /// they are computed once, LoRA included.
     package let lora: LoRA?
     private let loraDown, loraUp, loraMid: UnsafeMutablePointer<Float>?
-    private var loraBuffers: (down: MTLBuffer, up: MTLBuffer, mid: MTLBuffer)?
+    /// The products by a weight, and their LoRA stack (expanded at each call into `loraBas`/`loraHaut`).
+    private let products: WeightProducts
     /// The GELU on the GPU.
     private let gelu: AnimaGELU
 
@@ -164,6 +167,10 @@ package final class AnimaDiT {
         } else {
             loraDown = nil; loraUp = nil; loraMid = nil
         }
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: config.dim * config.hidden,
+                                  transposed: transposed,
+                                  lora: r > 0 ? ExpandedLoRA(lora: lora!, down: loraDown!, up: loraUp!) : nil,
+                                  mid: loraMid, midFloats: max(imageTokens, textLength) * r)
     }
 
     /// The bytes this DiT's arena maps — what the tests compare with `AnimaDiT.arenaBytes`.
@@ -176,7 +183,7 @@ package final class AnimaDiT {
 
     private func timed<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
         let started = DispatchTime.now().uptimeNanoseconds
-        defer { timings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9 }
+        defer { ownTimings[phase, default: 0] += Double(DispatchTime.now().uptimeNanoseconds - started) * 1e-9 }
         return try body()
     }
 
@@ -299,7 +306,7 @@ package final class AnimaDiT {
         modulate(3)
         try linearGPU(prefix + "ff.net.0.proj.weight", a: normed, into: h1, m: s, k: d, n: h)
         let buffer = try gemm.wrap(UnsafeMutableRawPointer(h1), bytes: imageTokens * h * 4, name: "c")
-        timed("gelu") { timings["gelu GPU", default: 0] += gelu.run(buffer, count: s * h) }
+        timed("gelu") { ownTimings["gelu GPU", default: 0] += gelu.run(buffer, count: s * h) }
         try linearGPU(prefix + "ff.net.2.weight", a: h1, into: o, m: s, k: h, n: d)
         if let tag { record(tag + "ff_out", o, s * d) }
         timed("residual") { Ops.gatedResidual(x, plus: o, gate: gate, rows: s, columns: d) }
@@ -381,12 +388,12 @@ package final class AnimaDiT {
         timed("sdpa wall") {
             timed(phase) {
                 switch path {
-                case .graph(let a): timings["sdpa GPU", default: 0] += a.run(q: qb, k: kb, v: vb, into: ob)
-                case .flash(let f): timings["sdpa GPU", default: 0] += f.run(q: qb, k: kb, v: vb, into: ob)
+                case .graph(let a): ownTimings["sdpa GPU", default: 0] += a.run(q: qb, k: kb, v: vb, into: ob)
+                case .flash(let f): ownTimings["sdpa GPU", default: 0] += f.run(q: qb, k: kb, v: vb, into: ob)
                 case .split(let h):
                     let (gpu, cpu) = h.run(q: qb, k: kb, v: vb, into: ob, q: q, k: k, v: v, out: merged)
-                    timings["sdpa GPU", default: 0] += gpu
-                    timings["sdpa CPU", default: 0] += cpu
+                    ownTimings["sdpa GPU", default: 0] += gpu
+                    ownTimings["sdpa CPU", default: 0] += cpu
                 }
             }
         }
@@ -593,42 +600,9 @@ package final class AnimaDiT {
     ///   never the part a call uses.
     private func linearGPU(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                            m: Int, k: Int, n: Int, rowsA: Int? = nil, rowsC: Int? = nil) throws {
-        // Under `gemm_tensor`, a bf16 weight goes into the reserve as it is and `TensorGEMM` multiplies.
-        var staged = false
-        let got: Int
-        if gemm.tensor != nil, let count = try timed("staging", {
-            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * reserveCapacity)
-        }) {
-            (got, staged) = (count, true)
-        } else {
-            got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: reserveCapacity) }
-        }
-        guard got == k * n else {
-            throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
-        }
         let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: (rowsA ?? imageTokens) * k * 4, name: "a")
-        let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: config.dim * config.hidden * 4, name: "w")
         let cb = try gemm.wrap(UnsafeMutableRawPointer(c), bytes: (rowsC ?? imageTokens) * n * 4, name: "c")
-        timed("gemm wall") {
-            timings["gemm GPU", default: 0] += staged
-                ? gemm.linear(a: ab, bf16: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: transposed)
-                : gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: transposed)
-        }
-        let target = String(name.dropLast(".weight".count))
-        if let lora, let down = loraDown, let up = loraUp, let mid = loraMid, lora.rank(target) > 0 {
-            if loraBuffers == nil {
-                let rmax = lora.maxRank, d = config.dim
-                loraBuffers = (try gemm.wrap(UnsafeMutableRawPointer(down), bytes: max(lora.maxEntry, d) * rmax * 4, name: "loraBas"),
-                               try gemm.wrap(UnsafeMutableRawPointer(up), bytes: rmax * max(lora.maxOutput, d) * 4, name: "loraHaut"),
-                               try gemm.wrap(UnsafeMutableRawPointer(mid), bytes: max(imageTokens, textLength) * rmax * 4, name: "loraMid"))
-            }
-            let r = try timed("lora weights") { try lora.materialize(target, k: k, n: n, down: down, up: up) }
-            let t = loraBuffers!
-            timed("lora wall") {
-                timings["lora GPU", default: 0] += gemm.lora(x: ab, down: t.down, mid: t.mid, up: t.up, c: cb,
-                                                             m: m, k: k, r: r, n: n)
-            }
-        }
+        try products.linear(name, a: ab, c: cb, m: m, k: k, n: n)
     }
 }
 
