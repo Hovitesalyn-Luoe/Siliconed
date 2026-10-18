@@ -191,8 +191,12 @@ package struct DenoisingPlan: Sendable {
 /// seen through the app, blurred and grainy, and still at 5 (22 dB) — it removes the noise in its
 /// last two evaluations. A sketch of it saves 15 s of 51 for an image no one can judge: its cells
 /// are finished images.
+///
+/// **0.5 since 0.12, 0.8 before** (the user, 18/10/2026): at 0.8 a LoRA's style had not landed — Anima
+/// under inCase, 4 of 8, showed the strengths 0.6 and 1 alike, the fine line still to come. 0.5 costs
+/// 6 of 8 on Z-Image and Anima; the panel's stepper still stops anywhere.
 package enum Sketch {
-    package static let threshold: Float = 0.8
+    package static let threshold: Float = 0.5
 
     /// The evaluations a sketch of `sigmas` (a full schedule, ending in 0, one evaluation per step)
     /// takes. Never fewer than 1, never more than the schedule's.

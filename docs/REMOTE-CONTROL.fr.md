@@ -47,7 +47,7 @@ de planche. Un groupe `{…}` sur aucun axe est refusé (`grid`), jamais multipl
 
 **L'exploration esquisse.** Dans la fenêtre (`Sources/SiliconedApp/Exploration.swift`), chaque case
 s'arrête en esquisse (`Request.sketch`) à 512 sur le petit côté (512²,
-512×768, 768×512) : environ la moitié du temps d'une image finie. Ses esquisses restent dans la
+512×768, 768×512) : environ les trois quarts du temps d'une image finie. Ses esquisses restent dans la
 fenêtre, pas dans l'historique, jusqu'à l'exploration suivante, qui la remplace (ses cases en
 attente quittent la file, celle en cours s'arrête). Sur une case, « Finir cette image » la rend
 jusqu'au bout — même graine, même taille — dans l'historique, l'image que l'esquisse annonçait ;

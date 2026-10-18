@@ -33,13 +33,13 @@ final class RequestTests: XCTestCase {
     /// B1: with a single step, the schedule of the three models is finite (Anima rendered σ₀ = NaN).
     /// **A request is comparable**: a SwiftUI app relaunches a preview on `onChange(of: request)`.
     /// Two requests equal at construction, then the seed, then the image, tell them apart.
-    /// **Where a sketch stops**: σ, not a count — Z-Image's 8 steps stop after 4 evaluations
-    /// (σ .750; 3 of 7 at σ .800 before 0.8.2), Qwen-Image-2.1's 6 after 4 (σ .632); a plan sketched
+    /// **Where a sketch stops**: σ, not a count — at σ ≤ 0.5 (0.12), Z-Image's 8 steps stop after 6
+    /// evaluations (4 at the 0.8 before), a 6-step schedule ending .632, .3 after 5; a plan sketched
     /// keeps its first evaluations.
     func testASketchStopsWhereSigmaReachesTheThreshold() {
-        XCTAssertEqual(Sketch.evaluations(sigmas: FlowMatchSchedule(steps: 8).sigmas), 4)
-        XCTAssertEqual(zImage.sketchEvaluations(steps: nil, width: 512, height: 512), 4)
-        XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0.963, 0.923, 0.837, 0.632, 0.3, 0]), 4)
+        XCTAssertEqual(Sketch.evaluations(sigmas: FlowMatchSchedule(steps: 8).sigmas), 6)
+        XCTAssertEqual(zImage.sketchEvaluations(steps: nil, width: 512, height: 512), 6)
+        XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0.963, 0.923, 0.837, 0.632, 0.3, 0]), 5)
         XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0.95, 0.9, 0.5, 0]), 3)
         XCTAssertEqual(Sketch.evaluations(sigmas: [1, 0]), 1)
         XCTAssertEqual(zImage.chain.denoising.plan(height: 128, width: 128, steps: 8, start: 0).reduced, 0)

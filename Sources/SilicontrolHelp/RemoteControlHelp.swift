@@ -376,8 +376,8 @@ package enum RemoteControlHelp {
         one image with every cell side by side, the axes' values as labels and the prompt as its
         title, added to the history (i…). Nothing is written to disk without --out or save.
         Options and arguments are those of « add » (help add), except --batch: a cell is one image.
-        --sketch: an EXPLORATION — each cell stops as soon as its image is readable (σ ≤ 0.8: 4
-          evaluations of 8 for z-image, about half the time) and shows the model's estimate of the
+        --sketch: an EXPLORATION — each cell stops as soon as its image is readable (σ ≤ 0.5: 6
+          evaluations of 8 for z-image, about three quarters of the time) and shows the model's estimate of the
           final image (qwen-image-2.1 does not sketch: its cells are finished images); the cells go to the app's Exploration window and
           their "type": "image" lines (with "sketch": n), not to the history, and no sheet is drawn.
           A new exploration replaces the last one's cells still waiting. Keep 512 on the short side.
@@ -1036,8 +1036,8 @@ package enum RemoteControlHelp {
         en étiquettes et le prompt en titre, ajoutée à l'historique (i…). Rien n'est écrit sur
         disque sans --out ou save.
         Options et arguments sont ceux de « add » (help add), sauf --batch : une case est une image.
-        --sketch : une EXPLORATION — chaque case s'arrête dès que son image se lit (σ ≤ 0,8 : 4
-          évaluations sur 8 pour z-image, environ la moitié du temps) et montre l'estimation par le
+        --sketch : une EXPLORATION — chaque case s'arrête dès que son image se lit (σ ≤ 0,5 : 6
+          évaluations sur 8 pour z-image, environ les trois quarts du temps) et montre l'estimation par le
           modèle de l'image finale (qwen-image-2.1 n'esquisse pas : ses cases sont des images finies) ; les cases vont dans la fenêtre
           Exploration de l'app et dans leurs lignes "type": "image" (avec "sketch": n), pas dans
           l'historique, et aucune planche n'est dessinée. Une nouvelle exploration remplace les cases

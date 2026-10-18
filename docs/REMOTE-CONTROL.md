@@ -44,7 +44,7 @@ never multiplied. The syntax is in `silicontrol help grid`.
 
 **The exploration sketches.** In the window (`Sources/SiliconedApp/Exploration.swift`), each cell
 stops as a sketch (`Request.sketch`) at 512 on the short side (512², 512×768,
-768×512): about half the time of a finished image. Its sketches stay in the window, not in the
+768×512): about three quarters of the time of a finished image. Its sketches stay in the window, not in the
 history, until the next exploration, which replaces it (its waiting cells leave the queue, the
 running one stops). On a cell, « Finish This Image » renders it to its end — same seed, same size —
 into the history, the image the sketch announced; « Reuse These Settings » gives the rack its model,

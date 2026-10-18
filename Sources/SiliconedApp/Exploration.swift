@@ -6,7 +6,7 @@
 //        │ « Explore » (⌘↩ in the panel)
 //        ▼
 //     the queue    one job per cell (`AppState.enqueueGrid(sketch: true)`), each stopped as a sketch
-//                  where its image is already readable (`Sketch`: σ ≤ 0.8 — 4 evaluations of 8 for
+//                  where its image is already readable (`Sketch`: σ ≤ 0.5 — 6 evaluations of 8 for
 //                  Z-Image; Qwen-Image-2.1 does not sketch, its cells are finished images), its picture
 //                  the model's estimate x̂₀ — or
 //                  later, the panel says (`exploreStop`): under a LoRA the style can settle late,
