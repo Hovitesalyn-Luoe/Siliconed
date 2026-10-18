@@ -93,7 +93,9 @@ package final class Qwen3VLVision {
     private let pixels, x, normed, qkv, q, k, v, attended, projected, hidden: UnsafeMutablePointer<Float>
     private let mergedOut, freqs, bias, gain, shift, reserve: UnsafeMutablePointer<Float>
     private let pixelsBuf, xBuf, normedBuf, qkvBuf, qBuf, kBuf, vBuf, attendedBuf: MTLBuffer
-    private let projectedBuf, hiddenBuf, mergedOutBuf, reserveBuf: MTLBuffer
+    private let projectedBuf, hiddenBuf, mergedOutBuf: MTLBuffer
+    /// The products by a weight (`WeightProducts`): the path the settings chose, as in the DiTs.
+    private let products: WeightProducts
 
     package var recordedNames: Set<String>?
     package var cancellation: Cancellation?
@@ -130,7 +132,7 @@ package final class Qwen3VLVision {
         projectedBuf = try gemm.wrap(projected, bytes: n * d * 4, name: "projected")
         hiddenBuf = try gemm.wrap(hidden, bytes: n * i * 4, name: "hidden")
         mergedOutBuf = try gemm.wrap(mergedOut, bytes: (n / 4) * o * 4, name: "mergedOut")
-        reserveBuf = try gemm.wrap(reserve, bytes: largest * 4, name: "reserve")
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: largest, transposed: true)
         self.config = config
         self.artifact = artifact
         self.gemm = gemm
@@ -177,8 +179,7 @@ package final class Qwen3VLVision {
     /// `y = x · W + b`, the weight stored `[input, output]` by the forge.
     private func linear(_ name: String, _ a: MTLBuffer, _ c: MTLBuffer, _ out: UnsafeMutablePointer<Float>,
                         rows: Int, inputs: Int, outputs: Int) throws {
-        try widen(name + ".weight", count: inputs * outputs, into: reserve)
-        _ = gemm.linear(a: a, b: reserveBuf, c: c, m: rows, k: inputs, n: outputs, weightIsTransposed: true)
+        try products.linear(name + ".weight", a: a, c: c, m: rows, k: inputs, n: outputs)
         try widen(name + ".bias", count: outputs, into: bias)
         let b = bias
         Parallel.rows(rows, width: outputs) { first, count in

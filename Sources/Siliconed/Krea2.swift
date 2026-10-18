@@ -539,7 +539,8 @@ package final class Krea2TextFusion {
     ///   process `12 T` rows.
     /// The LoRA stack: a Krea 2 LoRA also touches the fusion (32 modules out of 256 for Incase).
     package let lora: LoRA?
-    private let loraDown, loraUp, loraMid: UnsafeMutablePointer<Float>?
+    /// The products by a weight, and their LoRA stack (expanded at each call into `loraBas`/`loraHaut`).
+    private let products: WeightProducts
 
     package init(artifact: Artifact, maxTokens: Int, freezeCut: Bool = EngineSettings.effective.frozenCut,
                 lora: LoRA? = nil) throws {
@@ -573,13 +574,12 @@ package final class Krea2TextFusion {
         h1 = slot("h1"); h2 = slot("h2"); scratch = slot("scratch")
         reserve = slot("reserve")
         self.lora = rank > 0 ? lora : nil
-        if rank > 0 {
-            loraDown = slot("loraBas"); loraUp = slot("loraHaut")
-            loraMid = slot("loraMid")
-        } else {
-            loraDown = nil; loraUp = nil; loraMid = nil
-        }
         reserved = sizes
+        let loraMid = rank > 0 ? slot("loraMid") : nil
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: sizes[reserve]! / 4,
+                                  transposed: true,
+                                  lora: rank > 0 ? ExpandedLoRA(lora: lora!, down: slot("loraBas"), up: slot("loraHaut")) : nil,
+                                  mid: loraMid, midFloats: loraMid.map { sizes[$0]! / 4 } ?? 0)
     }
 
     /// The arena this fusion mapped — what the tests compare with `arenaBytes`.
@@ -671,22 +671,9 @@ package final class Krea2TextFusion {
     /// `GEMM` that submits them to 64 rows, not this arena.
     private func linear(_ name: String, a: UnsafeMutablePointer<Float>, into c: UnsafeMutablePointer<Float>,
                         m: Int, k: Int, n: Int) throws {
-        let got = try artifact.materialize(name, into: reserve, capacity: reserveCapacity)
-        guard got == k * n else {
-            throw Artifact.Failure.badHeader("\(name): \(got) values, \(k * n) expected")
-        }
         let ab = try gemm.wrap(UnsafeMutableRawPointer(a), bytes: reserved[a]!, name: "a")
-        let wb = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: reserved[reserve]!, name: "w")
         let cb = try gemm.wrap(UnsafeMutableRawPointer(c), bytes: reserved[c]!, name: "c")
-        _ = gemm.linear(a: ab, b: wb, c: cb, m: m, k: k, n: n, weightIsTransposed: true)
-        let target = String(name.dropLast(".weight".count))
-        if let lora, let down = loraDown, let up = loraUp, let mid = loraMid, lora.rank(target) > 0 {
-            let r = try lora.materialize(target, k: k, n: n, down: down, up: up)
-            _ = gemm.lora(x: ab, down: try gemm.wrap(UnsafeMutableRawPointer(down), bytes: reserved[down]!, name: "loraBas"),
-                          mid: try gemm.wrap(UnsafeMutableRawPointer(mid), bytes: reserved[mid]!, name: "loraMid"),
-                          up: try gemm.wrap(UnsafeMutableRawPointer(up), bytes: reserved[up]!, name: "loraHaut"),
-                          c: cb, m: m, k: k, r: r, n: n)
-        }
+        try products.linear(name, a: ab, c: cb, m: m, k: k, n: n)
     }
 }
 

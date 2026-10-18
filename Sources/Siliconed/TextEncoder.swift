@@ -106,7 +106,9 @@ package final class TextEncoder {
     private let x, normed, projected, q, k, v, kWide, vWide, attended: UnsafeMutablePointer<Float>
     private let gate, up, swiglu, freqs, scratch, reserve: UnsafeMutablePointer<Float>
     private let xBuf, normedBuf, projectedBuf, qBuf, kBuf, vBuf: MTLBuffer
-    private let kWideBuf, vWideBuf, attendedBuf, gateBuf, upBuf, reserveBuf: MTLBuffer
+    private let kWideBuf, vWideBuf, attendedBuf, gateBuf, upBuf: MTLBuffer
+    /// The products by a weight (`WeightProducts`): the path the settings chose, as in the DiTs.
+    private let products: WeightProducts
 
     /// - Parameter sequence: the number of positions computed. **Not necessarily 512** — see
     ///   the note on causality at the top of this file.
@@ -166,7 +168,7 @@ package final class TextEncoder {
         attendedBuf = try gemm.wrap(attended, bytes: s * a * 4, name: "attended")
         gateBuf = try gemm.wrap(gate, bytes: s * i * 4, name: "gate")
         upBuf = try gemm.wrap(up, bytes: s * i * 4, name: "up")
-        reserveBuf = try gemm.wrap(reserve, bytes: h * i * 4, name: "reserve")
+        products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: h * i, transposed: true)
 
         // A 1D table: `rope_theta` is 10⁶ here against 256 for the DiT, and the position is
         // the token index. Written once — it depends on neither the prompt nor the layer.
@@ -426,15 +428,9 @@ package final class TextEncoder {
             Ops.rmsNorm(x, weight: scratch, into: normed, rows: sequence, columns: h, eps: config.eps)
             if layer == 0 { record("l0_normed", normed, sequence * h) }
 
-            try widen(p + "self_attn.q_proj.weight", count: h * a, into: reserve)
-            _ = gemm.linear(a: normedBuf, b: reserveBuf, c: qBuf, m: sequence, k: h, n: a,
-                            weightIsTransposed: true)
-            try widen(p + "self_attn.k_proj.weight", count: h * kv, into: reserve)
-            _ = gemm.linear(a: normedBuf, b: reserveBuf, c: kBuf, m: sequence, k: h, n: kv,
-                            weightIsTransposed: true)
-            try widen(p + "self_attn.v_proj.weight", count: h * kv, into: reserve)
-            _ = gemm.linear(a: normedBuf, b: reserveBuf, c: vBuf, m: sequence, k: h, n: kv,
-                            weightIsTransposed: true)
+            try products.linear(p + "self_attn.q_proj.weight", a: normedBuf, c: qBuf, m: sequence, k: h, n: a)
+            try products.linear(p + "self_attn.k_proj.weight", a: normedBuf, c: kBuf, m: sequence, k: h, n: kv)
+            try products.linear(p + "self_attn.v_proj.weight", a: normedBuf, c: vBuf, m: sequence, k: h, n: kv)
 
             if layer == 0 { record("l0_q", q, sequence * a); record("l0_v", v, sequence * kv) }
             // Qwen3's QK-Norm.
@@ -453,26 +449,18 @@ package final class TextEncoder {
             _ = attention.run(q: qBuf, k: kWideBuf, v: vWideBuf, into: attendedBuf)
 
             if layer == 0 { record("l0_attended", attended, sequence * a) }
-            try widen(p + "self_attn.o_proj.weight", count: a * h, into: reserve)
-            _ = gemm.linear(a: attendedBuf, b: reserveBuf, c: projectedBuf, m: sequence, k: a, n: h,
-                            weightIsTransposed: true)
+            try products.linear(p + "self_attn.o_proj.weight", a: attendedBuf, c: projectedBuf, m: sequence, k: a, n: h)
             for j in 0..<(sequence * h) { x[j] += projected[j] }
 
             // ── feed-forward network ────────────────────────────────────────────────────────
             try widen(p + "post_attention_layernorm.weight", count: h, into: scratch)
             Ops.rmsNorm(x, weight: scratch, into: normed, rows: sequence, columns: h, eps: config.eps)
 
-            try widen(p + "mlp.gate_proj.weight", count: h * i, into: reserve)
-            _ = gemm.linear(a: normedBuf, b: reserveBuf, c: gateBuf, m: sequence, k: h, n: i,
-                            weightIsTransposed: true)
-            try widen(p + "mlp.up_proj.weight", count: h * i, into: reserve)
-            _ = gemm.linear(a: normedBuf, b: reserveBuf, c: upBuf, m: sequence, k: h, n: i,
-                            weightIsTransposed: true)
+            try products.linear(p + "mlp.gate_proj.weight", a: normedBuf, c: gateBuf, m: sequence, k: h, n: i)
+            try products.linear(p + "mlp.up_proj.weight", a: normedBuf, c: upBuf, m: sequence, k: h, n: i)
             Ops.siluGate(gate, up, into: gate, count: sequence * i, scratch: swiglu)
 
-            try widen(p + "mlp.down_proj.weight", count: i * h, into: reserve)
-            _ = gemm.linear(a: gateBuf, b: reserveBuf, c: projectedBuf, m: sequence, k: i, n: h,
-                            weightIsTransposed: true)
+            try products.linear(p + "mlp.down_proj.weight", a: gateBuf, c: projectedBuf, m: sequence, k: i, n: h)
             for j in 0..<(sequence * h) { x[j] += projected[j] }
 
             record("layer\(layer)_out", x, sequence * h)
