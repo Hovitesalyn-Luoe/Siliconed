@@ -289,7 +289,10 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
     for i in start..<(sigmas.count - 1) {
         try context.check()
         let tick = Date()
-        let v = try latent.values.withUnsafeBufferPointer { try speed($0.baseAddress!, told[i]) }
+        // Under DPM++ and UniPC, diffusers' integer timestep over 1000 (`Solver.toldSigma`).
+        let v = try latent.values.withUnsafeBufferPointer {
+            try speed($0.baseAddress!, context.solver.toldSigma(told[i], first: i == start))
+        }
         if let walk {
             latent.values.withUnsafeMutableBufferPointer { x in
                 v.withUnsafeBufferPointer { walk.step(latent: x.baseAddress!, derivative: $0.baseAddress!) }

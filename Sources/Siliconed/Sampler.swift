@@ -115,7 +115,10 @@ package final class Sampler {
             // `noise_pred = −v`, then the solver — Euler: `x ← x + Δσ · noise_pred`, hence `x − Δσ · v`.
             // One autorelease pool per evaluation: what MPS autoreleases (descriptors, NDArrays and
             // their buffers) dies with the evaluation, not with the render's queue item.
-            var negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: FlowMatchSchedule.modelTime(sigma: told[step])) }
+            // Under DPM++ and UniPC, `(1000 − k)/1000` with diffusers' integer timestep (`Solver.integerTimestep`).
+            let time = solver.integerTimestep(told[step], first: step == start).map { Float(1000 - $0) / 1000 }
+                ?? FlowMatchSchedule.modelTime(sigma: told[step])
+            var negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: time) }
             negated.withUnsafeMutableBufferPointer { buffer in
                 var minusOne: Float = -1
                 vDSP_vsmul(buffer.baseAddress!, 1, &minusOne, buffer.baseAddress!, 1, vDSP_Length(count))

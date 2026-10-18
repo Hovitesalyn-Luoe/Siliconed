@@ -727,7 +727,7 @@ package enum AnimaOps {
                 vDSP_svesq(r, 1, &sumOfSquares, n)
                 var inverse = 1 / (sumOfSquares / Float(columns) + 1e-6).squareRoot()
                 vDSP_vsmul(r, 1, &inverse, r, 1, n)
-                vDSP_vma(r, 1, factor, 1, shift, 1, r, 1, n)
+                Ops.multiplyAdd(r, times: factor, plus: shift, count: columns)   // `* (1 + scale) + shift`: two roundings
             }
         }
     }

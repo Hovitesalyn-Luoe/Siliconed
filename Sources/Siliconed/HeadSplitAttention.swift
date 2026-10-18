@@ -399,6 +399,7 @@ package final class HeadSplitAttention {
             var maximum: Float = 0
             vDSP_maxv(row, 1, &maximum, vDSP_Length(keys))
             var a = scale, b = -scale * maximum
+            // Fused, and left so: the softmax is already not torch's SDPA order (max, exp, sum, divide).
             vDSP_vsmsa(row, 1, &a, &b, row, 1, vDSP_Length(keys))
             vvexpf(row, row, &count)
             vDSP_sve(row, 1, s.sums + r, vDSP_Length(keys))

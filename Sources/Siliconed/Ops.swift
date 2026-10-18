@@ -41,15 +41,24 @@ package enum Ops {
         }
     }
 
-    /// `x[s, d] += gate[d] · y[s, d]` — the residual carried by its gate.
+    /// `x[s, d] += gate[d] · y[s, d]` — the residual carried by its gate, in two roundings as torch
+    /// writes `x + gate * y` (`vDSP_vma` fused them until 18/10).
     package static func gatedResidual(_ x: UnsafeMutablePointer<Float>, plus y: UnsafePointer<Float>,
                                      gate: UnsafePointer<Float>, rows: Int, columns: Int) {
-        let n = vDSP_Length(columns)
         Parallel.rows(rows, width: columns) { first, howMany in
             for row in first..<(first + howMany) {
-                vDSP_vma(y + row * columns, 1, gate, 1, x + row * columns, 1, x + row * columns, 1, n)
+                let (r, o) = (x + row * columns, y + row * columns)
+                for j in 0..<columns { r[j] = r[j] + gate[j] * o[j] }
             }
         }
+    }
+
+    /// `x[i] = x[i] · a[i] + b[i]` in **two roundings**, as torch computes `x * a + b` on the CPU — it
+    /// never fuses them; `vDSP_vma` does (one rounding). Swift does not contract `a * b + c` either.
+    @inline(__always)
+    package static func multiplyAdd(_ x: UnsafeMutablePointer<Float>, times a: UnsafePointer<Float>,
+                                   plus b: UnsafePointer<Float>, count: Int) {
+        for i in 0..<count { x[i] = x[i] * a[i] + b[i] }
     }
 
     /// `silu(a) · b`, with `silu(x) = x · σ(x) = x / (1 + e^{−x})`.

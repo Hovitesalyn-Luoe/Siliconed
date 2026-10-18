@@ -607,6 +607,8 @@ package final class Krea2TextFusion {
             for c in 0..<d { out[c] = 0 }
             for l in 0..<12 {
                 var weight = w[l]
+                // Fused and in order: torch's `nn.Linear(12, 1)` sums in another order (a third of the values
+                // match either a fused or an unfused sequential sum), so nothing to align here.
                 vDSP_vsma(x + (token * 12 + l) * d, 1, &weight, out, 1, out, 1, vDSP_Length(d))
             }
         }
@@ -759,7 +761,7 @@ package enum Krea2Ops {
             Parallel.rows(rows, width: columns) { first, howMany in
                 for row in first..<(first + howMany) {
                     let r = x + row * columns
-                    vDSP_vma(r, 1, factor, 1, shift, 1, r, 1, vDSP_Length(columns))
+                    Ops.multiplyAdd(r, times: factor, plus: shift, count: columns)   // two roundings, as torch
                 }
             }
         }

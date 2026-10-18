@@ -28,11 +28,11 @@ import Foundation
 ///     second-order step is a first-order one — IEEE arithmetic, not a special case. UniPC does not
 ///     (its corrector solves a system with a `−∞` in it): diffusers moves σ = 1 to `1 − 10⁻⁶` in
 ///     `set_timesteps`. Only the solver's coefficients see it here (`solverSigmas`).
-///   - **What the DiT is told under DPM++ and UniPC is not diffusers'**, and on purpose: both schedulers
-///     cast `timesteps` to **int64** (`set_timesteps`, `.to(torch.int64)`), so diffusers' DiT is told
-///     `⌊1000σ⌋/1000` at every step — 999 for the nudged σ = 1, 954 for 0.954545 — a σ quantized to
-///     10⁻³, where Euler's (`FlowMatchEulerDiscreteScheduler`) keeps the float. The engine tells the
-///     DiT the schedule's σ under every rule, as Euler does (18/10, read in diffusers 0.41.0).
+///   - **Under DPM++ and UniPC the DiT is told an integer timestep**: both schedulers cast `timesteps`
+///     to **int64** (`set_timesteps`, `.to(torch.int64)`), so diffusers' DiT is told `⌊1000σ⌋/1000` —
+///     `σ·1000` in float32, truncated, after UniPC's nudge: 999 for σ = 1 under UniPC, 1000 under
+///     DPM++, 954 for 0.954545 — where Euler's (`FlowMatchEulerDiscreteScheduler`) keeps the float.
+///     The engine tells it the same (`integerTimestep`, since 18/10); the update keeps the true σ.
 ///   - **UniPC corrects after the evaluation, not before**: the DiT sees the predictor's sample,
 ///     `x̂₀` is computed on that same sample, and only then is the sample corrected — the corrected
 ///     one feeds the next predictor, never the DiT.
@@ -45,6 +45,24 @@ public enum Solver: String, CaseIterable, Sendable, Codable {
     case eulerAncestral = "euler-ancestral"
     case dpmpp2m = "dpmpp-2m"
     case unipc
+
+    /// **The scheduler's timestep under this rule** — what the pipeline divides by 1000 before the DiT
+    /// (see above): `σ·1000` in float32, truncated, UniPC's first σ = 1 nudged to `1 − 10⁻⁶` first.
+    /// `nil` under Euler's rules, whose scheduler keeps the float.
+    package func integerTimestep(_ sigma: Float, first: Bool) -> Int? {
+        switch self {
+        case .euler, .eulerAncestral: return nil
+        case .dpmpp2m: return Int(sigma * 1000)
+        case .unipc: return Int((first && abs(sigma - 1) < 1e-6 ? sigma - 1e-6 : sigma) * 1000)
+        }
+    }
+
+    /// The σ to hand a DiT that computes its time as `(σ·1000)/1000` (Qwen-Image-2.1, Anima, Krea 2):
+    /// `k/1000` for an integer timestep `k` — not always `k` again once times 1000 in float32 (10 of
+    /// 0…1000 are not), but always `k/1000` again once divided — σ itself under Euler's rules.
+    package func toldSigma(_ sigma: Float, first: Bool) -> Float {
+        integerTimestep(sigma, first: first).map { Float($0) / 1000 } ?? sigma
+    }
 
     /// How many latents a render under this rule keeps besides its own: the previous `x̂₀` for both
     /// multistep rules; for UniPC also the predictor's sample, its `D₁` (the corrector's) and the

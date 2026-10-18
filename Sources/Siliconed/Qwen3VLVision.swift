@@ -200,7 +200,8 @@ package final class Qwen3VLVision {
         Parallel.rows(rows, width: columns) { first, count in
             for r in first..<(first + count) {
                 let row = out + r * columns
-                vDSP_vma(row, 1, g, 1, s, 1, row, 1, vDSP_Length(columns))
+                // torch's affine LayerNorm is its plain one times the weight plus the bias, two roundings.
+                Ops.multiplyAdd(row, times: g, plus: s, count: columns)
             }
         }
     }

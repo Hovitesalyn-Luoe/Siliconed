@@ -314,7 +314,8 @@ package struct QwenImage21Sampler {
                               sigmas: [Float], told: [Float]? = nil, reduced: Int = 0,
                               onStep: (Step) throws -> Void) throws {
         let steps = sigmas.count - 1
-        let told = told ?? sigmas
+        // Under DPM++ and UniPC, diffusers' integer timestep over 1000 (`Solver.toldSigma`).
+        let told = (told ?? sigmas).enumerated().map { solver.toldSigma($1, first: $0 == 0) }
         let half = references.isEmpty ? min(max(0, reduced), steps) : 0
         guard height % 2 == 0, width % 2 == 0, half == 0 || (height % 4 == 0 && width % 4 == 0) else {
             throw Artifact.Failure.misuse("Qwen-Image-2.1: a target grid \(width)×\(height) not made of 2×2 slots"
