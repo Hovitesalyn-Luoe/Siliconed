@@ -256,7 +256,7 @@ extension AppState {
                     licenseRequest = LicenseRequest(card: card)
                 }
             } else {
-                complete(job, issue, images: jobImages)
+                complete(job, issue, images: jobImages, warnings: journal)
             }
             next()
         }

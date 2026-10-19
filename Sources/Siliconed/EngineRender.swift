@@ -301,7 +301,12 @@ extension Engine {
                 context.image = n
                 context.timings = timings
                 context.emit(.stage(.decoding, image: n))
+                // **An image that is not finite is never delivered as done** (`FiniteImage`): the latent
+                // before paying for its decoding, the pixels after it — a black image after 200 s, said
+                // as such, rather than handed to the history as a success.
+                try FiniteImage.require(latent.values, "the final latent", image: n)
                 let image = try autoreleasepool { try chain.decoding.decode(latent, context: context) }
+                try FiniteImage.require(image.pixels, "the decoded image", image: n)
                 // An image's time: its own text, encoding and denoising, then its decoding.
                 context.timings.total = elapsed + context.timings.decoding
                 context.footprints.end = Arena.processFootprint()
@@ -347,5 +352,30 @@ extension Engine {
         let latent = try encoding.encoder(image, context: context)
         cache.store(latent, key: key)
         return latent
+    }
+}
+
+/// **A render's last guard**: a value that is not finite (NaN, ±∞) in the final latent or the decoded
+/// pixels makes an image that comes out black or blank — whatever the family, whatever went wrong upstream
+/// (a velocity gone non-finite, a GPU fault). The render throws `EngineError.nonFiniteImage` instead of
+/// returning it: no `Render`, no `.image` event, nothing in the history. One pass over each, at the end
+/// of a render only (a 1024² latent is 65 536 to 262 144 floats, its pixels 3 Mi): never inside a step.
+package enum FiniteImage {
+    /// How many values of `values` are not finite.
+    package static func nonFiniteCount(_ values: [Float]) -> Int {
+        values.withUnsafeBufferPointer { b in
+            var n = 0
+            for v in b where !v.isFinite { n += 1 }
+            return n
+        }
+    }
+
+    /// Throws `.nonFiniteImage` when `values` carries a non-finite value; the count, and `what` it was
+    /// found in, go to the render's warnings — the error itself says nothing technical.
+    package static func require(_ values: [Float], _ what: String, image: Int) throws(EngineError) {
+        let bad = nonFiniteCount(values)
+        guard bad > 0 else { return }
+        Warnings.emit("✗ image \(image + 1): \(what) carries \(bad) non-finite values out of \(values.count): not delivered")
+        throw .nonFiniteImage
     }
 }

@@ -370,9 +370,9 @@ final class AppState {
     var enlarging: Entry.ID?
     var enlargeDownload: Double?
     var enlargeSpeed: Double?
-    /// The session's finished jobs, their outcome and their images (even removed from the history
-    /// since): `wait t3` afterwards still returns the answer.
-    private(set) var completed: [Int: (job: Job, issue: Issue, images: [Int])] = [:]
+    /// The session's finished jobs, their outcome, their images (even removed from the history
+    /// since) and the engine's warnings during their render: `wait t3` afterwards still returns the answer.
+    private(set) var completed: [Int: (job: Job, issue: Issue, images: [Int], warnings: [String])] = [:]
     var jobImages: [Int] = []
     /// **The grids whose cells are still on their way**, and which cell each job is.
     var gridRuns: [Int: GridRun] = [:]
@@ -394,8 +394,8 @@ final class AppState {
     func unsubscribe(_ token: UUID) { subscribers[token] = nil }
     func signal(_ s: Signal) { for listener in subscribers.values { listener(s) } }
 
-    func complete(_ t: Job, _ issue: Issue, images: [Int] = []) {
-        completed[t.ordinal] = (t, issue, images)
+    func complete(_ t: Job, _ issue: Issue, images: [Int] = [], warnings: [String] = []) {
+        completed[t.ordinal] = (t, issue, images, warnings.map(Library.withoutHome))
         signal(.finished(t, issue))
         if let at = gridCells.removeValue(forKey: t.ordinal), gridRuns[at.grid] != nil {
             gridRuns[at.grid]!.issues[at.cell] = issue

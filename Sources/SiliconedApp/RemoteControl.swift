@@ -165,9 +165,11 @@ final class RemoteControl {
     }
 
     /// A job's end, as the remote control writes it: `outcome`, and for an error its translated
-    /// `message` and the engine's stable `code` (`EngineError.code`, `"license_not_accepted"`…).
-    private static func json(_ issue: Issue, job n: Int, images: [Int]) -> [String: Any] {
+    /// `message` and the engine's stable `code` (`EngineError.code`, `"license_not_accepted"`…);
+    /// `warnings`, the engine's own lines during its render (English), when it wrote any.
+    private static func json(_ issue: Issue, job n: Int, images: [Int], warnings: [String] = []) -> [String: Any] {
         var o: [String: Any] = ["job": "t\(n)", "images": images.map { "i\($0)" }]
+        if !warnings.isEmpty { o["warnings"] = warnings }
         switch issue {
         case .finished: o["outcome"] = "done"
         case .stopped: o["outcome"] = "stopped"
@@ -946,7 +948,7 @@ final class RemoteControl {
         for n in jobs {
             guard let t = app.completed[n] else { continue }
             for k in t.images { if let e = app.history.first(where: { $0.ordinal == k }) { emitImage(e, folder: folder, c) } }
-            tallies[n] = Self.json(t.issue, job: n, images: t.images)
+            tallies[n] = Self.json(t.issue, job: n, images: t.images, warnings: t.warnings)
         }
         if app.drawingSheets[g] == nil, let ended = app.endedGrids[g] {
             if let s = ended.sheet, let e = app.history.first(where: { $0.ordinal == s }) {
@@ -963,7 +965,8 @@ final class RemoteControl {
             case .image(let t, let e) where jobs.contains(t.ordinal):
                 self.emitImage(e, folder: folder, c)
             case .finished(let t, let issue) where jobs.contains(t.ordinal):
-                tallies[t.ordinal] = Self.json(issue, job: t.ordinal, images: self.app.completed[t.ordinal]?.images ?? [])
+                tallies[t.ordinal] = Self.json(issue, job: t.ordinal, images: self.app.completed[t.ordinal]?.images ?? [],
+                                               warnings: self.app.completed[t.ordinal]?.warnings ?? [])
             case .sheet(let run, let entry) where run.ordinal == g:
                 if let entry { self.emitImage(entry, folder: folder, type: "sheet", c) }
                 if let token { self.app.unsubscribe(token) }
@@ -1045,7 +1048,7 @@ final class RemoteControl {
 
         func image(_ e: Entry) { emitImage(e, folder: folder, c) }
         func tally(_ n: Int, _ issue: Issue, _ images: [Int]) {
-            tallies[n] = Self.json(issue, job: n, images: images)
+            tallies[n] = Self.json(issue, job: n, images: images, warnings: app.completed[n]?.warnings ?? [])
             remainingSet.remove(n)
         }
         func verdict() {
@@ -1120,7 +1123,8 @@ final class RemoteControl {
                 self.emit(c, o)
                 quitIfIdle()
             case let .finished(t, issue):
-                var o = Self.json(issue, job: t.ordinal, images: self.app.completed[t.ordinal]?.images ?? [])
+                var o = Self.json(issue, job: t.ordinal, images: self.app.completed[t.ordinal]?.images ?? [],
+                                  warnings: self.app.completed[t.ordinal]?.warnings ?? [])
                 o["type"] = "end"
                 self.emit(c, o)
                 // `.finished` goes out before the next one is started: the queue says whether any is left.

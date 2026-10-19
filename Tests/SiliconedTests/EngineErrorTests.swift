@@ -1,4 +1,5 @@
 import Foundation
+import os
 import XCTest
 @testable import Siliconed
 
@@ -13,7 +14,7 @@ final class EngineErrorTests: XCTestCase {
     func testEveryCaseHasAUniqueCodeAndASentence() {
         let codes = EngineError.samples.map(\.code)
         XCTAssertEqual(Set(codes).count, codes.count, "two cases share a code: \(codes)")
-        XCTAssertEqual(codes.count, 43, "a case was added: give it a sample, a code, a sentence")
+        XCTAssertEqual(codes.count, 44, "a case was added: give it a sample, a code, a sentence")
         for e in EngineError.samples {
             XCTAssertTrue(e.code.allSatisfy { $0.isLowercase || $0 == "_" }, e.code)
             let sentence = e.errorDescription ?? ""
@@ -43,6 +44,43 @@ final class EngineErrorTests: XCTestCase {
         // The template's own count stays a breakdown: the user cannot cause it.
         guard case .internalFailure(component: "prompt", _) = EngineError(Qwen3VLPrompt.Failure.slots(images: 1, slots: 2))
         else { return XCTFail() }
+    }
+
+    /// **An image that is not finite is refused, never delivered** (`FiniteImage`, the render's last
+    /// guard): one NaN or ±∞ among the latent's values throws `nonFiniteImage`, its count goes to the
+    /// warnings; large, tiny, subnormal and signed-zero values are finite and pass.
+    func testANonFiniteLatentIsRefusedWithAWarning() throws {
+        var latent = (0..<16 * 64 * 64).map { Float($0 % 97) / 48 - 1 }
+        latent[3] = .greatestFiniteMagnitude; latent[4] = -.leastNonzeroMagnitude; latent[5] = -0
+        XCTAssertEqual(FiniteImage.nonFiniteCount(latent), 0)
+        let said = OSAllocatedUnfairLock<[String]>(initialState: [])
+        try Warnings.during({ line in said.withLock { $0.append(line) } }) {
+            try FiniteImage.require(latent, "the final latent", image: 0)
+        }
+        XCTAssertTrue(said.withLock { $0 }.isEmpty)
+
+        for bad: Float in [.nan, .signalingNaN, .infinity, -.infinity] {
+            var broken = latent
+            broken[broken.count - 1] = bad; broken[1000] = bad
+            XCTAssertEqual(FiniteImage.nonFiniteCount(broken), 2, "\(bad)")
+            said.withLock { $0 = [] }
+            try Warnings.during({ line in said.withLock { $0.append(line) } }) {
+                XCTAssertThrowsError(try FiniteImage.require(broken, "the decoded image", image: 1)) {
+                    XCTAssertEqual($0 as? EngineError, .nonFiniteImage)
+                }
+            }
+            let lines = said.withLock { $0 }
+            XCTAssertEqual(lines.count, 1)
+            XCTAssertTrue(lines.first?.contains("image 2: the decoded image carries 2 non-finite values out of 65536") ?? false,
+                          "\(lines)")
+        }
+        // Said to a person without a word of numerics; the code is the stable key the app translates.
+        let e = EngineError.nonFiniteImage
+        XCTAssertEqual(e.code, "non_finite_image")
+        XCTAssertEqual(EngineError(e), e)
+        for word in ["NaN", "finite", "latent", "∞"] {
+            XCTAssertFalse("\(e)".contains(word), word)
+        }
     }
 
     /// The door: whatever a body throws comes out as an `EngineError`.

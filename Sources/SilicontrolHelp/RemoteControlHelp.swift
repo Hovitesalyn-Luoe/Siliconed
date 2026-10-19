@@ -457,7 +457,10 @@ package enum RemoteControlHelp {
           outcome: done · stopped (stopped mid-computation; the images already made stay)
                  · removed (removed from the queue before running) · error (with "message",
                  the engine's sentence in the app's language, and "code", its stable key:
-                 "license_not_accepted", "insufficient_memory", "disk_full"…).
+                 "license_not_accepted", "insufficient_memory", "disk_full"…). An image whose
+                 pixels came out unusable (black or blank) is never "done": "error", code
+                 "non_finite_image".
+          "warnings": the engine's own lines during the job's render (English), when it wrote any.
           If a job is not "done": "ok": false, "error": "render", exit 1.
 
         FAILURES: usage, unknown_job, write.
@@ -506,7 +509,7 @@ package enum RemoteControlHelp {
           {"type": "stage", "job": "t3", "stage": "denoising", "batch_image": 1}
           {"type": "step", "job": "t3", "batch_image": 1, "step": 4, "steps_total": 8, "seconds": 5.8}
           {"type": "image", "image": "i7", …}           (as in « wait », without "path")
-          {"type": "end", "job": "t3", "outcome": "done" | "stopped" | "removed" | "error"}
+          {"type": "end", "job": "t3", "outcome": "done" | "stopped" | "removed" | "error"}   (+ "warnings", as in « wait »)
           {"type": "sheet", "image": "i9", "grid": "g2", …}   (a grid's last cell ended; "image": null without a sheet)
         VERDICT: {"ok": true, "message": "queue empty"}
         """,
@@ -1118,7 +1121,10 @@ package enum RemoteControlHelp {
           outcome : done · stopped (arrêté en plein calcul ; les images déjà faites restent)
                   · removed (retiré de la file avant de tourner) · error (avec "message", la
                   phrase du moteur dans la langue de l'app, et "code", sa clé stable :
-                  "license_not_accepted", "insufficient_memory", "disk_full"…).
+                  "license_not_accepted", "insufficient_memory", "disk_full"…). Une image dont
+                  les pixels sont sortis inutilisables (noire ou vide) n'est jamais "done" :
+                  "error", code "non_finite_image".
+          "warnings" : les lignes du moteur pendant le rendu du travail (en anglais), s'il en a écrit.
           Si un travail n'est pas "done" : "ok": false, "error": "render", sortie 1.
 
         ÉCHECS : usage, unknown_job, write.
@@ -1168,7 +1174,7 @@ package enum RemoteControlHelp {
           {"type": "stage", "job": "t3", "stage": "denoising", "batch_image": 1}
           {"type": "step", "job": "t3", "batch_image": 1, "step": 4, "steps_total": 8, "seconds": 5.8}
           {"type": "image", "image": "i7", …}           (comme dans « wait », sans "path")
-          {"type": "end", "job": "t3", "outcome": "done" | "stopped" | "removed" | "error"}
+          {"type": "end", "job": "t3", "outcome": "done" | "stopped" | "removed" | "error"}   (+ "warnings", comme dans « wait »)
           {"type": "sheet", "image": "i9", "grid": "g2", …}   (la dernière case d'une grille a fini ; "image": null sans planche)
         VERDICT : {"ok": true, "message": "queue empty"}
         Les textes "message" et "hint" suivent la langue de l'app ; ceux montrés ici sont les anglais.

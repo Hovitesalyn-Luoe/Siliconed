@@ -19947,6 +19947,34 @@
         }
       }
     },
+    "This render went wrong and its image is unusable: it wasn't kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Rendering ist schiefgegangen und sein Bild ist unbrauchbar: Es wurde nicht behalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este renderizado ha salido mal y su imagen no se puede usar: no se ha conservado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce rendu a mal tourné et son image est inutilisable : elle n’a pas été gardée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo rendering non è riuscito e la sua immagine è inutilizzabile: non è stata conservata."
+          }
+        }
+      }
+    },
     "This session uses the choices of this Mac's measure of %@." : {
       "localizations" : {
         "de" : {

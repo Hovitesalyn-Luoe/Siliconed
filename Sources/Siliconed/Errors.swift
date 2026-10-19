@@ -126,6 +126,11 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
     case renderAlreadyRunning
     /// The render, the installation or the download was cancelled.
     case cancelled
+    /// **The render went wrong and its image is unusable**: the final latent, or the decoded image, carries a
+    /// non-finite value (NaN, ±∞) — an image of that kind comes out black or blank. Thrown instead of
+    /// delivering it as done; nothing of it is kept. Not a misuse: the same request rendered again is the
+    /// remedy, and an issue if it comes back. The count and where are in the render's warnings.
+    case nonFiniteImage
     /// `EngineSettings.load(from:)` after the settings were read from another profile.
     case settingsAlreadyLoaded(loaded: String, requested: String)
     /// A breakdown deep in the engine (GPU, kernels, arenas, forge numerics): not a misuse.
@@ -231,6 +236,7 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case .memoryNeedUnknown: return "memory_need_unknown"
         case .renderAlreadyRunning: return "render_already_running"
         case .cancelled: return "cancelled"
+        case .nonFiniteImage: return "non_finite_image"
         case .settingsAlreadyLoaded: return "settings_already_loaded"
         case .internalFailure: return "internal_failure"
         }
@@ -331,6 +337,7 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
             return "The memory a render of \(model) needs cannot be computed: its model files cannot be read."
         case .renderAlreadyRunning: return "Another render is already running on this machine."
         case .cancelled: return "Cancelled."
+        case .nonFiniteImage: return "This render went wrong and its image is unusable: it was not kept."
         case .settingsAlreadyLoaded: return "The engine settings were already loaded from another profile."
         case let .internalFailure(component, detail): return "Internal engine failure (\(component)): \(detail)"
         }
@@ -394,6 +401,7 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case .memoryNeedUnknown: return "Reinstall the model, or import it again."
         case .renderAlreadyRunning: return "Wait for it to finish, or add the request to the app's queue."
         case .cancelled: return nil
+        case .nonFiniteImage: return "Render it again; if it happens again, open an issue."
         case .settingsAlreadyLoaded: return "Load the settings at launch, before the first render."
         case .internalFailure: return "Try again; if it persists, open an issue with this message."
         }
@@ -533,7 +541,7 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         .loraForOtherModel(lora: "PopArt", target: "z-image", model: "krea2"),
         .incompatibleChain(output: "flux", input: "qwen-image"),
         .insufficientMemory(needed: 7_800_000_000, budget: 8_589_934_592), .memoryNeedUnknown(model: "z-image"),
-        .renderAlreadyRunning, .cancelled,
+        .renderAlreadyRunning, .cancelled, .nonFiniteImage,
         .settingsAlreadyLoaded(loaded: "/a", requested: "/b"), .internalFailure(component: "gpu", detail: "no Metal device"),
     ]
 }

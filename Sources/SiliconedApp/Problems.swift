@@ -174,6 +174,8 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Another program is already rendering on this library.")
         case .cancelled:                                             // cancelled
             return String(localized: "Stopped.")
+        case .nonFiniteImage:                                        // non_finite_image
+            return String(localized: "This render went wrong and its image is unusable: it wasn't kept.")
         case .settingsAlreadyLoaded:                                 // settings_already_loaded
             return String(localized: "The engine settings were already loaded from another profile.")
         case .internalFailure(let component, _):                     // internal_failure
@@ -275,7 +277,7 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Wait for it to finish, then render again.")
         case .settingsAlreadyLoaded:
             return String(localized: "Quit and reopen the app.")
-        case .internalFailure:
+        case .internalFailure, .nonFiniteImage:
             return String(localized: "Try again; if it persists, report it (Help ▸ Measure This Mac…, then Open the Issue).")
         }
     }
