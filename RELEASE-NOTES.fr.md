@@ -42,18 +42,18 @@
 
 ### Rendu plus rapide, allumé par défaut
 
-- **Un nouveau réglage, en tête des Réglages, allumé par défaut, pour les quatre modèles.** En 1024²,
-  1024×1536 et 1536×1024, les premières évaluations se font sur la grille en demi-taille — 3 sur 8
+- **Un nouveau réglage, en tête des Réglages, allumé par défaut, pour les quatre modèles.** Dès 1024 px
+  de chaque côté (1024², 1024×1536, 1536×1024…), les premières évaluations se font sur la grille en demi-taille — 3 sur 8
   pour Z-Image, Qwen-Image-2.1 et Anima, 4 pour Krea 2, dont le calendrier décalé garde ses premiers
   niveaux de bruit plus hauts —, puis le reste en pleine taille. Toujours 8 évaluations ; une
   évaluation en demi-taille coûte environ un quart d’une pleine. Aucun format portrait ou paysage
   usuel n’en profite : la moitié de 832×1216 passerait sous 512 px d’un côté.
 - **Les temps**, sur un M1 Pro de 16 Go, Standard, graine 42, mis en file dans l’app (allumé /
   éteint) : en 1024², Z-Image 84,5 / 117,7 s, Qwen-Image-2.1 103,7 / 142,7 s, Anima 32,7 / 44,4 s,
-  Krea 2 145,6 / 221,1 s ; en 1024×1536, 131,0 / 190 s, 161,7 / 232 s, 52,5 / 75,6 s,
-  216,9 / 355,3 s. En Légère, allumé, à 1024² : Z-Image 90–91 s, Qwen-Image-2.1 111,0 s, Anima
-  35,4 s, Krea 2 153,8 s — la Légère économise le disque et la mémoire (pic de Krea 2 : 1,55 Go),
-  pas le temps.
+  Krea 2 145,6 / 221,1 s ; en 1024×1536, allumé : 131,0 s, 161,7 s, 52,5 s et 216,9 s (Krea 2
+  éteint : 355,3 s). En Légère, allumé, à 1024² : Z-Image 90–91 s, Qwen-Image-2.1 111,0 s, Anima
+  35,4 s, Krea 2 153,8 s — la Légère économise le disque et la mémoire (pic de Krea 2 dans l’app :
+  1,55 Go), pas le temps.
 - **Pourquoi c’est propre cette fois.** Les pas en demi-taille retirés dans la 0.8.2 décimaient
   l’état et agrandissaient la vitesse : cette vitesse ne portait pas de haute bande, si bien que le
   bruit fin de l’état n’était jamais retiré pendant qu’ils tournaient (du sable sur la peau et les
@@ -61,9 +61,9 @@
   Désormais la demi-grille reçoit la moyenne 2×2 de l’état plus la basse bande du bruit de départ
   — sans repliement, au bon niveau de bruit —, et la vitesse ramenée en pleine taille est celle qui
   mène l’état complet à l’estimation propre agrandie : elle retire le bruit fin au rythme d’un pas
-  plein, et l’état reste exactement sur le chemin de la recette. Le nombre de chaque modèle a été
+  plein, et l’état reste exactement sur le chemin de la recette. Le nombre d’évaluations en demi-taille de chaque modèle a été
   jugé à l’œil sur deux prompts, un portrait et la bibliothèque, à la même graine : ni sable ni craquelé, taches de rousseur, cheveux et dos des
-  livres intacts ; un pas de plus, et les taches de rousseur pâlissent, les étagères tournent aux
+  livres intacts ; un pas de plus, et les taches de rousseur pâlissent, les étagères virent aux
   blocs.
 - **Une autre image, pas une image dégradée.** À la même graine, l’image n’est pas celle de la
   recette en pleine taille : la composition se décide dans les premiers pas (la même scène, parfois
@@ -134,7 +134,6 @@
   image pour la session) ; une passe du VAE que le GPU refuse est signalée au lieu d’être ignorée.
   `silicontrol` le rend en `"error"` avec le code `non_finite_image`, et le verdict de `wait` (et la
   ligne `end` de `follow`) porte désormais les `"warnings"` du moteur.
-
 - **Des formats par modèle** : Qwen-Image-2.1 veut des côtés multiples de 32, Anima au plus 2048 px ;
   l’un et l’autre sont refusés avant tout calcul, et le champ de taille dit la règle du modèle choisi.
 - **Le cache de rendu ne dure qu’une session** : vidé au lancement et à la fermeture, il ne compte

@@ -68,7 +68,7 @@ Apple's model is downloaded by macOS only with `--download` (else `download_requ
 ## The command
 
 `silicontrol` ships inside the app, at `Siliconed.app/Contents/Helpers/silicontrol` (target `Silicontrol`,
-`Sources/Silicontrol/main.swift`). Settings → Command Line ("Install the silicontrol Command…") links it into
+`Sources/Silicontrol/main.swift`). Settings → Command Line ("Install…") links it into
 `/usr/local/bin`. It is a pipe: Foundation only, it does not link the engine. If the app is not
 running, any command but the help launches it and waits for its socket (30 s at most); `silicontrol open`
 does only that. The help (`help`, `help <topic>`, `<command> --help`, no argument) is answered by the
@@ -95,7 +95,7 @@ command itself, without launching the app.
 - **Help has one source**, the module `SilicontrolHelp` (`Sources/SilicontrolHelp/RemoteControlHelp.swift`,
   English and French pages, Foundation only), linked by both sides: `silicontrol` answers from it
   without the app, and the app answers from it on its socket (`nc -U` gets the same pages). The
-  language is the user's order between English and French. The answer is
+  language follows the user's preferred order between English and French. The answer is
   `{"ok": true, "help": "<text>"}` and the client prints the text raw; an unknown topic is a usage
   failure (`"error": "usage"`, the topics in `"hint"`, exit `2`). Commands, flags, JSON keys
   and error codes are English in both languages. When a command changes in the app, its help
@@ -126,6 +126,6 @@ command itself, without launching the app.
 ## Another process that renders
 
 One render per machine: the engine takes a lock (`/private/tmp/siliconed-render.lock`) for each
-render, so another program built on the library is refused with `render_already_running` while the
+render, so another process using the engine (a build from source, say) is refused with `render_already_running` while the
 app renders, and the reverse (two models in 16 GB: the system would swap and both timings would mean
 nothing). Such a program can queue its render in the app with `silicontrol add` instead.

@@ -64,7 +64,7 @@ otherwise. The map buys speed, never another picture beyond the arithmetic it ch
 - **Full fp32, still fast.** Z-Image Turbo at 1024² in 84.5 s on an M1 Pro with the 8
   evaluations its recipe calls for, the first three on a half-size grid
   ([Faster Rendering](#faster-rendering), on by default); 117.7 s with all of them at full size
-  ([measured next to Draw Things](#next-to-draw-things), the reference on the Mac).
+  ([next to Draw Things](#next-to-draw-things), the reference on the Mac).
 - **34 GB of model on a 16 GB Mac, within a fixed budget.** Weights are read from disk as they are
   needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac):
   each render computes what it needs before it starts, takes the fastest plan that fits, and checks
@@ -95,8 +95,8 @@ history. It follows the system language (English, French, German, Spanish or Ita
   decoder), with typed wires and the active stage lit; each stage holds its own settings.
 - **More detail** with Z-Image and Qwen-Image-2.1: « Detail: Normal · More · Most » adds fine
   texture, at no extra time.
-- **Faster Rendering** (Settings, on by default): at 1024² and 1024×1536 either way, the first
-  evaluations on a half-size grid, the rest at full size: a quarter to a third faster, still 8
+- **Faster Rendering** (Settings, on by default): from 1024 px on each side, the first
+  evaluations on a half-size grid, the rest at full size: a quarter to two fifths faster, still 8
   evaluations, a slightly different image ([how](#faster-rendering)).
 - **Variations**: cousins of an image, subtle or strong, with the same settings.
 - **Enlarge ×4** with macOS's own super-resolution (macOS 26): no prompt, nothing added, edges and
@@ -240,7 +240,7 @@ witness, took 123.6 s (the machine drifts by a few percent from one render to th
 1024×1536: the same series. The other times: Qwen-Image-2.1 on
 15/10/2026 with 0.10, Z-Image on 14/10/2026 with 0.8.2. Peak memory is the app's `phys_footprint`,
 sampled every 100 ms. Anima Turbo's other times and its peak are those of the engine alone, without
-the app, render cache off (14–15/10/2026); Krea 2 Turbo's peaks too (17/10/2026). How the deviation
+the app, render cache off (14–15/10/2026); Krea 2 Turbo's Standard peaks too (17/10/2026). How the deviation
 is measured: [Verification](#verification).
 
 Until 0.8.1, Z-Image Turbo ran 7 of the 8 DiT evaluations its recipe calls for; the times published
@@ -249,8 +249,8 @@ not that shortcut: it keeps all 8 evaluations.
 
 ### Faster Rendering
 
-On by default, at the head of Settings, for all four models. At 1024², 1024×1536 and 1536×1024, the
-first evaluations run on the half-size grid — 3 of 8 for Z-Image, Qwen-Image-2.1 and Anima, 4 for
+On by default, at the head of Settings, for all four models. From 1024 px on each side (1024²,
+1024×1536, 1536×1024…), the first evaluations run on the half-size grid — 3 of 8 for Z-Image, Qwen-Image-2.1 and Anima, 4 for
 Krea 2, whose schedule keeps its first noise levels higher — and the rest at full size. Still 8
 evaluations; one at half size costs about a quarter of a full one. No usual portrait or landscape
 format qualifies: the half of 832×1216 would fall under 512 px on one side.
@@ -260,7 +260,7 @@ clean, correctly noised picture; the velocity brought back to full size is the o
 full state to the enlarged clean estimate, so it also takes away the fine noise a half grid cannot
 see, at the pace a full step would. The half-size steps dropped in 0.8.2 had neither: their
 enlarged velocity left that fine noise in place (sand on skin and walls), and their small grid was
-a plain decimation, whose aliasing the model read as texture (cracks). Each model's count was
+a plain decimation, whose aliasing the model read as texture (cracks). Each model's number of half-size evaluations was
 judged by eye on two prompts, a portrait and the library: no
 sand, no cracks, freckles, hair and book spines intact; one step more, and fine detail starts to go.
 

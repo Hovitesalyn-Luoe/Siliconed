@@ -69,7 +69,7 @@ la montre et permet de la partager ([Le diagnostic communautaire](#le-diagnostic
 - **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 84,5 s sur un M1 Pro avec les
   8 évaluations que demande sa recette, les trois premières sur une grille en demi-taille
   ([rendu plus rapide](#rendu-plus-rapide), allumé par défaut) ; 117,7 s toutes en pleine taille
-  ([mesuré à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac).
+  ([à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac).
 - **34 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
@@ -102,9 +102,9 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
   décodeur), avec des fils typés et l'étage actif allumé ; chaque étage porte ses propres réglages.
 - **Plus de détail** avec Z-Image et Qwen-Image-2.1 : « Détail : Normal · Plus · Maximum » ajoute
   de la texture fine, sans temps en plus.
-- **Rendu plus rapide** (Réglages, allumé par défaut) : en 1024² et en 1024×1536 dans les deux sens,
+- **Rendu plus rapide** (Réglages, allumé par défaut) : dès 1024 px de chaque côté,
   les premières évaluations sur une grille en demi-taille, le reste en pleine taille : d'un quart à
-  un tiers plus rapide, toujours 8 évaluations, une image un peu différente
+  deux cinquièmes plus rapide, toujours 8 évaluations, une image un peu différente
   ([comment](#rendu-plus-rapide)).
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
 - **Agrandir ×4** avec la super-résolution de macOS (macOS 26) : aucun prompt, rien d'ajouté, bords
@@ -153,7 +153,7 @@ l'image que son esquisse annonçait.
 - **Standard, Compact ou Légère.** Chaque modèle s'installe avec les poids de l'éditeur (Standard,
   le défaut), avec des poids 8 bits publiés par des tiers (Compact : 19,5 Go au lieu de 34,4 pour
   Krea 2, 11,7 Go au lieu de 20,4 pour Z-Image, 17,3 Go au lieu de 31,2 pour Qwen-Image-2.1, 4,10 Go
-  au lieu de 5,65 pour Anima ; une image légèrement différente), ou avec le transformer en 4 à 6 bits
+  au lieu de 5,65 pour Anima ; une image légèrement différente), ou avec le transformeur en 4 à 6 bits
   tel qu'un tiers le publie (GGUF Q4_K_M ; Légère : 12,8 Go, 9,5 Go, 14,2 Go et 3,31 Go, le moins lu
   sur le disque à chaque pas ; un autre jeu de poids, une image qui peut se composer autrement). Pour
   Krea 2, Z-Image et Qwen-Image-2.1, l'encodeur de texte de la Compact est lui aussi en 8 bits, et la
@@ -256,7 +256,7 @@ de quelques pour cent d'un rendu à l'autre) ; le 1024×1536 de Krea 2 : la m
 Qwen-Image-2.1 le 15/10/2026 avec la 0.10, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est
 le `phys_footprint` de l'app, relevé toutes les 100 ms. Les autres temps et le pic d'Anima Turbo sont
 ceux du moteur seul, sans l'app, cache de rendu éteint (14–15/10/2026) ; les pics de Krea 2 Turbo
-aussi (17/10/2026). Comment l'écart est mesuré : [La vérification](#la-vérification).
+en Standard aussi (17/10/2026). Comment l'écart est mesuré : [La vérification](#la-vérification).
 
 Jusqu'à la 0.8.1, Z-Image Turbo faisait 7 des 8 évaluations du DiT que demande sa recette ; les temps
 publiés alors (82–85 s à 1024²) valaient pour 7. Corrigé dans la 0.8.2 : 8 évaluations en pleine
@@ -264,8 +264,8 @@ taille. Le rendu plus rapide n'est pas ce raccourci : il garde les 8 évaluatio
 
 ### Rendu plus rapide
 
-Allumé par défaut, en tête des Réglages, pour les quatre modèles. En 1024², 1024×1536 et 1536×1024,
-les premières évaluations se font sur la grille en demi-taille — 3 sur 8 pour Z-Image,
+Allumé par défaut, en tête des Réglages, pour les quatre modèles. Dès 1024 px de chaque côté (1024²,
+1024×1536, 1536×1024…), les premières évaluations se font sur la grille en demi-taille — 3 sur 8 pour Z-Image,
 Qwen-Image-2.1 et Anima, 4 pour Krea 2, dont le calendrier garde ses premiers niveaux de bruit plus
 hauts — et le reste en pleine taille. Toujours 8 évaluations ; une évaluation en demi-taille coûte
 environ un quart d'une pleine. Aucun format portrait ou paysage usuel n'en profite : la moitié de
@@ -277,7 +277,7 @@ propre, bruitée comme il faut ; la vitesse ramenée en pleine taille est cell
 rythme d'un pas plein. Les pas en demi-taille retirés dans la 0.8.2 n'avaient ni l'un ni l'autre :
 leur vitesse agrandie laissait ce bruit fin en place (du sable sur la peau et les murs), et leur
 petite grille était une simple décimation, dont le repliement se lisait comme une texture (du
-craquelé). Le nombre de chaque modèle a été jugé à l'œil sur deux prompts, un portrait et la
+craquelé). Le nombre d'évaluations en demi-taille de chaque modèle a été jugé à l'œil sur deux prompts, un portrait et la
 bibliothèque : ni sable ni craquelé, taches de rousseur, cheveux et dos
 des livres intacts ; un pas de plus, et le détail fin commence à partir.
 

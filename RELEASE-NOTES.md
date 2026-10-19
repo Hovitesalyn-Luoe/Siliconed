@@ -42,17 +42,17 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 ### Faster Rendering, on by default
 
-- **A new setting, at the head of Settings, on by default, for all four models.** At 1024²,
-  1024×1536 and 1536×1024, the first evaluations run on the half-size grid — 3 of 8 for Z-Image,
+- **A new setting, at the head of Settings, on by default, for all four models.** From 1024 px
+  on each side (1024², 1024×1536, 1536×1024…), the first evaluations run on the half-size grid — 3 of 8 for Z-Image,
   Qwen-Image-2.1 and Anima, 4 for Krea 2, whose shifted schedule keeps its first noise levels
   higher — then the rest at full size. Still 8 evaluations; one at half size costs about a quarter
   of a full one. No usual portrait or landscape format qualifies: the half of 832×1216 would fall
   under 512 px on one side.
 - **Times**, on an M1 Pro with 16 GB, Standard, seed 42, queued in the app (on / off): at 1024²,
   Z-Image 84.5 / 117.7 s, Qwen-Image-2.1 103.7 / 142.7 s, Anima 32.7 / 44.4 s, Krea 2 145.6 /
-  221.1 s; at 1024×1536, 131.0 / 190 s, 161.7 / 232 s, 52.5 / 75.6 s, 216.9 / 355.3 s. In Light,
-  on, at 1024²: Z-Image 90–91 s, Qwen-Image-2.1 111.0 s, Anima 35.4 s, Krea 2 153.8 s — the Light
-  saves disk and memory (Krea 2's peak 1.55 GB), not time.
+  221.1 s; at 1024×1536, on: 131.0 s, 161.7 s, 52.5 s and 216.9 s (Krea 2 off: 355.3 s). In
+  Light, on, at 1024²: Z-Image 90–91 s, Qwen-Image-2.1 111.0 s, Anima 35.4 s, Krea 2 153.8 s — the
+  Light saves disk and memory (Krea 2's peak in the app: 1.55 GB), not time.
 - **Why it stays clean this time.** The half-size steps dropped in 0.8.2 decimated the state and
   enlarged the velocity: that velocity carried no high band, so the fine noise of the state was
   never taken away while they ran (sand on skin and walls), and the decimation's aliasing reached
@@ -60,7 +60,7 @@ English · [Français](RELEASE-NOTES.fr.md)
   band of the starting noise — antialiased, at the right noise level —, and the velocity brought
   back to full size is the one that leads the full state to the enlarged clean estimate: it takes
   the fine noise away at the pace a full step would, and the state stays exactly on the recipe's
-  path. Each model's count was judged by eye on two prompts, a portrait and the library, at the
+  path. Each model's number of half-size evaluations was judged by eye on two prompts, a portrait and the library, at the
   same seed: no sand, no cracks, freckles, hair and book
   spines intact; one step more, and the freckles fade, the shelves turn to blocks.
 - **Another image, not a degraded one.** With the same seed, the picture is not the full-size
@@ -128,7 +128,6 @@ English · [Français](RELEASE-NOTES.fr.md)
   image for the session); a VAE pass the GPU refuses is reported instead of ignored. `silicontrol` reports it as `"error"` with the code
   `non_finite_image`, and the verdict of `wait` (and the `end` line of `follow`) now carries the
   engine's `"warnings"`.
-
 - **Formats per model**: Qwen-Image-2.1 wants sides in multiples of 32, Anima at most 2048 px; both
   are refused before any computation, and the size field says the chosen model's rule.
 - **The render cache lasts one session**: emptied at launch and at quit, it no longer counts in the

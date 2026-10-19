@@ -10,7 +10,7 @@ qu'elles ne puissent pas diverger.
 
 ## L'idée
 
-L'app ouvert tient la seule file de rendus de la machine. `silicontrol …` y ajoute, attend, arrête,
+L'app ouverte tient la seule file de rendus de la machine. `silicontrol …` y ajoute, attend, arrête,
 relit l'historique : les mêmes fonctions que les boutons (`AppState.enqueue`, `cancel`, `remove`,
 `stopAll`). Les demandes de la commande apparaissent dans la fenêtre ; celles de la souris, la
 commande les voit. Il n'y a jamais deux moteurs dans les 16 Go.
@@ -75,7 +75,7 @@ fois dans l'historique. Le modèle d'Apple n'est téléchargé par macOS qu'avec
 ## La commande
 
 `silicontrol` est livrée dans l'app, `Siliconed.app/Contents/Helpers/silicontrol` (cible `Silicontrol`,
-`Sources/Silicontrol/main.swift`). Réglages → Ligne de commande (« Installer la commande silicontrol… ») la lie
+`Sources/Silicontrol/main.swift`). Réglages → Ligne de commande (« Installer… ») la lie
 dans `/usr/local/bin`. Ce n'est qu'un tuyau : Foundation seule, elle ne lie pas le moteur. Si
 l'app n'est pas lancée, toute commande sauf l'aide la lance et attend sa prise (30 s au plus) ;
 `silicontrol open` ne fait que cela. L'aide (`help`, `help <sujet>`, `<commande> --help`, aucun
@@ -109,7 +109,7 @@ argument) est servie par la commande elle-même, sans lancer l'app.
   clés JSON et codes d'erreur sont en anglais dans les deux langues. Quand une commande change
   dans l'app, son aide change dans le même commit.
 - **Codes de sortie** du client : `0` la dernière ligne dit `"ok": true` ; `1` elle dit
-  `"ok": false` ; `2` erreur d'usage ; `3` l'app est injoignable (pas lancé et non lançable, ou
+  `"ok": false` ; `2` erreur d'usage ; `3` l'app est injoignable (pas lancée et non lançable, ou
   ne répond pas).
 - **Les signaux.** L'`AppState` émet `Signal` (`started`, `stage`, `step`, `image`, `sheet` quand la
   dernière case d'une grille a fini, `finished` avec
@@ -134,7 +134,7 @@ argument) est servie par la commande elle-même, sans lancer l'app.
 ## Un autre processus qui rend
 
 Un rendu par machine : le moteur prend un verrou (`/private/tmp/siliconed-render.lock`) pour chaque
-rendu, si bien qu'un autre programme bâti sur la bibliothèque est refusé avec
+rendu, si bien qu'un autre processus qui se sert du moteur (une version compilée depuis les sources, par exemple) est refusé avec
 `render_already_running` pendant que l'app rend, et inversement (deux modèles dans 16 Go : le
 système swapperait et les deux chronos ne voudraient plus rien dire). Un tel programme peut mettre son
 rendu dans la file de l'app avec `silicontrol add`.
