@@ -408,6 +408,12 @@ package struct QwenImage21Sampler {
                         for j in 0..<x.count { x[j] += dt * v[j] }
                     }
                 }
+                // Z-Image's warning (`Sampler.run`), here too: a non-finite velocity otherwise comes out
+                // as an entirely black image, with no word of which step it became so.
+                if let bad = Sampler.countNotFinite(v, v.count) {
+                    Warnings.emit("✗ step \(i): the VELOCITY carries \(bad.count) non-finite values "
+                        + "(first at index \(bad.first), evaluation at \(evaluatedWidth)×\(evaluatedHeight))")
+                }
                 let seconds = Date().timeIntervalSince(started)
                 timings["steps", default: 0] += seconds
                 try latent.withUnsafeBufferPointer { x in
@@ -706,6 +712,20 @@ package final class QwenImage21KVFile {
             return
         }
         path = target
+    }
+
+    /// **`seal`, only behind a finite output**: the first evaluation's velocity, which every condition's
+    /// K/V reaches (the joint attention reads them all from every target row) — a single non-finite one
+    /// makes it non-finite. Otherwise the file is not kept (`deinit` unlinks it) and this render goes on
+    /// reading its open file: a kept file is read back by every later render of the same edit, without a
+    /// prefill, and would hand them its NaN (`RenderCache.allFinite`). Returns `false` when a file
+    /// being kept was given up for a non-finite output.
+    @discardableResult
+    package func seal(after output: [Float]) -> Bool {
+        guard destination != nil else { return true }
+        guard RenderCache.allFinite(output) else { return false }
+        seal()
+        return true
     }
 
     deinit {
