@@ -122,7 +122,7 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 - **A broken render is no longer delivered.** If a render comes out with non-finite values (a
   black image), the app says so and keeps nothing, instead of adding it to the history as a
-  success. Nothing non-finite is carried from one render to the next: the render cache neither
+  success; in a batch, only that image is dropped, the others are still delivered. Nothing non-finite is carried from one render to the next: the render cache neither
   keeps nor reads back such a value, and a Qwen-Image-2.1 edit keeps its attention keys and values
   only behind a finite first step (one bad value there used to blacken every later edit of the same
   image for the session); a VAE pass the GPU refuses is reported instead of ignored. `silicontrol` reports it as `"error"` with the code

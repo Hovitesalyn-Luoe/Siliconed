@@ -126,7 +126,8 @@
 ### Plus solide
 
 - **Un rendu raté n’est plus livré.** Si un rendu sort avec des valeurs non finies (une image
-  noire), l’app le dit et ne garde rien, au lieu de l’ajouter à l’historique comme réussi. Rien de
+  noire), l’app le dit et ne garde rien, au lieu de l’ajouter à l’historique comme réussi ; dans un lot, seule
+  cette image est écartée, les autres sont livrées. Rien de
   non fini ne passe plus d’un rendu au suivant : le cache de rendu ne garde ni ne relit une telle
   valeur, et une édition Qwen-Image-2.1 ne garde ses clés et valeurs d’attention que derrière un
   premier pas fini (une seule valeur fautive y noircissait toutes les éditions suivantes de la même

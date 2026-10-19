@@ -47,7 +47,7 @@ final class EngineErrorTests: XCTestCase {
     }
 
     /// **An image that is not finite is refused, never delivered** (`FiniteImage`, the render's last
-    /// guard): one NaN or ±∞ among the latent's values throws `nonFiniteImage`, its count goes to the
+    /// guard): one NaN or ±∞ among the latent's values refuses the image, its count goes to the
     /// warnings; large, tiny, subnormal and signed-zero values are finite and pass.
     func testANonFiniteLatentIsRefusedWithAWarning() throws {
         var latent = (0..<16 * 64 * 64).map { Float($0 % 97) / 48 - 1 }
@@ -55,7 +55,7 @@ final class EngineErrorTests: XCTestCase {
         XCTAssertEqual(FiniteImage.nonFiniteCount(latent), 0)
         let said = OSAllocatedUnfairLock<[String]>(initialState: [])
         try Warnings.during({ line in said.withLock { $0.append(line) } }) {
-            try FiniteImage.require(latent, "the final latent", image: 0)
+            XCTAssertTrue(FiniteImage.isFinite(latent, "the final latent", image: 0))
         }
         XCTAssertTrue(said.withLock { $0 }.isEmpty)
 
@@ -65,9 +65,7 @@ final class EngineErrorTests: XCTestCase {
             XCTAssertEqual(FiniteImage.nonFiniteCount(broken), 2, "\(bad)")
             said.withLock { $0 = [] }
             try Warnings.during({ line in said.withLock { $0.append(line) } }) {
-                XCTAssertThrowsError(try FiniteImage.require(broken, "the decoded image", image: 1)) {
-                    XCTAssertEqual($0 as? EngineError, .nonFiniteImage)
-                }
+                XCTAssertFalse(FiniteImage.isFinite(broken, "the decoded image", image: 1))
             }
             let lines = said.withLock { $0 }
             XCTAssertEqual(lines.count, 1)

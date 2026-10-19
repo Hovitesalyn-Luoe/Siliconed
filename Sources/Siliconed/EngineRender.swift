@@ -296,6 +296,7 @@ extension Engine {
             PhaseBoundary.mark("denoiser released")
 
             var renderResults: [Render] = []
+            var refused = false
             for (n, (latent, timings, elapsed)) in pending.enumerated() {
                 try context.check()
                 context.image = n
@@ -303,10 +304,11 @@ extension Engine {
                 context.emit(.stage(.decoding, image: n))
                 // **An image that is not finite is never delivered as done** (`FiniteImage`): the latent
                 // before paying for its decoding, the pixels after it — a black image after 200 s, said
-                // as such, rather than handed to the history as a success.
-                try FiniteImage.require(latent.values, "the final latent", image: n)
+                // as such, rather than handed to the history as a success. In a batch it is skipped, not
+                // the batch: the images after it are still decoded and delivered.
+                guard FiniteImage.isFinite(latent.values, "the final latent", image: n) else { refused = true; continue }
                 let image = try autoreleasepool { try chain.decoding.decode(latent, context: context) }
-                try FiniteImage.require(image.pixels, "the decoded image", image: n)
+                guard FiniteImage.isFinite(image.pixels, "the decoded image", image: n) else { refused = true; continue }
                 // An image's time: its own text, encoding and denoising, then its decoding.
                 context.timings.total = elapsed + context.timings.decoding
                 context.footprints.end = Arena.processFootprint()
@@ -328,6 +330,7 @@ extension Engine {
                 context.emit(.image(index: n, renderResult))
                 renderResults.append(renderResult)
             }
+            if refused, renderResults.isEmpty { throw EngineError.nonFiniteImage }
             // **The render's own peak against its need**: a phase above its need is a
             // defect of the code, logged and carried by every image of the batch.
             guard let need else { return renderResults }
@@ -357,8 +360,8 @@ extension Engine {
 
 /// **A render's last guard**: a value that is not finite (NaN, ±∞) in the final latent or the decoded
 /// pixels makes an image that comes out black or blank — whatever the family, whatever went wrong upstream
-/// (a velocity gone non-finite, a GPU fault). The render throws `EngineError.nonFiniteImage` instead of
-/// returning it: no `Render`, no `.image` event, nothing in the history. One pass over each, at the end
+/// (a velocity gone non-finite, a GPU fault). That image gets no `Render`, no `.image` event, nothing in
+/// the history; the render throws `EngineError.nonFiniteImage` when no image of it is left. One pass over each, at the end
 /// of a render only (a 1024² latent is 65 536 to 262 144 floats, its pixels 3 Mi): never inside a step.
 package enum FiniteImage {
     /// How many values of `values` are not finite.
@@ -370,12 +373,13 @@ package enum FiniteImage {
         }
     }
 
-    /// Throws `.nonFiniteImage` when `values` carries a non-finite value; the count, and `what` it was
-    /// found in, go to the render's warnings — the error itself says nothing technical.
-    package static func require(_ values: [Float], _ what: String, image: Int) throws(EngineError) {
+    /// Whether `values` is finite; when not, the count, and `what` it was found in, go to the render's
+    /// warnings — the error the render may end with says nothing technical.
+    package static func isFinite(_ values: [Float], _ what: String, image: Int) -> Bool {
         let bad = nonFiniteCount(values)
-        guard bad > 0 else { return }
+        guard bad > 0 else { return true }
         Warnings.emit("✗ image \(image + 1): \(what) carries \(bad) non-finite values out of \(values.count): not delivered")
-        throw .nonFiniteImage
+        return false
     }
+
 }
