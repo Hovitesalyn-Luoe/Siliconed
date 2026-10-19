@@ -23,8 +23,9 @@ import Synchronization
 ///    of `CapacityRules.swift` turn into `amx`, `amx_fraction`, `flash`, `head_split`, `gemm_tensor`; the profile is
 ///    what a bench measured here (the developer's bench writes it); the environment keeps the last
 ///    word, because a measurement is taken by forcing a setting, never by editing a file.
-/// 4. **Outside an app nothing designates a map**: the command line, the checks and the close-out run
-///    on the defaults, so their bits and the md5 judges do not depend on a measurement of the day.
+/// 4. **Outside an app a map is designated only when asked** — a developer's timing, which must be the
+///    app's: the command line, the checks and the close-out otherwise run on the defaults, so their bits and
+///    the md5 judges do not depend on a measurement of the day.
 ///
 /// The profile carries the fingerprint of the machine that produced it, the map a finer one
 /// (`Diagnostic.Fingerprint`). **Each is refused if it does not match** — a profile measured on an
