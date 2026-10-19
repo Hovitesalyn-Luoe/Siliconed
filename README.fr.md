@@ -31,8 +31,10 @@ comic book style with cel shading »), comparées sous le rideau.*
 [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), de Krea, est le quatrième modèle : un DiT
 de 12,9 milliards de paramètres, le plus gros des quatre, pour des images esthétiques, de la
 photographie à la peinture. Il lit le prompt avec Qwen3-VL-4B et fait toute sa recette de 8
-évaluations en fp32 sur les poids bf16 de l'éditeur : **1024² en 221,1 s, 1024×1536 en 355,3 s sur
-un M1 Pro de 16 Go**, ses 34,4 Go lus depuis le disque dans le budget mémoire. La sortie de son
+évaluations en fp32 sur les poids bf16 de l'éditeur : **1024² en 145,6 s, 1024×1536 en 216,9 s sur
+un M1 Pro de 16 Go** avec le [rendu plus rapide](#rendu-plus-rapide), allumé par défaut (221,1 s et
+355,3 s avec toutes les évaluations en pleine taille), ses 34,4 Go lus depuis le disque dans le
+budget mémoire. La sortie de son
 débruiteur est à 1,44·10⁻⁴ de la référence fp32 à 1024². Il s'installe en Standard, Compact ou Légère
 (34,4, 19,5 ou 12,8 Go), depuis des copies ouvertes prouvées identiques aux fichiers de Krea
 ([pourquoi](#les-modèles)), sous la licence Krea 2 Community : usage commercial sous 1 M$ de chiffre
@@ -64,9 +66,10 @@ la montre et permet de la partager ([Le diagnostic communautaire](#le-diagnostic
   comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur
   CPU), et depuis la 0.12 arrondit là où la référence arrondit. Ce qui ne se vérifie pas contre la
   référence n'est pas livré.
-- **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 117,7 s sur un M1 Pro, avec les
-  8 évaluations que demande sa recette ([mesuré à côté de Draw Things](#à-côté-de-draw-things), la
-  référence sur Mac).
+- **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 84,5 s sur un M1 Pro avec les
+  8 évaluations que demande sa recette, les trois premières sur une grille en demi-taille
+  ([rendu plus rapide](#rendu-plus-rapide), allumé par défaut) ; 117,7 s toutes en pleine taille
+  ([mesuré à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac).
 - **34 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
@@ -99,6 +102,10 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
   décodeur), avec des fils typés et l'étage actif allumé ; chaque étage porte ses propres réglages.
 - **Plus de détail** avec Z-Image et Qwen-Image-2.1 : « Détail : Normal · Plus · Maximum » ajoute
   de la texture fine, sans temps en plus.
+- **Rendu plus rapide** (Réglages, allumé par défaut) : en 1024² et en 1024×1536 dans les deux sens,
+  les premières évaluations sur une grille en demi-taille, le reste en pleine taille : d'un quart à
+  un tiers plus rapide, toujours 8 évaluations, une image un peu différente
+  ([comment](#rendu-plus-rapide)).
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
 - **Agrandir ×4** avec la super-résolution de macOS (macOS 26) : aucun prompt, rien d'ajouté, bords
   et textures affinés ; 1024² devient 4096² en une ou deux secondes.
@@ -230,16 +237,20 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. G
 
 | | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo |
 |---|---|---|---|---|
-| 1024², Standard | 221,1 s | 117,7 s | 142,7 s | 44,4 s |
-| autres formats, Standard | 1024×1536 355,3 s | 1024×1536 190 s | 1024×1536 232 s ; une édition à 1 image 211 s, à 2 images 297 s | 512² 12,1 s ; 1024×1536 75,6 s |
-| 1024², Légère (4 à 6 bits) | non mesuré | 118–120 s | non remesuré depuis la 0.10 (tous les pas en pleine taille) | non mesuré |
+| 1024², Standard, rendu plus rapide (par défaut) | **145,6 s** | **84,5 s** | **103,7 s** | **32,7 s** |
+| 1024², Standard, toutes les évaluations en pleine taille | 221,1 s | 117,7 s | 142,7 s | 44,4 s |
+| 1024×1536, Standard, rendu plus rapide / pleine taille | 216,9 s / 355,3 s | 131,0 s / 190 s | 161,7 s / 232 s | 52,5 s / 75,6 s |
+| autres, Standard | | | une édition à 1 image 211 s, à 2 images 297 s | 512² 12,1 s |
+| 1024², Légère (4 à 6 bits), pleine taille | non mesuré | 118–120 s | non remesuré depuis la 0.10 | non mesuré |
 | pic mémoire, Standard / Légère | 3,07 Go (1024×1536 : 3,51 Go) / 1,35 Go, le moteur seul | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / non mesuré |
-| écart à la référence fp32 (`model_out`) | 1,44·10⁻⁴ (1024²) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ |
+| écart à la référence fp32 (`model_out`, pleine taille) | 1,44·10⁻⁴ (1024²) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ |
 
-Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG. Les
-temps à 1024² en Standard : le 18/10/2026, app 0.12, la carte de ce Mac en service, 0 page swappée ;
-un dernier rendu de Z-Image en fin de série, en témoin, a pris 123,6 s (la machine dérive de quelques
-pour cent d'un rendu à l'autre). Le 1024×1536 de Krea 2 : la même série. Les autres temps :
+Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG, la
+carte de ce Mac en service. Avec le rendu plus rapide : le 19/10/2026, app 0.12, le réglage à sa
+valeur par défaut ; un rendu de Z-Image en 1024² réglage éteint, en témoin, a pris 112,0 s dans la
+même série. Toutes les évaluations en pleine taille, 1024² : le 18/10/2026, app 0.12, 0 page
+swappée ; un dernier rendu de Z-Image en fin de série, en témoin, a pris 123,6 s (la machine dérive
+de quelques pour cent d'un rendu à l'autre) ; le 1024×1536 de Krea 2 : la même série. Les autres temps :
 Qwen-Image-2.1 le 15/10/2026 avec la 0.10, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est
 le `phys_footprint` de l'app, relevé toutes les 100 ms. Les autres temps et le pic d'Anima Turbo sont
 ceux du moteur seul, sans l'app, cache de rendu éteint (14–15/10/2026) ; les pics de Krea 2 Turbo
@@ -247,7 +258,32 @@ aussi (17/10/2026). Comment l'écart est mesuré : [La vérification](#la-véri
 
 Jusqu'à la 0.8.1, Z-Image Turbo faisait 7 des 8 évaluations du DiT que demande sa recette ; les temps
 publiés alors (82–85 s à 1024²) valaient pour 7. Corrigé dans la 0.8.2 : 8 évaluations en pleine
-taille.
+taille. Le rendu plus rapide n'est pas ce raccourci : il garde les 8 évaluations.
+
+### Rendu plus rapide
+
+Allumé par défaut, en tête des Réglages, pour les quatre modèles. En 1024², 1024×1536 et 1536×1024,
+les premières évaluations se font sur la grille en demi-taille — 3 sur 8 pour Z-Image,
+Qwen-Image-2.1 et Anima, 4 pour Krea 2, dont le calendrier garde ses premiers niveaux de bruit plus
+hauts — et le reste en pleine taille. Toujours 8 évaluations ; une évaluation en demi-taille coûte
+environ un quart d'une pleine. Aucun format portrait ou paysage usuel n'en profite : la moitié de
+832×1216 passerait sous 512 px d'un côté.
+
+La petite grille reçoit l'état moyenné plus la basse bande du bruit de départ : elle tient une image
+propre, bruitée comme il faut ; la vitesse ramenée en pleine taille est celle qui mène l'état complet
+à l'estimation propre agrandie : elle emporte aussi le bruit fin qu'une demi-grille ne voit pas, au
+rythme d'un pas plein. Les pas en demi-taille retirés dans la 0.8.2 n'avaient ni l'un ni l'autre :
+leur vitesse agrandie laissait ce bruit fin en place (du sable sur la peau et les murs), et leur
+petite grille était une simple décimation, dont le repliement se lisait comme une texture (du
+craquelé). Le nombre de chaque modèle a été jugé à l'œil sur deux prompts, un portrait et la
+bibliothèque : ni sable ni craquelé, taches de rousseur, cheveux et dos
+des livres intacts ; un pas de plus, et le détail fin commence à partir.
+
+Il donne une autre image que la recette en pleine taille à la même graine (la composition se décide
+dans les premiers pas : la même scène, parfois une autre personne), pas une copie dégradée. Pas avec
+une LoRA, Détail, une édition, un autre nombre de pas ni un autre calendrier. Éteint, toutes les
+évaluations sont en pleine taille et l'image est la même, au bit près, qu'avant : celle qui est
+vérifiée contre diffusers ; les écarts ci-dessus valent pour elle.
 
 ### À côté de Draw Things
 
@@ -271,7 +307,8 @@ La comparaison porte sur le temps écoulé, pas sur une arithmétique identique�
 poids diffèrent, les images aussi. Le pic mémoire ne compte pas les poids projetés depuis le disque,
 d'un côté comme de l'autre. Siliconed fait chauffer davantage la machine, ce qui découle du calcul
 en fp32. Jusqu'à la 0.8.1, ce tableau opposait les 7 évaluations de Siliconed aux 8 de Draw Things ;
-il compare maintenant 8 à 8.
+il compare maintenant 8 à 8. Les lignes de Siliconed y sont en pleine taille : elles précèdent le
+rendu plus rapide.
 
 **Dans le budget, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
 `vm_stat`) sont mesurés au pire cas du produit, sur un Mac de 16 Go où rien d'autre ne tourne : Qwen-Image-2.1 à 1024×1536 avec 3 références,

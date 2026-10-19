@@ -19,7 +19,8 @@ English · [Français](RELEASE-NOTES.fr.md)
   being decided, and redraws it instead of sharpening it. Subtle variations use 0.05 (0.1 changes
   the person).
 - **Times**: on an M1 Pro with 16 GB, Standard, seed 42, 8 evaluations, queued in the app: 1024² in
-  221.1 s, 1024×1536 in 355.3 s.
+  145.6 s, 1024×1536 in 216.9 s with Faster Rendering (below, on by default); 221.1 s and 355.3 s
+  with every evaluation at full size.
 - **Checked against the reference**: at 1024², the denoiser's output is 1.44·10⁻⁴ from diffusers
   in fp32.
 - **Standard, Compact or Light**: 34.4 GB (the publisher's bf16), 19.5 GB (the DiT and the text
@@ -38,6 +39,34 @@ English · [Français](RELEASE-NOTES.fr.md)
 - **License**: Krea 2 Community. Commercial use under $1M of annual revenue; a content filter is
   mandatory when the model is deployed. The app shows the license in full before the first byte is
   downloaded, with the attribution it asks for.
+
+### Faster Rendering, on by default
+
+- **A new setting, at the head of Settings, on by default, for all four models.** At 1024²,
+  1024×1536 and 1536×1024, the first evaluations run on the half-size grid — 3 of 8 for Z-Image,
+  Qwen-Image-2.1 and Anima, 4 for Krea 2, whose shifted schedule keeps its first noise levels
+  higher — then the rest at full size. Still 8 evaluations; one at half size costs about a quarter
+  of a full one. No usual portrait or landscape format qualifies: the half of 832×1216 would fall
+  under 512 px on one side.
+- **Times**, on an M1 Pro with 16 GB, Standard, seed 42, queued in the app (on / off): at 1024²,
+  Z-Image 84.5 / 117.7 s, Qwen-Image-2.1 103.7 / 142.7 s, Anima 32.7 / 44.4 s, Krea 2 145.6 /
+  221.1 s; at 1024×1536, 131.0 / 190 s, 161.7 / 232 s, 52.5 / 75.6 s, 216.9 / 355.3 s.
+- **Why it stays clean this time.** The half-size steps dropped in 0.8.2 decimated the state and
+  enlarged the velocity: that velocity carried no high band, so the fine noise of the state was
+  never taken away while they ran (sand on skin and walls), and the decimation's aliasing reached
+  the model as texture (cracks). Now the half grid is fed the 2×2 mean of the state plus the low
+  band of the starting noise — antialiased, at the right noise level —, and the velocity brought
+  back to full size is the one that leads the full state to the enlarged clean estimate: it takes
+  the fine noise away at the pace a full step would, and the state stays exactly on the recipe's
+  path. Each model's count was judged by eye on two prompts, a portrait and the library, at the
+  same seed: no sand, no cracks, freckles, hair and book
+  spines intact; one step more, and the freckles fade, the shelves turn to blocks.
+- **Another image, not a degraded one.** With the same seed, the picture is not the full-size
+  recipe's: the composition is decided in the first steps (the same scene, sometimes another
+  person). Not with a LoRA, Detail, an edit, another number of steps or another schedule.
+- **Off, nothing moves**: every evaluation at full size, the same bits as before, the image checked
+  against diffusers. The deviations from the reference published for each model are for that
+  image.
 
 ### The engine measures your Mac before its first render
 
@@ -88,6 +117,15 @@ English · [Français](RELEASE-NOTES.fr.md)
   image with its alpha, only the copy the encoder sees is pasted on white.
 
 ### Sturdier
+
+- **A broken render is no longer delivered.** If a render comes out with non-finite values (a
+  black image), the app says so and keeps nothing, instead of adding it to the history as a
+  success. Nothing non-finite is carried from one render to the next: the render cache neither
+  keeps nor reads back such a value, and a Qwen-Image-2.1 edit keeps its attention keys and values
+  only behind a finite first step (one bad value there used to blacken every later edit of the same
+  image for the session); a VAE pass the GPU refuses is reported instead of ignored. `silicontrol` reports it as `"error"` with the code
+  `non_finite_image`, and the verdict of `wait` (and the `end` line of `follow`) now carries the
+  engine's `"warnings"`.
 
 - **Formats per model**: Qwen-Image-2.1 wants sides in multiples of 32, Anima at most 2048 px; both
   are refused before any computation, and the size field says the chosen model's rule.

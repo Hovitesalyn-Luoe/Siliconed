@@ -19,7 +19,8 @@
   décide encore, et la redessine au lieu de l’affiner. Les variations subtiles prennent 0,05 (0,1
   change la personne).
 - **Les temps** : sur un M1 Pro de 16 Go, Standard, graine 42, 8 évaluations, mis en file dans l’app :
-  1024² en 221,1 s, 1024×1536 en 355,3 s.
+  1024² en 145,6 s, 1024×1536 en 216,9 s avec le rendu plus rapide (ci-dessous, allumé par défaut) ;
+  221,1 s et 355,3 s avec toutes les évaluations en pleine taille.
 - **Vérifié contre la référence** : à 1024², la sortie du débruiteur est à 1,44·10⁻⁴ de diffusers
   en fp32.
 - **Standard, Compact ou Légère** : 34,4 Go (le bf16 de l’éditeur), 19,5 Go (le DiT et l’encodeur
@@ -38,6 +39,37 @@
 - **Licence** : Krea 2 Community. Usage commercial sous 1 M$ de chiffre d’affaires annuel ; un
   filtre de contenu est obligatoire quand le modèle est déployé. L’app montre la licence en entier
   avant le premier octet téléchargé, avec l’attribution qu’elle demande.
+
+### Rendu plus rapide, allumé par défaut
+
+- **Un nouveau réglage, en tête des Réglages, allumé par défaut, pour les quatre modèles.** En 1024²,
+  1024×1536 et 1536×1024, les premières évaluations se font sur la grille en demi-taille — 3 sur 8
+  pour Z-Image, Qwen-Image-2.1 et Anima, 4 pour Krea 2, dont le calendrier décalé garde ses premiers
+  niveaux de bruit plus hauts —, puis le reste en pleine taille. Toujours 8 évaluations ; une
+  évaluation en demi-taille coûte environ un quart d’une pleine. Aucun format portrait ou paysage
+  usuel n’en profite : la moitié de 832×1216 passerait sous 512 px d’un côté.
+- **Les temps**, sur un M1 Pro de 16 Go, Standard, graine 42, mis en file dans l’app (allumé /
+  éteint) : en 1024², Z-Image 84,5 / 117,7 s, Qwen-Image-2.1 103,7 / 142,7 s, Anima 32,7 / 44,4 s,
+  Krea 2 145,6 / 221,1 s ; en 1024×1536, 131,0 / 190 s, 161,7 / 232 s, 52,5 / 75,6 s,
+  216,9 / 355,3 s.
+- **Pourquoi c’est propre cette fois.** Les pas en demi-taille retirés dans la 0.8.2 décimaient
+  l’état et agrandissaient la vitesse : cette vitesse ne portait pas de haute bande, si bien que le
+  bruit fin de l’état n’était jamais retiré pendant qu’ils tournaient (du sable sur la peau et les
+  murs), et le repliement de la décimation arrivait au modèle comme une texture (du craquelé).
+  Désormais la demi-grille reçoit la moyenne 2×2 de l’état plus la basse bande du bruit de départ
+  — sans repliement, au bon niveau de bruit —, et la vitesse ramenée en pleine taille est celle qui
+  mène l’état complet à l’estimation propre agrandie : elle retire le bruit fin au rythme d’un pas
+  plein, et l’état reste exactement sur le chemin de la recette. Le nombre de chaque modèle a été
+  jugé à l’œil sur deux prompts, un portrait et la bibliothèque, à la même graine : ni sable ni craquelé, taches de rousseur, cheveux et dos des
+  livres intacts ; un pas de plus, et les taches de rousseur pâlissent, les étagères tournent aux
+  blocs.
+- **Une autre image, pas une image dégradée.** À la même graine, l’image n’est pas celle de la
+  recette en pleine taille : la composition se décide dans les premiers pas (la même scène, parfois
+  une autre personne). Pas avec une LoRA, Détail, une édition, un autre nombre de pas ni un autre
+  calendrier.
+- **Éteint, rien ne bouge** : toutes les évaluations en pleine taille, les mêmes bits qu’avant,
+  l’image vérifiée contre diffusers. Les écarts à la référence publiés pour chaque modèle valent pour
+  cette image-là.
 
 ### Le moteur mesure votre Mac avant son premier rendu
 
@@ -90,6 +122,15 @@
   VAE lit l’image avec son alpha, seule la copie que voit l’encodeur est posée sur du blanc.
 
 ### Plus solide
+
+- **Un rendu raté n’est plus livré.** Si un rendu sort avec des valeurs non finies (une image
+  noire), l’app le dit et ne garde rien, au lieu de l’ajouter à l’historique comme réussi. Rien de
+  non fini ne passe plus d’un rendu au suivant : le cache de rendu ne garde ni ne relit une telle
+  valeur, et une édition Qwen-Image-2.1 ne garde ses clés et valeurs d’attention que derrière un
+  premier pas fini (une seule valeur fautive y noircissait toutes les éditions suivantes de la même
+  image pour la session) ; une passe du VAE que le GPU refuse est signalée au lieu d’être ignorée.
+  `silicontrol` le rend en `"error"` avec le code `non_finite_image`, et le verdict de `wait` (et la
+  ligne `end` de `follow`) porte désormais les `"warnings"` du moteur.
 
 - **Des formats par modèle** : Qwen-Image-2.1 veut des côtés multiples de 32, Anima au plus 2048 px ;
   l’un et l’autre sont refusés avant tout calcul, et le champ de taille dit la règle du modèle choisi.

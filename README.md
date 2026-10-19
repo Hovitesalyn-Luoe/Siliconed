@@ -29,8 +29,9 @@ comic book style with cel shading”), compared under the curtain.*
 [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), by Krea, is the fourth model: a
 12.9-billion-parameter DiT, the largest of the four, for aesthetic images from photography to
 painting. It reads the prompt with Qwen3-VL-4B and runs its whole 8-evaluation recipe in fp32 on the
-publisher's bf16 weights: **1024² in 221.1 s, 1024×1536 in 355.3 s on a 16 GB M1 Pro**, its 34.4 GB
-streamed from disk within the memory budget. Its denoiser's output is 1.44·10⁻⁴ from the fp32
+publisher's bf16 weights: **1024² in 145.6 s, 1024×1536 in 216.9 s on a 16 GB M1 Pro** with
+[Faster Rendering](#faster-rendering), on by default (221.1 s and 355.3 s with every evaluation at
+full size), its 34.4 GB streamed from disk within the memory budget. Its denoiser's output is 1.44·10⁻⁴ from the fp32
 reference at 1024². It installs as Standard, Compact or Light (34.4, 19.5 or 12.8 GB), from open
 copies proven identical to Krea's files ([why](#models)), under the Krea 2 Community license:
 commercial use under $1M of annual revenue, a content filter required when deployed.
@@ -60,9 +61,10 @@ otherwise. The map buys speed, never another picture beyond the arithmetic it ch
   channel by channel, with the reference implementation (diffusers / transformers in fp32 on CPU),
   and since 0.12 rounds where the reference rounds. What cannot be checked against the reference
   does not ship.
-- **Full fp32, still fast.** Z-Image Turbo at 1024² in 117.7 s on an M1 Pro, with the 8
-  evaluations its recipe calls for ([measured next to Draw Things](#next-to-draw-things), the
-  reference on the Mac).
+- **Full fp32, still fast.** Z-Image Turbo at 1024² in 84.5 s on an M1 Pro with the 8
+  evaluations its recipe calls for, the first three on a half-size grid
+  ([Faster Rendering](#faster-rendering), on by default); 117.7 s with all of them at full size
+  ([measured next to Draw Things](#next-to-draw-things), the reference on the Mac).
 - **34 GB of model on a 16 GB Mac, within a fixed budget.** Weights are read from disk as they are
   needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac):
   each render computes what it needs before it starts, takes the fastest plan that fits, and checks
@@ -93,6 +95,9 @@ history. It follows the system language (English, French, German, Spanish or Ita
   decoder), with typed wires and the active stage lit; each stage holds its own settings.
 - **More detail** with Z-Image and Qwen-Image-2.1: « Detail: Normal · More · Most » adds fine
   texture, at no extra time.
+- **Faster Rendering** (Settings, on by default): at 1024² and 1024×1536 either way, the first
+  evaluations on a half-size grid, the rest at full size: a quarter to a third faster, still 8
+  evaluations, a slightly different image ([how](#faster-rendering)).
 - **Variations**: cousins of an image, subtle or strong, with the same settings.
 - **Enlarge ×4** with macOS's own super-resolution (macOS 26): no prompt, nothing added, edges and
   texture sharpened; 1024² becomes 4096² in a second or two.
@@ -217,23 +222,51 @@ Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. Seed 42, 8
 
 | | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo |
 |---|---|---|---|---|
-| 1024², Standard | 221.1 s | 117.7 s | 142.7 s | 44.4 s |
-| other formats, Standard | 1024×1536 355.3 s | 1024×1536 190 s | 1024×1536 232 s; an edit with 1 image 211 s, with 2 images 297 s | 512² 12.1 s; 1024×1536 75.6 s |
-| 1024², Light (4 to 6 bits) | not measured | 118–120 s | not remeasured since 0.10 (every step at full size) | not measured |
+| 1024², Standard, Faster Rendering (default) | **145.6 s** | **84.5 s** | **103.7 s** | **32.7 s** |
+| 1024², Standard, every evaluation at full size | 221.1 s | 117.7 s | 142.7 s | 44.4 s |
+| 1024×1536, Standard, Faster Rendering / full size | 216.9 s / 355.3 s | 131.0 s / 190 s | 161.7 s / 232 s | 52.5 s / 75.6 s |
+| other, Standard | | | an edit with 1 image 211 s, with 2 images 297 s | 512² 12.1 s |
+| 1024², Light (4 to 6 bits), full size | not measured | 118–120 s | not remeasured since 0.10 | not measured |
 | peak memory, Standard / Light | 3.07 GB (1024×1536: 3.51 GB) / 1.35 GB, the engine alone | 2.6 GB / 2.0 GB | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / not measured |
-| deviation from the fp32 reference (`model_out`) | 1.44·10⁻⁴ (1024²) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) | 1.4·10⁻⁵ from the fp64 exact (1024²), the fp32 reference at 1.5·10⁻⁵ |
+| deviation from the fp32 reference (`model_out`, full size) | 1.44·10⁻⁴ (1024²) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) | 1.4·10⁻⁵ from the fp64 exact (1024²), the fp32 reference at 1.5·10⁻⁵ |
 
-Each time is a render queued in the app by `silicontrol`, from the queue to the PNG. The 1024²
-Standard times: 18/10/2026, app 0.12, this Mac's map in service, 0 swap-out; a last Z-Image render
-at the end of that series, as a witness, took 123.6 s (the machine drifts by a few percent from one
-render to the next). Krea 2's 1024×1536: the same series. The other times: Qwen-Image-2.1 on
+Each time is a render queued in the app by `silicontrol`, from the queue to the PNG, this Mac's map
+in service. With Faster Rendering: 19/10/2026, app 0.12, the setting at its default; a Z-Image 1024²
+render with it off, as a witness, took 112.0 s in the same series. Every evaluation at full size,
+1024²: 18/10/2026, app 0.12, 0 swap-out; a last Z-Image render at the end of that series, as a
+witness, took 123.6 s (the machine drifts by a few percent from one render to the next); Krea 2's
+1024×1536: the same series. The other times: Qwen-Image-2.1 on
 15/10/2026 with 0.10, Z-Image on 14/10/2026 with 0.8.2. Peak memory is the app's `phys_footprint`,
 sampled every 100 ms. Anima Turbo's other times and its peak are those of the engine alone, without
 the app, render cache off (14–15/10/2026); Krea 2 Turbo's peaks too (17/10/2026). How the deviation
 is measured: [Verification](#verification).
 
 Until 0.8.1, Z-Image Turbo ran 7 of the 8 DiT evaluations its recipe calls for; the times published
-then (82–85 s at 1024²) were for 7. Fixed in 0.8.2: 8 full-size evaluations.
+then (82–85 s at 1024²) were for 7. Fixed in 0.8.2: 8 full-size evaluations. Faster Rendering is
+not that shortcut: it keeps all 8 evaluations.
+
+### Faster Rendering
+
+On by default, at the head of Settings, for all four models. At 1024², 1024×1536 and 1536×1024, the
+first evaluations run on the half-size grid — 3 of 8 for Z-Image, Qwen-Image-2.1 and Anima, 4 for
+Krea 2, whose schedule keeps its first noise levels higher — and the rest at full size. Still 8
+evaluations; one at half size costs about a quarter of a full one. No usual portrait or landscape
+format qualifies: the half of 832×1216 would fall under 512 px on one side.
+
+The small grid is fed the averaged state plus the low band of the starting noise, so it holds a
+clean, correctly noised picture; the velocity brought back to full size is the one that leads the
+full state to the enlarged clean estimate, so it also takes away the fine noise a half grid cannot
+see, at the pace a full step would. The half-size steps dropped in 0.8.2 had neither: their
+enlarged velocity left that fine noise in place (sand on skin and walls), and their small grid was
+a plain decimation, whose aliasing the model read as texture (cracks). Each model's count was
+judged by eye on two prompts, a portrait and the library: no
+sand, no cracks, freckles, hair and book spines intact; one step more, and fine detail starts to go.
+
+It makes another image than the full-size recipe with the same seed (the composition is decided in
+the first steps: the same scene, sometimes another person), not a degraded copy of it. Not with a
+LoRA, Detail, an edit, another number of steps or another schedule. Off, every evaluation is at full
+size and the image is the same, to the bit, as before: the one checked against diffusers, to which
+the deviations above apply.
 
 ### Next to Draw Things
 
@@ -256,6 +289,7 @@ The comparison is about wall-clock time, not identical arithmetic: the samplers 
 differ, so do the images. Peak memory does not count the weights mapped from disk, on either side.
 Siliconed runs the machine hotter, which follows from computing in fp32.
 Until 0.8.1 this table set Siliconed's 7 evaluations against Draw Things' 8; it is now 8 against 8.
+Siliconed's lines here are every evaluation at full size: they predate Faster Rendering.
 
 **Within the budget, measured.** Each model's peak `phys_footprint` and its swap-outs (`vm_stat` delta)
 are measured at the product's worst case, on a 16 GB Mac with nothing else running: Qwen-Image-2.1 at
