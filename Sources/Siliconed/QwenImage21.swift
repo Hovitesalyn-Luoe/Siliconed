@@ -527,8 +527,10 @@ package final class QwenImage21DiT {
             if layer == config.layers - 1, kind != .prefill { record("layer_last_out", xs, n * d) }
         }
         if fused { prefillPending = false }
-        // Every layer's K/V is on disk: a file being kept becomes the one the next render reads.
-        if fused || kind == .prefill { kvFile?.seal() }
+        // Every layer's K/V is on disk: a file being kept becomes the one the next render reads — after
+        // the first step's output, when the prefill ran inside it, and only if that output is finite
+        // (`QwenImage21KVFile.seal(after:)`). A prefill of its own (the checks) has no output to judge.
+        if kind == .prefill { kvFile?.seal() }
         guard kind != .prefill else { return [] }
 
         // ── norm_out: LN without affine, × (1 + scale), each band its row; then proj_out ───
@@ -544,6 +546,9 @@ package final class QwenImage21DiT {
         var out = [Float](repeating: 0, count: c * s)
         out.withUnsafeMutableBufferPointer { vDSP_mtrans(o, 1, $0.baseAddress!, 1, vDSP_Length(c), vDSP_Length(s)) }
         record("model_out", out, out.count)
+        if fused, kvFile?.seal(after: out) == false {
+            Warnings.emit("✗ the first step's velocity is not finite: the edit's K/V are not kept for the next render")
+        }
         return out
     }
 

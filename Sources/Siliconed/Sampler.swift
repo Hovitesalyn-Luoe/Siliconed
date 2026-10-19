@@ -226,7 +226,7 @@ package final class Sampler {
 
     /// The non-finite values of a buffer (how many, and the first one's index), or `nil` if there are
     /// none — the common case. A single pass.
-    private static func countNotFinite(_ values: some Collection<Float>, _ count: Int)
+    static func countNotFinite(_ values: some Collection<Float>, _ count: Int)
             -> (count: Int, first: Int)? {
         var bad = 0, first = -1
         for (i, value) in values.enumerated() where !value.isFinite {

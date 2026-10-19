@@ -200,12 +200,30 @@ package struct RenderCache: Sendable {
 
     private func entry(_ key: Key) -> URL { conditioningFolder.appendingPathComponent(key.hex + ".bin") }
 
-    /// The entry, if it is there and whole — touched (its mtime is the LRU's clock). A damaged one is removed.
+    /// **Every value finite** — the condition for an entry to be written or read back.
+    ///
+    /// An entry is replayed into every later render with the same input, for the whole session: a NaN
+    /// computed once — by any render, including one cancelled before anyone saw its image — would
+    /// blacken every edit of that image until the app quits (one non-finite key or value in the joint
+    /// attention reaches every target row). It is the only state a render hands the next one (the
+    /// `Context`, the DiT and the plan are per render), so it never carries one. Not storing it costs
+    /// the recomputation; storing it would cost every render after.
+    package static func allFinite(_ values: [Float]) -> Bool {
+        values.withUnsafeBufferPointer { b in
+            var finite = true
+            for v in b where !v.isFinite { finite = false; break }
+            return finite
+        }
+    }
+
+    /// The entry, if it is there, whole and finite — touched (its mtime is the LRU's clock). A damaged
+    /// one is removed.
     private func read<T>(_ key: Key, _ make: ([String: Any], [Float]) -> T?) -> T? {
         let url = entry(key)
         // Mapped, not read into `malloc`: `decode` copies the floats once, into the value.
         guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
-        guard let (header, values) = RenderCache.decode(data), let value = make(header, values) else {
+        guard let (header, values) = RenderCache.decode(data), RenderCache.allFinite(values),
+              let value = make(header, values) else {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
@@ -214,9 +232,11 @@ package struct RenderCache: Sendable {
     }
 
     /// Written under a temporary name, then renamed: a reader never sees half an entry. Best effort —
-    /// a full disk or a read-only library only loses the saving.
+    /// a full disk or a read-only library only loses the saving. A non-finite value is never written
+    /// (`allFinite`).
     private func write(_ key: Key, header: [String: Any], values: [Float]) {
         let fm = FileManager.default
+        guard RenderCache.allFinite(values) else { return }
         do {
             try fm.createDirectory(at: conditioningFolder, withIntermediateDirectories: true)
             let prefix = try RenderCache.prefix(header: header)

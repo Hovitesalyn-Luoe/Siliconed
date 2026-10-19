@@ -400,6 +400,14 @@ package final class VAEMemory {
             graph.encode(to: commands, feeds: feeds, targetOperations: nil, resultsDictionary: results, executionDescriptor: nil)
             commands.commit()
             commands.waitUntilCompleted()
+            // The VAEs' graphs were the one GPU submission of a render whose failure went unseen: a
+            // refused command buffer writes nothing, its result register keeps whatever its heap held,
+            // and the latent of an edit's reference is then cached for every later render
+            // (`RenderCache`). Counted and said like the GEMMs' and the SDPA's (`Attention.verdict`);
+            // only the error, never the GPU time — MPS may commit and continue, leaving this one empty.
+            if commands.status == .error || commands.error != nil {
+                Attention.report("VAE graph: the GPU refused — \(commands.error?.localizedDescription ?? "status error")")
+            }
         }
         // What the graph's compilation freed goes back before the next pass (`Arena.returnFreedPages`):
         // ~100 graphs a decoder, each one's mlir churn otherwise billed until the phase ends.

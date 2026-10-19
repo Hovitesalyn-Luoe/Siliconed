@@ -76,10 +76,10 @@ final class RenderCacheTests: XCTestCase {
 
     // ── what comes back ─────────────────────────────────────────────────────────────────
 
-    /// Every bit back — a negative zero, a NaN payload, a subnormal — with the slots and the format.
+    /// Every bit back — a negative zero, a subnormal, the largest float — with the slots and the format.
     func testConditioningAndLatentComeBackBitForBit() {
         let cache = RenderCache(directory: folder)
-        let values: [Float] = [0, -0.0, 1.5, .leastNonzeroMagnitude, Float(bitPattern: 0x7fc0_1234), -3.25e-7]
+        let values: [Float] = [0, -0.0, 1.5, .leastNonzeroMagnitude, -.greatestFiniteMagnitude, -3.25e-7]
         let c = Conditioning(format: .qwenImage21, rows: 3, width: 2, values: values, tokens: 3, imageSlots: [false, true, true])
         let k = key(["conditioning"])
         XCTAssertNil(cache.conditioning(k))
@@ -113,6 +113,39 @@ final class RenderCacheTests: XCTestCase {
         data.removeLast(2)
         try data.write(to: path)
         XCTAssertNil(cache.conditioning(k))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
+    }
+
+    /// **A non-finite value is never kept, nor read back** — the only state a render, cancelled or not,
+    /// hands the next one: an edit reads its image 1's cached latent instead of encoding it. Here such a
+    /// latent is not written (the next render encodes again), and an entry whose floats went non-finite
+    /// on disk is a miss, removed.
+    func testANonFiniteValueIsNeverKeptNorReadBack() throws {
+        let cache = RenderCache(directory: folder)
+        var values = (0..<64).map { Float($0) * 0.25 }
+        let image1 = key(["latent of image 1"])
+
+        // The cancelled edit's encoding, with one NaN: not kept — the next edit is a miss, it encodes.
+        values[17] = .nan
+        cache.store(Latent(space: .qwenImage21, height: 1, width: 1, values: values), key: image1)
+        XCTAssertNil(cache.latent(image1))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.conditioningFolder.appendingPathComponent(image1.hex + ".bin").path))
+        for bad in [Float.infinity, -.infinity, Float(bitPattern: 0x7fc0_1234)] {
+            let k = key(["conditioning", "\(bad.bitPattern)"])
+            cache.store(Conditioning(format: .qwenImage21, rows: 2, width: 2, values: [1, bad, 3, 4], tokens: 2,
+                                     imageSlots: [false, true]), key: k)
+            XCTAssertNil(cache.conditioning(k), "\(bad) kept")
+        }
+
+        // A finite entry is kept; the same entry with a float gone non-finite on disk is a miss, removed.
+        values[17] = 4.25
+        cache.store(Latent(space: .qwenImage21, height: 1, width: 1, values: values), key: image1)
+        XCTAssertEqual(try XCTUnwrap(cache.latent(image1)).values, values)
+        let path = cache.conditioningFolder.appendingPathComponent(image1.hex + ".bin")
+        var data = try Data(contentsOf: path)
+        withUnsafeBytes(of: Float.nan.bitPattern.littleEndian) { data.replaceSubrange((data.count - 4)..<data.count, with: $0) }
+        try data.write(to: path)
+        XCTAssertNil(cache.latent(image1))
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
     }
 
@@ -215,6 +248,32 @@ final class RenderCacheTests: XCTestCase {
         let other = try XCTUnwrap(QwenImage21KVFile.kept(at: path, key: "other", halfBytes: half, layers: 2, reserve: 0))
         XCTAssertFalse(other.complete)
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    /// **A kept K/V file is sealed only behind a finite first output** (`seal(after:)`): every later
+    /// render of the same edit reads it back without a prefill, so a NaN in its conditions would blacken
+    /// them all. The file of a non-finite output is left unsealed — unlinked with the render.
+    func testAKeptKVFileIsNotSealedBehindANonFiniteOutput() throws {
+        let path = folder.appendingPathComponent("x.kv").path
+        let half = Arena.alignment
+        let (k0, v0) = (page(1), page(2))
+        defer { for p in [k0, v0] { UnsafeMutableRawPointer(p).deallocate() } }
+
+        do {
+            let file = try XCTUnwrap(QwenImage21KVFile.kept(at: path, key: "k", halfBytes: half, layers: 1, reserve: 0))
+            try file.write(layer: 0, keys: k0, values: v0)
+            XCTAssertFalse(file.seal(after: [0.5, .nan, 1]))
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [], "nothing kept")
+
+        do {
+            let file = try XCTUnwrap(QwenImage21KVFile.kept(at: path, key: "k", halfBytes: half, layers: 1, reserve: 0))
+            try file.write(layer: 0, keys: k0, values: v0)
+            XCTAssertTrue(file.seal(after: [0.5, -2, 1]))
+        }
+        XCTAssertTrue(try XCTUnwrap(QwenImage21KVFile.kept(at: path, key: "k", halfBytes: half, layers: 1, reserve: 0)).complete)
+        // The unlinked file of a render that keeps nothing has nothing to seal: not a refusal.
+        XCTAssertTrue(try QwenImage21KVFile(halfBytes: half, layers: 1, directory: folder.path).seal(after: [.nan]))
     }
 
     /// A kept file that would leave less than the reserve free is not kept.
