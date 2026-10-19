@@ -2,10 +2,11 @@
 //
 //     Siliconed ▸ Settings… (⌘,)
 //     ┌───────────────────────────────────────────────────────────────┐
+//     │ Faster Rendering   the first steps at half size, on            │
 //     │ Developer Mode     for comparing and testing: solvers,         │
 //     │                    ComfyUI's schedule                          │
 //     │ Experimental       unfinished, off by default: Named Subjects, │
-//     │                    Negative LoRA Strengths, Faster Z-Image     │
+//     │                    Negative LoRA Strengths                     │
 //     │ Comparison         curtain or side by side                     │
 //     │ This Mac           the capacity map, measured only when asked  │
 //     │ Command Line       silicontrol, linked into /usr/local/bin     │
@@ -55,7 +56,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 }
 
-/// **What the window shows**: four sections, each switch with its sentence.
+/// **What the window shows**: five sections, each switch with its sentence.
 struct SettingsView: View {
     @Bindable var app: AppState
     @Bindable var curtain: Curtain
@@ -66,6 +67,11 @@ struct SettingsView: View {
         // Two columns, so that the window stays short: what the app shows, then this Mac.
         HStack(alignment: .top, spacing: 0) {
             Form {
+                Section {
+                    Toggle(isOn: $app.fasterRendering) {
+                        titled("Faster Rendering", "At 1024² and above, the first steps at half size: a quarter to a third faster, and a slightly different image. Not with a LoRA, Detail or an edit.")
+                    }
+                }
                 Section {
                     Toggle(isOn: $app.developerMode) {
                         titled("Developer Mode", "For comparing and testing, not for everyday renders. It shows:")
@@ -80,9 +86,6 @@ struct SettingsView: View {
                     }
                     Toggle(isOn: $app.negativeLoRAStrengths) {
                         titled("Negative LoRA Strengths", "LoRA sliders from −1.5 to 1.5. For « slider » LoRAs (age, detail…), trained to work both ways; on an ordinary LoRA, a negative strength mostly damages the image.")
-                    }
-                    Toggle(isOn: $app.zImageHalfSizeStart) {
-                        titled("Faster Z-Image", "At 1024² and above, the first three of eight steps at half size: about a quarter faster, and a slightly different image. Off with a LoRA or Detail.")
                     }
                 } header: {
                     titled("Experimental", "Unfinished: off by default, and may still change.")

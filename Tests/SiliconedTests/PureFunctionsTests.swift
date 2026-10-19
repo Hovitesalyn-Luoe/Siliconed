@@ -106,7 +106,7 @@ final class PureFunctionsTests: XCTestCase {
     /// `halfSizeSteps` there, never under the floor (16-px cells), a LoRA, a start past 0 or off the recipe.
     func testQwenSpectralPlan() throws {
         try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
-        defer { QwenImage21DenoisingModule.halfSizeStart = false }
+        defer { Spectral.halfSizeStart = false }
         let module = QwenImage21DenoisingModule(map: "", scheduler: .init())
         let full = module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false)
         XCTAssertEqual(full.reduced, 0)
@@ -114,7 +114,7 @@ final class PureFunctionsTests: XCTestCase {
         XCTAssertEqual(full.evaluations, 8)
         XCTAssertEqual(module.plan(height: 96, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
 
-        QwenImage21DenoisingModule.halfSizeStart = true
+        Spectral.halfSizeStart = true
         let half = module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false)
         XCTAssertEqual(half.reduced, QwenImage21DenoisingModule.halfSizeSteps)
         XCTAssertEqual([half.reducedHeight, half.reducedWidth], [32, 32])
@@ -136,14 +136,14 @@ final class PureFunctionsTests: XCTestCase {
     /// the floor, a LoRA, another schedule, a start past 0 or off the recipe's eight.
     func testKrea2SpectralPlan() throws {
         try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
-        defer { Krea2DenoisingModule.halfSizeStart = false }
+        defer { Spectral.halfSizeStart = false }
         let module = Krea2DenoisingModule(map: "")
         let full = module.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
         XCTAssertEqual(full.reduced, 0)
         XCTAssertEqual([full.reducedHeight, full.reducedWidth], [128, 128])
         XCTAssertEqual(full.evaluations, 8)
 
-        Krea2DenoisingModule.halfSizeStart = true
+        Spectral.halfSizeStart = true
         let half = module.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
         XCTAssertEqual(half.reduced, Krea2DenoisingModule.halfSizeSteps)
         XCTAssertEqual([half.reducedHeight, half.reducedWidth], [64, 64])

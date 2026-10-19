@@ -74,7 +74,7 @@ package struct ZImageDenoisingModule: DenoisingModule {
     /// Evaluations are counted from the start to the end: every step moves (`FlowMatchSchedule`),
     /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s` in img2img.
     ///
-    /// **The half-size start** (`halfSizeStart`, an experimental setting, off by default): the first
+    /// **The half-size start** (`Spectral.halfSizeStart`, the app's « Faster Rendering »): the first
     /// three evaluations (σ 1 → 0.833) on the half grid, by `Sampler.init(half:…)` — not the steps
     /// removed in 0.8.2, whose grain it was written against. Only from the first step, at the
     /// recipe's eight, on a grid that halves above the floor (1024², 1024×1536 and its transpose),
@@ -83,15 +83,13 @@ package struct ZImageDenoisingModule: DenoisingModule {
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let σ = FlowMatchSchedule(steps: steps).sigmas
         let halvable = Spectral.divisible(height: height, width: width, by: 2)
-        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let rule = Spectral.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
         let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
         return DenoisingPlan(startStep: start, startSigma: σ[start], evaluations: steps - start,
                              reduced: k, reducedHeight: k > 0 ? height / 2 : height,
                              reducedWidth: k > 0 ? width / 2 : width)
     }
 
-    /// The app's experimental setting (Settings ▸ Experimental), read by every plan.
-    nonisolated(unsafe) package static var halfSizeStart = false
     /// Its half-size evaluations: 3, judged clean on two prompts; at 4, fine dots came back on skin.
     package static let halfSizeSteps = 3
 
@@ -254,15 +252,13 @@ package struct AnimaDenoisingModule: DenoisingModule {
     /// Detail). `SILICONED_SPECTRAL` forces `k` (a measurement), within the same rules.
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let halvable = Spectral.divisible(height: height, width: width, by: 2)
-        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let rule = Spectral.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
         let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
         return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
                              reduced: k, reducedHeight: k > 0 ? height / 2 : height,
                              reducedWidth: k > 0 ? width / 2 : width)
     }
 
-    /// The half-size start, read by every plan (an app setting to come; off: the bits of before).
-    nonisolated(unsafe) package static var halfSizeStart = false
     /// Its half-size evaluations (σ 1 → 0.833 at 3, the schedule's shift 3 as Z-Image's).
     package static let halfSizeSteps = 3
 
@@ -526,15 +522,13 @@ package struct Krea2DenoisingModule: DenoisingModule {
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let halvable = Spectral.divisible(height: height, width: width, by: 2,
                                           floor: Spectral.floor(factor: space.factor))
-        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let rule = Spectral.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
         let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
         return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
                              reduced: k, reducedHeight: k > 0 ? height / 2 : height,
                              reducedWidth: k > 0 ? width / 2 : width)
     }
 
-    /// The half-size start, read by every plan (an app setting to come; off: the bits of before).
-    nonisolated(unsafe) package static var halfSizeStart = false
     /// Its half-size evaluations: 4 (σ 1 → 0.760), judged by eye on two prompts at 1024² — one more than
     /// Z-Image's and Qwen-Image-2.1's, Krea 2's shifted schedule lingering longer at high σ. Not the
     /// largest that renders: at 5 the freckles start to fade, at 6 the shelves split into strips and an
@@ -704,15 +698,13 @@ package struct QwenImage21DenoisingModule: DenoisingModule {
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let halvable = Spectral.divisible(height: height, width: width, by: 2,
                                           floor: Spectral.floor(factor: space.factor))
-        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let rule = Spectral.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
         let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
         return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start],
                              evaluations: steps - start, reduced: k,
                              reducedHeight: k > 0 ? height / 2 : height, reducedWidth: k > 0 ? width / 2 : width)
     }
 
-    /// The half-size start, read by every plan (an app setting to come; off: the bits of before).
-    nonisolated(unsafe) package static var halfSizeStart = false
     /// Its half-size evaluations: 3 (σ 1 → 0.927), judged by eye on two prompts at 1024², as Z-Image's.
     /// Not the largest that renders: at 4 the freckles fade and the shelves start to block, at 5 the
     /// books are a 2×2 patchwork.

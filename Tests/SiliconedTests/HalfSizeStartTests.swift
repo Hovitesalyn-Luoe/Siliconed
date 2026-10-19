@@ -6,14 +6,13 @@ import XCTest
 final class HalfSizeStartTests: XCTestCase {
 
     override func tearDown() {
-        ZImageDenoisingModule.halfSizeStart = false
-        AnimaDenoisingModule.halfSizeStart = false
+        Spectral.halfSizeStart = false
     }
 
     func testOffByDefaultAndThreeEvaluationsWhenOn() {
         let z = ZImageDenoisingModule(map: "")
         XCTAssertEqual(z.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false).reduced, 0)
-        ZImageDenoisingModule.halfSizeStart = true
+        Spectral.halfSizeStart = true
         let plan = z.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
         XCTAssertEqual(plan.reduced, 3)
         XCTAssertEqual(plan.evaluations, 8)
@@ -23,7 +22,7 @@ final class HalfSizeStartTests: XCTestCase {
 
     func testNeverUnderTheFloorNorWithALoRANorOffTheRecipe() {
         let z = ZImageDenoisingModule(map: "")
-        ZImageDenoisingModule.halfSizeStart = true
+        Spectral.halfSizeStart = true
         // 512², and 832×1216 whose half has a side under 512 px.
         XCTAssertEqual(z.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
         XCTAssertEqual(z.plan(height: 152, width: 104, steps: 8, start: 0, withLoRA: false).reduced, 0)
@@ -37,7 +36,7 @@ final class HalfSizeStartTests: XCTestCase {
         try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
         let anima = AnimaDenoisingModule(map: "")
         XCTAssertEqual(anima.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false).reduced, 0)
-        AnimaDenoisingModule.halfSizeStart = true
+        Spectral.halfSizeStart = true
         let plan = anima.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
         XCTAssertEqual(plan.reduced, AnimaDenoisingModule.halfSizeSteps)
         XCTAssertEqual(plan.evaluations, 8)

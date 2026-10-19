@@ -88,16 +88,17 @@ final class AppState {
             }
         }
     }
-    private static let halfSizeStartKey = "zImageHalfSizeStart"
-    /// **Z-Image's half-size start** (Experimental): at 1024² and above, the first three evaluations on
-    /// the half grid (`ZImageDenoisingModule.halfSizeStart`), about a quarter faster — another image
-    /// than the recipe at full size, judged clean on two prompts only. The engine reads it at every
-    /// plan, so time estimates follow at once.
-    var zImageHalfSizeStart = UserDefaults.standard.bool(forKey: AppState.halfSizeStartKey) {
+    private static let fasterRenderingKey = "fasterRendering"
+    /// **Faster Rendering** (Settings, on by default): at 1024² and above, the first evaluations of every
+    /// family on the half grid (`Spectral.halfSizeStart`; three of eight, Krea 2 four) — a quarter to a
+    /// third faster, another image than the recipe at full size, judged clean by eye per family. Not
+    /// with a LoRA, Detail or an edit (each plan's rules). The engine reads it at every plan, so time
+    /// estimates follow at once.
+    var fasterRendering = UserDefaults.standard.object(forKey: AppState.fasterRenderingKey) as? Bool ?? true {
         didSet {
-            guard zImageHalfSizeStart != oldValue else { return }
-            UserDefaults.standard.set(zImageHalfSizeStart, forKey: Self.halfSizeStartKey)
-            ZImageDenoisingModule.halfSizeStart = zImageHalfSizeStart
+            guard fasterRendering != oldValue else { return }
+            UserDefaults.standard.set(fasterRendering, forKey: Self.fasterRenderingKey)
+            Spectral.halfSizeStart = fasterRendering
         }
     }
     /// The range of a LoRA's strength slider.
@@ -418,7 +419,7 @@ final class AppState {
         readySet = Set(library.models().map(\.id))
         occupancy = library.occupancy()
         identifier = defaultIdentifier
-        ZImageDenoisingModule.halfSizeStart = zImageHalfSizeStart
+        Spectral.halfSizeStart = fasterRendering
         readEditors()
         // The machine profile, read in THIS library, with the capacity map — once per process, and only
         // with a current map: the app builds only one `AppState` (see `App.swift`). Without one (none yet,

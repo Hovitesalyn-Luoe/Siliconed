@@ -4409,30 +4409,30 @@
         }
       }
     },
-    "At 1024² and above, the first three of eight steps at half size: about a quarter faster, and a slightly different image. Off with a LoRA or Detail." : {
+    "At 1024² and above, the first steps at half size: a quarter to a third faster, and a slightly different image. Not with a LoRA, Detail or an edit." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ab 1024²: die ersten drei der acht Schritte in halber Größe – etwa ein Viertel schneller, mit einem leicht anderen Bild. Aus bei einer LoRA oder Detail."
+            "value" : "Ab 1024²: die ersten Schritte in halber Größe – ein Viertel bis ein Drittel schneller, mit einem leicht anderen Bild. Nicht mit einer LoRA, Detail oder einer Bearbeitung."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Desde 1024²: los tres primeros de los ocho pasos a la mitad de tamaño; alrededor de un cuarto más rápido y una imagen algo distinta. Desactivado con una LoRA o Detalle."
+            "value" : "Desde 1024²: los primeros pasos a la mitad de tamaño; entre un cuarto y un tercio más rápido y una imagen algo distinta. No con una LoRA, Detalle ni una edición."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En 1024² et au-delà, les trois premiers des huit pas en demi-taille : environ un quart plus rapide, et une image un peu différente. Éteint avec une LoRA ou Détail."
+            "value" : "En 1024² et au-delà, les premiers pas en demi-taille : d’un quart à un tiers plus rapide, et une image un peu différente. Pas avec une LoRA, Détail ni une édition."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Da 1024² in su: i primi tre degli otto passi a metà dimensione, circa un quarto più veloce e un’immagine un po’ diversa. Spento con una LoRA o Dettaglio."
+            "value" : "Da 1024² in su: i primi passi a metà dimensione, da un quarto a un terzo più veloce e un’immagine un po’ diversa. Non con una LoRA, Dettaglio o una modifica."
           }
         }
       }
@@ -8241,30 +8241,30 @@
         }
       }
     },
-    "Faster Z-Image" : {
+    "Faster Rendering" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schnelleres Z-Image"
+            "value" : "Schnelleres Rendering"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Z-Image más rápido"
+            "value" : "Renderizado más rápido"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Z-Image plus rapide"
+            "value" : "Rendu plus rapide"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Z-Image più veloce"
+            "value" : "Rendering più veloce"
           }
         }
       }
