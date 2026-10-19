@@ -47,7 +47,8 @@ package struct ZImageTextModule: TextModule {
     }
 }
 
-/// Z-Image's S3 DiT under its sampler (negation, every evaluation at full size).
+/// Z-Image's S3 DiT under its sampler (negation; every evaluation at full size unless the half-size
+/// start is on).
 package struct ZImageDenoisingModule: DenoisingModule {
     package var map: String
 
@@ -63,7 +64,7 @@ package struct ZImageDenoisingModule: DenoisingModule {
 
     package func sigmas(steps: Int) -> [Float] { FlowMatchSchedule(steps: steps).sigmas }
 
-    /// **Every evaluation at full size: no spectral schedule** (since 0.8.2). Half-size first steps
+    /// **By default every evaluation at full size** (since 0.8.2). The former half-size first steps
     /// were judged clean on the seven-evaluation schedule of before 0.8.2; on the recipe's eight
     /// (first full step at σ = 0.9, six full steps after), the high-frequency noise the half-size steps
     /// leave in the full latent (the up-sampled velocity does not carry it) is no longer resorbed —
@@ -72,27 +73,55 @@ package struct ZImageDenoisingModule: DenoisingModule {
     ///
     /// Evaluations are counted from the start to the end: every step moves (`FlowMatchSchedule`),
     /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s` in img2img.
+    ///
+    /// **The half-size start** (`halfSizeStart`, an experimental setting, off by default): the first
+    /// three evaluations (σ 1 → 0.833) on the half grid, by `Sampler.init(half:…)` — not the steps
+    /// removed in 0.8.2, whose grain it was written against. Only from the first step, at the
+    /// recipe's eight, on a grid that halves above the floor (1024², 1024×1536 and its transpose),
+    /// without a LoRA or Detail (never judged under either). `SILICONED_SPECTRAL` forces the count (a
+    /// measurement), within the same rules.
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let σ = FlowMatchSchedule(steps: steps).sigmas
+        let halvable = Spectral.divisible(height: height, width: width, by: 2)
+        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
         return DenoisingPlan(startStep: start, startSigma: σ[start], evaluations: steps - start,
-                             reduced: 0, reducedHeight: height, reducedWidth: width)
+                             reduced: k, reducedHeight: k > 0 ? height / 2 : height,
+                             reducedWidth: k > 0 ? width / 2 : width)
     }
+
+    /// The app's experimental setting (Settings ▸ Experimental), read by every plan.
+    nonisolated(unsafe) package static var halfSizeStart = false
+    /// Its half-size evaluations: 3, judged clean on two prompts; at 4, fine dots came back on skin.
+    package static let halfSizeSteps = 3
 
     package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                           context: Context) throws {
         let (height, width) = (latent.height, latent.width)
-        let dit: DiT
-        if let kept = context.keptDenoiser as? DiT {
-            dit = kept
-        } else {
-            dit = try DiT(artifact: try Artifact(path: map), latentHeight: height, latentWidth: width,
-                          capLength: text.rows, freezeCut: context.reproducible, lora: lora)
-            context.keptDenoiser = dit
-        }
-        dit.cancellation = context.cancellation
-        let sampler = Sampler(dit: dit, steps: steps)
         let planned = plan(height: height, width: width, steps: steps, start: start,
                            withLoRA: lora != nil || context.detail != .normal)
+        let full = { () throws -> DiT in
+            if let kept = context.keptDenoiser as? DiT { return kept }
+            let dit = try DiT(artifact: try Artifact(path: map), latentHeight: height, latentWidth: width,
+                              capLength: text.rows, freezeCut: context.reproducible, lora: lora)
+            dit.cancellation = context.cancellation
+            context.keptDenoiser = dit
+            return dit
+        }
+        let sampler: Sampler
+        if planned.reduced > 0 {
+            // One DiT at a time: a batch's kept full DiT goes before the half-size one is built.
+            context.keptDenoiser = nil
+            let half = try DiT(artifact: try Artifact(path: map), latentHeight: planned.reducedHeight,
+                               latentWidth: planned.reducedWidth, capLength: text.rows,
+                               freezeCut: context.reproducible, lora: lora)
+            half.cancellation = context.cancellation
+            sampler = Sampler(half: half, halfSteps: planned.reduced, steps: steps, full: full)
+        } else {
+            let dit = try full()
+            dit.cancellation = context.cancellation
+            sampler = Sampler(dit: dit, steps: steps)
+        }
         sampler.detail = context.detail
         sampler.detailScale = context.detailScale
         sampler.solver = context.solver

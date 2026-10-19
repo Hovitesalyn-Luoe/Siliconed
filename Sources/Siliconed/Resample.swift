@@ -120,4 +120,74 @@ package enum Resample {
             }
         }
     }
+
+    // ── Z-Image's half-size start (`Sampler`) ──────────────────────────────────────────────
+
+    /// 𝓑 — the 2×2 mean, `[C, 2h, 2w]` → `[C, h, w]`, of `a + scale·b` (`b` may be `a`'s noise).
+    ///
+    /// Not 𝓟: Z-Image's half-size start feeds its small grid `𝓑x + σ𝓑ε`, whose noise `2𝓑ε` is the full
+    /// latent's own low band (white, variance σ²) where `𝓟x` hands the model an alias of the high band.
+    package static func average(_ a: UnsafePointer<Float>, plus scale: Float, times b: UnsafePointer<Float>,
+                               into destination: UnsafeMutablePointer<Float>,
+                               channels: Int, height: Int, width: Int) {
+        let fullWidth = width * 2
+        for c in 0..<channels {
+            let offset = c * height * 2 * fullWidth
+            for y in 0..<height {
+                let top = offset + 2 * y * fullWidth, bottom = top + fullWidth
+                let target = destination + c * height * width + y * width
+                for x in 0..<width {
+                    let i = top + 2 * x, j = bottom + 2 * x
+                    let sum = (a[i] + scale * b[i]) + (a[i + 1] + scale * b[i + 1])
+                        + (a[j] + scale * b[j]) + (a[j + 1] + scale * b[j + 1])
+                    target[x] = 0.25 * sum
+                }
+            }
+        }
+    }
+
+    /// 𝓛 — ×2 upsampling by Lanczos-3 (a = 3, six taps), on bilinear's grid (`src = ½·j − ¼`), the
+    /// edges replicated, the taps normalized to a sum of one. What it upsamples is an estimate x̂₀:
+    /// bilinear lets the spectral images of its upper band through, the full steps would read them
+    /// as texture.
+    package static func lanczosDouble(_ source: UnsafePointer<Float>,
+                                     into destination: UnsafeMutablePointer<Float>,
+                                     channels: Int, height: Int, width: Int) {
+        func kernel(_ x: Double) -> Double {
+            if x == 0 { return 1 }
+            if abs(x) >= 3 { return 0 }
+            let p = Double.pi * x
+            return 3 * sin(p) * sin(p / 3) / (p * p)
+        }
+        func table(_ n: Int) -> [[(index: Int, weight: Float)]] {
+            (0..<(2 * n)).map { j in
+                let src = 0.5 * Double(j) - 0.25
+                let base = Int(src.rounded(.down))
+                let taps = (base - 2...base + 3).map { i in (min(max(i, 0), n - 1), kernel(src - Double(i))) }
+                let total = taps.reduce(0) { $0 + $1.1 }
+                return taps.map { (index: $0.0, weight: Float($0.1 / total)) }
+            }
+        }
+        let rows = table(height), columns = table(width)
+        let fullWidth = width * 2
+        var horizontal = [Float](repeating: 0, count: height * fullWidth)
+        for c in 0..<channels {
+            let plane = source + c * height * width
+            for y in 0..<height {
+                for x in 0..<fullWidth {
+                    var sum: Float = 0
+                    for tap in columns[x] { sum += tap.weight * plane[y * width + tap.index] }
+                    horizontal[y * fullWidth + x] = sum
+                }
+            }
+            let out = destination + c * height * 2 * fullWidth
+            for y in 0..<(2 * height) {
+                let target = out + y * fullWidth
+                for x in 0..<fullWidth { target[x] = 0 }
+                for tap in rows[y] {
+                    for x in 0..<fullWidth { target[x] += tap.weight * horizontal[tap.index * fullWidth + x] }
+                }
+            }
+        }
+    }
 }

@@ -88,6 +88,18 @@ final class AppState {
             }
         }
     }
+    private static let halfSizeStartKey = "zImageHalfSizeStart"
+    /// **Z-Image's half-size start** (Experimental): at 1024² and above, the first three evaluations on
+    /// the half grid (`ZImageDenoisingModule.halfSizeStart`), about a quarter faster — another image
+    /// than the recipe at full size, judged clean on two prompts only. The engine reads it at every
+    /// plan, so time estimates follow at once.
+    var zImageHalfSizeStart = UserDefaults.standard.bool(forKey: AppState.halfSizeStartKey) {
+        didSet {
+            guard zImageHalfSizeStart != oldValue else { return }
+            UserDefaults.standard.set(zImageHalfSizeStart, forKey: Self.halfSizeStartKey)
+            ZImageDenoisingModule.halfSizeStart = zImageHalfSizeStart
+        }
+    }
     /// The range of a LoRA's strength slider.
     var loraStrengthRange: ClosedRange<Double> { negativeLoRAStrengths ? -1.5...1.5 : 0...1.5 }
     /// `slot` with its strength at 0 if negative while the switch is off.
@@ -406,6 +418,7 @@ final class AppState {
         readySet = Set(library.models().map(\.id))
         occupancy = library.occupancy()
         identifier = defaultIdentifier
+        ZImageDenoisingModule.halfSizeStart = zImageHalfSizeStart
         readEditors()
         // The machine profile, read in THIS library, with the capacity map — once per process, and only
         // with a current map: the app builds only one `AppState` (see `App.swift`). Without one (none yet,

@@ -47,7 +47,12 @@ package struct FlowMatchSchedule {
 }
 
 package final class Sampler {
-    package let dit: DiT
+    /// The full-size DiT, or `nil` until the half-size start is over (`init(half:…)`).
+    private var dit: DiT?
+    private var buildFull: (() throws -> DiT)?
+    /// The half-size start's DiT and its evaluation count, released when they are done.
+    private var half: DiT?
+    private let halfSteps: Int
     package let schedule: FlowMatchSchedule
 
     /// What each step produced, to compare against the golden trajectory.
@@ -57,6 +62,37 @@ package final class Sampler {
 
     package init(dit: DiT, steps: Int) {
         self.dit = dit
+        self.halfSteps = 0
+        self.schedule = FlowMatchSchedule(steps: steps)
+    }
+
+    /// **The half-size start**: the first `halfSteps` evaluations by `half`, a DiT sized for the half
+    /// grid, then `full` builds the full-size one — one DiT at a time, never both.
+    ///
+    ///     x_low = 𝓑x + σ·𝓑ε            (𝓑 the 2×2 mean, ε the starting noise)
+    ///     x̂₀ = x_low − σ·v_θ(x_low, σ)  (the small grid's estimate)
+    ///     dx/dσ = (x − 𝓛x̂₀) / σ         (𝓛 Lanczos-3 ×2)
+    ///
+    /// What a port of the old half-size steps (`x ← x + Δσ·𝓘v(𝓟x)`, removed in 0.9) would miss, and
+    /// what made them leave grain on the eight evaluations of the recipe:
+    ///
+    ///   - **The upsampled velocity carries no high band**: the latent's high-frequency noise was
+    ///     never removed, 100 % of it left at σ = 0.833 where 83 % belongs, which the full steps read as
+    ///     texture (sand on the skin). Upsampling x̂₀ instead, the noise part of the derivative is the
+    ///     full latent's own: the state stays exactly `σε + (1 − σ)S`, whatever the interpolator.
+    ///   - **Decimation hands the model an alias**: `𝓟ε` is white, but its low band is the full
+    ///     latent's high band folded; the model's x̂₀ explains a noise the full grid does not carry
+    ///     at those frequencies, and the full steps reconcile the two with a crackle. Because the state is
+    ///     exactly `σε + (1 − σ)S`, `𝓑x + σ𝓑ε = 2σ·𝓑ε + (1 − σ)·𝓑S`: noise of variance σ² that *is* the
+    ///     latent's low band, signal antialiased.
+    ///   - **Lanczos, not bilinear, on x̂₀**: bilinear passes the spectral images of the small grid's
+    ///     upper band into the full one.
+    ///
+    /// Only from the first step (`start` 0): ε is the starting latent.
+    package init(half: DiT, halfSteps: Int, steps: Int, full: @escaping () throws -> DiT) {
+        self.half = half
+        self.halfSteps = halfSteps
+        self.buildFull = full
         self.schedule = FlowMatchSchedule(steps: steps)
     }
 
@@ -104,9 +140,22 @@ package final class Sampler {
         let walk = SolverWalk(solver: solver, schedule: schedule.sigmas, start: start, count: count,
                               noise: solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
         var evaluations = 0
+        // The half-size start's buffers: ε, the small grid, its estimate, the upsampled estimate.
+        let channels = half != nil ? count / (height * width) : 0
+        let (lowHeight, lowWidth) = (height / 2, width / 2)
+        let lowCount = channels * lowHeight * lowWidth
+        let noise = half != nil ? Array(UnsafeBufferPointer(start: latent, count: count)) : []
+        var small = [Float](repeating: 0, count: lowCount), estimate = small
+        var upsampled = [Float](repeating: 0, count: half != nil ? count : 0)
         for step in start..<(schedule.sigmas.count - 1) {
             // Between two steps, not in the middle of one: see `Cancellation`.
-            try dit.cancellation.check()
+            let reduced = half != nil && step - start < halfSteps
+            if !reduced, dit == nil {
+                half = nil
+                dit = try buildFull?()
+            }
+            guard let current = reduced ? half : dit else { break }
+            try current.cancellation.check()
             let sigma = schedule.sigmas[step], next = schedule.sigmas[step + 1]
             let started = Date()
             // `noise_pred = −v`, then the solver — Euler: `x ← x + Δσ · noise_pred`, hence `x − Δσ · v`.
@@ -115,10 +164,29 @@ package final class Sampler {
             // Under DPM++ and UniPC, `(1000 − k)/1000` with diffusers' integer timestep (`Solver.integerTimestep`).
             let time = solver.integerTimestep(told[step], first: step == start).map { Float(1000 - $0) / 1000 }
                 ?? FlowMatchSchedule.modelTime(sigma: told[step])
-            var negated = try autoreleasepool { try dit.forward(latent: latent, caps: caps, sigma: time) }
-            negated.withUnsafeMutableBufferPointer { buffer in
-                var minusOne: Float = -1
-                vDSP_vsmul(buffer.baseAddress!, 1, &minusOne, buffer.baseAddress!, 1, vDSP_Length(count))
+            var negated: [Float]
+            if reduced {
+                noise.withUnsafeBufferPointer { ε in
+                    Resample.average(latent, plus: sigma, times: ε.baseAddress!, into: &small,
+                                     channels: channels, height: lowHeight, width: lowWidth)
+                }
+                let low = try small.withUnsafeBufferPointer { s in
+                    try autoreleasepool { try current.forward(latent: s.baseAddress!, caps: caps, sigma: time) }
+                }
+                // `low` is the model's output, `−dx/dσ`: x̂₀ = x_low + σ·low.
+                for i in 0..<lowCount { estimate[i] = small[i] - sigma * -low[i] }
+                estimate.withUnsafeBufferPointer { e in
+                    Resample.lanczosDouble(e.baseAddress!, into: &upsampled, channels: channels,
+                                           height: lowHeight, width: lowWidth)
+                }
+                let inverse = 1 / sigma
+                negated = (0..<count).map { (latent[$0] - upsampled[$0]) * inverse }
+            } else {
+                negated = try autoreleasepool { try current.forward(latent: latent, caps: caps, sigma: time) }
+                negated.withUnsafeMutableBufferPointer { buffer in
+                    var minusOne: Float = -1
+                    vDSP_vsmul(buffer.baseAddress!, 1, &minusOne, buffer.baseAddress!, 1, vDSP_Length(count))
+                }
             }
             negated.withUnsafeBufferPointer { walk.step(latent: latent, derivative: $0.baseAddress!) }
             evaluations += 1

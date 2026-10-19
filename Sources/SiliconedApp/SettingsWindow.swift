@@ -5,7 +5,7 @@
 //     │ Developer Mode     for comparing and testing: solvers,         │
 //     │                    ComfyUI's schedule                          │
 //     │ Experimental       unfinished, off by default: Named Subjects, │
-//     │                    Negative LoRA Strengths                     │
+//     │                    Negative LoRA Strengths, Faster Z-Image     │
 //     │ Comparison         curtain or side by side                     │
 //     │ This Mac           the capacity map, measured only when asked  │
 //     │ Command Line       silicontrol, linked into /usr/local/bin     │
@@ -80,6 +80,9 @@ struct SettingsView: View {
                     }
                     Toggle(isOn: $app.negativeLoRAStrengths) {
                         titled("Negative LoRA Strengths", "LoRA sliders from −1.5 to 1.5. For « slider » LoRAs (age, detail…), trained to work both ways; on an ordinary LoRA, a negative strength mostly damages the image.")
+                    }
+                    Toggle(isOn: $app.zImageHalfSizeStart) {
+                        titled("Faster Z-Image", "At 1024² and above, the first three of eight steps at half size: about a quarter faster, and a slightly different image. Off with a LoRA or Detail.")
                     }
                 } header: {
                     titled("Experimental", "Unfinished: off by default, and may still change.")

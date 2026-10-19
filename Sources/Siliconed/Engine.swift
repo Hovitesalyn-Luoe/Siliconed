@@ -395,8 +395,9 @@ package final class Engine: Sendable {
 
 // ── the spectral schedule, which is a product rule ────────────────────────────────────
 
-/// **The spectral schedule is a PRODUCT choice, not a machine one** — today Qwen-Image-2.1's alone
-/// (`QwenImage21DenoisingModule.plan`, a fixed `k`; Z-Image evaluates every step at full size).
+/// **The spectral schedule is a PRODUCT choice, not a machine one** — Qwen-Image-2.1's path
+/// (`QwenImage21DenoisingModule.plan`, `k` 0 since 0.10) and Z-Image's half-size start, an experimental
+/// setting off by default (`ZImageDenoisingModule.halfSizeStart`, `Sampler.init(half:…)`).
 ///
 /// It is therefore not tuned like the AMX or the VAE slices: a profile cannot write it
 /// (`EngineSettings` refuses), because it does not change the speed at constant image — **it changes
