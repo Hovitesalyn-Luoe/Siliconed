@@ -53,7 +53,12 @@ import Foundation
 ///     `Attention.maxMatrix` (1024×1536) it runs by query slices and concatenates them;
 ///   - **a LoRA costs three things in the DiT**: the `mid [s + T, r]` slice, the `CacheLoRA` of every
 ///     module it may touch (the blocks' 8 Linears and the final one, ~460 MB at rank 32), and, with two
-///     LoRAs or more, one `down` staged while the cache fills; in the fusion, its three slices.
+///     LoRAs or more, one `down` staged while the cache fills; in the fusion, its three slices;
+///   - **the half-size start's DiT** (`Krea2DenoisingModule.denoise`, off by default, never under a LoRA)
+///     is built and given back before the full one: never both. Beside it, `euler` keeps ε, the small
+///     grid, its estimate and the upsampled estimate (2.5 latents) — a quarter of the image rows saves
+///     far more than that in its arena — and gives them back before the first full evaluation: the
+///     full DiT's phase, as charged, is the larger.
 extension MemoryNeed {
 
     /// **What Krea 2's formula reads beside the request**: the DiT's config and tensor table, the

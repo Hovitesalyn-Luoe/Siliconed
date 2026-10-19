@@ -131,6 +131,35 @@ final class PureFunctionsTests: XCTestCase {
         XCTAssertEqual(module.plan(height: 76, width: 52, steps: 8, start: 0, withLoRA: false).reduced, 0)
     }
 
+    /// **Krea 2's plan**: off by default, every evaluation at full size; the half-size start takes
+    /// `halfSizeSteps` where the half grid stays at 512 px (8-px cells: 1024², 1024×1536), never under
+    /// the floor, a LoRA, another schedule, a start past 0 or off the recipe's eight.
+    func testKrea2SpectralPlan() throws {
+        try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
+        defer { Krea2DenoisingModule.halfSizeStart = false }
+        let module = Krea2DenoisingModule(map: "")
+        let full = module.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
+        XCTAssertEqual(full.reduced, 0)
+        XCTAssertEqual([full.reducedHeight, full.reducedWidth], [128, 128])
+        XCTAssertEqual(full.evaluations, 8)
+
+        Krea2DenoisingModule.halfSizeStart = true
+        let half = module.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
+        XCTAssertEqual(half.reduced, Krea2DenoisingModule.halfSizeSteps)
+        XCTAssertEqual([half.reducedHeight, half.reducedWidth], [64, 64])
+        XCTAssertEqual(half.evaluations, 8)
+        XCTAssertEqual(module.plan(height: 192, width: 128, steps: 8, start: 0, withLoRA: false).reduced,
+                       Krea2DenoisingModule.halfSizeSteps)
+        XCTAssertEqual(module.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: true).reduced, 0)
+        XCTAssertEqual(module.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false,
+                                   schedule: .comfyUI).reduced, 0)
+        XCTAssertEqual(module.plan(height: 128, width: 128, steps: 8, start: 1, withLoRA: false).reduced, 0)
+        XCTAssertEqual(module.plan(height: 128, width: 128, steps: 12, start: 0, withLoRA: false).reduced, 0)
+        // 512² and 832×1216: a half side under 512 px.
+        XCTAssertEqual(module.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        XCTAssertEqual(module.plan(height: 152, width: 104, steps: 8, start: 0, withLoRA: false).reduced, 0)
+    }
+
     // ── the formats ───────────────────────────────────────────────────────────────────────
 
     func testFormatFloorPerSide() {

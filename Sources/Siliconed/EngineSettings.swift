@@ -126,9 +126,10 @@ package struct EngineSettings: Sendable {
     package var gemmQ8 = false
 
     /// The half-size start, **when forced** (`SILICONED_SPECTRAL`): `k` half-size evaluations of
-    /// Z-Image, Qwen-Image-2.1 or Anima, 0 = full schedule, within each plan's rules (`Spectral.forced`).
+    /// Z-Image, Qwen-Image-2.1, Anima or Krea 2, 0 = full schedule, within each plan's rules (`Spectral.forced`).
     /// Not forced, the product decides (`ZImageDenoisingModule.halfSizeStart`,
-    /// `QwenImage21DenoisingModule.halfSizeStart`, `AnimaDenoisingModule.halfSizeStart`). A measurement's
+    /// `QwenImage21DenoisingModule.halfSizeStart`, `AnimaDenoisingModule.halfSizeStart`,
+    /// `Krea2DenoisingModule.halfSizeStart`). A measurement's
     /// setting: it changes the image, so a profile may not write it.
     package var spectral = 0
 
