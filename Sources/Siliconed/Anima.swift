@@ -94,7 +94,8 @@ package final class AnimaDiT {
     private let gemm: GEMM
     private let arena: Arena
     private let transposed: Bool
-    /// The sizing grid, which is that of every evaluation (no spectral schedule here).
+    /// The sizing grid, which is that of every evaluation: the half-size start builds a DiT of its own
+    /// (`AnimaDenoisingModule.denoise`).
     private let latentHeight, latentWidth, imageTokens, textLength: Int
     /// **The LoRA stack** (`ForgeLoRA`, Anima's names and RoPE): `ΔW = B·A` per module, the
     /// GEMMs through `gemm.lora` (two thin products accumulated into the output), the modulation
@@ -771,8 +772,8 @@ enum AnimaExact {
 // ── sizing: the shapes the constructor allocates, and the memory need charges ──────────────────
 
 extension AnimaDiT {
-    /// The image tokens of a latent grid: one per `patch × patch` cell — every evaluation's (no
-    /// spectral schedule: the arena is sized once, for the render's grid).
+    /// The image tokens of a latent grid: one per `patch × patch` cell — every evaluation's (the arena
+    /// is sized once, for its DiT's grid; the half-size start's DiT is another, released before the full one).
     package static func imageTokens(latentHeight: Int, latentWidth: Int, config: Config) -> Int {
         (latentHeight / config.patch) * (latentWidth / config.patch)
     }
