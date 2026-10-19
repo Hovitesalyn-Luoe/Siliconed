@@ -49,7 +49,7 @@ final class QwenImage21VAETests: XCTestCase {
     /// Per channel, mean and std of the published config; `normalize` inverts `denormalize` to an ulp.
     func testNormalizationIsPerChannel() {
         let plane = 6
-        let z = (0..<(64 * plane)).map { Float($0 % 7) - 3 }
+        let z = (0..<(64 * plane)).map { (i: Int) -> Float in Float(i % 7) - 3 }
         let up = QwenImage21VAE.denormalize(z, config: config)
         XCTAssertEqual(up[0], z[0] * 3.2001 + 0.5126)
         XCTAssertEqual(up[63 * plane], z[63 * plane] * 3.8161 + 0.0304)

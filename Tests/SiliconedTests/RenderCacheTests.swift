@@ -90,7 +90,7 @@ final class RenderCacheTests: XCTestCase {
         XCTAssertEqual(back.imageSlots, [false, true, true])
         XCTAssertEqual([back.rows, back.width, back.tokens], [3, 2, 3])
 
-        let l = Latent(space: .qwenImage21, height: 1, width: 1, values: (0..<64).map { Float($0) * -0.5 })
+        let l = Latent(space: .qwenImage21, height: 1, width: 1, values: (0..<64).map { (i: Int) -> Float in Float(i) * -0.5 })
         let lk = key(["latent"])
         cache.store(l, key: lk)
         let latent = try! XCTUnwrap(cache.latent(lk))
@@ -122,7 +122,7 @@ final class RenderCacheTests: XCTestCase {
     /// on disk is a miss, removed.
     func testANonFiniteValueIsNeverKeptNorReadBack() throws {
         let cache = RenderCache(directory: folder)
-        var values = (0..<64).map { Float($0) * 0.25 }
+        var values = (0..<64).map { (i: Int) -> Float in Float(i) * 0.25 }
         let image1 = key(["latent of image 1"])
 
         // The cancelled edit's encoding, with one NaN: not kept — the next edit is a miss, it encodes.

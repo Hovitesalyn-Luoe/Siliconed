@@ -47,7 +47,7 @@ final class ZImageDiTTests: XCTestCase {
 
     /// Values exact in bf16: `((i·a + b) mod 13 − 6) / 32`.
     private func values(_ count: Int, _ a: Int, _ b: Int) -> [Float] {
-        (0..<count).map { Float(($0 * a + b) % 13 - 6) / 32 }
+        (0..<count).map { (i: Int) -> Float in Float((i * a + b) % 13 - 6) / 32 }
     }
 
     /// `d = 384`, not smaller: a block's weight reserve is `d · hidden` floats, sized for the widest of its
@@ -97,8 +97,8 @@ final class ZImageDiTTests: XCTestCase {
 
     /// A latent of 8 × 10 cells: 4 × 5 = 20 patches, padded to 32; a caption of 5 rows, padded to 32.
     private let (latentHeight, latentWidth, capLength) = (8, 10, 5)
-    private lazy var latent = (0..<(16 * latentHeight * latentWidth)).map { Float(($0 * 7) % 11 - 5) / 8 }
-    private lazy var caps = (0..<(capLength * capDim)).map { Float(($0 * 5) % 9 - 4) / 4 }
+    private lazy var latent = (0..<(16 * latentHeight * latentWidth)).map { (i: Int) -> Float in Float((i * 7) % 11 - 5) / 8 }
+    private lazy var caps = (0..<(capLength * capDim)).map { (i: Int) -> Float in Float((i * 5) % 9 - 4) / 4 }
 
     private func evaluate(_ artifact: Artifact, lora: LoRA? = nil) throws -> (out: [Float], boundaries: [String: [Float]]) {
         let dit = try DiT(artifact: artifact, latentHeight: latentHeight, latentWidth: latentWidth,

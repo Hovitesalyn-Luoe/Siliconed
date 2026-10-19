@@ -170,7 +170,7 @@ final class ForgePipelineTests: XCTestCase {
         }
         tensors.append(MapWriter.Tensor(name: "q", shape: [32, 8], dtype: .int8, scale: .init(dtype: .float32, shape: [8]),
                                         transposed: true) {
-            .init(values: (0..<256).map { UInt8($0) }, scale: [UInt8](repeating: 0x3F, count: 32), absMax: 2)
+            .init(values: (0..<256).map { (i: Int) -> UInt8 in UInt8(i) }, scale: [UInt8](repeating: 0x3F, count: 32), absMax: 2)
         })
         let path = root.appendingPathComponent("map.silicon").path
         let tally = try MapWriter.write(to: path, tensors: tensors, header: { _ in [.init("format", 1), .init("page", .integer(MapWriter.page))] })

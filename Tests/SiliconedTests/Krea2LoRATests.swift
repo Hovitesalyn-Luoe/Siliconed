@@ -47,7 +47,7 @@ final class Krea2LoRATests: XCTestCase {
 
     /// Values exact in bf16, a few per eighth: `((i·a + b) mod 13 − 6) / 32`.
     private func values(_ count: Int, _ a: Int, _ b: Int) -> [Float] {
-        (0..<count).map { Float(($0 * a + b) % 13 - 6) / 32 }
+        (0..<count).map { (i: Int) -> Float in Float((i * a + b) % 13 - 6) / 32 }
     }
 
     private let (d, timeDim, channels) = (16, 8, 16)

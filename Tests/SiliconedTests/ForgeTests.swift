@@ -122,7 +122,7 @@ final class ForgeTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: folder) }
         let a: [Float] = [1, 2, 3, 4]                                  // A [r = 2, k = 2]
-        let b: [Float] = (0..<12).map { Float($0 + 1) }                  // B [2h = 6, r = 2]
+        let b: [Float] = (0..<12).map { (i: Int) -> Float in Float(i + 1) }                  // B [2h = 6, r = 2]
         let aq: [Float] = [1, -1, 2, 0], bq: [Float] = [2, 4, 6, 8]      // to_q: A [2, 2], B [2, 2]
         let tensors: [(String, [Int], [Float])] = [
             ("diffusion_model.transformer_blocks.0.img_mlp.gate_up.lora_A.weight", [2, 2], a),

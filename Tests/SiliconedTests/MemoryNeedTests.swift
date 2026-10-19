@@ -100,7 +100,7 @@ final class MemoryNeedTests: XCTestCase {
     }
 
     func testTheStagingBufferIsTheFormula() throws {
-        let tensors = (0..<3).flatMap { l in
+        let tensors: [(name: String, shape: [Int])] = (0..<3).flatMap { (l: Int) -> [(name: String, shape: [Int])] in
             [(name: "layers.\(l).a", shape: [8, 3 + l]), (name: "layers.\(l).b", shape: [5 * (l + 1)])]
         }
         let path = try map(["kind": "test"], tensors: tensors)

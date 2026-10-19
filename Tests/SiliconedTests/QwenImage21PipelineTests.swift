@@ -110,7 +110,7 @@ final class QwenImage21PipelineTests: XCTestCase {
     }
 
     func testRGB8RoundTripsThroughImageRGB() {
-        let bytes = (0..<(3 * 7 * 5)).map { UInt8(($0 * 37) % 256) }
+        let bytes = (0..<(3 * 7 * 5)).map { (i: Int) -> UInt8 in UInt8((i * 37) % 256) }
         let rgb = Qwen3VLImages.RGB8(bytes: bytes, width: 7, height: 5)
         XCTAssertEqual(QwenImage21Pipeline.rgb8(QwenImage21Pipeline.image(rgb)), rgb)
     }

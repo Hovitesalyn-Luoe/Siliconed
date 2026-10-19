@@ -111,7 +111,7 @@ final class Img2ImgTests: XCTestCase {
         XCTAssertEqual(Double(portrait.width) / Double(portrait.height), 0.5, accuracy: 0.001)
         // Already at the right format: the image comes back bit-identical; a black left half and a
         // white right half, cropped to a square, keeps its two halves on either side of the center.
-        let alreadyFitted = ImageRGB(pixels: (0..<48).map { Float($0) / 48 }, height: 4, width: 4)
+        let alreadyFitted = ImageRGB(pixels: (0..<48).map { (i: Int) -> Float in Float(i) / 48 }, height: 4, width: 4)
         XCTAssertEqual(alreadyFitted.fitted(width: 4, height: 4).pixels, alreadyFitted.pixels)
         let colonIndex = ImageRGB(pixels: (0..<3).flatMap { _ in (0..<(16 * 32)).map { $0 % 32 < 16 ? Float(-1) : 1 } },
                             height: 16, width: 32)

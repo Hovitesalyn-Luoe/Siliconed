@@ -275,7 +275,7 @@ final class GGUFTests: XCTestCase {
     /// The recipe adds the leading 1 back for these two names only, values unchanged; any other 1-D
     /// tensor, and a 2-D pad token, keeps the shape it was published with.
     func testZImagePadTokensWithoutTheirLeadingOne() throws {
-        let cap: [Float] = (0..<8).map { Float($0) * 0.25 - 1 }, x: [Float] = (0..<8).map { Float($0) * -0.5 }
+        let cap: [Float] = (0..<8).map { (i: Int) -> Float in Float(i) * 0.25 - 1 }, x: [Float] = (0..<8).map { (i: Int) -> Float in Float(i) * -0.5 }
         let path = try write([Tensor(name: "cap_pad_token", shape: [8], type: 0, bytes: bytes(cap)),
                               Tensor(name: "x_pad_token", shape: [8], type: 0, bytes: bytes(x)),
                               Tensor(name: "layers.0.attention.q_norm.weight", shape: [8], type: 0, bytes: bytes(cap))])

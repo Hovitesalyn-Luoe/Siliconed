@@ -154,7 +154,7 @@ final class RequestTests: XCTestCase {
     /// the format changes — and an image already at the right format stays bit-identical.
     func testTheImageIsFittedFromTheEntry() {
         // 800×600: larger than both formats (512², 768×512), so each fit crops and scales down.
-        let largeImage = ImageRGB(pixels: (0..<(3 * 800 * 600)).map { Float($0 % 7) / 7 }, height: 600, width: 800)
+        let largeImage = ImageRGB(pixels: (0..<(3 * 800 * 600)).map { (i: Int) -> Float in Float(i % 7) / 7 }, height: 600, width: 800)
         var r = Request("p", resolution: 512, image: largeImage)
         XCTAssertEqual(r.image.map { [$0.width, $0.height] }, [512, 512])
         r.width = 768

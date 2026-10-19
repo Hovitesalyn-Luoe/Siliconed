@@ -214,7 +214,7 @@ final class PureFunctionsTests: XCTestCase {
     /// swapping the axes would turn it into a ramp in `x`.
     func testRectangleResamplingKeepsItsAxes() {
         let (h, w) = (4, 6)
-        let full = (0..<(2 * h * 2 * w)).map { Float($0 / (2 * w)) }   // [1, 2h, 2w], rampe en y
+        let full = (0..<(2 * h * 2 * w)).map { (i: Int) -> Float in Float(i / (2 * w)) }   // [1, 2h, 2w], rampe en y
         var low = [Float](repeating: .nan, count: h * w)
         Resample.decimate(full, into: &low, channels: 1, height: h, width: w)
         for y in 0..<h { for x in 0..<w { XCTAssertEqual(low[y * w + x], Float(2 * y + 1)) } }

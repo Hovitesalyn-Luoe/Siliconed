@@ -50,7 +50,7 @@ final class EngineErrorTests: XCTestCase {
     /// guard): one NaN or ±∞ among the latent's values refuses the image, its count goes to the
     /// warnings; large, tiny, subnormal and signed-zero values are finite and pass.
     func testANonFiniteLatentIsRefusedWithAWarning() throws {
-        var latent = (0..<16 * 64 * 64).map { Float($0 % 97) / 48 - 1 }
+        var latent: [Float] = (0..<16 * 64 * 64).map { (i: Int) -> Float in Float(i % 97) / 48 - 1 }
         latent[3] = .greatestFiniteMagnitude; latent[4] = -.leastNonzeroMagnitude; latent[5] = -0
         XCTAssertEqual(FiniteImage.nonFiniteCount(latent), 0)
         let said = OSAllocatedUnfairLock<[String]>(initialState: [])

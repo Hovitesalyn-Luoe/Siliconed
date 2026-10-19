@@ -69,7 +69,7 @@ final class HalfSizeStartTests: XCTestCase {
         var out = [Float](repeating: 0, count: 4 * n * n)
         Resample.lanczosDouble([Float](repeating: 3, count: n * n), into: &out, channels: 1, height: n, width: n)
         XCTAssertTrue(out.allSatisfy { abs($0 - 3) < 1e-5 })
-        let ramp = (0..<(n * n)).map { Float($0 % n) }
+        let ramp = (0..<(n * n)).map { (i: Int) -> Float in Float(i % n) }
         Resample.lanczosDouble(ramp, into: &out, channels: 1, height: n, width: n)
         for j in 6..<(2 * n - 6) {
             XCTAssertEqual(out[5 * 2 * n + j], Float(j) / 2 - 0.25, accuracy: 0.02)

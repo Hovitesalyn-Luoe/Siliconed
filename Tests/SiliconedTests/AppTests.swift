@@ -255,7 +255,7 @@ final class AppTests: XCTestCase {
 
     /// The PNG carries its metadata (UTF-8 included), reads back, and two encodings are identical.
     func testThePNGCarriesItsMetadata() throws {
-        let image = ImageRGB(pixels: (0..<(3 * 4 * 6)).map { Float($0 % 7) / 3 - 1 }, height: 4, width: 6)
+        let image = ImageRGB(pixels: (0..<(3 * 4 * 6)).map { (i: Int) -> Float in Float(i % 7) / 3 - 1 }, height: 4, width: 6)
         let meta = ["prompt": "une bibliothèque, « livres » — 書", "seed": "42", "model": "krea2"]
         let a = try image.png(metadata: meta), b = try image.png(metadata: meta)
         XCTAssertEqual(a, b, "no date: two identical encodings")
