@@ -226,14 +226,16 @@ Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. Seed 42, 8
 | 1024², Standard, every evaluation at full size | 221.1 s | 117.7 s | 142.7 s | 44.4 s |
 | 1024×1536, Standard, Faster Rendering / full size | 216.9 s / 355.3 s | 131.0 s / 190 s | 161.7 s / 232 s | 52.5 s / 75.6 s |
 | other, Standard | | | an edit with 1 image 211 s, with 2 images 297 s | 512² 12.1 s |
-| 1024², Light (4 to 6 bits), full size | not measured | 118–120 s | not remeasured since 0.10 | not measured |
-| peak memory, Standard / Light | 3.07 GB (1024×1536: 3.51 GB) / 1.35 GB, the engine alone | 2.6 GB / 2.0 GB | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / not measured |
+| 1024², Light (4 to 6 bits), Faster Rendering (default) | 153.8 s | 89.7–91.1 s | 111.0 s | 35.4 s |
+| peak memory, Standard / Light | 3.07 GB (1024×1536: 3.51 GB), the engine alone / 1.55 GB | 2.8 GB / 2.1 GB | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / 1.4 GB |
 | deviation from the fp32 reference (`model_out`, full size) | 1.44·10⁻⁴ (1024²) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) | 1.4·10⁻⁵ from the fp64 exact (1024²), the fp32 reference at 1.5·10⁻⁵ |
 
 Each time is a render queued in the app by `silicontrol`, from the queue to the PNG, this Mac's map
 in service. With Faster Rendering: 19/10/2026, app 0.12, the setting at its default; a Z-Image 1024²
-render with it off, as a witness, took 112.0 s in the same series. Every evaluation at full size,
-1024²: 18/10/2026, app 0.12, 0 swap-out; a last Z-Image render at the end of that series, as a
+render with it off, as a witness, took 112.0 s in the same series. Light, and Z-Image's Standard peak:
+19/10/2026 in the evening, app 0.12, the setting at its default, each render in a freshly opened app,
+0 swap-out; Z-Image's first and last Light renders, as witnesses, took 91.1 and 90.5 s. Every
+evaluation at full size, 1024²: 18/10/2026, app 0.12, 0 swap-out; a last Z-Image render at the end of that series, as a
 witness, took 123.6 s (the machine drifts by a few percent from one render to the next); Krea 2's
 1024×1536: the same series. The other times: Qwen-Image-2.1 on
 15/10/2026 with 0.10, Z-Image on 14/10/2026 with 0.8.2. Peak memory is the app's `phys_footprint`,
@@ -275,12 +277,16 @@ the deviations above apply.
 the model's defaults (UniPC trailing, CFG 1). The same machine, freshly restarted, one engine loaded
 at a time; Z-Image Turbo, 1024², 8 steps (8 evaluations on each side), seed 42, three renders on each
 side over three variants of the same prompt. Draw Things was measured on 13/10/2026 (a 70-minute
-session) and nothing changed on its side since; Siliconed on 14/10/2026, after the fix.
+session) and nothing changed on its side since; Siliconed at full size on 14/10/2026, after the fix,
+and with Faster Rendering on 19/10/2026 (app 0.12, three renders of the library prompt each, every
+one in a freshly opened app).
 
 | | weights | time | peak memory | read from disk per render |
 |---|---|---|---|---|
 | Siliconed, Standard | the publisher's bf16, computed in fp32 | 113–119 s | 2.6 GB | 51–58 GB |
 | Siliconed, Light | GGUF Q4_K_M | 118–120 s | 2.0 GB | 3.5–8.7 GB |
+| Siliconed, Standard, Faster Rendering (default) | the publisher's bf16, computed in fp32 | 85–86 s | 2.8 GB | 51–58 GB |
+| Siliconed, Light, Faster Rendering (default) | GGUF Q4_K_M | 90–91 s | 2.1 GB | 3.5–8.7 GB |
 | Draw Things, Exact | f16 | 167–179 s | 5.3 GB | 99 GB |
 | Draw Things, default | 8 bits (`q8p`) | 142–164 s | 3.5–4.3 GB | 11 GB |
 | Draw Things, 6-bit | 6 bits (`q6p`) | 136–138 s | 3.5 GB | 6–14 GB |
@@ -289,7 +295,9 @@ The comparison is about wall-clock time, not identical arithmetic: the samplers 
 differ, so do the images. Peak memory does not count the weights mapped from disk, on either side.
 Siliconed runs the machine hotter, which follows from computing in fp32.
 Until 0.8.1 this table set Siliconed's 7 evaluations against Draw Things' 8; it is now 8 against 8.
-Siliconed's lines here are every evaluation at full size: they predate Faster Rendering.
+Siliconed's first two lines are every evaluation at full size, like Draw Things'; with Faster Rendering,
+the first 3 of its 8 evaluations run on a half-size grid, which Draw Things does not do: less work,
+another image ([how](#faster-rendering)).
 
 **Within the budget, measured.** Each model's peak `phys_footprint` and its swap-outs (`vm_stat` delta)
 are measured at the product's worst case, on a 16 GB Mac with nothing else running: Qwen-Image-2.1 at

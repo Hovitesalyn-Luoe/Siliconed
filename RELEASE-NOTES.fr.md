@@ -51,7 +51,9 @@
 - **Les temps**, sur un M1 Pro de 16 Go, Standard, graine 42, mis en file dans l’app (allumé /
   éteint) : en 1024², Z-Image 84,5 / 117,7 s, Qwen-Image-2.1 103,7 / 142,7 s, Anima 32,7 / 44,4 s,
   Krea 2 145,6 / 221,1 s ; en 1024×1536, 131,0 / 190 s, 161,7 / 232 s, 52,5 / 75,6 s,
-  216,9 / 355,3 s.
+  216,9 / 355,3 s. En Légère, allumé, à 1024² : Z-Image 90–91 s, Qwen-Image-2.1 111,0 s, Anima
+  35,4 s, Krea 2 153,8 s — la Légère économise le disque et la mémoire (pic de Krea 2 : 1,55 Go),
+  pas le temps.
 - **Pourquoi c’est propre cette fois.** Les pas en demi-taille retirés dans la 0.8.2 décimaient
   l’état et agrandissaient la vitesse : cette vitesse ne portait pas de haute bande, si bien que le
   bruit fin de l’état n’était jamais retiré pendant qu’ils tournaient (du sable sur la peau et les

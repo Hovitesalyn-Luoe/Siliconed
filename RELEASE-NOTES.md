@@ -50,7 +50,9 @@ English · [Français](RELEASE-NOTES.fr.md)
   under 512 px on one side.
 - **Times**, on an M1 Pro with 16 GB, Standard, seed 42, queued in the app (on / off): at 1024²,
   Z-Image 84.5 / 117.7 s, Qwen-Image-2.1 103.7 / 142.7 s, Anima 32.7 / 44.4 s, Krea 2 145.6 /
-  221.1 s; at 1024×1536, 131.0 / 190 s, 161.7 / 232 s, 52.5 / 75.6 s, 216.9 / 355.3 s.
+  221.1 s; at 1024×1536, 131.0 / 190 s, 161.7 / 232 s, 52.5 / 75.6 s, 216.9 / 355.3 s. In Light,
+  on, at 1024²: Z-Image 90–91 s, Qwen-Image-2.1 111.0 s, Anima 35.4 s, Krea 2 153.8 s — the Light
+  saves disk and memory (Krea 2's peak 1.55 GB), not time.
 - **Why it stays clean this time.** The half-size steps dropped in 0.8.2 decimated the state and
   enlarged the velocity: that velocity carried no high band, so the fine noise of the state was
   never taken away while they ran (sand on skin and walls), and the decimation's aliasing reached

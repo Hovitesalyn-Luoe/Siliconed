@@ -241,14 +241,16 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. G
 | 1024², Standard, toutes les évaluations en pleine taille | 221,1 s | 117,7 s | 142,7 s | 44,4 s |
 | 1024×1536, Standard, rendu plus rapide / pleine taille | 216,9 s / 355,3 s | 131,0 s / 190 s | 161,7 s / 232 s | 52,5 s / 75,6 s |
 | autres, Standard | | | une édition à 1 image 211 s, à 2 images 297 s | 512² 12,1 s |
-| 1024², Légère (4 à 6 bits), pleine taille | non mesuré | 118–120 s | non remesuré depuis la 0.10 | non mesuré |
-| pic mémoire, Standard / Légère | 3,07 Go (1024×1536 : 3,51 Go) / 1,35 Go, le moteur seul | 2,6 Go / 2,0 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / non mesuré |
+| 1024², Légère (4 à 6 bits), rendu plus rapide (par défaut) | 153,8 s | 89,7–91,1 s | 111,0 s | 35,4 s |
+| pic mémoire, Standard / Légère | 3,07 Go (1024×1536 : 3,51 Go), le moteur seul / 1,55 Go | 2,8 Go / 2,1 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / 1,4 Go |
 | écart à la référence fp32 (`model_out`, pleine taille) | 1,44·10⁻⁴ (1024²) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ |
 
 Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG, la
 carte de ce Mac en service. Avec le rendu plus rapide : le 19/10/2026, app 0.12, le réglage à sa
 valeur par défaut ; un rendu de Z-Image en 1024² réglage éteint, en témoin, a pris 112,0 s dans la
-même série. Toutes les évaluations en pleine taille, 1024² : le 18/10/2026, app 0.12, 0 page
+même série. La Légère, et le pic de Z-Image en Standard : le 19/10/2026 au soir, app 0.12, le réglage à
+sa valeur par défaut, chaque rendu dans une app tout juste ouverte, 0 page swappée ; le premier et le
+dernier rendu de Z-Image en Légère, en témoins, ont pris 91,1 et 90,5 s. Toutes les évaluations en pleine taille, 1024² : le 18/10/2026, app 0.12, 0 page
 swappée ; un dernier rendu de Z-Image en fin de série, en témoin, a pris 123,6 s (la machine dérive
 de quelques pour cent d'un rendu à l'autre) ; le 1024×1536 de Krea 2 : la même série. Les autres temps :
 Qwen-Image-2.1 le 15/10/2026 avec la 0.10, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est
@@ -292,13 +294,16 @@ vérifiée contre diffusers ; les écarts ci-dessus valent pour elle.
 les réglages par défaut du modèle (UniPC trailing, CFG 1). La même machine, tout juste redémarrée, un
 seul moteur chargé à la fois ; Z-Image Turbo, 1024², 8 pas (8 évaluations de chaque côté), graine 42,
 trois rendus de chaque côté sur trois variantes du même prompt. Draw Things a été mesuré le 13/10/2026
-(une séance de 70 minutes) et rien n'a changé de son côté depuis ; Siliconed le 14/10/2026, après
-le correctif.
+(une séance de 70 minutes) et rien n'a changé de son côté depuis ; Siliconed en pleine taille le
+14/10/2026, après le correctif, et avec le rendu plus rapide le 19/10/2026 (app 0.12, trois rendus
+du prompt de la bibliothèque chacun, chacun dans une app tout juste ouverte).
 
 | | poids | temps | pic mémoire | lu sur le disque par rendu |
 |---|---|---|---|---|
 | Siliconed, Standard | les bf16 de l'éditeur, calculés en fp32 | 113–119 s | 2,6 Go | 51–58 Go |
 | Siliconed, Légère | GGUF Q4_K_M | 118–120 s | 2,0 Go | 3,5–8,7 Go |
+| Siliconed, Standard, rendu plus rapide (par défaut) | les bf16 de l'éditeur, calculés en fp32 | 85–86 s | 2,8 Go | 51–58 Go |
+| Siliconed, Légère, rendu plus rapide (par défaut) | GGUF Q4_K_M | 90–91 s | 2,1 Go | 3,5–8,7 Go |
 | Draw Things, Exact | f16 | 167–179 s | 5,3 Go | 99 Go |
 | Draw Things, par défaut | 8 bits (`q8p`) | 142–164 s | 3,5–4,3 Go | 11 Go |
 | Draw Things, 6 bits | 6 bits (`q6p`) | 136–138 s | 3,5 Go | 6–14 Go |
@@ -307,8 +312,10 @@ La comparaison porte sur le temps écoulé, pas sur une arithmétique identique�
 poids diffèrent, les images aussi. Le pic mémoire ne compte pas les poids projetés depuis le disque,
 d'un côté comme de l'autre. Siliconed fait chauffer davantage la machine, ce qui découle du calcul
 en fp32. Jusqu'à la 0.8.1, ce tableau opposait les 7 évaluations de Siliconed aux 8 de Draw Things ;
-il compare maintenant 8 à 8. Les lignes de Siliconed y sont en pleine taille : elles précèdent le
-rendu plus rapide.
+il compare maintenant 8 à 8. Les deux premières lignes de Siliconed sont en pleine taille, comme
+celles de Draw Things ; avec le rendu plus rapide, les 3 premières de ses 8 évaluations passent sur
+une grille de demi-taille, ce que Draw Things ne fait pas : moins de travail, une autre image
+([comment](#rendu-plus-rapide)).
 
 **Dans le budget, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
 `vm_stat`) sont mesurés au pire cas du produit, sur un Mac de 16 Go où rien d'autre ne tourne : Qwen-Image-2.1 à 1024×1536 avec 3 références,
