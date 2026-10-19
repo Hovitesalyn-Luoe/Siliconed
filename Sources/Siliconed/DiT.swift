@@ -507,13 +507,17 @@ extension DiT {
                 + (modulated ? [(name: prefix + "adaLN_modulation.0", k: a, n: 4 * d)] : [])
         }
         let head = "all_final_layer.\(config.patch)-1."
-        return (0..<config.refiners).flatMap { block("noise_refiner.\($0).", modulated: true) }
-            + (0..<config.layers).flatMap { block(layerPrefix($0), modulated: true) }
-            + (0..<config.refiners).flatMap { block("context_refiner.\($0).", modulated: false) }
-            + [(name: "t_embedder.mlp.0", k: a, n: 1024), (name: "t_embedder.mlp.2", k: 1024, n: a),
-               (name: "all_x_embedder.\(config.patch)-1", k: inDim, n: d),
-               (name: "cap_embedder.1", k: config.capDim, n: d),
-               (name: head + "adaLN_modulation.1", k: a, n: d), (name: head + "linear", k: d, n: inDim)]
+        // In typed parts: one chain of `+` over tuple arrays outlasts the type checker of an older Swift.
+        var targets: [(name: String, k: Int, n: Int)] = []
+        targets += (0..<config.refiners).flatMap { block("noise_refiner.\($0).", modulated: true) }
+        targets += (0..<config.layers).flatMap { block(layerPrefix($0), modulated: true) }
+        targets += (0..<config.refiners).flatMap { block("context_refiner.\($0).", modulated: false) }
+        let outer: [(name: String, k: Int, n: Int)] = [
+            (name: "t_embedder.mlp.0", k: a, n: 1024), (name: "t_embedder.mlp.2", k: 1024, n: a),
+            (name: "all_x_embedder.\(config.patch)-1", k: inDim, n: d),
+            (name: "cap_embedder.1", k: config.capDim, n: d),
+            (name: head + "adaLN_modulation.1", k: a, n: d), (name: head + "linear", k: d, n: inDim)]
+        return targets + outer
     }
 
     /// **The modules a LoRA can touch, `(k, n)` each** (`loraTargets`): a stack that touches all of them is
