@@ -125,10 +125,11 @@ package struct EngineSettings: Sendable {
     /// (schema 9), apart from `gemm_int8`: on the M1 Pro the one wins and the other loses.
     package var gemmQ8 = false
 
-    /// Qwen-Image-2.1's spectral schedule, **when forced** (`SILICONED_SPECTRAL`): `k` half-size
-    /// evaluations, 0 = full schedule, within the 512-px floor (`Spectral.forced`). Not forced, the
-    /// product's `k` decides (`QwenImage21DenoisingModule.spectralSteps`). A measurement's setting:
-    /// it changes the image, so a profile may not write it. Z-Image has no half-size path to force.
+    /// The half-size start, **when forced** (`SILICONED_SPECTRAL`): `k` half-size evaluations of
+    /// Z-Image or Qwen-Image-2.1, 0 = full schedule, within each plan's rules (`Spectral.forced`). Not
+    /// forced, the product decides (`ZImageDenoisingModule.halfSizeStart`,
+    /// `QwenImage21DenoisingModule.halfSizeStart`). A measurement's setting: it changes the image, so a
+    /// profile may not write it.
     package var spectral = 0
 
     /// **Splitting the VAE's attention into query blocks.** 0 = whole matrix.

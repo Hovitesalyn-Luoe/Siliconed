@@ -1,7 +1,8 @@
 import Accelerate
 import Foundation
 
-/// The two operators of the spectral schedule (Qwen-Image-2.1's, `QwenImage21Sampler`), 𝓟 and 𝓘.
+/// The two operators of the former spectral schedule, 𝓟 and 𝓘 — no render uses them since the half-size
+/// start (𝓑 and 𝓛 below) replaced them; the resampling check still holds them to `torch`.
 ///
 ///     x_{k+1} = x_k + Δσ · 𝓘 v_θ(𝓟 x_k, σ_k)
 ///
@@ -121,11 +122,11 @@ package enum Resample {
         }
     }
 
-    // ── Z-Image's half-size start (`Sampler`) ──────────────────────────────────────────────
+    // ── the half-size start (Z-Image's `Sampler`, Qwen-Image-2.1's `QwenImage21Sampler`) ──────────────────────────────────────────────
 
     /// 𝓑 — the 2×2 mean, `[C, 2h, 2w]` → `[C, h, w]`, of `a + scale·b` (`b` may be `a`'s noise).
     ///
-    /// Not 𝓟: Z-Image's half-size start feeds its small grid `𝓑x + σ𝓑ε`, whose noise `2𝓑ε` is the full
+    /// Not 𝓟: the half-size start feeds its small grid `𝓑x + σ𝓑ε`, whose noise `2𝓑ε` is the full
     /// latent's own low band (white, variance σ²) where `𝓟x` hands the model an alias of the high band.
     package static func average(_ a: UnsafePointer<Float>, plus scale: Float, times b: UnsafePointer<Float>,
                                into destination: UnsafeMutablePointer<Float>,

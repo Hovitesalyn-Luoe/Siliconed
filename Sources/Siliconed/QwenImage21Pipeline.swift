@@ -11,7 +11,7 @@ import Foundation
 ///     model_index.json `sample_sigmas` ─ float32, as is ─ σ₀ … σ₇, then 0
 ///
 ///     prefill once (text + references, K/V kept) ─▶ 8 × { v = DiT(x, σᵢ);  x += (σᵢ₊₁ − σᵢ)·v }   no CFG
-///     a generation whose half grid stays ≥ 512 px: steps 0 and 1 are  v = 𝓘 DiT½(𝓟 x, σᵢ)  (own DiT, own prefill)
+///     half-size start (off by default): steps 0 … k−1 are  x̂₀ = DiT½-estimate(𝓑x + σᵢ𝓑ε),  v = (x − 𝓛x̂₀)/σᵢ
 ///
 /// What the reference does that a port by analogy would miss (read in `pipeline_qwenimage21.py` of
 /// diffusers 0.41.0 — PR #14950, which differs from `80c7ed26` by `sample_sigmas` alone in the path
@@ -52,15 +52,12 @@ import Foundation
 ///     reads that file as published, widened to fp32 at load (never below the precision published).
 ///     Its encoder is the base's to the bit, its `processor/` another set of files with the same tokens.
 ///
-/// What is ours, not the reference's — **the spectral schedule** (`QwenImage21DenoisingModule.plan`):
-/// a generation evaluates its first **two** steps on the half grid. The rule is a fixed `k = 2`, not a
-/// threshold on the band the first σs carry: under the former 6-step turbo LoRA such a threshold gave
-/// `k = 3` and patchwork faces; on the Turbo's 8 steps `k = 2` was judged clean on two prompts × three
-/// seeds. (Z-Image no longer has one: on its eight evaluations even `k = 1` left grain.) **Off
-/// (`k = 0`)** under a user LoRA, Detail, a start past 0 — **and in every edit**, and wherever the half grid would fall
-/// under 512 px on a side (`Spectral.floor`, counted in 16-px cells): every check at 512² runs
-/// without it, the engine reproduces the reference there. How the half-size phase is built, and why
-/// it is a phase and not a flag, is `QwenImage21Sampler`'s.
+/// What is ours, not the reference's — **the half-size start** (`QwenImage21DenoisingModule.plan`),
+/// off by default: a generation evaluates its first `k` steps on the half grid, Z-Image's recipe
+/// (`Sampler.init(half:…)`). Never under a user LoRA, Detail, another schedule, a start past 0, **in
+/// an edit**, nor wherever the half grid would fall under 512 px on a side (`Spectral.floor`, counted
+/// in 16-px cells): every check at 512² runs without it, the engine reproduces the reference there.
+/// How the half-size phase is built, and why it is a phase and not a flag, is `QwenImage21Sampler`'s.
 ///
 /// ## Memory: what the K/V cache costs, and where it lives
 ///
@@ -236,10 +233,17 @@ package enum QwenImage21Pipeline {
 /// **The denoising of one render** — the loop of `__call__` around `QwenImage21DiT`: one DiT (the user's
 /// LoRAs, if any, size its arenas), one prefill, the steps.
 ///
-/// **The spectral schedule** (`reduced`, generation only; the header) is one more phase in
-/// front: the first `k` steps on a DiT built for the half grid, `x += dt · 𝓘 v(𝓟 x)` with the two
-/// resampling operators (`Resample`): the state stays at full size, only the evaluation goes down.
-/// What makes it a phase rather than a flag on the DiT, and what a port by analogy would miss:
+/// **The half-size start** (`reduced`, generation only; the header) is one more phase in front: the
+/// first `k` steps on a DiT built for the half grid. The state stays at full size, only the
+/// evaluation goes down — Z-Image's recipe (`Sampler.init(half:…)`, where the why is written):
+///
+///     x_low = 𝓑x + σ·𝓑ε             (𝓑 the 2×2 mean, ε the starting noise)
+///     x̂₀ = x_low − σ·v_θ(x_low, σ)   (here the DiT returns dx/dσ itself, no negation)
+///     dx/dσ = (x − 𝓛x̂₀) / σ          (𝓛 Lanczos-3 ×2) — the state stays exactly σε + (1 − σ)S
+///
+/// It replaces `x += dt·𝓘v(𝓟x)` (decimation, bilinear velocity; until 0.10), which left the latent's
+/// high band at its starting noise and fed the model an alias of it. What makes it a phase rather
+/// than a flag on the DiT, and what a port by analogy would miss:
 ///
 ///   - **the target's grid is built into the joint sequence** (`QwenImage21Sequence`: its slots, its
 ///     RoPE rows, the arenas' `S`): the half-size steps need their own DiT, hence their own prefill;
@@ -248,8 +252,9 @@ package enum QwenImage21Pipeline {
 ///     on its own grid (`QwenImage21Rope.forward` in diffusers). A half-size evaluation is exactly a
 ///     native 512² evaluation of the same conditions; for a generation the prefix is a few dozen
 ///     text rows, fused into the first step: the second prefill costs nearly nothing;
-///   - **the latent has no 2×2 packing** (`_pack_latents` is a flatten): 𝓟 and 𝓘 work on the planar
-///     `[64, h, w]`;
+///   - **the latent has no 2×2 packing** (`_pack_latents` is a flatten, 64 true channels at 16 px):
+///     𝓑 and 𝓛 work on the planar `[64, h, w]`, and commute with the VAE's per-channel normalization
+///     (both are affine with weights summing to one);
 ///   - **the schedule stays the full grid's**: the half-size evaluation is told the same σ;
 ///   - **the floor counts 16-px cells**: a 1024² latent is 64², its half 32² = 512² (`Spectral.floor`).
 package struct QwenImage21Sampler {
@@ -338,6 +343,9 @@ package struct QwenImage21Sampler {
         let walk = solver == .euler ? nil
             : SolverWalk(solver: solver, schedule: sigmas, start: 0, count: count,
                          noise: solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
+        // ε, the starting noise the half-size start reads at every one of its steps (`run` always
+        // starts at σ₀: no img2img here).
+        let noise = half > 0 ? latent : []
         let phases: [(range: Range<Int>, divisor: Int)] = [(0..<half, 2), (half..<steps, 1)].filter { !$0.range.isEmpty }
         for (range, divisor) in phases {
             try cancellation.check()
@@ -362,28 +370,30 @@ package struct QwenImage21Sampler {
             }
             timings["prefill", default: 0] += Date().timeIntervalSince(started)
             let (evaluatedHeight, evaluatedWidth) = (height / divisor, width / divisor)
-            var low = [Float](repeating: 0, count: divisor > 1 ? channels * evaluatedHeight * evaluatedWidth : 0)
+            let lowCount = divisor > 1 ? channels * evaluatedHeight * evaluatedWidth : 0
+            var small = [Float](repeating: 0, count: lowCount), estimate = small
+            var upsampled = [Float](repeating: 0, count: divisor > 1 ? count : 0)
             for i in range {
                 try cancellation.check()
                 started = Date()
                 let v: [Float]
                 if divisor > 1 {
-                    // 𝓟: the odd samples (`nearest-exact`), then 𝓘: bilinear ×2 — `Sampler`'s operators.
+                    // 𝓑x + σ𝓑ε on the state's own σ (not the told one, which only conditions the DiT).
+                    let sigma = sigmas[i]
                     latent.withUnsafeBufferPointer { x in
-                        low.withUnsafeMutableBufferPointer {
-                            Resample.decimate(x.baseAddress!, into: $0.baseAddress!, channels: channels,
-                                              height: evaluatedHeight, width: evaluatedWidth)
+                        noise.withUnsafeBufferPointer { ε in
+                            Resample.average(x.baseAddress!, plus: sigma, times: ε.baseAddress!, into: &small,
+                                             channels: channels, height: evaluatedHeight, width: evaluatedWidth)
                         }
                     }
-                    let down = try low.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
-                    var up = [Float](repeating: 0, count: latent.count)
-                    down.withUnsafeBufferPointer { d in
-                        up.withUnsafeMutableBufferPointer {
-                            Resample.bilinearDouble(d.baseAddress!, into: $0.baseAddress!, channels: channels,
-                                                    height: evaluatedHeight, width: evaluatedWidth)
-                        }
+                    let down = try small.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
+                    for j in 0..<lowCount { estimate[j] = small[j] - sigma * down[j] }
+                    estimate.withUnsafeBufferPointer { e in
+                        Resample.lanczosDouble(e.baseAddress!, into: &upsampled, channels: channels,
+                                               height: evaluatedHeight, width: evaluatedWidth)
                     }
-                    v = up
+                    let inverse = 1 / sigma
+                    v = (0..<count).map { (latent[$0] - upsampled[$0]) * inverse }
                 } else {
                     v = try latent.withUnsafeBufferPointer { try dit.forward(latent: $0.baseAddress!, sigma: told[i]) }
                 }

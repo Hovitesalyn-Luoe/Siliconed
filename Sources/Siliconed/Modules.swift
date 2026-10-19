@@ -68,8 +68,8 @@ package struct ZImageDenoisingModule: DenoisingModule {
     /// were judged clean on the seven-evaluation schedule of before 0.8.2; on the recipe's eight
     /// (first full step at σ = 0.9, six full steps after), the high-frequency noise the half-size steps
     /// leave in the full latent (the up-sampled velocity does not carry it) is no longer resorbed —
-    /// sand on the skin and grain on the walls at 1024², at `k = 2` and at `k = 1`. Qwen-Image-2.1 keeps
-    /// its own (`QwenImage21DenoisingModule.plan`): a 16-px cell, another model, judged on its own.
+    /// sand on the skin and grain on the walls at 1024², at `k = 2` and at `k = 1`. Qwen-Image-2.1's
+    /// half-size start is this one's recipe (`QwenImage21DenoisingModule.plan`), its `k` judged on its own.
     ///
     /// Evaluations are counted from the start to the end: every step moves (`FlowMatchSchedule`),
     /// hence `N − t_start` evaluations, `⌈N·s⌉` at a strength `s` in img2img.
@@ -524,38 +524,36 @@ package struct QwenImage21DenoisingModule: DenoisingModule {
         }
     }
 
-    /// **The product's `k` is 0** (15/10/2026): every evaluation at full size, the published
-    /// recipe as it stands — a half-size phase changes the image, and a recipe compared with another
-    /// (ComfyUI's, `SigmaSchedule`) must be the recipe itself. The path stays, `SILICONED_SPECTRAL`
-    /// forces it (a measurement). What follows is the rule it ran under until then.
+    /// **By default every evaluation at full size** (since 0.10): the published recipe as it stands —
+    /// a half-size phase changes the image, and a recipe compared with another (ComfyUI's,
+    /// `SigmaSchedule`) must be the recipe itself.
     ///
-    /// The Turbo's spectral schedule: **its first two evaluations at half size** (`spectralSteps`, the
-    /// half-size phase of `QwenImage21Sampler`), judged clean by eye on two prompts × three seeds. A
-    /// fixed `k`, not a threshold on the band the first σs carry (`f* = (1 − σ)/σ ≤ 0.10`): that rule
-    /// gives `k = 3` here, which broke faces and shelves into patchwork under the former 6-step turbo
-    /// LoRA — a 16-px, 64-channel cell carries far more of the image than an 8-px one, and a band
-    /// threshold does not say how much leftover noise the full steps resorb. (Z-Image, whose rule it
-    /// was, has had none since 0.8.2: on its eight evaluations even `k = 1` left grain.)
-    ///
-    /// **`k = 0`**: under a user LoRA or Detail (`withLoRA`: the half-size steps leave the full
-    /// latent's high-frequency noise — the up-sampled velocity does not carry it — for the full steps
-    /// to resorb, judged clean without either), from a start past 0, where the half
-    /// grid would go under 512 px on a side (`Spectral.floor`: a 512² or 832×1216 never halves), and
-    /// in an edit — the plan cannot see the references, the chain zeroes it (`DenoisingPlan.unreduced`)
-    /// and the denoiser ignores it with references. `SILICONED_SPECTRAL` forces `k` (a measurement),
-    /// within the same floor.
+    /// **The half-size start** (`halfSizeStart`, off by default; Z-Image's recipe): the first
+    /// `halfSizeSteps` evaluations on the half grid, by the half-size phase of `QwenImage21Sampler` —
+    /// not the `x += dt·𝓘v(𝓟x)` steps it ran until 0.10 (two, judged clean then), which left the
+    /// latent's high-frequency noise in place and handed the model an alias. Only at the recipe's
+    /// eight, from the first step, on a grid whose half stays at 512 px on each side (`Spectral.floor`
+    /// in 16-px cells: 1024², 1024×1536 and its transpose; a 512² or 832×1216 never halves), never under
+    /// a user LoRA, Detail or another schedule (`withLoRA`: never judged under them) and never in an
+    /// edit — the plan cannot see the references, the chain zeroes it (`DenoisingPlan.unreduced`) and
+    /// the denoiser ignores it with references. `SILICONED_SPECTRAL` forces `k` (a measurement),
+    /// within the same rules.
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
         let halvable = Spectral.divisible(height: height, width: width, by: 2,
                                           floor: Spectral.floor(factor: space.factor))
-        let rule = withLoRA ? 0 : QwenImage21DenoisingModule.spectralSteps
-        let k = start > 0 || !halvable ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
+        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
         return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start],
                              evaluations: steps - start, reduced: k,
                              reducedHeight: k > 0 ? height / 2 : height, reducedWidth: k > 0 ? width / 2 : width)
     }
 
-    /// The half-size evaluations of a generation (`plan`): none since 0.10 — 2 before.
-    package static let spectralSteps = 0
+    /// The half-size start, read by every plan (an app setting to come; off: the bits of before).
+    nonisolated(unsafe) package static var halfSizeStart = false
+    /// Its half-size evaluations: 3 (σ 1 → 0.927), judged by eye on two prompts at 1024², as Z-Image's.
+    /// Not the largest that renders: at 4 the freckles fade and the shelves start to block, at 5 the
+    /// books are a 2×2 patchwork.
+    package static let halfSizeSteps = 3
 
     /// **Whether a batch's next image may reuse this one's DiT** (`Context.keptDenoiser`): only when its
     /// denoising builds no half-size DiT first (`reduced` 0) — kept beside the half-size one, the full
