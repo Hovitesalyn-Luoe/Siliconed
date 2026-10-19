@@ -122,7 +122,7 @@ package enum Resample {
         }
     }
 
-    // ── the half-size start (Z-Image's `Sampler`, Qwen-Image-2.1's `QwenImage21Sampler`) ──────────────────────────────────────────────
+    // ── the half-size start (Z-Image's `Sampler`, Qwen-Image-2.1's `QwenImage21Sampler`, Anima's `denoise`) ──
 
     /// 𝓑 — the 2×2 mean, `[C, 2h, 2w]` → `[C, h, w]`, of `a + scale·b` (`b` may be `a`'s noise).
     ///

@@ -1,11 +1,14 @@
 import XCTest
 @testable import Siliconed
 
-/// **Z-Image's half-size start** (`Sampler.init(half:…)`): when the plan takes it, and the two
-/// operators it adds — the images it changes are judged by eye, not here.
+/// **The half-size start** (Z-Image's `Sampler.init(half:…)`, Anima's `denoise`): when the plan takes
+/// it, and the two operators it adds — the images it changes are judged by eye, not here.
 final class HalfSizeStartTests: XCTestCase {
 
-    override func tearDown() { ZImageDenoisingModule.halfSizeStart = false }
+    override func tearDown() {
+        ZImageDenoisingModule.halfSizeStart = false
+        AnimaDenoisingModule.halfSizeStart = false
+    }
 
     func testOffByDefaultAndThreeEvaluationsWhenOn() {
         let z = ZImageDenoisingModule(map: "")
@@ -27,6 +30,27 @@ final class HalfSizeStartTests: XCTestCase {
         XCTAssertEqual(z.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: true).reduced, 0)
         XCTAssertEqual(z.plan(height: 128, width: 128, steps: 8, start: 3, withLoRA: false).reduced, 0)
         XCTAssertEqual(z.plan(height: 128, width: 128, steps: 12, start: 0, withLoRA: false).reduced, 0)
+    }
+
+    /// **Anima's plan**: the same rules, in 8-px cells with each half side a multiple of the ×2 patch.
+    func testAnimaOffByDefaultThreeWhenOnNeverUnderTheRules() throws {
+        try XCTSkipIf(Spectral.forced != nil, "SILICONED_SPECTRAL forces k")
+        let anima = AnimaDenoisingModule(map: "")
+        XCTAssertEqual(anima.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        AnimaDenoisingModule.halfSizeStart = true
+        let plan = anima.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: false)
+        XCTAssertEqual(plan.reduced, AnimaDenoisingModule.halfSizeSteps)
+        XCTAssertEqual(plan.evaluations, 8)
+        XCTAssertEqual([plan.reducedHeight, plan.reducedWidth], [64, 64])
+        XCTAssertEqual(anima.plan(height: 192, width: 128, steps: 8, start: 0, withLoRA: false).reduced,
+                       AnimaDenoisingModule.halfSizeSteps)
+        // 512², 832×1216 (a half side under 512 px), 1032² (a half side off the patch).
+        XCTAssertEqual(anima.plan(height: 64, width: 64, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        XCTAssertEqual(anima.plan(height: 152, width: 104, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        XCTAssertEqual(anima.plan(height: 130, width: 130, steps: 8, start: 0, withLoRA: false).reduced, 0)
+        XCTAssertEqual(anima.plan(height: 128, width: 128, steps: 8, start: 0, withLoRA: true).reduced, 0)
+        XCTAssertEqual(anima.plan(height: 128, width: 128, steps: 8, start: 2, withLoRA: false).reduced, 0)
+        XCTAssertEqual(anima.plan(height: 128, width: 128, steps: 12, start: 0, withLoRA: false).reduced, 0)
     }
 
     /// 𝓑x + σ𝓑ε: the 2×2 mean of `a + σ·b`, block by block, channel by channel.

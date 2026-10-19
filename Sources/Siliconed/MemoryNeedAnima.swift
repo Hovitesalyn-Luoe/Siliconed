@@ -46,7 +46,9 @@ import Foundation
 ///     8 at a time);
 ///   - **two attentions per DiT, both cut by heads where `HeadSplitAttention.applies`** (self at `s`,
 ///     cross at `s × 512`: two host arenas, each with its MPSGraph copy of the GPU heads' queries),
-///     alive with the DiT; no spectral schedule, no K/V on disk: every evaluation at the full grid;
+///     alive with the DiT; no K/V on disk. **The half-size start** (off by default) builds a DiT for the
+///     half grid first and releases it, with the start's few latents (ε, the small grid, the upsampled
+///     estimate), before the full one: smaller by far than the full DiT, it is not charged;
 ///   - **a LoRA lives in the DiT's arena** (`loraBas`, `loraHaut`, `loraMid`, at the stack's cumulative
 ///     rank and the widest module it may touch, `AnimaDiT.loraBounds`), no cache of widened weights as
 ///     Z-Image's; with two LoRAs or more, `down` is staged through `LoRA.downBytes`;

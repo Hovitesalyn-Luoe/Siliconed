@@ -244,24 +244,114 @@ package struct AnimaDenoisingModule: DenoisingModule {
 
     package func sigmas(steps: Int) -> [Float] { AnimaDiT.sigmas(steps: steps) }
 
+    /// **By default every evaluation at full size**, the reference's loop as it stands.
+    ///
+    /// **The half-size start** (`halfSizeStart`, off by default; Z-Image's recipe, `Sampler.init(half:…)`):
+    /// the first `halfSizeSteps` evaluations on the half grid (`denoise`). Only at the recipe's eight,
+    /// from the first step, on a grid that halves above the floor (8-px cells, and each half side a
+    /// multiple of the ×2 patch: 1024², 1024×1536 and its transpose; a 512² or 832×1216 never halves),
+    /// never under a user LoRA or another schedule (`withLoRA`: never judged under them; Anima refuses
+    /// Detail). `SILICONED_SPECTRAL` forces `k` (a measurement), within the same rules.
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
-        DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
-                         reduced: 0, reducedHeight: height, reducedWidth: width)
+        let halvable = Spectral.divisible(height: height, width: width, by: 2)
+        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
+        return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
+                             reduced: k, reducedHeight: k > 0 ? height / 2 : height,
+                             reducedWidth: k > 0 ? width / 2 : width)
     }
 
+    /// The half-size start, read by every plan (an app setting to come; off: the bits of before).
+    nonisolated(unsafe) package static var halfSizeStart = false
+    /// Its half-size evaluations (σ 1 → 0.833 at 3, the schedule's shift 3 as Z-Image's).
+    package static let halfSizeSteps = 3
+
+    /// **The denoising**: one DiT, every σ's modulations tabulated at once, Euler (or the `Solver`).
+    ///
+    /// Under the half-size start (`plan`), the first `k` evaluations by a DiT built for the half grid
+    /// — Z-Image's recipe (`Sampler.init(half:…)`, where the why is written):
+    ///
+    ///     x_low = 𝓑x + σ·𝓑ε             (𝓑 the 2×2 mean, ε the starting noise)
+    ///     x̂₀ = x_low − σ·v_θ(x_low, σ)   (the DiT returns dx/dσ itself, as Qwen's: no negation)
+    ///     dx/dσ = (x − 𝓛x̂₀) / σ          (𝓛 Lanczos-3 ×2) — the state stays exactly σε + (1 − σ)S
+    ///
+    /// What a port by analogy would miss:
+    ///   - **the latent is `[16, H, W]` at 8 px, unpacked**: the ×2 patch is the DiT's own
+    ///     (`AnimaOps.patchify`), so 𝓑 and 𝓛 work on the true spatial grid, and commute with the VAE's
+    ///     per-channel normalization (affine, weights summing to one);
+    ///   - **the RoPE needs no rescaling**: `CosmosRotaryPosEmbed` slices `arange` positions 0 … n − 1
+    ///     per axis with fixed NTK bases (`rope_scale`), whatever the grid — a half-size evaluation is
+    ///     exactly a native 512² one, and the padding mask stays zero;
+    ///   - **the DiT and its arena are sized for one grid** (`AnimaDiT.slices`): the half grid needs its
+    ///     own DiT, its own modulation table (the first `k` σ; the full one tabulates the rest). One DiT
+    ///     at a time: the half-size one is released before the full one is built, so the need
+    ///     (`MemoryNeed.anima`, the full DiT) holds — the half-size one is smaller by far more than
+    ///     the start's few latents (ε, the small grid, the upsampled estimate), released with it.
     package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                           context: Context) throws {
-        let dit = try AnimaDiT(artifact: try Artifact(path: map), latentHeight: latent.height,
-                               latentWidth: latent.width,
-                               textLength: text.rows, freezeCut: context.reproducible, lora: lora)
-        dit.cancellation = context.cancellation
+        let (height, width) = (latent.height, latent.width)
+        let k = plan(height: height, width: width, steps: steps, start: start,
+                     withLoRA: lora != nil || context.detail != .normal, schedule: context.schedule).reduced
         // Every σ the DiT will be told (`euler` tells it `context.told`), its modulations computed at once.
         let schedule = sigmas(steps: steps)
-        try dit.tabulate(sigmas: Array(context.told(schedule, start: start)[start..<(schedule.count - 1)]))
-        try euler(&latent, sigmas: schedule, start: start, context: context) { x, sigma in
-            try text.values.withUnsafeBufferPointer {
-                try dit.forward(latent: x, context: $0.baseAddress!, sigma: sigma)
+        let told = context.told(schedule, start: start)
+        let build = { (h: Int, w: Int, range: Range<Int>) throws -> AnimaDiT in
+            let dit = try AnimaDiT(artifact: try Artifact(path: map), latentHeight: h, latentWidth: w,
+                                   textLength: text.rows, freezeCut: context.reproducible, lora: lora)
+            dit.cancellation = context.cancellation
+            try dit.tabulate(sigmas: Array(told[range]))
+            return dit
+        }
+        guard k > 0 else {
+            let dit = try build(height, width, start..<(schedule.count - 1))
+            try euler(&latent, sigmas: schedule, start: start, context: context) { x, sigma in
+                try text.values.withUnsafeBufferPointer {
+                    try dit.forward(latent: x, context: $0.baseAddress!, sigma: sigma)
+                }
             }
+            context.footprints.denoising = Arena.processFootprint()
+            return
+        }
+        let (lowHeight, lowWidth) = (height / 2, width / 2)
+        let channels = latent.values.count / (height * width), count = latent.values.count
+        let lowCount = channels * lowHeight * lowWidth
+        // ε, the starting latent (`plan`: only from step 0), and the start's buffers.
+        var noise = latent.values
+        var small = [Float](repeating: 0, count: lowCount), estimate = small
+        var upsampled = [Float](repeating: 0, count: count)
+        var half: AnimaDiT? = try build(lowHeight, lowWidth, 0..<k)
+        var full: AnimaDiT?
+        var step = 0
+        try euler(&latent, sigmas: schedule, start: start, context: context, halfSteps: k, before: { i in
+            step = i
+            guard i >= k, full == nil else { return }
+            // One DiT at a time: the half-size one, and the start's buffers, go before the full one.
+            half = nil; noise = []; small = []; estimate = []; upsampled = []
+            full = try build(height, width, k..<(schedule.count - 1))
+        }) { x, toldSigma in
+            guard step < k, let dit = half else {
+                return try text.values.withUnsafeBufferPointer {
+                    try full!.forward(latent: x, context: $0.baseAddress!, sigma: toldSigma)
+                }
+            }
+            // 𝓑x + σ𝓑ε on the state's own σ (not the told one, which only conditions the DiT).
+            let sigma = schedule[step]
+            noise.withUnsafeBufferPointer { ε in
+                Resample.average(x, plus: sigma, times: ε.baseAddress!, into: &small,
+                                 channels: channels, height: lowHeight, width: lowWidth)
+            }
+            let low = try small.withUnsafeBufferPointer { s in
+                try text.values.withUnsafeBufferPointer {
+                    try dit.forward(latent: s.baseAddress!, context: $0.baseAddress!, sigma: toldSigma)
+                }
+            }
+            for j in 0..<lowCount { estimate[j] = small[j] - sigma * low[j] }
+            estimate.withUnsafeBufferPointer { e in
+                Resample.lanczosDouble(e.baseAddress!, into: &upsampled, channels: channels,
+                                       height: lowHeight, width: lowWidth)
+            }
+            let inverse = 1 / sigma
+            return (0..<count).map { (x[$0] - upsampled[$0]) * inverse }
         }
         context.footprints.denoising = Arena.processFootprint()
     }
@@ -304,8 +394,13 @@ package struct QwenImageDecodingModule: DecodingModule {
 /// same σ through `SolverWalk` — `v` is already its `m = dx/dσ`, no negation — and the preview and a
 /// sketch read the walk's own x̂₀ with σₓ = 0, as in `Sampler`. Euler keeps the loop below: its two
 /// roundings (`dt` in float, then `x + dt·v`) are the reference's `scheduler.step`, to the bit.
+///
+/// `halfSteps`, `before`: Anima's half-size start (`AnimaDenoisingModule.denoise`) — the first
+/// `halfSteps` steps report the half grid as evaluated; `before(i)` runs ahead of step `i`'s clock (the
+/// DiTs change hands there).
 func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
-           context: Context, speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
+           context: Context, halfSteps: Int = 0, before: ((Int) throws -> Void)? = nil,
+           speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
     context.beginDenoising(evaluations: sigmas.count - 1 - start)
     // What the DiT is told (`Detail`: Anima and Krea 2 refuse it, so their σ themselves); the step
     // below keeps the true σ.
@@ -317,6 +412,7 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
                      noise: context.solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
     for i in start..<(sigmas.count - 1) {
         try context.check()
+        try before?(i)
         let tick = Date()
         // Under DPM++ and UniPC, diffusers' integer timestep over 1000 (`Solver.toldSigma`).
         let v = try latent.values.withUnsafeBufferPointer {
@@ -335,8 +431,9 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
         let seconds = Date().timeIntervalSince(tick)
         try latent.values.withUnsafeBufferPointer { x in
             try v.withUnsafeBufferPointer { v in
-                try context.stepDone(sigma: sigmas[i], seconds: seconds, evaluatedHeight: latent.height,
-                                     evaluatedWidth: latent.width, space: latent.space,
+                let divisor = i - start < halfSteps ? 2 : 1
+                try context.stepDone(sigma: sigmas[i], seconds: seconds, evaluatedHeight: latent.height / divisor,
+                                     evaluatedWidth: latent.width / divisor, space: latent.space,
                                      x: walk?.estimate ?? x.baseAddress!,
                                      v: v.baseAddress!, nextSigma: walk == nil ? sigmas[i + 1] : 0,
                                      fullHeight: latent.height, fullWidth: latent.width)
