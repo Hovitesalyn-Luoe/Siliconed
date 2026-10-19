@@ -97,7 +97,8 @@ package final class Krea2DiT {
     private let prefetcher: Prefetcher
     private let gemm: GEMM
     private let arena: Arena
-    /// The sizing grid, which is that of every evaluation (no spectral schedule here).
+    /// The sizing grid, which is that of every evaluation of this DiT: the half-size start builds a
+    /// second one on the half grid (`Krea2DenoisingModule.denoise`), never a grid switched under one.
     private let latentHeight, latentWidth, imageTokens, maxText, maxRows: Int
     /// The GQA SDPA, per sequence length: cut by groups of heads between the GPU and the CPU where
     /// `headSplit`, one MPSGraph SDPA otherwise. The flash kernel (`FlashMatrix`) is no

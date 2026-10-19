@@ -304,8 +304,20 @@ package struct QwenImageDecodingModule: DecodingModule {
 /// same σ through `SolverWalk` — `v` is already its `m = dx/dσ`, no negation — and the preview and a
 /// sketch read the walk's own x̂₀ with σₓ = 0, as in `Sampler`. Euler keeps the loop below: its two
 /// roundings (`dt` in float, then `x + dt·v`) are the reference's `scheduler.step`, to the bit.
-func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
-           context: Context, speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
+///
+/// **The half-size start** (`half`, Krea 2's; from `start` 0 only): its first `half.steps`
+/// evaluations by `half.speed` on the half grid, Z-Image's recipe (`Sampler.init(half:…)`, where the
+/// why is written) for a DiT that returns `dx/dσ` itself:
+///
+///     x_low = 𝓑x + σ·𝓑ε             (𝓑 the 2×2 mean, ε the starting noise)
+///     x̂₀ = x_low − σ·v_θ(x_low, σ)   (no negation)
+///     dx/dσ = (x − 𝓛x̂₀) / σ          (𝓛 Lanczos-3 ×2) — the state stays exactly σε + (1 − σ)S
+///
+/// σ is the state's (`sigmas[i]`), never the told one, which only conditions the DiT. Its buffers —
+/// ε, the small grid, the estimate, the upsampled estimate — are given back before the first full
+/// evaluation.
+func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0, context: Context,
+           half: HalfSizeStart? = nil, speed: (UnsafePointer<Float>, Float) throws -> [Float]) throws {
     context.beginDenoising(evaluations: sigmas.count - 1 - start)
     // What the DiT is told (`Detail`: Anima and Krea 2 refuse it, so their σ themselves); the step
     // below keeps the true σ.
@@ -315,12 +327,38 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
     let walk = context.solver == .euler ? nil
         : SolverWalk(solver: context.solver, schedule: sigmas, start: start, count: count,
                      noise: context.solver == .eulerAncestral ? { _, e in stream.fill(e, count: count) } : nil)
+    let halfSteps = start == 0 ? half?.steps ?? 0 : 0
+    let (lowHeight, lowWidth) = (latent.height / 2, latent.width / 2)
+    let lowCount = halfSteps > 0 ? latent.space.channels * lowHeight * lowWidth : 0
+    var noise = halfSteps > 0 ? latent.values : []
+    var small = [Float](repeating: 0, count: lowCount), estimate = small
+    var upsampled = [Float](repeating: 0, count: halfSteps > 0 ? count : 0)
     for i in start..<(sigmas.count - 1) {
         try context.check()
         let tick = Date()
+        let reduced = i - start < halfSteps
+        if !reduced, !noise.isEmpty { noise = []; small = []; estimate = []; upsampled = [] }
         // Under DPM++ and UniPC, diffusers' integer timestep over 1000 (`Solver.toldSigma`).
-        let v = try latent.values.withUnsafeBufferPointer {
-            try speed($0.baseAddress!, context.solver.toldSigma(told[i], first: i == start))
+        let toldSigma = context.solver.toldSigma(told[i], first: i == start)
+        let v: [Float]
+        if reduced, let half {
+            let sigma = sigmas[i]
+            latent.values.withUnsafeBufferPointer { x in
+                noise.withUnsafeBufferPointer { ε in
+                    Resample.average(x.baseAddress!, plus: sigma, times: ε.baseAddress!, into: &small,
+                                     channels: latent.space.channels, height: lowHeight, width: lowWidth)
+                }
+            }
+            let low = try small.withUnsafeBufferPointer { try half.speed($0.baseAddress!, toldSigma) }
+            for j in 0..<lowCount { estimate[j] = small[j] - sigma * low[j] }
+            estimate.withUnsafeBufferPointer { e in
+                Resample.lanczosDouble(e.baseAddress!, into: &upsampled, channels: latent.space.channels,
+                                       height: lowHeight, width: lowWidth)
+            }
+            let inverse = 1 / sigma
+            v = (0..<count).map { (latent.values[$0] - upsampled[$0]) * inverse }
+        } else {
+            v = try latent.values.withUnsafeBufferPointer { try speed($0.baseAddress!, toldSigma) }
         }
         if let walk {
             latent.values.withUnsafeMutableBufferPointer { x in
@@ -335,14 +373,23 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0,
         let seconds = Date().timeIntervalSince(tick)
         try latent.values.withUnsafeBufferPointer { x in
             try v.withUnsafeBufferPointer { v in
-                try context.stepDone(sigma: sigmas[i], seconds: seconds, evaluatedHeight: latent.height,
-                                     evaluatedWidth: latent.width, space: latent.space,
+                try context.stepDone(sigma: sigmas[i], seconds: seconds,
+                                     evaluatedHeight: reduced ? lowHeight : latent.height,
+                                     evaluatedWidth: reduced ? lowWidth : latent.width, space: latent.space,
                                      x: walk?.estimate ?? x.baseAddress!,
                                      v: v.baseAddress!, nextSigma: walk == nil ? sigmas[i + 1] : 0,
                                      fullHeight: latent.height, fullWidth: latent.width)
             }
         }
     }
+}
+
+/// `euler`'s half-size start: how many evaluations, and the speed on the half grid (`[C, h/2, w/2]`
+/// in, `dx/dσ` on that grid out). The speed owns its DiT: the one `euler` calls next, at full size,
+/// builds its own only once this one is given back (`Krea2DenoisingModule.denoise`).
+struct HalfSizeStart {
+    let steps: Int
+    let speed: (UnsafePointer<Float>, Float) throws -> [Float]
 }
 
 // ── Krea 2 ──────────────────────────────────────────────────────────────────────────────────
@@ -396,31 +443,76 @@ package struct Krea2DenoisingModule: DenoisingModule {
 
     package func sigmas(steps: Int) -> [Float] { Krea2DiT.sigmas(steps: steps) }
 
+    /// **By default every evaluation at full size**: the published recipe as it stands.
+    ///
+    /// **The half-size start** (`halfSizeStart`, off by default; Z-Image's recipe, by `euler`): the
+    /// first `halfSizeSteps` evaluations on the half grid. Only at the recipe's eight, from the first
+    /// step, on a grid that halves above the floor (`Spectral.floor` in 8-px cells: 1024², 1024×1536
+    /// and its transpose; a 512² or 832×1216 never halves), never under a user LoRA or another
+    /// schedule (`withLoRA`: never judged under them). `SILICONED_SPECTRAL` forces `k` (a
+    /// measurement), within the same rules.
     package func plan(height: Int, width: Int, steps: Int, start: Int, withLoRA: Bool) -> DenoisingPlan {
-        DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
-                         reduced: 0, reducedHeight: height, reducedWidth: width)
+        let halvable = Spectral.divisible(height: height, width: width, by: 2,
+                                          floor: Spectral.floor(factor: space.factor))
+        let rule = Self.halfSizeStart && steps == defaultSteps ? Self.halfSizeSteps : 0
+        let k = start > 0 || !halvable || withLoRA ? 0 : min(max(0, Spectral.forced ?? rule), steps - 1)
+        return DenoisingPlan(startStep: start, startSigma: sigmas(steps: steps)[start], evaluations: steps - start,
+                             reduced: k, reducedHeight: k > 0 ? height / 2 : height,
+                             reducedWidth: k > 0 ? width / 2 : width)
     }
 
+    /// The half-size start, read by every plan (an app setting to come; off: the bits of before).
+    nonisolated(unsafe) package static var halfSizeStart = false
+    /// Its half-size evaluations: 4 (σ 1 → 0.760), judged by eye on two prompts at 1024² — one more than
+    /// Z-Image's and Qwen-Image-2.1's, Krea 2's shifted schedule lingering longer at high σ. Not the
+    /// largest that renders: at 5 the freckles start to fade, at 6 the shelves split into strips and an
+    /// eyelid doubles, at 7 the faces ghost.
+    package static let halfSizeSteps = 4
+
+    /// **The half-size start builds two DiTs, one at a time**: the half-grid one (its own RoPE grid,
+    /// its own arena and sequence `s/4 + T`, exactly a native evaluation at half the size), given
+    /// back before the full one maps its arena — never both, the full one is the larger and is what
+    /// the memory need charges (`MemoryNeed.krea2`). The two share the map, its staging stream and
+    /// the modulation table (a function of σ alone); the fused text is the same rows.
     package func denoise(_ latent: inout Latent, text: Conditioning, steps: Int, start: Int, lora: LoRA?,
                           context: Context) throws {
         let artifact = try Artifact(path: map)
         let tokens = text.rows
         let merged = try fusion(text, artifact: artifact, lora: lora, context: context)
-        let dit = try Krea2DiT(artifact: artifact, latentHeight: latent.height,
-                               latentWidth: latent.width, maxText: tokens,
-                               freezeCut: context.reproducible, lora: lora)
-        dit.cancellation = context.cancellation
-        try context.check()
+        let (height, width) = (latent.height, latent.width)
+        let planned = plan(height: height, width: width, steps: steps, start: start,
+                           withLoRA: lora != nil || context.detail != .normal, schedule: context.schedule)
         // The modulation of only the σs evaluated — from `start` to the last non-null one —, in
         // one pass. It depends only on σ: the following images of a batch reuse the first's table.
         let σ = sigmas(steps: steps)
         let modulationKey = "krea2.modulation " + map
-        if let table = context.reserve[modulationKey] as? Krea2DiT.ModulationTable { dit.modulations = table }
-        try dit.tabulateModulation(sigmas: Array(context.told(σ, start: start)[start..<(σ.count - 1)]))
-        context.reserve[modulationKey] = dit.modulations
-        try euler(&latent, sigmas: σ, start: start, context: context) { x, sigma in
-            try merged.withUnsafeBufferPointer {
-                try dit.forward(latent: x, text: $0.baseAddress!, textRows: tokens, sigma: sigma)
+        func build(height: Int, width: Int) throws -> Krea2DiT {
+            let dit = try Krea2DiT(artifact: artifact, latentHeight: height, latentWidth: width, maxText: tokens,
+                                   freezeCut: context.reproducible, lora: lora)
+            dit.cancellation = context.cancellation
+            try context.check()
+            if let table = context.reserve[modulationKey] as? Krea2DiT.ModulationTable { dit.modulations = table }
+            try dit.tabulateModulation(sigmas: Array(context.told(σ, start: start)[start..<(σ.count - 1)]))
+            context.reserve[modulationKey] = dit.modulations
+            return dit
+        }
+        var small = planned.reduced > 0
+            ? try build(height: planned.reducedHeight, width: planned.reducedWidth) : nil
+        var full = small == nil ? try build(height: height, width: width) : nil
+        let half = small.map { _ in
+            HalfSizeStart(steps: planned.reduced) { x, sigma in
+                try merged.withUnsafeBufferPointer {
+                    try small!.forward(latent: x, text: $0.baseAddress!, textRows: tokens, sigma: sigma)
+                }
+            }
+        }
+        try euler(&latent, sigmas: σ, start: start, context: context, half: half) { x, sigma in
+            if full == nil {
+                small = nil
+                full = try build(height: height, width: width)
+            }
+            return try merged.withUnsafeBufferPointer {
+                try full!.forward(latent: x, text: $0.baseAddress!, textRows: tokens, sigma: sigma)
             }
         }
         context.footprints.denoising = Arena.processFootprint()
