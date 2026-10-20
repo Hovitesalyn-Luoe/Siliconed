@@ -80,10 +80,9 @@ package final class HeadSplitAttention {
     package static let enabled = EngineSettings.effective.headSplit
 
     /// **Whether an attention of `sequence` query rows is cut by heads** — the one condition the
-    /// blocks, Qwen-Image-2.1's target and the memory formulas share: the setting, fp32 (the half
-    /// precision SDPA has no CPU part), and `minimumSequence`.
+    /// blocks, Qwen-Image-2.1's target and the memory formulas share: the setting and `minimumSequence`.
     package static func applies(sequence: Int) -> Bool {
-        enabled && !Attention.useHalfPrecision && sequence >= minimumSequence
+        enabled && sequence >= minimumSequence
     }
 
     /// **Which heads go where, defined once.** `fraction` is the share of heads handed to the CPU,

@@ -164,7 +164,6 @@ private struct ReportView: View {
                     row("Attention, split between GPU and CPU", report.attention.compactMap(\.headSplit), unit: "TFLOP/s")
                     Divider().gridCellUnsizedAxes(.horizontal)
                     row("Weight widening, CPU", report.widening.map(\.cpu), unit: "G/s")
-                    row("Weight widening, GPU", report.widening.compactMap(\.gpu), unit: "G/s")
                     Divider().gridCellUnsizedAxes(.horizontal)
                     row("Half precision, GPU", engine: "mpsgraph")
                     row("Half precision, CPU matrix unit", engine: "bnns")

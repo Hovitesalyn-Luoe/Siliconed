@@ -62,12 +62,12 @@ final class CapacityRulesTests: XCTestCase {
         return Diagnostic.Report(date: "2026-10-14T20:11:08Z", seconds: 16.1, machine: machine, cpuFeatures: [:],
                                  before: conditions, after: conditions, products: products, lowPrecision: [],
                                  attention: attention,
-                                 widening: [.init(kind: "bf16", values: 39_321_600, cpu: .init(rate: r.widen, error: 0, threshold: 0), gpu: nil),
-                                            .init(kind: "bf16 copy", values: 39_321_600, cpu: .init(rate: r.copy, error: 0, threshold: 0), gpu: nil),
-                                            .init(kind: "int8 convrot", values: 39_321_600, cpu: .init(rate: r.rotated, error: 0, threshold: 0), gpu: nil),
-                                            .init(kind: "int8 copy", values: 39_321_600, cpu: .init(rate: r.copy8, error: 0, threshold: 0), gpu: nil),
-                                            .init(kind: "q8_0", values: 39_321_600, cpu: .init(rate: r.q8Widen, error: 0, threshold: 0), gpu: nil),
-                                            .init(kind: "q8_0 copy", values: 39_321_600, cpu: .init(rate: r.q8Copy, error: 0, threshold: 0), gpu: nil)],
+                                 widening: [.init(kind: "bf16", values: 39_321_600, cpu: .init(rate: r.widen, error: 0, threshold: 0)),
+                                            .init(kind: "bf16 copy", values: 39_321_600, cpu: .init(rate: r.copy, error: 0, threshold: 0)),
+                                            .init(kind: "int8 convrot", values: 39_321_600, cpu: .init(rate: r.rotated, error: 0, threshold: 0)),
+                                            .init(kind: "int8 copy", values: 39_321_600, cpu: .init(rate: r.copy8, error: 0, threshold: 0)),
+                                            .init(kind: "q8_0", values: 39_321_600, cpu: .init(rate: r.q8Widen, error: 0, threshold: 0)),
+                                            .init(kind: "q8_0 copy", values: 39_321_600, cpu: .init(rate: r.q8Copy, error: 0, threshold: 0))],
                                  witness: .init(gpuBefore: first.gpu.rate, gpuAfter: first.gpu.rate * r.drift.gpu,
                                                 amxBefore: first.amx?.rate, amxAfter: first.amx.map { $0.rate * r.drift.amx }))
     }

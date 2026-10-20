@@ -432,7 +432,7 @@ final class PureFunctionsTests: XCTestCase {
     func testAProfileHasNoRightToWriteTheImage() {
         // A profile tunes speed and room, never the image. It is enforced by `EngineSettings.outsideProfile`; this test is here so
         // that adding an image setting does not forget to register there.
-        for forbidden in ["spectral", "sdpa_fp16", "vae_tuile", "amx_spin"] {
+        for forbidden in ["spectral", "vae_tuile", "amx_spin"] {
             XCTAssertTrue(EngineSettings.outsideProfile.contains(forbidden),
                           "\"\(forbidden)\" changes the image: a profile must not be able to write it")
         }

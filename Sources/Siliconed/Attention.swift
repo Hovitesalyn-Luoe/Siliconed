@@ -38,33 +38,6 @@ package final class Attention {
     /// The split into query blocks, `0` for the original graph.
     private let queryChunk: Int
 
-    /// Half precision is a **trade**, not a gain, and it is therefore optional.
-    ///
-    /// The **range** is safe: on the golden tensors, normalized `q` and `k` peak at 8 and 11,
-    /// `v` at 185, the output at 149, the maximum score before softmax at 1009 — margins of ×65 to
-    /// ×8000. The DiT's overflow (pitfall 3.11) is in the FFN, not here.
-    ///
-    /// It is the **precision** that is paid for. Measured end to end at 1024², same session:
-    ///
-    ///                  model_out    7-eval render   GPU SDPA   image vs ref.   worst byte
-    ///     fp32         3.14·10⁻⁵      180.8 s        34.5 s      83.74 dB         3/255
-    ///     fp16         1.54·10⁻³      156.9 s        19.4 s      51.03 dB        74/255
-    ///
-    /// The second leaderboard is decided on the image — and **on the image, fp16
-    /// passes**: at 1:1 on the face, eyes included, it is indistinguishable from the reference.
-    /// Only 53 pixels in a million deviate by 32/255 or more.
-    ///
-    /// **Yet it is not for the image that we keep the exact path by default, it is for the
-    /// instrument.** In fp16, `model_out` rises to 1.54·10⁻³: the bench's noise floor is
-    /// multiplied by 50, and `sample`'s guided pass (threshold 5·10⁻⁴) can no longer tell a real
-    /// regression from the approximation we have just accepted. We would lose the only thing
-    /// that lets us assert the rest is right. fp16 is therefore a *render* option, to be
-    /// taken up when the exact levers are exhausted — **never a verification option.**
-    /// Read once from the environment: constant for the duration of the process, hence no
-    /// shared mutable state to protect.
-    package static let useHalfPrecision = EngineSettings.effective.sdpaFp16
-    private let precision: MPSDataType
-
     /// **The transposition is in the graph, not on the CPU.** The engine holds `q`, `k` and `v` as
     /// `[S, H·Dh]` — the layout the GEMM produces. The SDPA wants them as `[H, S, Dh]`. We long
     /// paid for this rearrangement with CPU copies: at 1024², 30 heads × 4,128 tokens = 123,840
@@ -76,9 +49,7 @@ package final class Attention {
     /// therefore has no reason to go through the CPU: `transposeTensor` does it inside the graph,
     /// where it blends into the work the GPU is already doing.
     ///
-    /// The conversion to half precision follows the same path: a `cast` in the graph replaces the
-    /// fp32 → fp16 copy that the CPU did during the transposition. The caller is left with a
-    /// single format to know — **fp32, `[S, H·Dh]`, both ways** — and four arena
+    /// The caller is left with a single format to know — **fp32, `[S, H·Dh]`, both ways** — and four arena
     /// slices disappear along with the intermediate buffers.
     /// - Parameter causal: an additive triangular mask, **built once in the graph**.
     ///   The DiT does not need one — its tokens all attend to each other — but the text encoder is a
@@ -142,10 +113,8 @@ package final class Attention {
                      "GQA: self-attention without a mask or an imposed split, divisible heads")
         // LOCAL bindings, as in `VAE.swift`: a nested function cannot capture
         // `self` until all properties are initialized, and `out` is the result.
-        let precision: MPSDataType = Attention.useHalfPrecision ? .float16 : .float32
         let graph = MPSGraph()
         self.graph = graph
-        self.precision = precision
         self.queue = queue
         self.heads = heads
         self.kvHeads = kvHeads
@@ -164,10 +133,9 @@ package final class Attention {
         let v = graph.placeholder(shape: keyShape, dataType: .float32, name: "v")
         self.q = q; self.k = k; self.v = v
 
-        /// `[1, S, H, Dh]` → `[1, H, S, Dh]`, then the requested precision.
+        /// `[1, S, H, Dh]` → `[1, H, S, Dh]`.
         func headsFirst(_ tensor: MPSGraphTensor) -> MPSGraphTensor {
-            let moved = graph.transposeTensor(tensor, dimension: 1, withDimension: 2, name: nil)
-            return precision == .float32 ? moved : graph.cast(moved, to: precision, name: nil)
+            graph.transposeTensor(tensor, dimension: 1, withDimension: 2, name: nil)
         }
         // `scale = None` in the reference, hence 1/√headDim.
         var mask: MPSGraphTensor? = nil
@@ -184,7 +152,6 @@ package final class Attention {
                                            options: .storageModeShared, deallocator: nil)!
             mask = graph.placeholder(shape: shape, dataType: .float32, name: "mask")
             maskFeed = (mask!, MPSGraphTensorData(buffer, shape: shape, dataType: .float32), pages)
-            if precision != .float32 { mask = graph.cast(mask!, to: precision, name: nil) }
         }
         maskInput = maskFeed
         let scale = 1 / Float(headDim).squareRoot()
@@ -219,7 +186,7 @@ package final class Attention {
             let mergedHeads = graph.reshape(grouped, shape: [1, n(heads), n(sequence), n(headDim)], name: nil)
             let returned = graph.transposeTensor(mergedHeads, dimension: 1, withDimension: 2, name: nil)
             self.isSplit = isSplit
-            out = precision == .float32 ? returned : graph.cast(returned, to: .float32, name: nil)
+            out = returned
             return
         } else if queryChunk > 0, mask == nil {
             let qh = headsFirst(q), kh = headsFirst(k), vh = headsFirst(v)   // [1, H, S, Dh]
@@ -268,8 +235,7 @@ package final class Attention {
                                                        value: headsFirst(v), mask: mask,
                                                        scale: scale, name: "sdpa")
         }
-        let back = graph.transposeTensor(attended, dimension: 1, withDimension: 2, name: nil)
-        out = precision == .float32 ? back : graph.cast(back, to: .float32, name: nil)
+        out = graph.transposeTensor(attended, dimension: 1, withDimension: 2, name: nil)
         self.isSplit = isSplit
     }
 
@@ -318,13 +284,7 @@ package final class Attention {
         // The price is that the returned time becomes **wall-clock** and not GPU. That is accepted: for a
         // graph that splits into a hundred and twenty submissions, the GPU time of a single buffer no
         // longer means anything, and it is the wall-clock time that decides anyway.
-        //
-        // **And splitting is not the only graph that commits by itself**: the
-        // half-precision one does too, because of its `cast`s. The fp16 path therefore crashed on the
-        // first SDPA — on `forward 512` as on a render — and nothing caught it, because
-        // no close-out check exercises it. *A flag that no check goes through is
-        // dead code that looks alive.*
-        if queryChunk > 0 || isSplit || Attention.useHalfPrecision {
+        if queryChunk > 0 || isSplit {
             let started = DispatchTime.now().uptimeNanoseconds
             graph.run(with: queue, feeds: feeds, targetOperations: nil,
                       resultsDictionary: [out: data(outBuffer, sequence)])

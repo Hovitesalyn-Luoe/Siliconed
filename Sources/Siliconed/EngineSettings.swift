@@ -71,7 +71,7 @@ package struct EngineSettings: Sendable {
     /// **And it is a profile setting, which calls for a justification** — the rule of profiles says a
     /// profile tunes speed and room, never the image. This setting does change the image's last
     /// bits… exactly like `amx` itself, which has been in the profile from the start. The
-    /// forbidden family is that of the **approximations** — `spectral`, `vae_tuile`, `sdpa_fp16` —
+    /// forbidden family is that of the **approximations** — `spectral`, `vae_tuile` —
     /// which change what one sees. Here the deviation is that of fp32 summation order, 2.5·10⁻⁵,
     /// and freezing it makes the image **stable** rather than making it different: what is
     /// unstable is the servo.
@@ -103,14 +103,6 @@ package struct EngineSettings: Sendable {
     /// 14/10/2026: 2.33–2.44 against 1.57–1.63 TFLOP/s), hence on by default; a chip whose GPU leaves
     /// the CPU far behind would reverse it.
     package var headSplit = true
-    /// SDPA in half precision: 3.02 against 1.665 TFLOP/s, ~9 s on a render, and an error of
-    /// 1.26·10⁻³ on `model_out`. **Set aside by decision, not by measurement**.
-    package var sdpaFp16 = false
-
-    /// Widening bf16 → fp32 on the GPU: +20 % in the engine here, because the widening is
-    /// queued behind the GEMM, which is the bottleneck. On a machine where the CPU is the
-    /// bottleneck — fewer P cores, or a more heavily used AMX — the verdict reverses.
-    package var widenGPU = false
     /// **The DiT's products read the bf16 weights unwidened** (`TensorGEMM`: Metal 4's `matmul2d`,
     /// fp32 activations × bf16 weights → fp32), the AMX off. Off by default: slower than MPS on this
     /// machine (2.36 against 3.46 TFLOP/s); the map turns it on where it measures it faster.
@@ -366,8 +358,6 @@ package struct EngineSettings: Sendable {
         read("SILICONED_REPRODUCIBLE", "coupe_figee")
         read("SILICONED_FLASH", "flash")
         read("SILICONED_HEAD_SPLIT", "head_split")
-        read("SILICONED_SDPA_FP16", "sdpa_fp16")
-        read("SILICONED_WIDEN_GPU", "widen_gpu")
         read("SILICONED_GEMM_TENSOR", "gemm_tensor")
         read("SILICONED_GEMM_INT8", "gemm_int8")
         read("SILICONED_GEMM_Q8", "gemm_q8")
@@ -409,7 +399,7 @@ package struct EngineSettings: Sendable {
     /// **What a profile is not allowed to write.**
     ///
     /// A profile says what a *machine* can do fast and where it has room. It does not say which
-    /// image is wanted: the spectral schedule, half precision and tiled decoding change the
+    /// image is wanted: the spectral schedule and tiled decoding change the
     /// **result**, not just the path. Letting them into a profile would mean rendering a different
     /// image on two machines without anyone having asked for it — and a check that inherits the
     /// profile stops checking anything at all.
@@ -419,7 +409,6 @@ package struct EngineSettings: Sendable {
     /// image is listed here. A rule that cannot be queried gets bypassed by oversight.
     static let outsideProfile: Set<String> = [
         "spectral",             // product choice: judged on the image
-        "sdpa_fp16",            // set aside by decision, not by measurement
         "vae_tuile",            // changes the image: per-tile GroupNorm, per-tile attention
         "vae_recouvrement",
         "amx_spin",             // fault injector: the spinning flag's counter-proof
@@ -458,8 +447,6 @@ package struct EngineSettings: Sendable {
         flag("coupe_figee", &frozenCut)
         flag("flash", &flash)
         flag("head_split", &headSplit)
-        flag("sdpa_fp16", &sdpaFp16)
-        flag("widen_gpu", &widenGPU)
         flag("gemm_tensor", &gemmTensor)
         flag("gemm_int8", &gemmInt8)
         flag("gemm_q8", &gemmQ8)
@@ -508,8 +495,6 @@ package struct EngineSettings: Sendable {
             ("coupe_figee", "\(frozenCut)"),
             ("flash", "\(flash)"),
             ("head_split", "\(headSplit)"),
-            ("sdpa_fp16", "\(sdpaFp16)"),
-            ("widen_gpu", "\(widenGPU)"),
             ("gemm_tensor", "\(gemmTensor)"),
             ("gemm_int8", "\(gemmInt8)"),
             ("gemm_q8", "\(gemmQ8)"),
@@ -529,8 +514,8 @@ package struct EngineSettings: Sendable {
             "amx": amx, "amx_quantum": amxQuantum,
             "amx_min": amxMinimumRows, "amx_fraction": amxFraction, "amx_shares": amxShares.description,
             "coupe_figee": frozenCut,
-            "flash": flash, "head_split": headSplit, "sdpa_fp16": sdpaFp16,
-            "widen_gpu": widenGPU, "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
+            "flash": flash, "head_split": headSplit,
+            "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,
         ]

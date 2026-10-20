@@ -40,13 +40,13 @@ final class DiagnosticTests: XCTestCase {
                                              headSplit: measure(2.497, 4.2e-6))
             }
         }
-        let widening = [Diagnostic.Widening(kind: "bf16", values: 39_321_600, cpu: measure(21.26, 0), gpu: measure(19.48, 0)),
-                        Diagnostic.Widening(kind: "bf16 copy", values: 39_321_600, cpu: measure(41.37, 0), gpu: nil),
-                        Diagnostic.Widening(kind: "int8", values: 39_321_600, cpu: measure(23.07, 0), gpu: nil),
-                        Diagnostic.Widening(kind: "int8 convrot", values: 39_321_600, cpu: measure(6.12, 0), gpu: nil),
-                        Diagnostic.Widening(kind: "int8 copy", values: 39_321_600, cpu: measure(48.3, 0), gpu: nil),
-                        Diagnostic.Widening(kind: "q8_0", values: 39_321_600, cpu: measure(22.91, 0), gpu: nil),
-                        Diagnostic.Widening(kind: "q8_0 copy", values: 39_321_600, cpu: measure(69.4, 0), gpu: nil)]
+        let widening = [Diagnostic.Widening(kind: "bf16", values: 39_321_600, cpu: measure(21.26, 0)),
+                        Diagnostic.Widening(kind: "bf16 copy", values: 39_321_600, cpu: measure(41.37, 0)),
+                        Diagnostic.Widening(kind: "int8", values: 39_321_600, cpu: measure(23.07, 0)),
+                        Diagnostic.Widening(kind: "int8 convrot", values: 39_321_600, cpu: measure(6.12, 0)),
+                        Diagnostic.Widening(kind: "int8 copy", values: 39_321_600, cpu: measure(48.3, 0)),
+                        Diagnostic.Widening(kind: "q8_0", values: 39_321_600, cpu: measure(22.91, 0)),
+                        Diagnostic.Widening(kind: "q8_0 copy", values: 39_321_600, cpu: measure(69.4, 0))]
         let stages = Dictionary(uniqueKeysWithValues: Diagnostic.Stage.allCases.enumerated().map { ($1.key, 1.234567 * Double($0 + 1)) })
         let conditions = Diagnostic.Conditions(thermal: "nominal", lowPowerMode: false, onBattery: nil, swapUsedBytes: 0)
         var features: [String: Int] = ["sme_max_svl_b": 0]
@@ -123,14 +123,24 @@ final class DiagnosticTests: XCTestCase {
         let compact = String(decoding: try sample().json(pretty: false), as: UTF8.self)
         XCTAssertFalse(compact.contains("\n"))
         for null in ["\"amx\":null", "\"gpuShare\":null", "\"coexecution\":null", "\"coexecutionGPURows\":null",
-                     "\"flash\":null", "\"gpu\":null", "\"measure\":null", "\"onBattery\":null"] {
+                     "\"flash\":null", "\"measure\":null", "\"onBattery\":null"] {
             XCTAssertTrue(compact.contains(null), null)
         }
         let report = sample()
         XCTAssertTrue(report.passes)
         var failing = report
-        failing.widening[0].gpu = .init(rate: 19, error: 1e-7, threshold: 0)
+        failing.widening[0].cpu = .init(rate: 19, error: 1e-7, threshold: 0)
         XCTAssertFalse(failing.passes)
+    }
+
+    /// A widening written by an earlier build still holds the GPU kernel's measure: it reads, the measure
+    /// dropped — a map kept by the app is not refused for a field nothing decides by any more.
+    func testAnEarlierWideningWithItsGPUMeasureStillReads() throws {
+        let json = #"{"kind":"bf16","values":39321600,"cpu":[21.26,0,true],"gpu":[19.48,0,true]}"#
+        let read = try JSONDecoder().decode(Diagnostic.Widening.self, from: Data(json.utf8))
+        XCTAssertEqual(read, Diagnostic.Widening(kind: "bf16", values: 39_321_600,
+                                                 cpu: .init(rate: 21.26, error: 0, threshold: 0)))
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(read), as: UTF8.self).contains("gpu"))
     }
 
     /// The machine's state and flags read without a GPU.
@@ -175,7 +185,7 @@ final class DiagnosticTests: XCTestCase {
     func testTheAppsIssueLinkStaysShort() throws {
         var report = sample()
         report.machine.chip = "Apple M5 Max"
-        report.settings = ["flash": "true (profile)", "amx": "true (profile)", "widen_gpu": "true (env)"]
+        report.settings = ["flash": "true (profile)", "amx": "true (profile)", "gemm_tensor": "true (env)"]
         let length = try report.issueURL(includingReport: false).absoluteString.utf8.count
         XCTAssertLessThanOrEqual(length, 1_000, "\(length) bytes")
     }

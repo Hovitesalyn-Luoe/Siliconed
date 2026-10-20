@@ -110,13 +110,12 @@ package struct RenderCache: Sendable {
     /// CLI or the app) does not read what another one wrote.
     package static let build: String = Bundle.main.executableURL.map { stamp($0.resolvingSymlinksInPath().path) } ?? "unknown"
 
-    /// **The settings that change a computation's bits** (AMX co-execution and its split, the SDPA
-    /// in fp16, the flash kernel, the widening path), plus the render's `reproducible`.
+    /// **The settings that change a computation's bits** (AMX co-execution and its split, the flash
+    /// kernel, the head split), plus the render's `reproducible`.
     package static func numerics(reproducible: Bool) -> String {
         let s = EngineSettings.effective
         return "amx \(s.amx) \(s.amxFraction) \(s.amxShares) \(s.amxQuantum) \(s.amxMinimumRows) "
-            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) fp16 \(s.sdpaFp16) "
-            + "widen \(s.widenGPU) parallel \(s.parallel)"
+            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) parallel \(s.parallel)"
     }
 
     /// The key of a text stage's output: the module, the prompt, the images it sees.

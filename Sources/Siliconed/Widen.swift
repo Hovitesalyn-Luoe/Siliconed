@@ -91,10 +91,9 @@ package enum Widen {
 /// SDNQ multiplies in the scale's bf16) lose bits we keep: the engine computes in fp32 (never below
 /// the published weights' precision, nor below bf16).
 ///
-/// No fused multiply-add anywhere: `vDSP_vmul`/`vDSP_vsmul` round each product once, and the GPU
-/// kernel (`WidenGPU`) is built with fast math off, so the two paths produce the same bits —
-/// **as long as no product is subnormal**: the M1's GPU flushes an fp32 product under 2⁻¹²⁶ to
-/// zero, the CPU keeps it. The forge therefore refuses any nonzero scale under 2⁻¹²⁶ (int8,
+/// No fused multiply-add anywhere: `vDSP_vmul`/`vDSP_vsmul` round each product once. **No product is
+/// subnormal** either: a GPU flushes an fp32 product under 2⁻¹²⁶ to zero where the CPU keeps it, so
+/// the forge refuses any nonzero scale under 2⁻¹²⁶ (int8,
 /// smallest |q| = 1) or 2⁻¹¹⁷ (fp8 E4M3, smallest |q| = 2⁻⁹) — `QuantizedLayouts.checkSubnormal`.
 extension Widen {
     /// Where the scale of value `(r, c)` lives.
@@ -587,8 +586,8 @@ extension Widen {
 /// `d·sc·q` in any order, `dmin·m`, `d·q` — holds in 23 bits of fp32's 24, **exact**. Q4_0, Q5_0
 /// and Q6_K are therefore exact; the others round once, at the addition — and a fused
 /// `fma(a, q, ±b)` rounds the same exact operands once, signed zeros included. Every nonzero product
-/// and sum is a multiple of 2⁻²⁴ (fp16's quantum), so none is subnormal: the GPU's flush of fp32
-/// subnormals cannot differ from the CPU (`WidenGPU`). The forge refuses a non-finite fp16 scale
+/// and sum is a multiple of 2⁻²⁴ (fp16's quantum), so none is subnormal: a GPU's flush of fp32
+/// subnormals could not differ from the CPU. The forge refuses a non-finite fp16 scale
 /// (`QuantizedLayouts.checkPacked`), so no NaN payload has to agree either.
 extension Widen {
     /// `[rows, columns / b]` blocks of `kind` → fp32: `[columns, rows]` (`transposing`: the map's

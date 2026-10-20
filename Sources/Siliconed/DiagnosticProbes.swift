@@ -695,15 +695,14 @@ extension Diagnostic {
 
     // ── the widening ────────────────────────────────────────────────────────────────────────
 
-    /// **A Z-Image w1 widened to fp32**, bf16 and int8 × bf16 scale per column, on the CPU and the GPU:
-    /// what `widen_gpu` decides between. Both are exact (a shift; 8 + 8 significant bits in fp32's 24),
-    /// so the threshold is 0: every value is compared, none may differ from the exact.
+    /// **A Z-Image w1 widened to fp32**, bf16 and int8 × bf16 scale per column, on the CPU: what the
+    /// default path pays per weight, against which the copies of `gemm_tensor`, `gemm_int8` and `gemm_q8`
+    /// are weighed. Both are exact (a shift; 8 + 8 significant bits in fp32's 24), so the threshold is 0:
+    /// every value is compared, none may differ from the exact.
     static func measureWidening(_ bench: Bench) throws -> [Widening] {
         let block = blocks[0]
         let count = block.dim * block.hidden, columns = block.hidden
-        let widener = try? WidenGPU(device: bench.device, queue: bench.queue)
         let destination = Pages(bytes: count * 4)
-        let out = try bench.buffer(destination)
         let floats = destination.floats()
         var results: [Widening] = []
         /// One engine: poisoned output, timed, every value against `exact`.
@@ -722,13 +721,9 @@ extension Diagnostic {
         Widen.float32ToBfloat16(source: destination.base, destination: bf16.base, count: count)
         nonisolated(unsafe) let halves = bf16.base.assumingMemoryBound(to: UInt16.self)
         let bf16Exact: @Sendable (Int) -> Float = { Float(bitPattern: UInt32(halves[$0]) << 16) }
-        let bf16Buffer = try bench.buffer(bf16)
         results.append(Widening(
             kind: "bf16", values: count,
-            cpu: measure(bf16Exact) { Widen.bfloat16ToFloat32(source: bf16.base, destination: destination.base, count: count) },
-            gpu: widener.map { w in
-                measure(bf16Exact) { _ = try w.run(source: .init(buffer: bf16Buffer, dequantization: nil), destination: out, count: count) }
-            }))
+            cpu: measure(bf16Exact) { Widen.bfloat16ToFloat32(source: bf16.base, destination: destination.base, count: count) }))
 
         // bf16 → bf16, the copy `gemm_tensor` makes instead: the same reads, half the writes.
         try bench.check()
@@ -738,8 +733,7 @@ extension Diagnostic {
         results.append(Widening(kind: "bf16 copy", values: count,
                                 cpu: Measure(rate: Double(count) / tCopy / 1e9,
                                              error: memcmp(copy.base, bf16.base, count * 2) == 0 ? 0 : .infinity,
-                                             threshold: 0),
-                                gpu: nil))
+                                             threshold: 0)))
 
         // int8 × bf16 scale per column, the layout of an 8-bit map's `[K, N]` weight.
         try bench.check()
@@ -752,19 +746,11 @@ extension Diagnostic {
         let int8Exact: @Sendable (Int) -> Float = { i in
             Float(Double(q[i]) * Double(Float(bitPattern: UInt32(scales[i % columns]) << 16)))
         }
-        let int8Buffer = try bench.buffer(int8)
         results.append(Widening(
             kind: "int8", values: count,
             cpu: measure(int8Exact) {
                 Widen.dequantize(int8.base, kind: .int8, count: count, scale: int8.base + count, scaleType: .bfloat16,
                                  layout: .columns(columns), into: floats)
-            },
-            gpu: widener.map { w in
-                measure(int8Exact) {
-                    _ = try w.run(source: .init(buffer: int8Buffer,
-                                                dequantization: [0, 1, UInt32(count), UInt32(columns), UInt32(count / columns)]),
-                                  destination: out, count: count)
-                }
             }))
 
         // int8 convrot (group 256, one fp32 scale), what an int8 map's default path widens on the CPU —
@@ -796,16 +782,14 @@ extension Diagnostic {
             }
         }
         results.append(Widening(kind: "int8 convrot", values: count,
-                                cpu: Measure(rate: Double(count) / tRotated / 1e9, error: rotatedError, threshold: 0),
-                                gpu: nil))
+                                cpu: Measure(rate: Double(count) / tRotated / 1e9, error: rotatedError, threshold: 0)))
         // int8 → int8, the copy `gemm_int8` makes instead (`Artifact.stageInt8`): a quarter of the writes.
         let copy8 = Pages(bytes: count)
         memset(copy8.base, 0x7F, count)
         let tCopy8 = seconds { Widen.copyBfloat16(source: int8.base, destination: copy8.base, count: count / 2) }
         results.append(Widening(kind: "int8 copy", values: count,
                                 cpu: Measure(rate: Double(count) / tCopy8 / 1e9,
-                                             error: memcmp(copy8.base, int8.base, count) == 0 ? 0 : .infinity, threshold: 0),
-                                gpu: nil))
+                                             error: memcmp(copy8.base, int8.base, count) == 0 ? 0 : .infinity, threshold: 0)))
 
         // Q8_0: the same int8 × fp16 scales per 32 rows and column, what a GGUF Q8_0 map's default path widens
         // on the CPU — `gemm_q8` copies the bytes and widens the scales alone (`Artifact.stageInt8`).
@@ -820,8 +804,7 @@ extension Diagnostic {
             cpu: measure(q8Exact) {
                 Widen.dequantize(int8.base, kind: .int8, count: count, scale: halves16.base, scaleType: .float16,
                                  layout: .blocks(columns: columns, rows: q8Block), into: floats)
-            },
-            gpu: nil))
+            }))
         let scales32 = Pages(bytes: blockScales * 4)
         memset(copy8.base, 0x7F, count)
         let tCopyQ8 = seconds {
@@ -832,8 +815,7 @@ extension Diagnostic {
         results.append(Widening(kind: "q8_0 copy", values: count,
                                 cpu: Measure(rate: Double(count) / tCopyQ8 / 1e9,
                                              error: memcmp(copy8.base, int8.base, count) == 0 && scalesRight ? 0 : .infinity,
-                                             threshold: 0),
-                                gpu: nil))
+                                             threshold: 0)))
         return results
     }
 

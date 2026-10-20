@@ -89,7 +89,6 @@ package final class DiT {
     /// What the per-token cut returned, when it is on — `nil` otherwise, and that is the
     /// difference between "it did nothing" and "it was not there".
     package var conductor: Conductor? { gemm.conductor }
-    package var widener: WidenGPU? { gemm.widener }
     package var traceGEMM: Int { get { gemm.trace } set { gemm.trace = newValue } }
 
     private let imageBlock: Block          // sized for the image tokens alone

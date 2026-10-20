@@ -30,7 +30,7 @@ import Metal
 ///        ├─ fp32 attention, S = 1024 and 4096, the models' heads × 128
 ///        │     MPSGraph (Attention) · FlashMatrix · HeadSplitAttention (cpuFraction)           ─▶ flash, the head split
 ///        ├─ widening of a Z-Image w1, 39.3 M values: bf16 → fp32, int8 × bf16 scale per column
-///        │     CPU (Widen) · GPU (WidenGPU)                                                   ─▶ widenGPU
+///        │     CPU (Widen)                                                                    ─▶ the reference
 ///        │     and its bf16 copy, CPU (Widen.copyBfloat16)                                    ─▶ gemm_tensor
 ///        │     int8 convrot (Widen.dequantizeRotated) and the int8 copy, CPU                   ─▶ gemm_int8
 ///        │     Q8_0 (Widen.dequantize, fp16 scales per 32 rows) and its copy, CPU              ─▶ gemm_q8
@@ -67,8 +67,8 @@ import Metal
 ///
 /// **Deliberately not measured**: the disk (no decision reads its speed); a model's step (its
 /// weights, its plan and the page cache decide it, and a render's own figures already say it); the
-/// memory (B is a function of the RAM alone, ¾ · RAM − 2 GiB); the SDPA in fp16 (`sdpa_fp16` is a
-/// render option the image decides, not a capacity). The peak `phys_footprint` is 1.55 GB on the
+/// memory (B is a function of the RAM alone, ¾ · RAM − 2 GiB); an SDPA in fp16 (P20: never under
+/// bf16, sums in fp32 — a precision the engine refuses is no capacity). The peak `phys_footprint` is 1.55 GB on the
 /// M1 Pro (18/10/2026, schema 9), the products' operands (~1.1 GB with the cuts' grid and the 8-bit weight,
 /// released before the attention) its larger part — under B on the smallest Mac (8 GB, B = 4 GiB).
 ///
@@ -297,25 +297,17 @@ package enum Diagnostic {
         }
     }
 
-    /// **A weight widened to fp32**, CPU against GPU — what `widen_gpu` chooses between.
+    /// **A weight widened to fp32** on the CPU, or copied as published — what a product pays before it
+    /// computes. A report from an earlier build may also hold a `gpu` measure: decoding ignores it.
     package struct Widening: Codable, Sendable, Equatable {
         /// "bf16" (a shift), "int8" (`Float(q) · s`, one bf16 scale per column), "bf16 copy" (what
         /// `gemm_tensor` does instead of the widening: `Widen.copyBfloat16`, CPU only).
         package var kind: String
         package var values: Int
         package var cpu: Measure
-        /// `nil` when the kernel does not build on the device.
-        package var gpu: Measure?
 
-        package init(kind: String, values: Int, cpu: Measure, gpu: Measure?) {
-            self.kind = kind; self.values = values; self.cpu = cpu; self.gpu = gpu
-        }
-
-        private enum CodingKeys: String, CodingKey { case kind, values, cpu, gpu }
-        package func encode(to encoder: any Encoder) throws {
-            var c = encoder.container(keyedBy: CodingKeys.self)
-            try c.encode(kind, forKey: .kind); try c.encode(values, forKey: .values)
-            try c.encode(cpu, forKey: .cpu); try c.encode(gpu, forKey: .gpu)
+        package init(kind: String, values: Int, cpu: Measure) {
+            self.kind = kind; self.values = values; self.cpu = cpu
         }
     }
 
@@ -451,7 +443,7 @@ package enum Diagnostic {
             products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution, $0.tensor, $0.int8, $0.int8Coexecution, $0.q8, $0.q8Coexecution].compactMap { $0 } }
                 + lowPrecision.compactMap(\.measure)
                 + attention.flatMap { [$0.graph, $0.flash, $0.headSplit].compactMap { $0 } }
-                + widening.flatMap { [$0.cpu] + [$0.gpu].compactMap { $0 } }
+                + widening.map(\.cpu)
         }
         /// Every engine that ran computed right.
         package var passes: Bool { measures.allSatisfy(\.pass) }

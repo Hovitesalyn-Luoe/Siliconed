@@ -22043,34 +22043,6 @@
         }
       }
     },
-    "Weight widening, GPU" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aufweitung der Gewichte, GPU"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ampliación de los pesos, GPU"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Élargissement des poids, GPU"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ampliamento dei pesi, GPU"
-          }
-        }
-      }
-    },
     "Welcome to Siliconed" : {
       "localizations" : {
         "de" : {

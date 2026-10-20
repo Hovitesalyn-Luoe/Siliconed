@@ -409,12 +409,12 @@ package final class Artifact {
     /// **Never through the page cache — for a tool that reads a whole map once** (a developer
     /// check, never the engine). Every `pointer` then returns a copy of the tensor read
     /// with `pread` on an `F_NOCACHE` descriptor into one reused anonymous buffer (the last tensor
-    /// read; `materialize` and the GPU wrapper of the same tensor share it). Reading 6–7 GB of map
+    /// read; `materialize` and `stage` of the same tensor share it). Reading 6–7 GB of map
     /// through the mapping left every page in the unified buffer cache — `MADV_DONTNEED` on a file
     /// mapping does not take them out (`TailStream` measured it with `mincore`) — and the kernel
     /// compressed then swapped the other processes' memory to make room: +18 524 swapouts for a check
-    /// with 840 MB of RSS, on a quiet machine. Not `streamTail`: `WidenGPU` declines a streamed
-    /// tensor (its slot is reused under the engine's prefetcher), and the check reads on the GPU too.
+    /// with 840 MB of RSS, on a quiet machine. Not `streamTail`: its slot is reused under the engine's
+    /// prefetcher.
     package func readThrough() throws {
         guard through == nil else { return }
         let fd = open(path, O_RDONLY)
@@ -609,7 +609,7 @@ package final class Artifact {
 }
 
 /// `Artifact.readThrough`'s buffer: one tensor at a time, page-aligned anonymous memory rounded up to
-/// whole pages (what `WidenGPU` wraps), grown when a larger tensor comes.
+/// whole pages, grown when a larger tensor comes.
 private final class ReadThrough {
     private let descriptor: Int32
     private var slot: UnsafeMutableRawPointer?

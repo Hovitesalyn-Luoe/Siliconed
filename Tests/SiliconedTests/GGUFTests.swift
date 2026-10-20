@@ -106,23 +106,12 @@ final class GGUFTests: XCTestCase {
         return (try Artifact(path: path), outcomes)
     }
 
-    private lazy var gpu: (WidenGPU, MTLDevice)? = {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
-              let w = try? WidenGPU(device: device, queue: queue) else { return nil }
-        return (w, device)
-    }()
-
     private func assertDequantizes(_ map: Artifact, _ name: String, to expected: [Float],
                                    file: StaticString = #filePath, line: UInt = #line) throws {
         let t = try XCTUnwrap(map.tensors[name], file: file, line: line)
         var cpu = [Float](repeating: -1, count: t.count)
         try cpu.withUnsafeMutableBufferPointer { _ = try map.materialize(name, into: $0) }
         XCTAssertEqual(cpu.map(\.bitPattern), expected.map(\.bitPattern), "CPU \(name)", file: file, line: line)
-        guard let (widener, device) = gpu, let source = widener.source(name, in: map) else { return }
-        let buffer = try XCTUnwrap(device.makeBuffer(length: t.count * 4, options: .storageModeShared))
-        try widener.run(source: source, destination: buffer, count: t.count)
-        let g = buffer.contents().assumingMemoryBound(to: Float.self)
-        XCTAssertEqual((0..<t.count).map { g[$0].bitPattern }, expected.map(\.bitPattern), "GPU \(name)", file: file, line: line)
     }
 
     private func bytes(_ v: [Float]) -> [UInt8] { v.flatMap { le($0.bitPattern) } }

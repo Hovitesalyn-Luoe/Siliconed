@@ -244,45 +244,22 @@ final class KQuantTests: XCTestCase {
         return (try Artifact(path: path), outcomes)
     }
 
-    private lazy var gpu: (WidenGPU, MTLDevice)? = {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
-              let w = try? WidenGPU(device: device, queue: queue) else { return nil }
-        return (w, device)
-    }()
-
     private func transposed(_ v: [Float], rows n: Int, columns k: Int) -> [Float] {
         var t = [Float](repeating: 0, count: n * k)
         for r in 0..<n { for c in 0..<k { t[c * n + r] = v[r * k + c] } }
         return t
     }
 
-    /// CPU (`materialize`) and GPU (`WidenGPU`) both give `expected`, bit for bit — the GPU path is
-    /// required for a K-quant whenever there is a GPU.
+    /// `materialize` gives `expected`, bit for bit.
     private func assertDequantizes(_ map: Artifact, _ name: String, to expected: [Float],
                                    file: StaticString = #filePath, line: UInt = #line) throws {
         let t = try XCTUnwrap(map.tensors[name], file: file, line: line)
         var cpu = [Float](repeating: -1, count: t.count)
         try cpu.withUnsafeMutableBufferPointer { _ = try map.materialize(name, into: $0) }
         XCTAssertEqual(cpu.map(\.bitPattern), expected.map(\.bitPattern), "CPU \(name)", file: file, line: line)
-        guard let (widener, device) = gpu else { return }
-        let source = widener.source(name, in: map)
-        if t.dtype.isPacked { XCTAssertNotNil(source, "a packed type has its GPU kernel", file: file, line: line) }
-        guard let source else { return }
-        let buffer = try XCTUnwrap(device.makeBuffer(length: t.count * 4, options: .storageModeShared))
-        memset(buffer.contents(), 0xFF, t.count * 4)
-        try widener.run(source: source, destination: buffer, count: t.count)
-        let g = buffer.contents().assumingMemoryBound(to: Float.self)
-        XCTAssertEqual((0..<t.count).map { g[$0].bitPattern }, expected.map(\.bitPattern), "GPU \(name)", file: file, line: line)
     }
 
     // ── the tests ───────────────────────────────────────────────────────────────────────────
-
-    /// On a Mac with a GPU, the widening kernels compile — otherwise every GPU comparison here
-    /// (and in `GGUFTests`, `QuantizedMapTests`) would be skipped in silence.
-    func testTheKernelsCompile() throws {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return }
-        XCTAssertNoThrow(try WidenGPU(device: device, queue: queue))
-    }
 
     /// The engine's routine against ggml's formula, both layouts, every kind of block — and row
     /// counts that are not multiples of the transposing tile (256 rows, 4-row transposes): one

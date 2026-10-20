@@ -12,7 +12,6 @@ import Metal
 ///              │     gemm_q8, a GGUF Q8_0       (scales per 32 rows: q · s in threadgroup memory)
 ///              │     + the AMX                  its columns widened alone, while the GPU   ─▶ BNNS on them
 ///              │                                computes the others
-///              ├─ widen_gpu                    widened on the GPU (`WidenGPU`)           ─▶ MPS (+ AMX)
 ///              └─ otherwise                    widened on the CPU (`Artifact.materialize`) ─▶ MPS (+ AMX)
 ///          ─▶ C = A · W
 ///          ─▶ + the LoRA stack:  C += (A · down) · up          after the product, or
@@ -78,7 +77,7 @@ package final class WeightProducts {
     package func linear(_ name: String, a: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
                         target: String? = nil) throws {
         let w = try gemm.wrap(UnsafeMutableRawPointer(reserve), bytes: capacity * 4, name: "w")
-        let path = try prepare(name, count: k * n, m: m, n: n, into: w)
+        let path = try prepare(name, count: k * n, m: m, n: n)
         let staged = path != .widened
         let target = target ?? String(name.dropLast(".weight".count))
         var stack: (down: MTLBuffer, up: MTLBuffer, rank: Int)?
@@ -215,7 +214,7 @@ package final class WeightProducts {
     }
 
     /// The weight into the reserve, by the path the settings allow.
-    private func prepare(_ name: String, count: Int, m: Int, n: Int, into w: MTLBuffer) throws -> Path {
+    private func prepare(_ name: String, count: Int, m: Int, n: Int) throws -> Path {
         func expect(_ got: Int) throws {
             guard got == count else { throw Artifact.Failure.badHeader("\(name): \(got) values, \(count) expected") }
         }
@@ -234,30 +233,19 @@ package final class WeightProducts {
                                            amxColumns: columns, block: scale.block)
                     ?? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group, amxColumns: 0,
                                      block: scale.block)
-            else { return try widen(name, count: count, into: w) }
+            else { return try widen(name, count: count) }
             try expect(tensor.count)
             try timed("staging") { try artifact.stageInt8(name, into: UnsafeMutableRawPointer(reserve),
                                                           scalesAt: plan.scalesOffset) }
             return .int8(plan)
         }
-        return try widen(name, count: count, into: w)
+        return try widen(name, count: count)
     }
 
-    /// The weight widened to fp32 into the reserve: on the GPU (`widen_gpu`) or the CPU.
-    private func widen(_ name: String, count: Int, into w: MTLBuffer) throws -> Path {
-        func expect(_ got: Int) throws {
-            guard got == count else { throw Artifact.Failure.badHeader("\(name): \(got) values, \(count) expected") }
-        }
-        if let widener = gemm.widener, let source = widener.source(name, in: artifact) {
-            guard artifact.tensors[name]?.count == count else {
-                throw Artifact.Failure.badHeader("\(name): unexpected shape")
-            }
-            try timed("widening") { _ = try widener.run(source: source, destination: w, count: count) }
-            return .widened
-        }
-        // An fp32 tensor in the map, a count that is not a multiple of four, or `widen_gpu` off.
-        gemm.widener?.countFallback(count)
-        try expect(try timed("widening") { try artifact.materialize(name, into: reserve, capacity: capacity) })
+    /// The weight widened to fp32 into the reserve, on the CPU.
+    private func widen(_ name: String, count: Int) throws -> Path {
+        let got = try timed("widening") { try artifact.materialize(name, into: reserve, capacity: capacity) }
+        guard got == count else { throw Artifact.Failure.badHeader("\(name): \(got) values, \(count) expected") }
         return .widened
     }
 }

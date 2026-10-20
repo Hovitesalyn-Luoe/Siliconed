@@ -60,12 +60,9 @@ import Foundation
 ///     (`Block`), Qwen-Image-2.1's target only has the split. So flash goes on only if it also beats the
 ///     split where the split goes on — otherwise Z-Image would trade a faster path for a slower one;
 ///   - **what the map does not decide stays at its default**, by rule, not by omission:
-///       · `widen_gpu`: its isolated throughput does not decide it — in a render the widening queues
-///         behind the GEMM, which is the bottleneck, and the isolated measure flips between two
-///         runs of the same machine;
 ///       · the head split's `cpuFraction` (0.4): the map measures the split only at 0.4;
-///       · fp16 / bf16 *activations*: P20 (never under the published weights nor under bf16) and the
-///         `sdpa_fp16` decision stand — the half-precision figures answer a fleet question, they choose
+///       · fp16 / bf16 *activations*: P20 (never under the published weights nor under bf16, sums in
+///         fp32) stands — the half-precision figures answer a fleet question, they choose
 ///         nothing (`gemm_tensor` rounds nothing: its activations stay fp32);
 ///       · `amx_quantum` (64 under the grid, MPS's row tile), `amx_min`, `parallel`: nothing measures them.
 extension Diagnostic {

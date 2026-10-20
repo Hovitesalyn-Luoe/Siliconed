@@ -110,32 +110,13 @@ final class QuantizedMapTests: XCTestCase {
         return (try Artifact(path: path), outcomes)
     }
 
-    private lazy var gpu: (WidenGPU, MTLDevice)? = {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
-              let w = try? WidenGPU(device: device, queue: queue) else { return nil }
-        return (w, device)
-    }()
-
-    /// The map's tensor dequantized on the CPU (`materialize`) and, when there is a GPU, by
-    /// `WidenGPU` — both equal to `expected`, bit for bit.
+    /// The map's tensor dequantized by `materialize`, equal to `expected` bit for bit.
     private func assertDequantizes(_ map: Artifact, _ name: String, to expected: [Float],
                                    file: StaticString = #filePath, line: UInt = #line) throws {
         let t = try XCTUnwrap(map.tensors[name], file: file, line: line)
         var cpu = [Float](repeating: -1, count: t.count)
         try cpu.withUnsafeMutableBufferPointer { _ = try map.materialize(name, into: $0) }
         XCTAssertEqual(cpu.map(\.bitPattern), expected.map(\.bitPattern), "CPU \(name)", file: file, line: line)
-        guard let (widener, device) = gpu else { return }
-        guard let source = widener.source(name, in: map) else {
-            // The one case `WidenGPU` declines: a page-rounded wrapper that would run past the end
-            // of the file (the map's last tensor) — the CPU path, as for bf16.
-            let rounded = (t.bytes + map.page - 1) / map.page * map.page
-            XCTAssertGreaterThan(t.offset + rounded, map.size, "GPU path for \(name)", file: file, line: line)
-            return
-        }
-        let buffer = try XCTUnwrap(device.makeBuffer(length: t.count * 4, options: .storageModeShared))
-        try widener.run(source: source, destination: buffer, count: t.count)
-        let g = buffer.contents().assumingMemoryBound(to: Float.self)
-        XCTAssertEqual((0..<t.count).map { g[$0].bitPattern }, expected.map(\.bitPattern), "GPU \(name)", file: file, line: line)
     }
 
     private func mapBytes(_ map: Artifact, _ name: String) -> (values: [UInt8], scale: [UInt8]) {
@@ -432,7 +413,6 @@ final class QuantizedMapTests: XCTestCase {
             // The forge's `dequantized()` (published layout): the same values.
             let forged = try source.readQuantized(name).dequantized()
             XCTAssertEqual((0..<(n * k)).map { forged[$0].bitPattern }, (0..<(n * k)).map { expected[($0 % k) * n + $0 / k].bitPattern })
-            if let (widener, _) = gpu { XCTAssertNil(widener.source(name, in: map), "no GPU kernel for a rotated weight") }
             var row = [Float](repeating: 0, count: n)
             XCTAssertThrowsError(try row.withUnsafeMutableBufferPointer { try map.materializeRows(name, first: 0, count: 1, into: $0.baseAddress!) })
         }

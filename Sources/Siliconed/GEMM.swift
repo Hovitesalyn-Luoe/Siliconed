@@ -134,15 +134,6 @@ package final class GEMM {
         return body == 0 ? (m, 0) : (body, m - body)
     }
 
-    /// The GPU widener, **shared by the three sets of blocks**: it carries the memoization of the
-    /// map's wrappers, and three instances would triple it for nothing — the three blocks
-    /// read disjoint tensors (`noise_refiner.*`, `context_refiner.*`, `layers.*`).
-    ///
-    /// Optional, and silently so: if the kernel does not compile on a machine, the engine
-    /// widens on the CPU as before. It is a speed path, not a correctness path — both
-    /// return the same bits.
-    package private(set) var widener: WidenGPU?
-
     /// The conductor of GPU + AMX co-execution, if requested.
     package private(set) var conductor: Conductor?
 
@@ -171,15 +162,6 @@ package final class GEMM {
         }
         self.device = device
         self.queue = queue
-        // **The default is the CPU, and a measurement says so.** Widening on the GPU costs
-        // **+20 %** in the engine (24.98 → 30.07 s per evaluation) even though the kernel returns
-        // 183 GB/s against 15. The CPU widened while the GPU computed; on the GPU,
-        // the operation queues behind the GEMM, which is the bottleneck. `SILICONED_WIDEN_GPU=1`
-        // turns the path back on — it is bit-exact, and it will become interesting again the day the
-        // CPU is busy.
-        if EngineSettings.effective.widenGPU {
-            widener = try? WidenGPU(device: device, queue: queue)
-        }
         if coexecution {
             conductor = Conductor(queue: queue, driven: !freezeCut)
         }
