@@ -18567,6 +18567,34 @@
         }
       }
     },
+    "The image model is the file you imported, under its author's license. Its text encoder and VAE are those of the installed version, under the licenses linked below." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Bildmodell ist die Datei, die Sie importiert haben, unter der Lizenz ihres Urhebers. Text-Encoder und VAE sind die der installierten Version, unter den unten verlinkten Lizenzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modelo de imagen es el archivo que importaste, con la licencia de su autor. Su codificador de texto y su VAE son los de la versión instalada, con las licencias enlazadas abajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le modèle d’image est le fichier que vous avez importé, sous la licence de son auteur. Son encodeur de texte et son VAE sont ceux de la version installée, sous les licences liées ci-dessous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il modello di immagine è il file che hai importato, con la licenza del suo autore. Il codificatore di testo e il VAE sono quelli della versione installata, con le licenze collegate qui sotto."
+          }
+        }
+      }
+    },
     "The image to edit — or drop or paste it here (⌘V)" : {
       "localizations" : {
         "de" : {

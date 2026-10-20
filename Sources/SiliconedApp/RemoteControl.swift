@@ -250,8 +250,9 @@ final class RemoteControl {
                                     "formats": f.formats.map { "\($0.width)x\($0.height)" },
                                     "commercial_license": f.license.commercial,
                                     "license": f.license.text,
-                                    // A Compact or a Light also links its third parties' model cards (`Family.licenseURLs`).
-                                    "license_urls": (f.isImported ? f.license.urls : f.family.licenseURLs(b.variant(of: f.family)))
+                                    // A Compact or a Light also links its third parties' model cards (`Family.licenseURLs`);
+                                    // an imported model, its installed version's (its encoder and VAE).
+                                    "license_urls": f.family.licenseURLs(b.variant(of: f.family))
                                         .map(\.absoluteString),
                                     "license_accepted": b.isLicenseAccepted(f)]
             o["default"] = f.id == "z-image"   // the default of `add` without --model

@@ -21,8 +21,10 @@ struct LicenseTerms: View {
     /// its weights are not the publisher's bytes.
     var variant: Variant = .standard
 
-    /// The license files to link, at the revisions the installation takes.
-    var urls: [URL] { card.isImported ? card.license.urls : card.family.licenseURLs(variant) }
+    /// The license files to link, at the revisions the installation takes. An imported model's are its
+    /// family's installed version's: its encoder and VAE are that version's files, a Compact's from
+    /// third parties.
+    var urls: [URL] { card.family.licenseURLs(variant) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -50,17 +52,20 @@ struct LicenseTerms: View {
                     Text("The license asks whoever deploys the model to filter the content it makes (§ 4.2). Siliconed applies no filter: by installing the model and accepting its license, you take on that responsibility.")
                 }
                 Group {
-                    // Anima's Compact and Light: one third party, the image model alone (its encoder
-                    // is the publisher's in all three versions).
-                    if variant == .compact && card.family == .anima && !card.isImported {
+                    if card.isImported {
+                        // Nothing is downloaded: the DiT is the user's file, the rest the family's.
+                        Text("The image model is the file you imported, under its author's license. Its text encoder and VAE are those of the installed version, under the licenses linked below.")
+                    } else if variant == .compact && card.family == .anima {
+                        // Anima's Compact and Light: one third party, the image model alone (its encoder
+                        // is the publisher's in all three versions).
                         Text("Siliconed ships no weights. The Compact version's image model is the publisher's, republished in 8 bits by vanes430 and downloaded from there; everything else comes from the publisher. The publisher's license applies, and vanes430's model card says what it changed.")
-                    } else if variant == .light && card.family == .anima && !card.isImported {
+                    } else if variant == .light && card.family == .anima {
                         Text("Siliconed ships no weights. The Light version's image model is the publisher's, republished in 4 to 6 bits by vanes430 and downloaded from there; everything else comes from the publisher. The publisher's license applies, and vanes430's model card says what it changed.")
-                    } else if variant == .compact && !card.isImported {
+                    } else if variant == .compact {
                         Text("Siliconed ships no weights. The Compact version is the publisher's model republished in 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
-                    } else if variant == .light && !card.isImported {
+                    } else if variant == .light {
                         Text("Siliconed ships no weights. The Light version is the publisher's model republished in 4 to 8 bits by third parties, and downloaded from them; the publisher's license applies, and each third party's model card says what it changed.")
-                    } else if card.family == .krea2 && !card.isImported {
+                    } else if card.family == .krea2 {
                         // Krea's repository is gated (a Hugging Face account, its form): its files come
                         // from ungated copies, each proven equal to Krea's (`Installer.krea2Comfy`).
                         Text("Siliconed ships no weights. The publisher's repository asks for a Hugging Face account, so its files are downloaded from copies proven identical: the image model and the text encoder from Comfy-Org, the VAE and the tokenizer from Qwen. The publisher's license applies, and each model card says whose files they are.")
