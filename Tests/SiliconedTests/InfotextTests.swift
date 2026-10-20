@@ -38,8 +38,9 @@ final class InfotextTests: XCTestCase {
         XCTAssertTrue(render(model: "anima", name: "Anima Turbo").parameters(version: nil).contains(
             #"Civitai resources: [{"type":"checkpoint","modelVersionId":3263843}]"#))
         XCTAssertEqual(Solver.allCases.map(Infotext.sampler), ["Euler", "Euler a", "DPM++ 2M", "UniPC"])
-        // Krea 2 has no publisher page on Civitai (17/10/2026): it claims none.
-        XCTAssertFalse(render(model: "krea2", name: "Krea 2 Turbo").parameters(version: nil).contains("Civitai resources"))
+        // Krea 2: the page Civitai joins Comfy-Org's bf16 file to (19/10/2026).
+        XCTAssertTrue(render(model: "krea2", name: "Krea 2 Turbo").parameters(version: nil).contains(
+            #"Civitai resources: [{"type":"checkpoint","modelVersionId":3064584}]"#))
     }
 
     /// The weight goes in a prompt tag, the hash in `Lora hashes`, both under one sanitized name;
