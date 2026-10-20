@@ -93,9 +93,11 @@ final class DetailTests: XCTestCase {
             XCTAssertNil(Detail.normal.schedule(bell))
             XCTAssertGreaterThan(Detail.most.schedule(bell)!.amount, Detail.more.schedule(bell)!.amount)
         }
-        // 6 steps (the count the late bell was calibrated on): only the 5th. The Turbo's 8: the 6th at
-        // half and the 7th (`[0, 0, 0, 0, 0, 0.5, 1, 0]`), not judged by eye yet.
-        XCTAssertEqual(Detail.multipliers(steps: 6, Detail.more.schedule(.late)!), [0, 0, 0, 0, 1, 0])
+        // The Turbo's 8 steps (its only count): the last alone, σ 0.415 — σ 0.705 still decides the face.
+        for level in [Detail.more, .most] {
+            let s = level.schedule(.late)!
+            XCTAssertEqual(Detail.multipliers(steps: 8, s), [0, 0, 0, 0, 0, 0, 0, s.amount])
+        }
         XCTAssertNotEqual(Detail.more.modelSigmas(FlowMatchSchedule(steps: 8).sigmas, bell: .zImage), FlowMatchSchedule(steps: 8).sigmas)
     }
 
@@ -132,8 +134,7 @@ final class DetailTests: XCTestCase {
             XCTAssertEqual(Detail.most.modelSigmas(σ, bell: bell, scale: 0.5).map(\.bitPattern),
                            Detail.adjusted(σ, start: 0, half).map(\.bitPattern))
         }
-        let q: [Float] = [1, 0.963, 0.923, 0.837, 0.632, 0.36, 0]
-        XCTAssertLessThan(Detail.most.modelSigmas(q, bell: .late)[4], Detail.most.modelSigmas(q, bell: .late, scale: 0.5)[4])
+        XCTAssertLessThan(Detail.most.modelSigmas(σ, bell: .late)[7], Detail.most.modelSigmas(σ, bell: .late, scale: 0.5)[7])
         XCTAssertEqual(Detail.normal.modelSigmas(σ, bell: .zImage, scale: 0.5).map(\.bitPattern), σ.map(\.bitPattern))
     }
 

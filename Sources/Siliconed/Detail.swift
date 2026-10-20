@@ -20,7 +20,7 @@ import Foundation
 ///     tail that runs, not the full schedule (ComfyUI hands the sampler the truncated σs);
 ///   - the indices are `int(round(x·(steps − 1)))` with **Python's `round`, half to even**: at 6
 ///     steps `mid·5 = 2.5` rounds to 2, and the bell peaks at the third step, not the fourth —
-///     on a turbo's 8 steps the node's bell touches 4 evaluations (Z-Image's and the late bell, 2);
+///     on a turbo's 8 steps the node's bell touches 4 evaluations (Z-Image's bell 2, the late bell 1);
 ///   - `start_values.any()` guards the scaling: a rising edge of a single point stays at **0**, not
 ///     at `start_offset`;
 ///   - the multiplier is ×0.1 and ×CFG (`1 − 0.1·m·cfg`, floored at 10⁻⁶). The turbos here run
@@ -69,14 +69,12 @@ package enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     σ 0.5 sows specks for little sharpness (start 0.5, end 1, all on 0.643 and 0.5: +10 % at
     ///     amount 3, +10 % at 4, the flat areas +50 %). The node's later bell (start 0.4, end 1,
     ///     σ 0.5 ×½ too) sharpens more per amount but specks at 2.5 already.
-    ///   - `late` (start 0.6, end 1.0), for Qwen-Image-2.1. ⚠️ Calibrated before the official Turbo,
-    ///     on the 6 steps of the third-party turbo LoRA the family carried until 10/10/2026 (512²: σ = 1,
-    ///     0.96, 0.92, 0.84, 0.63, 0.36): the node's default bell landed on σ 0.92 and 0.84, where the
-    ///     composition is still being decided — amount 0.5 already changed the woman and her clothes,
-    ///     1 grew a bird on branches; the late bell touched only the 5th step (σ 0.63) — same picture,
-    ///     finer texture; up to 1.3 clean, at 1.6 white crackle lines. On the Turbo's 8 fixed steps
-    ///     (1, 0.978, 0.954, 0.927, 0.895, 0.845, 0.705, 0.415) the same bell weighs ½ on the 6th
-    ///     (σ 0.845) and 1 on the 7th (σ 0.705): not judged by eye yet.
+    ///   - `late` (start 0.857, end 1, bias 0.75), Qwen-Image-2.1's: **the last evaluation alone**
+    ///     (σ 0.415) of the Turbo's 8 fixed steps (1, 0.978, 0.954, 0.927, 0.895, 0.845, 0.705, 0.415).
+    ///     The Turbo still decides the face at σ 0.705: the bell the family had on the third-party turbo
+    ///     LoRA it carried until 10/10/2026 (start 0.6 — on that LoRA's 6 steps, σ 0.63 alone, clean),
+    ///     on the Turbo's 8 steps ½ at σ 0.845 and 1 at σ 0.705, gave seeds 7 and 1000 another face at
+    ///     512² from amount 0.65; that 7th step alone, from amount 1. On the 8th alone the person stays.
     ///
     /// **Anima has none** (`AnimaDenoisingModule.acceptsDetail`): it does not answer a lie with
     /// finer texture but with **mosaic blocks** — flat squares of one colour, 16 to 32 pixels, on the
@@ -102,8 +100,9 @@ package enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     Most 2.5 → +11 / +10 / +15 %, clean (seed 42's hand goes to the hip, as Most's did on
     ///     7 evaluations); 3 streaks seed 0's hair blue. Less headroom than on 7 evaluations, where
     ///     Most gave +20 %: the σ that sharpened then sat between two of today's.
-    ///   - Qwen-Image-2.1 (seeds 42, 7): judged on the third-party turbo's 6 steps, not yet
-    ///     on the Turbo's 8.
+    ///   - Qwen-Image-2.1 (the late bell, seeds 42, 7, 1000): More 1.3 → +5 / +3 / +5 %, Most 2 →
+    ///     +7 / +4 / +6 %, same person; 3 cracks the skin and frizzes the hair, 4 breaks it. Less
+    ///     than Z-Image's +10 %: the only step that sharpens without redrawing is the last.
     /// No bell, no schedule: a family without one refuses Detail before any computation.
     package func schedule(_ bell: Bell?) -> Schedule? {
         guard let bell else { return nil }
@@ -111,8 +110,8 @@ package enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
         case (.normal, _): return nil
         case (.more, .zImage): return Schedule(amount: 2, start: 0.4, end: 0.9)
         case (.most, .zImage): return Schedule(amount: 2.5, start: 0.4, end: 0.9)
-        case (.more, .late): return Schedule(amount: 1, start: 0.6, end: 1)
-        case (.most, .late): return Schedule(amount: 1.3, start: 0.6, end: 1)
+        case (.more, .late): return Schedule(amount: 1.3, start: 0.857, end: 1, bias: 0.75)
+        case (.most, .late): return Schedule(amount: 2, start: 0.857, end: 1, bias: 0.75)
         }
     }
 
@@ -124,9 +123,9 @@ package enum Detail: String, Sendable, Hashable, CaseIterable, Codable {
     ///     bell on the 8 (seeds 42, 7, 0, against Normal without the spectral schedule, as
     ///     Detail runs): More 1 → +7 / +8 / +6 %, Most 1.25 → +9 / +10 / +8 %, same picture,
     ///     clean; 1.5 already flecks seed 42's hair. The rule holds.
-    ///   - Qwen-Image-2.1 (late bell, judged on the third-party turbo's 6 steps): at 1024², More's 1
-    ///     already strews white flecks, Most's 1.3 everywhere; 0.65 is the last clean amount — exactly
-    ///     Most scaled. More is 0.5.
+    ///   - Qwen-Image-2.1 (late bell, seeds 42, 7): at 1024² the scaled amounts 1, 1.5 and 2 stay clean,
+    ///     same face, +6 / +8 / +9 %: Most's 1 and More's 0.65 with room to spare. (On the third-party
+    ///     turbo's 6 steps, the rule's origin: 1 strewed white flecks, 0.65 was the last clean.)
     ///
     /// Never more than at 512².
     package static func scale(width: Int, height: Int) -> Double {

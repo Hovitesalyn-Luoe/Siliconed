@@ -48,12 +48,15 @@ package struct Variation: Sendable, Hashable {
     ///     detail). **Krea 2 takes 0.05 too**: its 8 steps open on σ 1 · 0.957 · 0.905, and at 0.1
     ///     seed 42 turned by seed 7 gave another woman (face, hair) in the same pose and blouse, PSNR
     ///     to the original 15.3 dB; at 0.05 the same woman, her smile and a ring changed (25.9 dB) —
-    ///     one pair of seeds, at 512². Anima, never calibrated, takes Z-Image's. ⚠️ Qwen's figures were read
-    ///     on the third-party turbo LoRA the family carried before the official Turbo; the Turbo's fixed
-    ///     schedule lingers near σ = 1 longer still (1 · 0.978 · 0.954 · 0.927): not re-judged.
+    ///     one pair of seeds, at 512². Anima, never calibrated, takes Z-Image's. Qwen's figures were read
+    ///     on the third-party turbo LoRA the family carried before the official Turbo. **Re-judged on
+    ///     the Turbo** (seed 42, variation seeds 2001–2004): at 0.03, 0.04 and 0.05 alike the same woman,
+    ///     pose and clothes, and the whole background turned at once (PSNR 17–18 dB; one seed kept it at
+    ///     0.03) — the Turbo decides its background all or nothing, so a lower strength buys nothing.
     ///   - `strong` 0.5: the same idea (a woman in a library, the same kind of shot) with the pose,
     ///     the clothes and the framing that move. Z-Image keeps its framing longer (its seeds vary
-    ///     little), at 0.7 it starts to change shot; Qwen at 0.7 is nearly another image. Krea 2 at 0.5:
+    ///     little), at 0.7 it starts to change shot; Qwen at 0.7 is nearly another image; the Turbo, at 0.3 as at 0.5, already gives
+    ///     another woman on three variation seeds out of four (12–15 against 9–12 dB). Krea 2 at 0.5:
     ///     another woman in the same blouse and pose, other shelves — the same kind of shot.
     package enum Amount: String, CaseIterable, Sendable {
         case subtle, strong

@@ -190,7 +190,9 @@ package struct DenoisingPlan: Sendable {
 /// **Qwen-Image-2.1 does not sketch** (`DenoisingModule.sketches`, 2026-10-06): its « soft » at 4 is,
 /// seen through the app, blurred and grainy, and still at 5 (22 dB) — it removes the noise in its
 /// last two evaluations. A sketch of it saves 15 s of 51 for an image no one can judge: its cells
-/// are finished images.
+/// are finished images. Re-judged on the Turbo's 8 steps (512², seeds 42, 7, 1000, against the
+/// finished image reduced ×4): after 6 evaluations a blur (24.5–26 dB), after 7 nearly finished
+/// (30–32 dB) for 3 s saved at 512², 14 s at 1024² — the threshold's stop, and not worth a sketch.
 ///
 /// **0.5 since 0.12, 0.8 before** (the user, 18/10/2026): at 0.8 a LoRA's style had not landed — Anima
 /// under inCase, 4 of 8, showed the strengths 0.6 and 1 alike, the fine line still to come. 0.5 costs
