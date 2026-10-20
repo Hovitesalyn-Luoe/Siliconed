@@ -312,10 +312,16 @@ package enum MapWriter {
         // come. Before, a forge was one tensor at a time, the source read by page faults (0.5–0.9 GB/s)
         // and every step on one core; the hash is now its floor (≈ 2.4 GB/s).
         let temporary = path + ".partiel"
-        let fd = open(temporary, O_CREAT | O_TRUNC | O_WRONLY, 0o644)
+        // Not truncated at `open`: another forge of the same map may be writing it. **The lock decides**
+        // — taken, the file is ours and emptied; held, we refuse and leave it alone. `O_NOFOLLOW`: a
+        // link planted under the name is not written through.
+        let fd = open(temporary, O_CREAT | O_WRONLY | O_NOFOLLOW, 0o644)
         guard fd >= 0 else { throw Numerics.Failure(description: "cannot write \(temporary)") }
         // Locked while it is written: `Library.emptyDownloads` purges only the `.partiel` nobody holds.
-        _ = flock(fd, LOCK_EX | LOCK_NB)
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            throw Numerics.Failure(description: "\(temporary) is being written by another forge")
+        }
         // **Written past the page cache.** Produced over the cores, a 14 GB map was written
         // faster than the cache flushes it, and its dirty pages pushed other processes' memory to
         // swap (+1448 swapouts on a quiet machine, in 11 s). Read once, by the engine, later:
@@ -323,7 +329,7 @@ package enum MapWriter {
         _ = fcntl(fd, F_NOCACHE, 1)
         var closed = false
         defer { if !closed { close(fd); unlink(temporary) } }
-        guard ftruncate(fd, off_t(begin + end)) == 0 else {
+        guard ftruncate(fd, 0) == 0, ftruncate(fd, off_t(begin + end)) == 0 else {
             throw Numerics.Failure(description: "\(temporary) : ftruncate — disk full?")
         }
         let pipeline = Pipeline(tensors: tensors)

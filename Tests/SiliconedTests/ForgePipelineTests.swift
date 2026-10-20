@@ -190,6 +190,33 @@ final class ForgePipelineTests: XCTestCase {
         XCTAssertEqual(tally.tensors, tensors.count)
     }
 
+    /// **A `.partiel` another forge holds is left alone**; one a crash left behind, longer than the
+    /// map, is taken over and emptied — not a byte of it survives in the map.
+    func testAForgeTakesOnlyTheUnheldPartial() throws {
+        let tensor = MapWriter.Tensor(name: "q", shape: [32, 8], dtype: .int8, scale: .init(dtype: .float32, shape: [8]),
+                                      transposed: true) {
+            .init(values: (0..<256).map { (i: Int) -> UInt8 in UInt8(i) }, scale: [UInt8](repeating: 0x3F, count: 32), absMax: 2)
+        }
+        let header: (MapWriter.Measures?) -> [OrderedJSON.Pair] = { _ in [.init("format", 1), .init("page", .integer(MapWriter.page))] }
+        let path = root.appendingPathComponent("map.silicon").path
+        let partial = path + ".partiel"
+        let stale = Data(repeating: 0xAB, count: 4 * MapWriter.page)
+        try stale.write(to: URL(fileURLWithPath: partial))
+
+        let held = open(partial, O_RDONLY)
+        XCTAssertEqual(flock(held, LOCK_EX | LOCK_NB), 0)
+        XCTAssertThrowsError(try MapWriter.write(to: path, tensors: [tensor], header: header))
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: partial)), stale, "the holder's file is untouched")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+        close(held)
+
+        let tally = try MapWriter.write(to: path, tensors: [tensor], header: header)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: path)[.size] as? Int, tally.bytes)
+        let written = try Data(contentsOf: URL(fileURLWithPath: path))
+        XCTAssertNil(written.firstRange(of: Data(repeating: 0xAB, count: 64)), "nothing of the stale file remains")
+    }
+
     func testAFilesSha256AcrossItsBlocks() throws {
         for size in [0, 1, 8 << 20, (8 << 20) + 1, (17 << 20) + 12_345] {
             let data = random(size)
