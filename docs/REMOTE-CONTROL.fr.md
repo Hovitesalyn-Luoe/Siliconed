@@ -83,8 +83,9 @@ argument) est servie par la commande elle-même, sans lancer l'app.
 
 ## La prise et le protocole
 
-- **Socket Unix** `<bibliothèque>/silicontrol.sock` (par défaut
-  `~/Library/Application Support/Siliconed/silicontrol.sock`, ou sous `SILICONED_ROOT`), droits `0600` :
+- **Socket Unix** `silicontrol.sock` dans l'espace de l'app (par défaut
+  `~/Library/Application Support/Siliconed/silicontrol.sock`, ou sous `SILICONED_ROOT`) — là même
+  quand la bibliothèque a été déplacée sur un autre disque —, droits `0600` :
   seul le compte qui a lancé l'app y accède. Aucun port réseau. Elle disparaît quand l'app quitte ;
   une prise morte est remplacée au lancement suivant, et un second Siliconed sur la même
   bibliothèque n'écoute pas.

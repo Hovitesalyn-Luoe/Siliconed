@@ -16,10 +16,26 @@ import Foundation
 /// `~` is the container and the current directory is `/`. An app therefore holds its `Library`
 /// (`~/Library/Application Support/Siliconed/`, or a folder chosen by the user) and passes it to
 /// `Model.named(_:in:)`; `Library.standard` is its own.
+///
+/// **What belongs to the Mac lives in `local`**, not with the models: the machine's profile, the
+/// render cache, the accepted licenses, the remote control's socket, where the library is
+/// (`LibraryPlace.swift`). `local` is `root` itself, unless the library was moved to another
+/// disk: the app's own space keeps them then, and a move never carries them.
 package struct Library: Sendable {
     package let root: URL
+    /// This Mac's own files (`machineFiles`) — `root` unless the library lives elsewhere.
+    package let local: URL
 
-    package init(root: URL) { self.root = root.standardizedFileURL }
+    package init(root: URL, local: URL? = nil) {
+        self.root = Self.folder(root)
+        self.local = Self.folder(local ?? root)
+    }
+
+    /// A folder's URL in one spelling — standardized, with its trailing slash —, so that two URLs of
+    /// one folder compare equal whether the Finder, a panel or a path gave it.
+    package static func folder(_ url: URL) -> URL {
+        URL(fileURLWithPath: url.standardizedFileURL.path, isDirectory: true)
+    }
 
     /// `<root>/store/<name>` — a forged map, a forged LoRA.
     package func map(_ name: String) -> String {
@@ -28,11 +44,13 @@ package struct Library: Sendable {
 
     /// The machine's profile, written by the developer's bench.
     // on-disk key, kept for existing maps/profiles (file name kept)
-    package var profile: String { map("profil.json") }
+    package var profile: String { local.appendingPathComponent("store/profil.json").path }
 
     /// **The app's socket**: the Unix socket where the app open on this library listens for
-    /// `silicontrol …` (`docs/REMOTE-CONTROL.md`). It exists only while the app runs.
-    package var socket: String { root.appendingPathComponent("silicontrol.sock").path }
+    /// `silicontrol …` (`docs/REMOTE-CONTROL.md`). It exists only while the app runs. In `local`:
+    /// a socket cannot be made on every disk (exFAT, a network share), and `silicontrol` finds it
+    /// without knowing where the models are.
+    package var socket: String { local.appendingPathComponent("silicontrol.sock").path }
 
     /// `~/Library/Application Support/Siliconed`: the root as the app shows it — never the account's
     /// name, which a screenshot or a published report would carry (`withoutHome`).
@@ -64,9 +82,11 @@ package struct Library: Sendable {
     /// 2. The current directory, if it has a `store/`.
     /// 3. The first folder above the executable that has a `store/` (a binary in `.build/release/`
     ///    launched from elsewhere).
-    /// 4. Otherwise the app's library (`Library.standard`) — the nominal case: the repository keeps
-    ///    no `store/`, so the close-out and the checks render with the models the app installed,
-    ///    without keeping a second copy of them.
+    /// 4. Otherwise the app's library (`Library.standard`, or where it was moved: `placed(in:)`) —
+    ///    the nominal case: the repository keeps no `store/`, so the close-out and the checks render
+    ///    with the models the app installed, without keeping a second copy of them.
+    ///
+    /// `SILICONED_ROOT` names the app's space as the app reads it: moved, its library is followed.
     ///
     /// An app does not depend on it: it builds its own `Library(root:)`, and calls
     /// `EngineSettings.load(from:)` at startup so the machine's profile is its own.
@@ -78,7 +98,7 @@ package struct Library: Sendable {
                                  isDirectory: &isFolder) && isFolder.boolValue
         }
         if let providedValue = ProcessInfo.processInfo.environment["SILICONED_ROOT"], !providedValue.isEmpty {
-            return Library(root: URL(fileURLWithPath: providedValue))
+            return Library.placed(in: URL(fileURLWithPath: providedValue))
         }
         let current = URL(fileURLWithPath: fm.currentDirectoryPath)
         if hasStore(current) { return Library(root: current) }
@@ -88,6 +108,6 @@ package struct Library: Sendable {
                 folder = folder.deletingLastPathComponent()
             }
         }
-        return .standard
+        return .placed(in: Library.standard.root)
     }()
 }

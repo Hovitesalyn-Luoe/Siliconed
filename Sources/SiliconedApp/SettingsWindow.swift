@@ -10,7 +10,8 @@
 //     │ Comparison         curtain or side by side                     │
 //     │ This Mac           the capacity map, measured only when asked  │
 //     │ Command Line       silicontrol, linked into /usr/local/bin     │
-//     │ Models             where the library is, shown in the Finder   │
+//     │ Models             where the library is, shown in the Finder;  │
+//     │                    moved to another disk, opened, brought back │
 //     └───────────────────────────────────────────────────────────────┘
 //
 // - **Incognito**: an NSWindow of ours, as `MainWindow` — not SwiftUI's `Settings` scene, which would
@@ -136,16 +137,52 @@ struct SettingsView: View {
                 Section {
                     LabeledContent {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.library.root]) }
+                            .disabled(!app.libraryReachable)
                     } label: {
-                        titled("Models", "The models, LoRAs and accepted licenses Siliconed installed. Remove a model from the Models window, not from the Finder.")
+                        titled("Models", "The models and LoRAs Siliconed installed. Remove a model from the Models window, not from the Finder.")
                     }
                     Text(verbatim: app.library.displayPath).font(.caption).textSelection(.enabled)
+                    library
                 }
             }
             .formStyle(.grouped)
             .frame(width: 440)
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// **Where the models live**: moved to another disk (the internal SSD is precious), opened there,
+    /// brought back — each said with what happens (`AppState+Place.swift`).
+    @ViewBuilder private var library: some View {
+        if !app.libraryReachable {
+            Text(app.libraryBlocker ?? "").font(.caption).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if app.libraryIsElsewhere {
+            explanation("On another disk: what a render reads is copied to this Mac first, once per session, and removed when Siliconed quits. The disk must be connected to render.")
+        } else {
+            explanation("On this Mac. To free its disk, move the library to another one — an external disk, a network share: Siliconed then copies to this Mac only the model it renders, for the session.")
+        }
+        HStack {
+            Button("Move Library…") { app.chooseLibraryDestination() }
+                .disabled(!app.managementPossible)
+                .help("Copies the library to the folder you choose, checks every file, then removes it from here. The licenses you accepted and this Mac's settings stay on this Mac")
+            Button("Open Library…") { app.chooseLibraryToOpen() }
+                .disabled(app.forgeInProgress != nil || app.busy)
+                .help("Uses a library that is already somewhere else, another disk's for instance. Nothing is moved")
+        }
+        if app.libraryIsElsewhere {
+            HStack {
+                Button("Move Back to This Mac") { app.moveLibraryHome() }
+                    .disabled(!app.managementPossible)
+                Button("Use This Mac's Library") { app.useLocalLibrary() }
+                    .disabled(app.forgeInProgress != nil || app.busy)
+                    .help("Renders with what this Mac holds — maybe nothing yet. The library on the other disk is not touched")
+            }
+        }
+        if let title = app.forgeInProgress {
+            Text(ForgeProgress.line(app.forgeJournal).map { "\(title) — \($0)" } ?? title)
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+        }
     }
 
     /// A setting's name, and under it what it does.

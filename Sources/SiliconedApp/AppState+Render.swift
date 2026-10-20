@@ -208,6 +208,11 @@ extension AppState {
         if !settingsRead, case .failed = diagnostic { diagnostic = .ready }
         file.append(contentsOf: jobs)
         if inProgress { flash(String(localized: "Added to the queue (\(file.count) waiting)")) }
+        // An exploration across models: all of them copied to this Mac before its first cell, if needed.
+        let models = Set(jobs.map(\.settings.identifier))
+        if models.count > 1 || models.first != identifier {
+            warm(models.sorted(), loras: Array(Set(jobs.flatMap { $0.settings.loras.map(\.path) })).filter { !$0.isEmpty })
+        }
         next()
     }
 
@@ -296,9 +301,22 @@ extension AppState {
 
     private func execute(_ job: Job) async -> Issue {
         let settings = job.settings
-        let loraEntries = settings.loras.map { LoRAEntry($0.path, strength: $0.strength) }
+        var loraEntries = settings.loras.map { LoRAEntry($0.path, strength: $0.strength) }
         do {
-            let model = try Model.named(settings.identifier, in: library)
+            // A library on another disk is read from its copy on this Mac (`WorkingCopy`): brought up to
+            // date first — nothing to do when the model's choice already did it.
+            var read = library
+            if let copy = workingCopy {
+                let cancellation = Cancellation()
+                try await withTaskCancellationHandler {
+                    try await prepareCopy(models: [settings.identifier], loras: settings.loras.map(\.path), cancellation: cancellation)
+                } onCancel: { cancellation.cancel() }
+                read = copy.library
+                loraEntries = settings.loras.map { LoRAEntry(copy.path(of: $0.path), strength: $0.strength) }
+            } else {
+                try library.checkReachable()
+            }
+            let model = try Model.named(settings.identifier, in: read)
             // The references are decoded off the main thread (3072 px at most), in their order; the
             // engine then brings each to its size: the full-size photos do not live during the render.
             let sources = job.references

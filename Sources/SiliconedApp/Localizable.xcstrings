@@ -1383,6 +1383,40 @@
         }
       }
     },
+    "%@ — %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ – %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ — %2$@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — %@"
+          }
+        }
+      }
+    },
     "%@: accept its license to render" : {
       "localizations" : {
         "de" : {
@@ -3083,6 +3117,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manca un file: %@."
+          }
+        }
+      }
+    },
+    "A file read back from the new place differs from the original: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine am neuen Ort zurückgelesene Datei weicht vom Original ab: %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un archivo releído en el nuevo lugar difiere del original: %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier relu au nouvel emplacement diffère de l’original : %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un file riletto nella nuova posizione differisce dall’originale: %@."
+          }
+        }
+      }
+    },
+    "A folder holding a Siliconed library. Nothing is moved: this library stays where it is." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Ordner mit einer Siliconed-Bibliothek. Nichts wird verschoben: Die jetzige Bibliothek bleibt, wo sie ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una carpeta que contiene una biblioteca de Siliconed. No se mueve nada: la biblioteca actual se queda donde está."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un dossier qui contient une bibliothèque Siliconed. Rien n’est déplacé : la bibliothèque actuelle reste où elle est."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una cartella che contiene una libreria Siliconed. Non si sposta nulla: la libreria attuale resta dov’è."
           }
         }
       }
@@ -4829,6 +4919,34 @@
         }
       }
     },
+    "Check the disk and its cable, then start again: nothing was switched, and the files already checked are kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfen Sie die Festplatte und ihr Kabel und beginnen Sie erneut: Nichts wurde umgestellt, bereits geprüfte Dateien bleiben erhalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprueba el disco y su cable, y vuelve a empezar: no se ha cambiado nada y los archivos ya comprobados se conservan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiez le disque et son câble, puis recommencez : rien n’a été basculé, et les fichiers déjà vérifiés sont gardés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controlla il disco e il suo cavo, poi ricomincia: non è stato cambiato nulla, e i file già verificati vengono conservati."
+          }
+        }
+      }
+    },
     "Check the file's permissions, and that its disk is connected." : {
       "localizations" : {
         "de" : {
@@ -5081,6 +5199,90 @@
         }
       }
     },
+    "Choose a disk formatted APFS, Mac OS Extended or exFAT." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie eine Festplatte im Format APFS, Mac OS Extended oder exFAT."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige un disco con formato APFS, Mac OS Plus o exFAT."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez un disque formaté en APFS, Mac OS étendu ou exFAT."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli un disco formattato APFS, Mac OS esteso o exFAT."
+          }
+        }
+      }
+    },
+    "Choose a folder outside the library." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie einen Ordner außerhalb der Bibliothek."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige una carpeta fuera de la biblioteca."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez un dossier hors de la bibliothèque."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli una cartella fuori dalla libreria."
+          }
+        }
+      }
+    },
+    "Choose a folder you can write to." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie einen Ordner, in den Sie schreiben dürfen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige una carpeta en la que puedas escribir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez un dossier où vous pouvez écrire."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli una cartella in cui puoi scrivere."
+          }
+        }
+      }
+    },
     "Choose a model from the list." : {
       "localizations" : {
         "de" : {
@@ -5273,6 +5475,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scegli di nuovo il file, o reinstalla il modello a cui appartiene."
+          }
+        }
+      }
+    },
+    "Choose the folder that holds the library (its “store” folder), or move the library there." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie den Ordner, der die Bibliothek enthält (ihren Ordner „store“), oder verschieben Sie die Bibliothek dorthin."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige la carpeta que contiene la biblioteca (su carpeta «store»), o mueve la biblioteca allí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez le dossier qui contient la bibliothèque (son dossier « store »), ou déplacez-y la bibliothèque."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli la cartella che contiene la libreria (la sua cartella «store»), o sposta lì la libreria."
           }
         }
       }
@@ -5921,6 +6151,62 @@
         }
       }
     },
+    "Connect it to render. Settings can also go back to this Mac's library." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließen Sie sie an, um zu rendern. In den Einstellungen können Sie auch zur Bibliothek dieses Mac zurückkehren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conéctalo para renderizar. En Ajustes también puedes volver a la biblioteca de este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Branchez-le pour rendre. Les Réglages peuvent aussi revenir à la bibliothèque de ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collegalo per avviare un rendering. Nelle Impostazioni puoi anche tornare alla libreria di questo Mac."
+          }
+        }
+      }
+    },
+    "Connect the disk — or, in Settings, go back to this Mac's library." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließen Sie die Festplatte an – oder kehren Sie in den Einstellungen zur Bibliothek dieses Mac zurück."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conecta el disco — o, en Ajustes, vuelve a la biblioteca de este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Branchez le disque — ou, dans les Réglages, revenez à la bibliothèque de ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collega il disco — oppure, nelle Impostazioni, torna alla libreria di questo Mac."
+          }
+        }
+      }
+    },
     "Consecutive" : {
       "localizations" : {
         "de" : {
@@ -6029,6 +6315,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Copiato"
+          }
+        }
+      }
+    },
+    "Copies the library to the folder you choose, checks every file, then removes it from here. The licenses you accepted and this Mac's settings stay on this Mac" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiert die Bibliothek in den gewählten Ordner, prüft jede Datei und entfernt sie dann hier. Die akzeptierten Lizenzen und die Einstellungen dieses Mac bleiben auf diesem Mac"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia la biblioteca en la carpeta que elijas, comprueba cada archivo y luego la borra de aquí. Las licencias aceptadas y los ajustes de este Mac se quedan en este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie la bibliothèque dans le dossier choisi, vérifie chaque fichier, puis l’efface d’ici. Les licences acceptées et les réglages de ce Mac restent sur ce Mac"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia la libreria nella cartella scelta, verifica ogni file, poi la rimuove da qui. Le licenze accettate e le impostazioni di questo Mac restano su questo Mac"
           }
         }
       }
@@ -6337,6 +6651,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Copia il comando silicontrol"
+          }
+        }
+      }
+    },
+    "Copying %@ to this Mac" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wird auf diesen Mac kopiert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copiando %@ a este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie de %@ sur ce Mac"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia di %@ su questo Mac"
           }
         }
       }
@@ -10330,6 +10672,34 @@
         }
       }
     },
+    "Library moved to %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothek verschoben auf %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biblioteca movida a %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothèque déplacée vers %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Libreria spostata su %@"
+          }
+        }
+      }
+    },
     "Light" : {
       "localizations" : {
         "de" : {
@@ -11452,6 +11822,62 @@
         }
       }
     },
+    "Move Back to This Mac" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurück auf diesen Mac"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devolver a este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ramener sur ce Mac"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riporta su questo Mac"
+          }
+        }
+      }
+    },
+    "Move Here" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hierher verschieben"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover aquí"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacer ici"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta qui"
+          }
+        }
+      }
+    },
     "Move Left" : {
       "localizations" : {
         "de" : {
@@ -11480,6 +11906,34 @@
         }
       }
     },
+    "Move Library…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothek verschieben…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover la biblioteca…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacer la bibliothèque…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta la libreria…"
+          }
+        }
+      }
+    },
     "Move Right" : {
       "localizations" : {
         "de" : {
@@ -11504,6 +11958,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sposta a destra"
+          }
+        }
+      }
+    },
+    "Moving the library to %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothek wird verschoben auf %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moviendo la biblioteca a %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacement de la bibliothèque vers %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spostamento della libreria su %@"
           }
         }
       }
@@ -12670,6 +13152,62 @@
         }
       }
     },
+    "On another disk: what a render reads is copied to this Mac first, once per session, and removed when Siliconed quits. The disk must be connected to render." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf einer anderen Festplatte: Was ein Rendering liest, wird zuerst auf diesen Mac kopiert, einmal pro Sitzung, und beim Beenden von Siliconed entfernt. Zum Rendern muss die Festplatte angeschlossen sein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En otro disco: lo que lee un renderizado se copia primero a este Mac, una vez por sesión, y se borra al salir de Siliconed. El disco debe estar conectado para renderizar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur un autre disque : ce qu’un rendu lit est d’abord copié sur ce Mac, une fois par session, et effacé quand Siliconed quitte. Le disque doit être branché pour rendre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su un altro disco: ciò che un rendering legge viene prima copiato su questo Mac, una volta per sessione, e rimosso quando Siliconed si chiude. Il disco deve essere collegato per i rendering."
+          }
+        }
+      }
+    },
+    "On this Mac. To free its disk, move the library to another one — an external disk, a network share: Siliconed then copies to this Mac only the model it renders, for the session." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem Mac. Um seine Festplatte zu entlasten, verschieben Sie die Bibliothek auf eine andere – eine externe Festplatte, eine Netzwerkfreigabe: Siliconed kopiert dann nur das Modell, das es rendert, für die Sitzung auf diesen Mac."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En este Mac. Para liberar su disco, mueve la biblioteca a otro — un disco externo, una carpeta compartida en red: Siliconed solo copia entonces a este Mac el modelo que renderiza, durante la sesión."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur ce Mac. Pour libérer son disque, déplacez la bibliothèque sur un autre — un disque externe, un partage réseau : Siliconed ne copie alors sur ce Mac que le modèle qu’il rend, le temps de la session."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su questo Mac. Per liberarne il disco, sposta la libreria su un altro — un disco esterno, una condivisione di rete: Siliconed copia allora su questo Mac solo il modello del rendering, per la sessione."
+          }
+        }
+      }
+    },
     "One image was never saved." : {
       "localizations" : {
         "de" : {
@@ -12694,6 +13232,90 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un’immagine non è mai stata salvata."
+          }
+        }
+      }
+    },
+    "Open" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri"
+          }
+        }
+      }
+    },
+    "Open Library…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothek öffnen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir una biblioteca…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir une bibliothèque…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri una libreria…"
+          }
+        }
+      }
+    },
+    "Open it instead, or choose an empty folder." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnen Sie sie stattdessen, oder wählen Sie einen leeren Ordner."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ábrela en su lugar, o elige una carpeta vacía."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrez-la plutôt, ou choisissez un dossier vide."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aprila invece, o scegli una cartella vuota."
           }
         }
       }
@@ -14382,6 +15004,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rendering della cella %1$lld di %2$lld — passo %3$lld/%4$lld"
+          }
+        }
+      }
+    },
+    "Renders with what this Mac holds — maybe nothing yet. The library on the other disk is not touched" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendert mit dem, was dieser Mac enthält – vielleicht noch nichts. Die Bibliothek auf der anderen Festplatte bleibt unberührt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renderiza con lo que tiene este Mac — quizá nada todavía. La biblioteca del otro disco no se toca"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rend avec ce que ce Mac contient — peut-être rien encore. La bibliothèque de l’autre disque n’est pas touchée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa ciò che contiene questo Mac — forse ancora nulla. La libreria sull’altro disco non viene toccata"
           }
         }
       }
@@ -16470,6 +17120,34 @@
         }
       }
     },
+    "Stopped — the library stays where it was, untouched. The files already copied are kept for the next attempt." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gestoppt – die Bibliothek bleibt unverändert, wo sie war. Bereits kopierte Dateien bleiben für den nächsten Versuch erhalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detenido — la biblioteca se queda donde estaba, intacta. Los archivos ya copiados se conservan para el próximo intento."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrêté — la bibliothèque reste où elle était, intacte. Les fichiers déjà copiés sont gardés pour la prochaine fois."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interrotto — la libreria resta dov’era, intatta. I file già copiati vengono conservati per il prossimo tentativo."
+          }
+        }
+      }
+    },
     "Stopped." : {
       "localizations" : {
         "de" : {
@@ -17973,6 +18651,90 @@
         }
       }
     },
+    "The library can't be found: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Bibliothek ist nicht zu finden: %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se encuentra la biblioteca: %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bibliothèque est introuvable : %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La libreria non si trova: %@."
+          }
+        }
+      }
+    },
+    "The library is on another disk: what a render reads is copied to this Mac first, once, and removed when Siliconed quits" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Bibliothek liegt auf einer anderen Festplatte: Was ein Rendering liest, wird zuerst einmal auf diesen Mac kopiert und beim Beenden von Siliconed entfernt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La biblioteca está en otro disco: lo que lee un renderizado se copia primero a este Mac, una vez, y se borra al salir de Siliconed"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bibliothèque est sur un autre disque : ce qu’un rendu lit est d’abord copié sur ce Mac, une fois, et effacé quand Siliconed quitte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La libreria è su un altro disco: ciò che un rendering legge viene prima copiato su questo Mac, una volta, e rimosso quando Siliconed si chiude"
+          }
+        }
+      }
+    },
+    "The library is on “%@”, which isn't connected." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Bibliothek liegt auf „%@“, das nicht angeschlossen ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La biblioteca está en «%@», que no está conectado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bibliothèque est sur « %@ », qui n’est pas branché."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La libreria è su «%@», che non è collegato."
+          }
+        }
+      }
+    },
     "The license asks whoever deploys the model to filter the content it makes (§ 4.2). Siliconed applies no filter: by installing the model and accepting its license, you take on that responsibility." : {
       "localizations" : {
         "de" : {
@@ -18281,30 +19043,30 @@
         }
       }
     },
-    "The models, LoRAs and accepted licenses Siliconed installed. Remove a model from the Models window, not from the Finder." : {
+    "The models and LoRAs Siliconed installed. Remove a model from the Models window, not from the Finder." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Modelle, LoRAs und akzeptierten Lizenzen, die Siliconed installiert hat. Entfernen Sie ein Modell im Fenster Modelle, nicht im Finder."
+            "value" : "Die Modelle und LoRAs, die Siliconed installiert hat. Entfernen Sie ein Modell im Fenster „Modelle“, nicht im Finder."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los modelos, LoRA y licencias aceptadas que Siliconed instaló. Quita un modelo desde la ventana Modelos, no desde el Finder."
+            "value" : "Los modelos y LoRA que instaló Siliconed. Quita un modelo desde la ventana Modelos, no desde el Finder."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les modèles, LoRA et licences acceptées que Siliconed a installés. Retirez un modèle depuis la fenêtre Modèles, pas depuis le Finder."
+            "value" : "Les modèles et les LoRA installés par Siliconed. Retirez un modèle depuis la fenêtre Modèles, pas depuis le Finder."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I modelli, le LoRA e le licenze accettate che Siliconed ha installato. Rimuovi un modello dalla finestra Modelli, non dal Finder."
+            "value" : "I modelli e i LoRA installati da Siliconed. Rimuovi un modello dalla finestra Modelli, non dal Finder."
           }
         }
       }
@@ -19419,6 +20181,34 @@
         }
       }
     },
+    "This disk can't hold the models: its format (MS-DOS FAT) stops at 4 GB per file." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Festplatte kann die Modelle nicht aufnehmen: Ihr Format (MS-DOS FAT) endet bei 4 GB pro Datei."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este disco no puede contener los modelos: su formato (MS-DOS FAT) se limita a 4 GB por archivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce disque ne peut pas contenir les modèles : son format (MS-DOS FAT) s’arrête à 4 Go par fichier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo disco non può contenere i modelli: il suo formato (MS-DOS FAT) si ferma a 4 GB per file."
+          }
+        }
+      }
+    },
     "This family's imported models and LoRAs stay." : {
       "localizations" : {
         "de" : {
@@ -19471,6 +20261,118 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Impossibile importare questo file: %@."
+          }
+        }
+      }
+    },
+    "This folder already holds a Siliconed library: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Ordner enthält bereits eine Siliconed-Bibliothek: %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta carpeta ya contiene una biblioteca de Siliconed: %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier contient déjà une bibliothèque Siliconed : %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa cartella contiene già una libreria Siliconed: %@."
+          }
+        }
+      }
+    },
+    "This folder can't be written to: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In diesen Ordner kann nicht geschrieben werden: %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede escribir en esta carpeta: %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On ne peut pas écrire dans ce dossier : %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non si può scrivere in questa cartella: %@."
+          }
+        }
+      }
+    },
+    "This folder is the library itself, or inside it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Ordner ist die Bibliothek selbst oder liegt in ihr."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta carpeta es la propia biblioteca, o está dentro de ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier est la bibliothèque elle-même, ou s’y trouve."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa cartella è la libreria stessa, o si trova al suo interno."
+          }
+        }
+      }
+    },
+    "This folder isn't a Siliconed library: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Ordner ist keine Siliconed-Bibliothek: %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta carpeta no es una biblioteca de Siliconed: %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier n’est pas une bibliothèque Siliconed : %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa cartella non è una libreria Siliconed: %@."
           }
         }
       }
@@ -20665,6 +21567,34 @@
         }
       }
     },
+    "Use This Mac's Library" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bibliothek dieses Mac verwenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar la biblioteca de este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utiliser la bibliothèque de ce Mac"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa la libreria di questo Mac"
+          }
+        }
+      }
+    },
     "Use the official schedule." : {
       "localizations" : {
         "de" : {
@@ -20717,6 +21647,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Usato"
+          }
+        }
+      }
+    },
+    "Uses a library that is already somewhere else, another disk's for instance. Nothing is moved" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwendet eine Bibliothek, die schon anderswo liegt, etwa auf einer anderen Festplatte. Nichts wird verschoben"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa una biblioteca que ya está en otro sitio, la de otro disco por ejemplo. No se mueve nada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilise une bibliothèque qui est déjà ailleurs, celle d’un autre disque par exemple. Rien n’est déplacé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa una libreria che è già altrove, quella di un altro disco per esempio. Non si sposta nulla"
           }
         }
       }
@@ -21249,6 +22207,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cosa cambia da una colonna (X) o da una riga (Y) all’altra"
+          }
+        }
+      }
+    },
+    "Where the models go — an external disk, for instance. A “Siliconed” folder is made in it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wohin die Modelle kommen – etwa auf eine externe Festplatte. Darin wird ein Ordner „Siliconed“ angelegt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adónde van los modelos — un disco externo, por ejemplo. Se crea dentro una carpeta «Siliconed»."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Là où iront les modèles — un disque externe, par exemple. Un dossier « Siliconed » y est créé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dove vanno i modelli — un disco esterno, per esempio. Al suo interno viene creata una cartella «Siliconed»."
           }
         }
       }
@@ -22095,6 +23081,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "calcolo"
+          }
+        }
+      }
+    },
+    "connect the disk, then retry" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Festplatte anschließen, dann erneut versuchen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "conecta el disco y vuelve a intentarlo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "brancher le disque, puis réessayer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "collega il disco, poi riprova"
           }
         }
       }
@@ -24749,6 +25763,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "i solver Euler a, DPM++ 2M e UniPC accanto a Euler, nel pannello e come asse dell’esplorazione"
+          }
+        }
+      }
+    },
+    "this Mac" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "diesen Mac"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "este Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ce Mac"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "questo Mac"
           }
         }
       }

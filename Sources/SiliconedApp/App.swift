@@ -16,7 +16,8 @@
 // `tools/app.sh` (builds `Siliconed.app` at the repository root, translations included, and opens
 // it), or `swift run SiliconedApp` (in English, no icon). **The models live in the app's space**
 // (`Library.standard`, `~/Library/Application Support/Siliconed/`), which it fills itself — install,
-// import, remove: the Models sheet. `SILICONED_ROOT=<folder>` designates another one.
+// import, remove: the Models sheet —, or on another disk the user moved them to (Settings,
+// `AppState+Place.swift`). `SILICONED_ROOT=<folder>` designates another space.
 
 import AppKit
 import Siliconed
@@ -181,6 +182,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             MainWindow.shared.remote.stop()
             MainWindow.shared.emptyRenderCache()
+            MainWindow.shared.app.removeWorkingCopy()
         }
     }
 
@@ -202,9 +204,12 @@ final class MainWindow: NSObject, NSWindowDelegate {
     /// The exploration's panel (`Exploration.swift`), kept once opened.
     var explorationPanel: NSPanel?
     private(set) lazy var app = AppState(library: {
-        let b = ProcessInfo.processInfo.environment["SILICONED_ROOT"].flatMap { $0.isEmpty ? nil : $0 }
-            .map { Library(root: URL(fileURLWithPath: $0)) } ?? .standard
-        try? FileManager.default.createDirectory(atPath: b.map(""), withIntermediateDirectories: true)
+        // `SILICONED_ROOT` names the app's space, as `Library.standard` does: a library moved
+        // elsewhere is followed (`Library.placed`), and never made where its disk is absent.
+        let space = ProcessInfo.processInfo.environment["SILICONED_ROOT"].flatMap { $0.isEmpty ? nil : $0 }
+            .map { URL(fileURLWithPath: $0) } ?? Library.standard.root
+        let b = Library.placed(in: space)
+        try? FileManager.default.createDirectory(atPath: Library(root: space).map(""), withIntermediateDirectories: true)
         return b
     }())
     private(set) lazy var remote = RemoteControl(app: app)

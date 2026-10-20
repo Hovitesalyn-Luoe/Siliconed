@@ -14,7 +14,7 @@ final class EngineErrorTests: XCTestCase {
     func testEveryCaseHasAUniqueCodeAndASentence() {
         let codes = EngineError.samples.map(\.code)
         XCTAssertEqual(Set(codes).count, codes.count, "two cases share a code: \(codes)")
-        XCTAssertEqual(codes.count, 44, "a case was added: give it a sample, a code, a sentence")
+        XCTAssertEqual(codes.count, 46, "a case was added: give it a sample, a code, a sentence")
         for e in EngineError.samples {
             XCTAssertTrue(e.code.allSatisfy { $0.isLowercase || $0 == "_" }, e.code)
             let sentence = e.errorDescription ?? ""
@@ -25,6 +25,8 @@ final class EngineErrorTests: XCTestCase {
         // The refinements of a reason are stable keys too.
         XCTAssertEqual(EngineError.FormatRefusal.allCases.map(\.rawValue), ["not_multiple", "side_too_long", "too_large"])
         XCTAssertEqual(EngineError.LoRARefusal.allCases.map(\.rawValue), ["not_a_lora", "no_target", "inconsistent"])
+        XCTAssertEqual(EngineError.LibraryRefusal.allCases.map(\.rawValue),
+                       ["file_size_limit", "read_only", "not_a_library", "already_a_library", "same_library", "copy_damaged"])
         XCTAssertEqual(EngineError.GridRefusal.allCases.map(\.rawValue),
                        ["empty_axis", "same_axis_twice", "no_such_group", "no_such_lora", "group_not_on_axis",
                         "invalid_value", "unreadable_axis", "lora_across_models"])

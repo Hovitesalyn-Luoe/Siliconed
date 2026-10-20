@@ -658,6 +658,8 @@ package enum RemoteControlHelp {
                                running; (add, grid, vary) an installation is running;
                                (any) more than 8 connections still sending their command
                                                                            → wait, then retry
+          library_absent       (add, grid, vary) the library is on a disk that is not connected
+                                                                           → connect it, then retry
           lora                 LoRA not found for this model, or > 3        → "hint" lists the compatible ones
           format               unreadable or out-of-bounds format; an edit beyond 1024² of area
                                                                            → WxH, sides ≥ 512, multiples of 16 (32: qwen-image-2.1)
@@ -1327,6 +1329,8 @@ package enum RemoteControlHelp {
                                tourne ; (add, grid, vary) une installation tourne ;
                                (toutes) plus de 8 connexions qui envoient encore leur commande
                                                                            → attendre, puis réessayer
+          library_absent       (add, grid, vary) la bibliothèque est sur un disque qui n'est pas branché
+                                                                           → le brancher, puis réessayer
           lora                 LoRA introuvable pour ce modèle, ou > 3      → "hint" liste les compatibles
           format               format illisible ou hors bornes ; une édition au-delà de 1024² de surface
                                                                            → WxH, côtés ≥ 512, multiples de 16

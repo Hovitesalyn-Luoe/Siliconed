@@ -122,9 +122,10 @@ package enum Licenses {
 }
 
 extension Library {
-    /// `<root>/accepted-licenses.json` — `{ model identifier: license text accepted }`. The text is
-    /// kept so that a license that changes asks again.
-    package var acceptedLicensesFile: String { root.appendingPathComponent("accepted-licenses.json").path }
+    /// `<local>/accepted-licenses.json` — `{ model identifier: license text accepted }`. The text is
+    /// kept so that a license that changes asks again. This Mac's user accepted them: they stay on
+    /// the Mac when the library moves.
+    package var acceptedLicensesFile: String { local.appendingPathComponent("accepted-licenses.json").path }
 
     /// The models whose license was accepted, with the text accepted. Empty if the file is absent
     /// or unreadable — nothing is accepted by default.
@@ -148,7 +149,7 @@ extension Library {
 
     private func writeAcceptedLicenses(_ accepted: [String: String]) throws(EngineError) {
         try EngineError.boundary {
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: accepted, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: URL(fileURLWithPath: acceptedLicensesFile), options: .atomic)
         }

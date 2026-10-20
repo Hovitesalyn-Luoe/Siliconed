@@ -519,6 +519,7 @@ final class RemoteControl {
     private func add(_ arguments: [String], cwd: String, _ c: Connection, grid: Bool = false) throws {
         var d = try parse(arguments)
         // One big job at a time on 16 GB: no render while an installation or an import runs.
+        if let reason = app.libraryBlocker { throw Refusal("library_absent", reason, help: String(localized: "connect the disk, then retry")) }
         if let reason = app.installBlocker { throw Refusal("busy", reason, help: String(localized: "retry once the installation is done (silicontrol models)")) }
         if !grid, d.sketch {
             throw Refusal("usage", String(localized: "--sketch belongs to « silicontrol grid »"), help: "silicontrol help grid")
@@ -1223,6 +1224,7 @@ final class RemoteControl {
         guard let e = image(arguments[0]) else {
             throw Refusal("unknown_image", String(localized: "no image \"\(arguments[0])\" in the history"), help: "silicontrol history")
         }
+        if let reason = app.libraryBlocker { throw Refusal("library_absent", reason, help: String(localized: "connect the disk, then retry")) }
         if let reason = app.installBlocker { throw Refusal("busy", reason, help: String(localized: "retry once the installation is done (silicontrol models)")) }
         guard app.canVary(e) else {
             throw Refusal("model", String(localized: "\(e.name) has no variations: a grid's sheet, or its model is not ready"),

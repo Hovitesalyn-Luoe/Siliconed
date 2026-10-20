@@ -55,6 +55,12 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
     /// components — the published DiT's names and shapes, its config, encoder and VAE — are not in the
     /// library. Installing the family (license accepted, size shown) comes first.
     case importNeedsFamily(file: String, model: String)
+    /// **The library is on a disk that is not there** — unplugged, a share not mounted (`Library.isReachable`).
+    /// Nothing renders, installs or imports until it is back: never another library in its place.
+    /// `volume`: the disk's name as the Finder shows it, `nil` when the path does not say.
+    case libraryAbsent(path: String, volume: String?)
+    /// Where the library cannot go, or a folder that is not one (`LibraryMove`, `Library.opening`).
+    case libraryRefused(path: String, reason: LibraryRefusal)
 
     // ── the request ───────────────────────────────────────────────────────────────────────
 
@@ -179,6 +185,24 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case loraAcrossModels = "lora_across_models"
     }
 
+    /// Why a library cannot go somewhere, or be opened — `code` refines into `library_refused.<rawValue>`.
+    package enum LibraryRefusal: String, Sendable, Equatable, CaseIterable {
+        /// An MS-DOS (FAT32) disk: no file over 4 GB, and a model's map is tens of GB. exFAT is fine.
+        case fileSizeLimit = "file_size_limit"
+        /// A disk, or a folder, that cannot be written to.
+        case readOnly = "read_only"
+        /// « Open a library »: the folder holds no `store/`.
+        case notALibrary = "not_a_library"
+        /// « Move the library »: the folder already holds another library's models — to be opened
+        /// instead, never merged.
+        case alreadyALibrary = "already_a_library"
+        /// The folder is the library itself, inside it, or holds it.
+        case sameLibrary = "same_library"
+        /// A file read back from the new place differs from the original: nothing was switched, the
+        /// original is untouched.
+        case copyDamaged = "copy_damaged"
+    }
+
     /// Why a LoRA is refused — `code` refines into `unsupported_lora.<rawValue>`.
     package enum LoRARefusal: String, Sendable, Equatable, CaseIterable {
         /// The map is a model, not an adapter.
@@ -208,6 +232,8 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case .importRefused: return "import_refused"
         case .notAnImportedModel: return "not_an_imported_model"
         case .importNeedsFamily: return "import_needs_family"
+        case .libraryAbsent: return "library_absent"
+        case .libraryRefused: return "library_refused"
         case .emptyPrompt: return "empty_prompt"
         case .invalidSteps: return "invalid_steps"
         case .tooManyReferences: return "too_many_references"
@@ -266,6 +292,17 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case .importRefused(let file, _): return "This file cannot be imported: \(file)."
         case .notAnImportedModel(let model): return "\(model) is not an imported model."
         case let .importNeedsFamily(file, model): return "To import \(file), install \(model) first."
+        case let .libraryAbsent(path, volume):
+            return volume.map { "The library is on \($0), which is not connected." } ?? "The library cannot be found: \(path)."
+        case let .libraryRefused(path, reason):
+            switch reason {
+            case .fileSizeLimit: return "This disk cannot hold the models: its format (MS-DOS FAT) stops at 4 GB per file."
+            case .readOnly: return "This folder cannot be written to: \(path)."
+            case .notALibrary: return "This folder is not a Siliconed library: \(path)."
+            case .alreadyALibrary: return "This folder already holds a Siliconed library: \(path)."
+            case .sameLibrary: return "This folder is the library itself, or inside it: \(path)."
+            case .copyDamaged: return "A file read back from the new place differs from the original: \(path)."
+            }
         case .emptyPrompt: return "The prompt is empty."
         case let .invalidSteps(steps, allowed):
             return allowed.isEmpty ? "\(steps) steps: a render takes between 1 and \(Request.maximumSteps)."
@@ -360,6 +397,13 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case .importRefused: return "Import a LoRA or a full model of a supported family, as .safetensors (not quantized)."
         case .notAnImportedModel: return nil
         case .importNeedsFamily: return "Install the model, then import the file again: an import downloads nothing."
+        case .libraryAbsent: return "Connect the disk, or go back to this Mac's library in the settings."
+        case .libraryRefused(_, .fileSizeLimit): return "Choose a disk formatted APFS, Mac OS Extended or exFAT."
+        case .libraryRefused(_, .readOnly): return "Choose a folder you can write to."
+        case .libraryRefused(_, .notALibrary): return "Choose the folder that holds the library's store folder, or move the library there."
+        case .libraryRefused(_, .alreadyALibrary): return "Open it instead, or choose an empty folder."
+        case .libraryRefused(_, .sameLibrary): return "Choose a folder outside the library."
+        case .libraryRefused(_, .copyDamaged): return "Check the disk and its cable, then start again: the files already checked are kept."
         case .emptyPrompt: return "Write a prompt."
         case let .invalidSteps(_, allowed) where !allowed.isEmpty:
             return "Choose " + allowed.map(String.init).joined(separator: ", ") + " steps."
@@ -527,6 +571,8 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         .downloadRefused(file: "vae.safetensors", status: 403), .downloadCorrupt(file: "vae.safetensors"),
         .importRefused(file: "x.safetensors", detail: "not recognized"), .notAnImportedModel(model: "Z-Image Turbo"),
         .importNeedsFamily(file: "x.safetensors", model: "anima"),
+        .libraryAbsent(path: "/Volumes/Models/Siliconed", volume: "Models"),
+        .libraryRefused(path: "/Volumes/KEY/Siliconed", reason: .fileSizeLimit),
         .emptyPrompt, .invalidSteps(steps: 8, allowed: [5, 6, 7, 9]), .tooManyReferences(count: 4, max: 3),
         .imageTooSmall(side: 256, minimum: 512), .formatRefused(width: 1000, height: 1000, reason: .notMultiple, bound: 16),
         .formatUnreadable(text: "big"), .promptSyntax(position: 12, reason: .unclosedGroup),

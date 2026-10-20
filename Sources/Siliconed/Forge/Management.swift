@@ -315,12 +315,19 @@ extension Library {
         return fd
     }
 
-    /// The free space on the library's volume (the folder, or its first existing parent).
+    /// The free space on the library's volume (the folder, or its first existing parent). « For
+    /// important usage » counts what macOS would purge for it, but only the startup disk answers it:
+    /// another disk says 0 there — its plain free space then.
     package func freeSpace() -> Int? {
         var u = root
         while !Self.exists(u.path), u.path != "/" { u = u.deletingLastPathComponent() }
-        let v = try? u.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return v?.volumeAvailableCapacityForImportantUsage.map(Int.init)
+        let v = try? u.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        let important = v?.volumeAvailableCapacityForImportantUsage.map(Int.init)
+        let plain = v?.volumeAvailableCapacity
+        switch (important, plain) {
+        case let (i?, p?): return max(i, p)
+        case let (i, p): return i ?? p
+        }
     }
 
     /// **Refuses a job that would not fit** — before having downloaded or written GB.

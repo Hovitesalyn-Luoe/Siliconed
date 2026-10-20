@@ -82,6 +82,7 @@ extension AppState {
 
     /// Why « Explore » is greyed out, or `nil`.
     var exploreBlocker: String? {
+        if let reason = libraryBlocker { return reason }
         if let reason = installBlocker { return reason }
         if !exploresModels, missing != nil { return String(localized: "This model isn't installed.") }
         if explorePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Write a prompt.") }

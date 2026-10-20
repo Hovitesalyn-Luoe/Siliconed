@@ -313,9 +313,9 @@ package protocol CacheIdentified {
 }
 
 extension Library {
-    /// `<root>/cache/` — what renders keep between them (`RenderCache`). Everything in it can be
-    /// thrown away: it only saves recomputing.
-    package var cacheFolder: URL { root.appendingPathComponent("cache") }
+    /// `<local>/cache/` — what renders keep between them (`RenderCache`). Everything in it can be
+    /// thrown away: it only saves recomputing. On this Mac, wherever the models are.
+    package var cacheFolder: URL { local.appendingPathComponent("cache") }
 
     /// **Empties the render cache** (`cacheFolder`). A render reading it meanwhile keeps its open file.
     package func emptyCache() throws(EngineError) {

@@ -201,6 +201,14 @@ private struct Footer: View {
             }
             .controlSize(.extraLarge)
             if app.busy { queue }
+            // The models being copied from the library's disk to this Mac (`AppState+Place.swift`).
+            if let c = app.copying {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(c.title).font(.callout).lineLimit(2)
+                    ProgressView(value: c.fraction).controlSize(.small)
+                }
+                .help("The library is on another disk: what a render reads is copied to this Mac first, once, and removed when Siliconed quits")
+            }
             if let title = app.forgeInProgress {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {

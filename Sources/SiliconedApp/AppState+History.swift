@@ -329,8 +329,8 @@ extension AppState {
         pieces += [quotes(prompt), "\(format.width)x\(format.height)",
                      "\(fixedSeed ? seed : (selectedEntry?.seed ?? seed))"]
         // The app's own library needs no mention; another one is the app's environment.
-        let root = library.root == Library.standard.root ? ""
-            : "SILICONED_ROOT=" + quotes(library.root.path) + " "
+        let root = library.local.path == Library.standard.root.path ? ""
+            : "SILICONED_ROOT=" + quotes(library.local.path) + " "
         return root + pieces.joined(separator: " ") + notes.map { "\n# \($0)" }.joined()
     }
 

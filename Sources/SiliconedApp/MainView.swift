@@ -366,7 +366,17 @@ private struct SceneView: View {
                     .font(.system(size: 46, weight: .light))
                     .foregroundStyle(.secondary)
             }
-            if app.visibleReady.isEmpty {
+            if let absent = app.libraryBlocker {
+                // The library's disk is not there: no welcome, no « Install » — never another library.
+                Image(systemName: "externaldrive.badge.xmark")
+                    .font(.system(size: 46, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text(absent).font(.title3).foregroundStyle(.secondary)
+                Text("Connect it to render. Settings can also go back to this Mac's library.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Settings…") { SettingsWindow.shared.show(app) }
+                    .padding(.top, 4)
+            } else if app.visibleReady.isEmpty {
                 Welcome(app: app)
             } else if let family = app.familyToInstall {
                 Text("\(app.card?.name ?? family.name) isn't installed").font(.title3).foregroundStyle(.secondary)

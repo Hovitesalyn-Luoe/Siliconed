@@ -89,6 +89,19 @@ struct Problem: Equatable, Sendable {
             return String(localized: "To import \(file(f)), install \(name(m)) first.")
         case .notAnImportedModel(let m):                             // not_an_imported_model
             return String(localized: "\(name(m)) wasn't imported: uninstall it from the Models sheet.")
+        case let .libraryAbsent(p, volume):                          // library_absent
+            if let volume { return String(localized: "The library is on “\(volume)”, which isn't connected.") }
+            return String(localized: "The library can't be found: \(Library.withoutHome(p)).")
+        case let .libraryRefused(p, reason):                         // library_refused
+            let folder = Library.withoutHome(p)
+            switch reason {
+            case .fileSizeLimit: return String(localized: "This disk can't hold the models: its format (MS-DOS FAT) stops at 4 GB per file.")
+            case .readOnly: return String(localized: "This folder can't be written to: \(folder).")
+            case .notALibrary: return String(localized: "This folder isn't a Siliconed library: \(folder).")
+            case .alreadyALibrary: return String(localized: "This folder already holds a Siliconed library: \(folder).")
+            case .sameLibrary: return String(localized: "This folder is the library itself, or inside it.")
+            case .copyDamaged: return String(localized: "A file read back from the new place differs from the original: \(file(p)).")
+            }
         case .emptyPrompt:                                           // empty_prompt
             return String(localized: "The prompt is empty.")
         case let .invalidSteps(steps, allowed):                      // invalid_steps
@@ -215,6 +228,20 @@ struct Problem: Equatable, Sendable {
             return String(localized: "Import a LoRA or a full model of a supported family, as .safetensors (at least 8 bits) or .gguf (at least 4 bits).")
         case .importNeedsFamily:
             return String(localized: "Install it from the Models sheet (⇧⌘M), then import the file again: an import downloads nothing.")
+        case .libraryAbsent:
+            return String(localized: "Connect the disk — or, in Settings, go back to this Mac's library.")
+        case .libraryRefused(_, .fileSizeLimit):
+            return String(localized: "Choose a disk formatted APFS, Mac OS Extended or exFAT.")
+        case .libraryRefused(_, .readOnly):
+            return String(localized: "Choose a folder you can write to.")
+        case .libraryRefused(_, .notALibrary):
+            return String(localized: "Choose the folder that holds the library (its “store” folder), or move the library there.")
+        case .libraryRefused(_, .alreadyALibrary):
+            return String(localized: "Open it instead, or choose an empty folder.")
+        case .libraryRefused(_, .sameLibrary):
+            return String(localized: "Choose a folder outside the library.")
+        case .libraryRefused(_, .copyDamaged):
+            return String(localized: "Check the disk and its cable, then start again: nothing was switched, and the files already checked are kept.")
         case .notAnImportedModel, .imageEncodingFailed, .cancelled:
             return nil
         case .emptyPrompt:
@@ -331,6 +358,14 @@ enum ForgeProgress {
         var downloading: String?, received: String?, preparing: String?, converted: String?
         for row in journal {
             let t = row.trimmingCharacters(in: .whitespaces)
+            // A library being moved (`AppState.moveLibrary`): « ⇢ <percent> <file> ».
+            if t.hasPrefix("⇢ ") {
+                let parts = t.dropFirst(2).split(separator: " ", maxSplits: 1)
+                if parts.count == 2, let n = Int(parts[0]) {
+                    said = String(localized: "\(Figures.percent(n)) — \(String(parts[1]))")
+                }
+                continue
+            }
             if t.hasPrefix("↓ ") {
                 let label = String(t.dropFirst(2).split(separator: " (").first ?? "")
                 downloading = (label as NSString).lastPathComponent

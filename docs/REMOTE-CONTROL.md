@@ -76,8 +76,9 @@ command itself, without launching the app.
 
 ## The socket and the protocol
 
-- **Unix socket** `<library>/silicontrol.sock` (by default
-  `~/Library/Application Support/Siliconed/silicontrol.sock`, or under `SILICONED_ROOT`), mode `0600`:
+- **Unix socket** `silicontrol.sock` in the app's space (by default
+  `~/Library/Application Support/Siliconed/silicontrol.sock`, or under `SILICONED_ROOT`) — there even
+  when the library was moved to another disk —, mode `0600`:
   only the account that launched the app can open it. No network port. It disappears when the app
   quits; a dead socket is replaced at the next launch, and a second Siliconed on the same library
   does not listen.

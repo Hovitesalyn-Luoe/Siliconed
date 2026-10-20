@@ -19,7 +19,8 @@ import SilicontrolHelp
 
 let environment = ProcessInfo.processInfo.environment
 
-/// The library the app opens: `SILICONED_ROOT`, else its own space in Application Support.
+/// The app's space: `SILICONED_ROOT`, else its own in Application Support. The socket stays there
+/// when the library is moved to another disk (`Library.socket`, in `local`).
 let library: String = {
     if let root = environment["SILICONED_ROOT"], !root.isEmpty { return root }
     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

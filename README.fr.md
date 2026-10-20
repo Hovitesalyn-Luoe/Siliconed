@@ -175,7 +175,12 @@ l'image que son esquisse annonçait.
   ce Mac n'est pas mesuré) montre la carte de ce Mac : ce que calcule la puce, mesuré, et les chemins
   que prend le moteur.
 
-Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable avec `SILICONED_ROOT`).
+Les modèles vivent dans `~/Library/Application Support/Siliconed` (modifiable avec `SILICONED_ROOT`). Pour
+libérer le disque interne, les Réglages les déplacent sur un autre — un disque externe, un partage
+réseau : chaque fichier est copié, vérifié, puis effacé du Mac. Siliconed ne copie alors sur le Mac que
+les modèles que vous rendez, le temps de la session, et les efface en quittant ; les licences acceptées
+et la mesure de ce Mac restent sur le Mac. Débranché, le disque est signalé : rien ne se rend avant
+son retour.
 
 ![La fenêtre Modèles, Krea 2 Turbo sélectionné : Standard, Compact ou Légère, la licence et la place sur le disque montrées avant tout téléchargement](docs/images/models.jpg)
 

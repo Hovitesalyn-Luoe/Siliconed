@@ -163,7 +163,11 @@ chosen cell to the end with the same seed: the image its sketch announced.
 - **Statistics and diagnostic.** The statistics palette (⌥⌘I) is a toolbar button. « Measure This Mac » (Help menu, or « Chain » at the head of the rack, orange until this Mac is
   measured) shows this Mac's map: what the chip computes, measured, and the paths the engine takes.
 
-Models live in `~/Library/Application Support/Siliconed` (override with `SILICONED_ROOT`).
+Models live in `~/Library/Application Support/Siliconed` (override with `SILICONED_ROOT`). To free
+the internal disk, Settings moves them to another one — an external disk, a network share: every file
+is copied, checked, then removed from the Mac. Siliconed then copies to the Mac only the models you
+render, for the session, and removes them when it quits; the licenses you accepted and this Mac's
+measure stay on the Mac. Unplugged, the disk is said: nothing renders until it is back.
 
 ![The Models window, Krea 2 Turbo selected: Standard, Compact or Light, the license and the disk space shown before anything is downloaded](docs/images/models.jpg)
 

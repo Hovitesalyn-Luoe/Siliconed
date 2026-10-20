@@ -26,7 +26,8 @@ extension AppState {
 
     /// A forge, a render, a diagnostic: one waits for the other (the first two read or write GBs, the
     /// diagnostic would time them).
-    var managementPossible: Bool { forgeInProgress == nil && !busy && !diagnosticRunning }
+    /// The library's disk must be there: an installation never lands anywhere else.
+    var managementPossible: Bool { forgeInProgress == nil && !busy && !diagnosticRunning && libraryReachable }
 
     /// **No render while an installation or an import runs**: one big job at a time on 16 GB — the
     /// forge reads and writes GBs, a render maps as many. Why « Generate », « Explore » and the
@@ -170,12 +171,14 @@ extension AppState {
 
     /// A forge in the background: it reads and writes GBs, the main thread does not wait.
     /// `stopped`: what « Stop » flashes, when « the files already downloaded are kept » is not all.
-    private func launchForge<T: Sendable>(_ title: String, stopped: String? = nil,
+    func launchForge<T: Sendable>(_ title: String, stopped: String? = nil,
                                           _ job: @escaping @Sendable (Library, Cancellation, @escaping @Sendable (String) -> Void) throws -> T,
                                           end: @escaping @MainActor (T) -> Void) {
         forgeInProgress = title
         forgeJournal = []
         problem = nil
+        // A copy to this Mac would read the library beside it: the model's choice will start it again.
+        warmCancellation?.cancel()
         let b = library
         let cancellation = Cancellation()
         cancellationForge = cancellation
@@ -199,6 +202,7 @@ extension AppState {
                 }
                 // Jobs that entered the queue meanwhile waited for the forge (`next()`).
                 self.next()
+                self.warm()
             }
         }
     }

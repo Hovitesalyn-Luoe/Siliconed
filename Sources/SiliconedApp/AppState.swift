@@ -7,8 +7,10 @@
 // Mode » switch, the comparison's curtain or side by side (`Curtain.preferred`), the experimental
 // « Named Subjects » and « Negative LoRA Strengths » switches (`SubjectLibrary.enabledKey`,
 // `negativeLoRAKey`) and this Mac's capacity map, measured when
-// the user asks (`capacityMapKey`), like the system language the app follows —, the licenses accepted, which the library keeps itself (`<root>/accepted-licenses.json`) because its
-// engine refuses a render without them. The named subjects (`Subjects.swift`) live in memory, like
+// the user asks (`capacityMapKey`), like the system language the app follows —, the licenses accepted, which the library keeps itself (`<local>/accepted-licenses.json`) because its
+// engine refuses a render without them, and where the library is when the user moved it (`<local>/library-location`,
+// `AppState+Place.swift`). A library on another disk is rendered through a copy on this Mac, removed when the
+// app quits (`WorkingCopy`). The named subjects (`Subjects.swift`) live in memory, like
 // the history.
 //
 // **Four models in front**, in this order: Z-Image Turbo, Qwen-Image-2.1 Turbo, Anima Turbo, Krea 2
@@ -38,7 +40,18 @@ import UniformTypeIdentifiers
 
 @MainActor @Observable
 final class AppState {
-    let library: Library
+    /// The library: this Mac's, or the one the user moved or opened elsewhere (`AppState+Place.swift`).
+    var library: Library
+    /// **The copy renders read** when the library is on another disk (`WorkingCopy.isNeeded`), `nil` otherwise.
+    @ObservationIgnored var workingCopy: WorkingCopy?
+    /// The library's disk is connected (re-read when a volume comes or goes: `watchVolumes`).
+    var libraryReachable = true
+    /// A copy to this Mac under way, and how far (`prepareCopy`).
+    var copying: CopyProgress?
+    @ObservationIgnored var copiesInFlight = 0
+    /// The token of the copy the model's choice started: a new choice stops it (`warm`).
+    @ObservationIgnored var warmCancellation: Cancellation?
+    @ObservationIgnored var volumeObservers: [NSObjectProtocol] = []
     /// The warnings of the machine profile (a profile measured elsewhere, for example).
     private(set) var profileWarnings: [String] = []
     /// All the known models — the publisher's, then the imported ones (`Library.cards()`).
@@ -414,6 +427,9 @@ final class AppState {
 
     init(library: Library) {
         self.library = library
+        libraryReachable = library.isReachable
+        WorkingCopy.removeAbandoned()
+        workingCopy = Self.makeWorkingCopy(library)
         subjects = SubjectLibrary(library: library)
         cards = library.cards()
         readySet = Set(library.models().map(\.id))
@@ -428,6 +444,8 @@ final class AppState {
         let stored = Self.readStoredMap()
         storedMap = stored
         if let stored, stored.isCurrent { readSettings(map: stored) }
+        watchVolumes()
+        warm()
     }
 
     // MARK: Capacity map
@@ -541,6 +559,7 @@ final class AppState {
 
     /// What the form itself refuses: everything but the memory.
     var formBlocker: String? {
+        if let reason = libraryBlocker { return reason }
         if let reason = installBlocker { return reason }
         if missing != nil { return String(localized: "This model isn't installed.") }
         if prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Write a prompt.") }
@@ -755,6 +774,7 @@ final class AppState {
 
     private func modelChanged() {
         readModelCatalog()
+        warm()
         // A LoRA from another model would be refused at render (`LoRA.Failure.wrongTarget`).
         let valid = Set(compatibleLoras.map(\.path))
         loras.removeAll { !$0.path.isEmpty && !valid.contains($0.path) }
