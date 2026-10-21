@@ -201,7 +201,7 @@
       <path d="M 40 830 L 560 830 A 310 310 0 0 0 560 210 A 310 310 0 0 0 250 520"/>
     </g>
   </svg>
-  <p class="eyebrow h-fade">v0.12 · free · open source · Apple silicon</p>
+  <p class="eyebrow h-fade">v0.13 · free · open source · Apple silicon</p>
   <h1 class="h-fade d1"><span class="grad">Your Mac, mapped.</span><span class="sub">Every kernel chosen for <em>this</em> chip.</span></h1>
   <p class="lead h-fade d2">Four image models, native in Swift and Metal. Full fp32, checked against the reference,
     inside a fixed memory budget. No Python. No server. No cloud.</p>
@@ -335,7 +335,7 @@
     <div class="card reveal"><h3>Checked against the original</h3><p>Every stage is compared channel by channel with diffusers and transformers in fp32, and rounds where they round. What cannot be checked against the reference does not ship.</p></div>
     <div class="card reveal"><h3>34 GB of model, 16 GB of Mac</h3><p>Weights stream from disk as needed. Never more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac): each render computes what it needs before it starts.</p></div>
     <div class="card reveal"><h3>Private by construction</h3><p>Nothing leaves your Mac, it works offline once a model is installed, and the render cache is gone when you quit.</p></div>
-    <div class="card reveal"><h3>Your models</h3><p>Install full size, in 8 bits or in 4 to 6 bits; import LoRAs from Civitai or Hugging Face. Licenses and disk space are shown before the first byte.</p></div>
+    <div class="card reveal"><h3>Your models</h3><p>Install full size, in 8 bits or in 4 to 6 bits; import LoRAs from Civitai or Hugging Face; keep them all on an external disk. Licenses and disk space are shown before the first byte.</p></div>
     <div class="card reveal"><h3>Built to be driven by an AI</h3><p><code>silicontrol</code> drives the running app from a terminal with JSON output; <code>silicontrol help</code> is all an agent needs.</p></div>
     <div class="card reveal"><h3>Reproducible to the bit</h3><p>Same prompt, seed, settings and version on the same Mac: the same image, byte for byte.</p></div>
     <div class="card reveal" style="grid-column:1/-1"><h3>Faster Rendering. On by default.</h3><p>From 1024 px on each side, the first steps run on a half-size grid, the rest at full size: a quarter to two fifths off the clock, still all 8 evaluations of the recipe. The trick is in the noise: the small grid gets the averaged picture plus the low band of the noise, and the step brought back to full size clears the fine noise exactly as a full step would, so no grain, no cracks; freckles and book spines survive. Another picture than the full-size one, not a blurrier one. Switch it off and you get the full-size recipe, bit for bit, the one checked against diffusers.</p></div>
@@ -362,7 +362,7 @@
     <h2>Your checkpoints. Your LoRAs.<br><span class="grad">Your Mac.</span></h2>
     <p class="punch" style="color:var(--text);font:500 clamp(20px, 2.4vw, 24px)/1.35 var(--display);margin:0 0 14px">Nobody's looking over your shoulder.</p>
     <p style="margin:0 0 12px">Drop in a Civitai checkpoint of a known family (⌘O): it imports as is and borrows its family's
-      encoder and VAE. LoRAs too. Siliconed censors no prompt and adds no filter of its own; nothing goes to
+      encoder and VAE, installed for it if they are not there yet. LoRAs too. Siliconed censors no prompt and adds no filter of its own; nothing goes to
       a server, and the render cache is emptied at launch and at quit. Whatever you're into stays between
       you and your GPU.</p>
     <p style="margin:0;font-size:14px">Each model's license still applies: Krea 2 Community's, for one, asks whoever deploys the model for a content filter.</p>
