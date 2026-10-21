@@ -1,3 +1,4 @@
+import Accelerate
 import Metal
 import MetalPerformanceShaders
 
@@ -396,6 +397,57 @@ package final class GEMM {
     /// conductor can call it again on a **slice** of rows.
     private func submit(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
                         weightIsTransposed: Bool) -> Double {
+        var output = c
+        var elapsed = submitOnce(a: a, b: b, c: output, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
+        // The first product of each (output buffer, shape) is checked; one that MPS got wrong gets a
+        // fresh buffer over the same memory, at most twice, the others are trusted from then on.
+        for _ in 0..<2 where !verified(output, m: m, n: n, a: a, k: k) {
+            Warnings.emit("⚠ GEMM \(m)×\(k)×\(n): MPS wrote non-finite values from finite operands; recomputed in a fresh buffer")
+            output = rewrapped(output)
+            elapsed += submitOnce(a: a, b: b, c: output, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
+        }
+        return elapsed
+    }
+
+    /// **Pairs (output buffer, shape) already checked, the buffer kept alive** so that its identifier
+    /// is never another's. MPS's fast fp32 kernel writes canonical NaN into the even columns of a band
+    /// of rows **for some output `MTLBuffer`s and not others**: the same memory wrapped in a fresh
+    /// buffer is right, the same buffer is wrong again on every retry, layer after layer, step after
+    /// step. It was first seen at 1 056 rows and the height taken for the cause (`rowSplit`); it came back at
+    /// 4 160, a multiple of 64 — Z-Image 1024² under a LoRA, a 64-token caption, rows 384 to 511 of
+    /// `w3`. What triggers it was not isolated (not the height alone, not a 2 GiB boundary of the
+    /// GPU address, not untouched pages); what it depends on was measured, and a pair is therefore
+    /// judged once: one sum over the output, a few ms, about twenty times a render.
+    private var checked: [ObjectIdentifier: (buffer: MTLBuffer, shapes: Set<Int>)] = [:]
+
+    /// Whether `c`'s first `m × n` floats are finite, or `a`'s are not (a non-finite input is the
+    /// model's, not the kernel's) — `true` without looking for a pair already checked.
+    private func verified(_ c: MTLBuffer, m: Int, n: Int, a: MTLBuffer, k: Int) -> Bool {
+        let id = ObjectIdentifier(c), shape = m &* 1_000_003 &+ n
+        if checked[id]?.shapes.contains(shape) == true { return true }
+        func finite(_ buffer: MTLBuffer, _ count: Int) -> Bool {
+            var sum: Float = 0
+            vDSP_sve(buffer.contents().assumingMemoryBound(to: Float.self), 1, &sum, vDSP_Length(count))
+            return sum.isFinite
+        }
+        let right = finite(c, m * n) || !finite(a, m * k)
+        if right { checked[id, default: (c, [])].shapes.insert(shape) }
+        return right
+    }
+
+    /// A fresh `MTLBuffer` over `c`'s memory, which `wrap` hands out from then on in its place.
+    private func rewrapped(_ c: MTLBuffer) -> MTLBuffer {
+        guard let fresh = device.makeBuffer(bytesNoCopy: c.contents(), length: c.length,
+                                            options: .storageModeShared, deallocator: nil) else { return c }
+        fresh.label = c.label
+        let key = UInt(bitPattern: c.contents())
+        if buffers[key] === c { buffers[key] = fresh }
+        return fresh
+    }
+
+    /// One MPS submission and its wait.
+    private func submitOnce(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
+                            weightIsTransposed: Bool) -> Double {
         let shape = Shape(m: m, k: k, n: n, transposed: weightIsTransposed)
         let multiply: MPSMatrixMultiplication
         if let existing = operators[shape] {
