@@ -2,6 +2,59 @@
 
 # Siliconed — notes de version
 
+## 0.13
+
+### Votre bibliothèque sur un autre disque
+
+- **Les Réglages déplacent les modèles** sur un disque externe ou un partage réseau, ouvrent une
+  bibliothèque qui s’y trouve déjà, ou la ramènent sur le Mac. Chaque fichier est copié, relu et
+  comparé (SHA-256) avant que rien ne bascule ; l’ancien emplacement est vidé en dernier. Arrêtée ou
+  en échec, la bibliothèque reste telle quelle, et un nouvel essai garde les fichiers déjà vérifiés.
+  Un disque FAT, un dossier en lecture seule ou une autre bibliothèque sont refusés avant le premier
+  octet. ([#2](https://github.com/gwenn-ha-dev/Siliconed/issues/2))
+- **Un rendu ne lit jamais l’autre disque.** Dès qu’un modèle est choisi, ce qu’il lit est copié sur
+  le Mac le temps de la session (`~/Library/Caches/Siliconed` ; plusieurs modèles gardés, le moins
+  récemment servi évincé, 5 Go toujours laissés libres), puis effacé quand l’app quitte — après un
+  plantage, au lancement suivant. La même graine donne la même image que depuis le disque du Mac.
+- **Ce qui appartient au Mac y reste** : les licences acceptées, la mesure de ce Mac, le cache de
+  rendu. Débranché, le disque est signalé : rien ne se rend avant son retour, et jamais une
+  bibliothèque vide ne prend sa place. La télécommande et la ligne de commande suivent une
+  bibliothèque déplacée.
+
+### Un modèle importé avant sa famille
+
+- **Déposer un fine-tune avant que sa famille soit installée** (un checkpoint Civitai ou Hugging
+  Face de Z-Image, Qwen-Image-2.1, Anima ou Krea 2) ouvre désormais l’installation de cette famille,
+  le même panneau que dans la fenêtre Modèles : la licence en entier, la place, l’encodeur de texte et
+  le VAE — jamais le DiT de la famille, puisque le fichier apporte le sien. Une fois l’installation
+  faite, le fichier est importé, et la licence acceptée là le couvre : pas de seconde feuille à son
+  premier rendu. Jusqu’à la 0.12, l’app disait seulement d’installer la famille d’abord.
+  ([#5](https://github.com/gwenn-ha-dev/Siliconed/issues/5))
+- **Un téléchargement refusé par Hugging Face** (HTTP 401 ou 403) ne renvoie plus à un terminal pour
+  se connecter : aucun dépôt d’où l’app installe ne demande de compte. Le message désigne maintenant
+  ce qui refuse — un proxy, un VPN, un pare-feu.
+
+### Corrigé
+
+- **Un rendu pouvait sortir entièrement non fini** (Z-Image en 1024² sous une LoRA, à certaines
+  longueurs de prompt) : le produit matriciel fp32 rapide d’Apple écrit parfois des valeurs invalides
+  dans certains tampons de sortie. Chaque tampon et chaque forme sont maintenant vérifiés une fois,
+  et recalculés dans un tampon neuf en cas de faute ; les mêmes bits partout ailleurs, sans coût
+  mesurable.
+- **Détail sur Qwen-Image-2.1** : Plus et Maximum ne changent plus la personne. Calibrés sur la LoRA
+  à 6 pas qu’employait la famille avant la 0.10, ils pesaient sur des pas où le Turbo décide encore
+  le visage ; ils ne touchent plus que la dernière évaluation (Plus 1,3, Maximum 2) : la même
+  personne, une texture plus fine. Normal ne change pas, au bit près.
+- **La feuille de licence d’un modèle importé** dit que le modèle d’image est le fichier importé, et
+  donne les licences de l’encodeur et du VAE de la version installée — ceux d’une Compact ou d’une
+  Légère viennent de tiers.
+- **Deux conversions du même modèle à la fois** (l’app et la ligne de commande, par exemple) ne
+  vident plus le fichier en cours l’une de l’autre : la seconde est refusée.
+- **Les métadonnées des rendus Krea 2** nomment la page Civitai qui porte le même fichier bf16 :
+  Civitai reconnaît le modèle.
+- Deux réglages du moteur qu’aucune mesure de Mac ne choisissait (attention en demi-précision,
+  élargissement GPU) sont retirés ; les chemins par défaut ne changent pas, au bit près.
+
 ## 0.12
 
 ### Un quatrième modèle : Krea 2 Turbo

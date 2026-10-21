@@ -2,6 +2,55 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.13
+
+### Your library on another disk
+
+- **Settings moves the models** to an external disk or a network share, opens a library already
+  there, or brings it back to the Mac. Each file is copied, read back and compared (SHA-256) before
+  anything switches; the old place is emptied last. Stopped or failed, the library is unchanged, and
+  a new attempt keeps the files already verified. A FAT disk, a read-only folder or another library
+  is refused before the first byte. ([#2](https://github.com/gwenn-ha-dev/Siliconed/issues/2))
+- **Renders never read the other disk.** As soon as a model is chosen, what it reads is copied to
+  the Mac for the session (`~/Library/Caches/Siliconed`; several models kept, the least recently
+  used evicted, 5 GB always left free), and removed when the app quits — after a crash, at the next
+  launch. The same seed gives the same image as from the Mac's own disk.
+- **What belongs to the Mac stays on it**: the licenses you accepted, this Mac's measure, the render
+  cache. Unplugged, the disk is said: nothing renders until it is back, and an empty library never
+  takes its place. The remote control and the command line follow a moved library.
+
+### A model imported before its family
+
+- **Dropping a fine-tune before its family is installed** (a Civitai or Hugging Face checkpoint of
+  Z-Image, Qwen-Image-2.1, Anima or Krea 2) now opens that family's installation, the same panel as
+  in the Models window: the license in full, the space, the text encoder and the VAE — never the
+  family's own DiT, since the file brings its own. Once installed, the file is imported, and the
+  license accepted there covers it: no second sheet at its first render. Until 0.12 the app only
+  said to install the family first. ([#5](https://github.com/gwenn-ha-dev/Siliconed/issues/5))
+- **A download refused by Hugging Face** (HTTP 401 or 403) no longer sends you to a terminal to sign
+  in: no repository the app installs from asks for an account. The message now points at what
+  refuses — a proxy, a VPN, a firewall.
+
+### Fixed
+
+- **A render could come out entirely non-finite** (Z-Image at 1024² under a LoRA, at certain prompt
+  lengths): Apple's fast fp32 matrix product sometimes writes invalid values into some output
+  buffers. Each buffer and shape is now checked once, and recomputed in a fresh buffer when wrong;
+  the same bits everywhere else, no measurable cost.
+- **Detail on Qwen-Image-2.1**: More and Most no longer change the person. Calibrated on the 6-step
+  LoRA the family used before 0.10, they weighed on steps where the Turbo still decides the face;
+  they now touch the last evaluation alone (More 1.3, Most 2): the same person, finer texture.
+  Normal is unchanged, to the bit.
+- **The license sheet of an imported model** says the image model is the imported file, and links
+  the licenses of the installed version's encoder and VAE — a Compact's or a Light's come from third
+  parties.
+- **Two conversions of the same model at once** (the app and the command line, say) no longer empty
+  each other's file in progress: the second one is refused.
+- **Krea 2 renders' metadata** name the Civitai page that carries the same bf16 file, so Civitai
+  recognizes the model.
+- Two engine settings never chosen by any Mac's measure (half-precision attention, GPU widening) are
+  removed; the default paths are unchanged, to the bit.
+
 ## 0.12
 
 ### A fourth model: Krea 2 Turbo
