@@ -154,9 +154,10 @@ chosen cell to the end with the same seed: the image its sketch announced.
   rendering until the new one is complete, then frees its space; if the disk cannot hold both, the
   app says so before you accept.
 - **Civitai and Hugging Face imports.** LoRAs (Civitai, Comfy, kohya, diffusers layouts) and a
-  fine-tune's DiT (`.safetensors`, or `.gguf` from Q4 to Q8_0), by drag and drop or ⌘O, once their
-  model is installed; a Civitai checkpoint of a known family imports as is and borrows its family's
-  encoder and VAE. A quantized file stays as published on disk, never re-quantized (Z-Image: 6.2 GB in
+  fine-tune's DiT (`.safetensors`, or `.gguf` from Q4 to Q8_0), by drag and drop or ⌘O; a Civitai
+  checkpoint of a known family imports as is and borrows its family's encoder and VAE. Dropped before
+  its family is installed, it opens the family's installation — license, encoder and VAE, never the
+  family's own DiT — and is imported once that is done. A quantized file stays as published on disk, never re-quantized (Z-Image: 6.2 GB in
   8 bits, about 5 GB in GGUF Q4_K_M, instead of 12.3 GB; each step a little slower, the computation
   stays fp32); below 4 bits, the file is refused. An imported LoRA takes its file's name; the
   trainer's name and trigger words show in a tooltip.

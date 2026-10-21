@@ -163,9 +163,10 @@ l'image que son esquisse annonçait.
   l'installée continue de rendre jusqu'à ce que la nouvelle soit complète, puis libère sa place ; si
   le disque ne peut pas tenir les deux, l'app le dit avant l'acceptation.
 - **Les imports Civitai et Hugging Face.** Les LoRA (formats Civitai, Comfy, kohya, diffusers) et le
-  DiT d'un fine-tune (`.safetensors`, ou `.gguf` de Q4 à Q8_0), par glisser-déposer ou ⌘O, une fois
-  leur modèle installé ; un checkpoint Civitai d'une famille connue s'importe tel quel et emprunte
-  l'encodeur et le VAE de sa famille. Un fichier quantifié reste sur le disque tel que publié, jamais requantifié
+  DiT d'un fine-tune (`.safetensors`, ou `.gguf` de Q4 à Q8_0), par glisser-déposer ou ⌘O ; un
+  checkpoint Civitai d'une famille connue s'importe tel quel et emprunte l'encodeur et le VAE de sa
+  famille. Déposé avant que sa famille soit installée, il ouvre l'installation de celle-ci — licence,
+  encodeur et VAE, jamais le DiT de la famille — et s'importe une fois l'installation faite. Un fichier quantifié reste sur le disque tel que publié, jamais requantifié
   (Z-Image : 6,2 Go en 8 bits, environ 5 Go en GGUF Q4_K_M, au lieu de 12,3 Go ; chaque pas un peu
   plus lent, le calcul reste en fp32) ; sous 4 bits, le fichier est refusé. Une LoRA importée prend
   le nom de son fichier ; le nom donné par son auteur et ses mots déclencheurs s'affichent en

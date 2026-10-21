@@ -77,9 +77,6 @@ struct Problem: Equatable, Sendable {
         case .downloadInterrupted(let f):                            // download_interrupted
             return String(localized: "The download of \(f) was interrupted.")
         case let .downloadRefused(f, status):                        // download_refused
-            if status == 401 || status == 403 {
-                return String(localized: "The download of \(f) was refused: the repository is gated (HTTP \(String(status))).")
-            }
             return String(localized: "The download of \(f) was refused by the server (HTTP \(String(status))).")
         case .downloadCorrupt(let f):                                // download_corrupt
             return String(localized: "The download of \(f) is corrupt: its checksum doesn't match.")
@@ -217,9 +214,9 @@ struct Problem: Equatable, Sendable {
         case .downloadInterrupted:
             return String(localized: "Check the connection and start again: the files already downloaded are kept, the interrupted one starts over.")
         case let .downloadRefused(_, status) where status == 401 || status == 403:
-            // The downloader reads `~/.cache/huggingface/token`, which `hf auth login` writes;
-            // an environment variable cannot be given to an app opened from the Finder.
-            return String(localized: "Accept the model's license on huggingface.co, then sign in on this Mac: “hf auth login” in a terminal, and install again.")
+            // No repository an installation reads is gated (`Installation.swift`), and the Hub serves
+            // them even to an expired token: a refusal comes from the way to it, not from a license.
+            return String(localized: "Check that huggingface.co opens in a browser on this Mac — a proxy, a VPN or a firewall can refuse it — then install again: the files already downloaded are kept.")
         case .downloadRefused:
             return String(localized: "Try again later.")
         case .downloadCorrupt:

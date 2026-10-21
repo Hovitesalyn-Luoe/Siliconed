@@ -53,18 +53,47 @@ extension AppState {
         perform(panel.urls)
     }
 
+    /// What an import run comes back with: the files imported, or the family a model among them
+    /// needs first — then nothing was imported.
+    enum ImportRun: Sendable {
+        case imported([ModelImport.Outcome])
+        case needs(Family)
+    }
+
     /// Imports `.safetensors` and `.gguf` files, one after the other. The file brought in may be discarded afterwards.
+    ///
+    /// **A checkpoint dropped before its family**: the engine refuses it (`importNeedsFamily`, the
+    /// encoder and VAE are the family's). The app reads the file's family first and, if missing,
+    /// offers the installation of what the model lacks — the family's license, its encoder and VAE,
+    /// never its DiT — then imports the files once it is done (`InstallOffer.thenImport`).
     func perform(_ urls: [URL]) {
         let files = urls.filter(Self.importable)
         guard !files.isEmpty, managementPossible else { return }
         let names = files.map(\.lastPathComponent).joined(separator: ", ")
         launchForge(String(localized: "Importing \(names)")) { b, cancellation, journal in
-            try files.map { try ModelImport.importFile($0.path, in: b, cancellation: cancellation, journal: journal) }
-        } end: { [weak self] (results: [ModelImport.Outcome]) in
+            let installer = Installer(library: b)
+            for f in files {
+                if case (.model, let family?) = try ModelImport.recognize(f.path), !installer.isReady(family) {
+                    return ImportRun.needs(family)
+                }
+            }
+            return ImportRun.imported(try files.map {
+                try ModelImport.importFile($0.path, in: b, cancellation: cancellation, journal: journal)
+            })
+        } end: { [weak self] (run: ImportRun) in
             guard let self else { return }
+            guard case .imported(let results) = run else {
+                if case .needs(let family) = run { offerInstall(family, baseDiT: false, thenImport: files) }
+                return
+            }
             for r in results {
                 if let id = r.identifier {
                     identifier = id
+                    // One acceptance: the family's, read before its encoder and VAE were installed,
+                    // covers the model built on them — no second sheet at the first render.
+                    if library.isLicenseAccepted(ModelCard.of(r.family)), let card = cards.first(where: { $0.id == id }) {
+                        try? library.acceptLicense(card)
+                    }
                     flash(String(localized: "Model imported: \(r.name)"))
                 } else if compatibleLoras.contains(where: { $0.path == r.path }) && loras.count < Self.maxLoRA {
                     loras.append(LoRASlot(path: r.path))
@@ -83,10 +112,12 @@ extension AppState {
     /// Light preselected on a Mac of 8 GB, shown among the three).
     /// `baseDiT` false (what an imported model lacks) never changes the version: the one installed is
     /// imposed, Standard if none, whatever `variant` says (`Library.installPlan`).
-    func offerInstall(_ family: Family, baseDiT: Bool = true, variant: Variant? = nil) {
+    /// `thenImport`: the files to import once installed (`perform`).
+    func offerInstall(_ family: Family, baseDiT: Bool = true, variant: Variant? = nil, thenImport: [URL] = []) {
         let installed = library.installedVariant(of: family)
         installOffer = InstallOffer(family: family, baseDiT: baseDiT,
-                                    variant: baseDiT ? variant ?? installed ?? family.preselectedVariant() : installed ?? .standard)
+                                    variant: baseDiT ? variant ?? installed ?? family.preselectedVariant() : installed ?? .standard,
+                                    thenImport: thenImport)
         managementOpen = true
     }
 
@@ -100,6 +131,7 @@ extension AppState {
             problem = Problem(error)
             return
         }
+        let thenImport = installOffer?.thenImport ?? []
         installOffer = nil
         // The plan the panel showed: when the old version must go first, a Stop leaves the family
         // without a complete version — the flash says so instead of « Stopped — … kept » alone.
@@ -114,6 +146,7 @@ extension AppState {
             // The model just installed becomes the form's, if the form's does not render.
             if !readySet.contains(identifier), baseDiT { identifier = ModelCard.of(family).id }
             flash(String(localized: "\(family.name) installed"))
+            if !thenImport.isEmpty { perform(thenImport) }
         }
     }
 

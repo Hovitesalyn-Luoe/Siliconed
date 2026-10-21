@@ -1095,6 +1095,40 @@
         }
       }
     },
+    "%@ will be imported once this is installed. Its image model is that file, under its author's license; the text encoder and the VAE below are %@'s." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wird importiert, sobald dies installiert ist. Sein Bildmodell ist diese Datei, unter der Lizenz ihres Autors; Text-Encoder und VAE unten sind die von %@."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ will be imported once this is installed. Its image model is that file, under its author's license; the text encoder and the VAE below are %2$@'s."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ se importará cuando esto esté instalado. Su modelo de imagen es ese archivo, bajo la licencia de su autor; el codificador de texto y el VAE de abajo son los de %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sera importé une fois l’installation faite. Son modèle d’image est ce fichier, sous la licence de son auteur ; l’encodeur de texte et le VAE ci-dessous sont ceux de %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sarà importato una volta completata l’installazione. Il suo modello di immagine è quel file, sotto la licenza del suo autore; l’encoder di testo e il VAE qui sotto sono quelli di %@."
+          }
+        }
+      }
+    },
     "%@ · %@ on disk" : {
       "localizations" : {
         "de" : {
@@ -3743,34 +3777,6 @@
         }
       }
     },
-    "Accept the model's license on huggingface.co, then sign in on this Mac: “hf auth login” in a terminal, and install again." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Akzeptieren Sie die Lizenz des Modells auf huggingface.co, melden Sie sich dann auf diesem Mac an („hf auth login“ in einem Terminal) und installieren Sie erneut."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Acepta la licencia del modelo en huggingface.co y luego inicia sesión en este Mac: «hf auth login» en un terminal, y vuelve a instalar."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Acceptez la licence du modèle sur huggingface.co, puis connectez-vous sur ce Mac : « hf auth login » dans un terminal, et relancez l’installation."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Accetta la licenza del modello su huggingface.co, poi accedi su questo Mac: «hf auth login» in un terminale, e riavvia l’installazione."
-          }
-        }
-      }
-    },
     "Add" : {
       "localizations" : {
         "de" : {
@@ -4859,6 +4865,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cerca aggiornamenti…"
+          }
+        }
+      }
+    },
+    "Check that huggingface.co opens in a browser on this Mac — a proxy, a VPN or a firewall can refuse it — then install again: the files already downloaded are kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfen Sie, ob sich huggingface.co auf diesem Mac im Browser öffnet – ein Proxy, ein VPN oder eine Firewall kann es blockieren –, und installieren Sie dann erneut: Bereits geladene Dateien bleiben erhalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprueba que huggingface.co se abre en un navegador en este Mac —un proxy, una VPN o un cortafuegos pueden bloquearlo— y vuelve a instalar: los archivos ya descargados se conservan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiez que huggingface.co s’ouvre dans un navigateur sur ce Mac — un proxy, un VPN ou un pare-feu peut le refuser — puis relancez l’installation : les fichiers déjà téléchargés sont gardés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifica che huggingface.co si apra in un browser su questo Mac — un proxy, una VPN o un firewall possono bloccarlo — poi reinstalla: i file già scaricati vengono conservati."
           }
         }
       }
@@ -17969,40 +18003,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il download di %@ è stato rifiutato dal server (HTTP %@)."
-          }
-        }
-      }
-    },
-    "The download of %@ was refused: the repository is gated (HTTP %@)." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Download von %@ wurde abgelehnt: Das Repository ist zugangsbeschränkt (HTTP %@)."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "The download of %1$@ was refused: the repository is gated (HTTP %2$@)."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se ha rechazado la descarga de %@: el repositorio es de acceso restringido (HTTP %@)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le téléchargement de %@ a été refusé : le dépôt est à accès restreint (HTTP %@)."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il download di %@ è stato rifiutato: il repository ha accesso limitato (HTTP %@)."
           }
         }
       }

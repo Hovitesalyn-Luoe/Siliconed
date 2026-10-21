@@ -348,6 +348,9 @@ final class AppState {
         /// The version to install, chosen in the panel: the one installed (else the preselected one)
         /// unless the user picks another — never another one when `baseDiT` is false (`offerInstall`).
         var variant: Variant = .standard
+        /// The files dropped before their family was there: imported once this installation is done.
+        /// Cancelling the offer, or stopping the installation, forgets them with it.
+        var thenImport: [URL] = []
     }
     /// The diagnostic sheet, and where the diagnostic stands.
     var diagnosticOpen = false

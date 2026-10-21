@@ -200,6 +200,13 @@ struct ModelManagement: View {
                 }
                 Divider()
             }
+            // A checkpoint dropped before its family: said here, where the license is accepted.
+            if !offer.thenImport.isEmpty {
+                Label("\(offer.thenImport.map(\.lastPathComponent).joined(separator: ", ")) will be imported once this is installed. Its image model is that file, under its author's license; the text encoder and the VAE below are \(card.name)'s.",
+                      systemImage: "square.and.arrow.down")
+                    .font(.callout)
+                Divider()
+            }
             LicenseTerms(card: card, variant: offer.variant)
             Divider()
             HStack(alignment: .firstTextBaseline) {
