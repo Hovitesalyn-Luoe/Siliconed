@@ -16,7 +16,7 @@ English · [Français](RELEASE-NOTES.fr.md)
   used evicted, 5 GB always left free), and removed when the app quits — after a crash, at the next
   launch. The same seed gives the same image as from the Mac's own disk.
 - **What belongs to the Mac stays on it**: the licenses you accepted, this Mac's measure, the render
-  cache. Unplugged, the disk is said: nothing renders until it is back, and an empty library never
+  cache. Unplugged, the disk is flagged: nothing renders until it is back, and an empty library never
   takes its place. The remote control and the command line follow a moved library.
 
 ### A model imported before its family
