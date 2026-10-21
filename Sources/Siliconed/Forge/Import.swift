@@ -36,6 +36,27 @@ package enum ModelImport {
         }
     }
 
+    /// **What the import would make of the file, read no further than its header**: a LoRA
+    /// examined by the forge against the installed families (`ForgeLoRA.examine`), a model by its
+    /// names. A LoRA for a family not installed is `importNeedsFamily`, as at the import.
+    package static func examine(_ file: String, in b: Library) throws(EngineError) -> (Kind, Family) {
+        try refusingAs(file) {
+            let s = try TensorSource(paths: [file])
+            if ForgeLoRA.isLoRA(s.names) {
+                let installer = Installer(library: b)
+                let e = try ForgeLoRA.examine(file: file, reference: { f in
+                    installer.presentComponents(f) ? try installer.readReference(f) : nil
+                })
+                return (.lora, e.family)
+            }
+            guard let f = Recipes.family(fromNames: s.names) else {
+                throw Numerics.Failure(description: "neither a LoRA nor a recognized DiT ("
+                                       + Family.allCases.map(\.name).joined(separator: ", ") + ")")
+            }
+            return (.model, f)
+        }
+    }
+
     /// The door of an import: what the forge or the `.safetensors` reader refuses in the user's file
     /// is `importRefused` (the forge's diagnostic as `detail`); everything else folds as anywhere.
     private static func refusingAs<T>(_ file: String, _ body: () throws -> T) throws(EngineError) -> T {

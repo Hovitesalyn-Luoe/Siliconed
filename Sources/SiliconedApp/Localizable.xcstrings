@@ -5009,6 +5009,62 @@
         }
       }
     },
+    "Checked once downloaded" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird nach dem Download geprüft"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se comprueba al descargarlo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifié une fois téléchargé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificato una volta scaricato"
+          }
+        }
+      }
+    },
+    "Checking…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird geprüft…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobando…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifica…"
+          }
+        }
+      }
+    },
     "Chip" : {
       "localizations" : {
         "de" : {
@@ -8935,6 +8991,34 @@
         }
       }
     },
+    "From Hugging Face" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von Hugging Face"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desde Hugging Face"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depuis Hugging Face"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Da Hugging Face"
+          }
+        }
+      }
+    },
     "Full Screen" : {
       "localizations" : {
         "de" : {
@@ -9670,6 +9754,34 @@
         }
       }
     },
+    "Image model, %@ family" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildmodell, Familie %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modelo de imagen, familia %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modèle d’image, famille %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modello di immagine, famiglia %@"
+          }
+        }
+      }
+    },
     "Image to Edit" : {
       "localizations" : {
         "de" : {
@@ -9754,6 +9866,34 @@
         }
       }
     },
+    "Import (%@)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importieren (%@)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar (%@)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer (%@)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa (%@)"
+          }
+        }
+      }
+    },
     "Import a LoRA or a full model of a supported family, as .safetensors (at least 8 bits) or .gguf (at least 4 bits)." : {
       "localizations" : {
         "de" : {
@@ -9806,6 +9946,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importa un modello o una LoRA…"
+          }
+        }
+      }
+    },
+    "Import is possible once the render or installation in progress is done." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importieren ist möglich, sobald das laufende Rendern oder die Installation fertig ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se podrá importar cuando termine el renderizado o la instalación en curso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’import sera possible une fois le rendu ou l’installation en cours terminé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’importazione sarà possibile al termine del rendering o dell’installazione in corso."
           }
         }
       }
@@ -10370,6 +10538,34 @@
         }
       }
     },
+    "Its author restricts access on Hugging Face: the download needs your account's access to it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Autor beschränkt den Zugang auf Hugging Face: Der Download braucht den Zugang Ihres Kontos."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su autor restringe el acceso en Hugging Face: la descarga necesita que tu cuenta tenga acceso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son auteur en restreint l’accès sur Hugging Face : le téléchargement demande que votre compte y ait accès."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’autore ne limita l’accesso su Hugging Face: il download richiede che il tuo account vi abbia accesso."
+          }
+        }
+      }
+    },
     "Its forged card is deleted. To get it back, import its file again." : {
       "localizations" : {
         "de" : {
@@ -10734,6 +10930,34 @@
         }
       }
     },
+    "License on its page: %@. The file is its author's, under that license." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lizenz laut Seite: %@. Die Datei gehört ihrem Autor, unter dieser Lizenz."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Licencia indicada en su página: %@. El archivo es de su autor, bajo esa licencia."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Licence indiquée sur sa page : %@. Le fichier appartient à son auteur, sous cette licence."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Licenza indicata nella sua pagina: %@. Il file è del suo autore, con questa licenza."
+          }
+        }
+      }
+    },
     "Light" : {
       "localizations" : {
         "de" : {
@@ -10898,6 +11122,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "LoRA %@ rimossa"
+          }
+        }
+      }
+    },
+    "LoRA for %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA für %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA para %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA pour %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA per %@"
+          }
+        }
+      }
+    },
+    "LoRA for %@, which will be installed first" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA für %@, das zuerst installiert wird"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA para %@, que se instalará primero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA pour %@, qui sera installé d’abord"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LoRA per %@, che verrà installato prima"
           }
         }
       }
@@ -12472,6 +12752,34 @@
         }
       }
     },
+    "No license declared on its page: the file is its author's." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Lizenz auf der Seite angegeben: Die Datei gehört ihrem Autor."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ninguna licencia indicada en su página: el archivo es de su autor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune licence indiquée sur sa page : le fichier appartient à son auteur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessuna licenza indicata nella sua pagina: il file è del suo autore."
+          }
+        }
+      }
+    },
     "No reference" : {
       "localizations" : {
         "de" : {
@@ -13017,6 +13325,34 @@
         }
       }
     },
+    "Not supported — hover for the reason" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht unterstützt – Grund beim Darüberfahren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No compatible — pasa el cursor para ver el motivo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non pris en charge — survolez pour la raison"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non supportato — passa sopra per il motivo"
+          }
+        }
+      }
+    },
     "Not used" : {
       "localizations" : {
         "de" : {
@@ -13073,6 +13409,34 @@
         }
       }
     },
+    "Nothing in this repository can be imported: Siliconed takes a LoRA or an image model as one .safetensors or .gguf file." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In diesem Repository lässt sich nichts importieren: Siliconed nimmt eine LoRA oder ein Bildmodell als eine einzige .safetensors- oder .gguf-Datei."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nada de este repositorio se puede importar: Siliconed admite un LoRA o un modelo de imagen en un único archivo .safetensors o .gguf."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rien dans ce dépôt ne peut être importé : Siliconed prend une LoRA ou un modèle d’image en un seul fichier .safetensors ou .gguf."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niente in questo repository si può importare: Siliconed accetta una LoRA o un modello di immagine in un solo file .safetensors o .gguf."
+          }
+        }
+      }
+    },
     "Nothing installed" : {
       "localizations" : {
         "de" : {
@@ -13097,6 +13461,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nulla di installato"
+          }
+        }
+      }
+    },
+    "Nothing is downloaded before Import. The file is checked against the fingerprint Hugging Face lists, imported, then deleted." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vor „Importieren“ wird nichts geladen. Die Datei wird mit dem Fingerabdruck geprüft, den Hugging Face angibt, importiert und dann gelöscht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se descarga nada antes de «Importar». El archivo se comprueba con la huella que indica Hugging Face, se importa y luego se borra."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rien n’est téléchargé avant « Importer ». Le fichier est vérifié contre l’empreinte que donne Hugging Face, importé, puis supprimé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nulla viene scaricato prima di «Importa». Il file viene verificato con l’impronta indicata da Hugging Face, importato, poi eliminato."
           }
         }
       }
@@ -14164,6 +14556,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leggi la licenza: %@"
+          }
+        }
+      }
+    },
+    "Reading the repository…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repository wird gelesen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leyendo el repositorio…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture du dépôt…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lettura del repository…"
           }
         }
       }

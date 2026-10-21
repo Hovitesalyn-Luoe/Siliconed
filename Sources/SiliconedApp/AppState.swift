@@ -352,6 +352,8 @@ final class AppState {
         /// Cancelling the offer, or stopping the installation, forgets them with it.
         var thenImport: [URL] = []
     }
+    /// **The « Use this model » link being answered** (`HubSheet`): the repository, its files judged.
+    var hubOffer: HubOffer?
     /// The diagnostic sheet, and where the diagnostic stands.
     var diagnosticOpen = false
     var diagnostic = DiagnosticPhase.ready

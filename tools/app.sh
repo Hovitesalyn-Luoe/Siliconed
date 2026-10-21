@@ -102,6 +102,10 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Siliconed</string>
+  <key>CFBundleURLTypes</key><array><dict>
+    <key>CFBundleURLName</key><string>dev.gwenn-ha.siliconed.hub</string>
+    <key>CFBundleURLSchemes</key><array><string>siliconed</string></array>
+  </dict></array>
 </dict></plist>
 PLIST
 

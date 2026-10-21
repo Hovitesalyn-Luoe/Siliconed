@@ -186,6 +186,17 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `siliconed://hf?…` — « Use this model » on Hugging Face, through the site's relay page;
+    /// at launch too. Anything else the scheme receives is ignored.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated {
+            for link in urls.compactMap(HubLink.init) {
+                MainWindow.shared.show()
+                MainWindow.shared.app.open(link)
+            }
+        }
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if !hasVisibleWindows { MainActor.assumeIsolated { MainWindow.shared.show() } }
         return true

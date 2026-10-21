@@ -134,6 +134,46 @@ final class HardeningTests: XCTestCase {
                                              reference: { _ in self.qwenReference }))
     }
 
+    /// sd-scripts writes `.alpha` as an `I64` scalar when the network alpha was an `int` (the
+    /// Anima LoRAs of HF): read as diffusers' `.item()`, α/r folded into up.
+    func testAnIntegerAlphaIsRead() throws {
+        let lora = root.appendingPathComponent("int-alpha.safetensors").path
+        let f32 = { (v: [Float]) in v.withUnsafeBufferPointer { Data(buffer: $0) } }
+        var four = Int64(4).littleEndian
+        try ForgeDiT.writeSafetensors([
+            ("diffusion_model.transformer_blocks.0.img_mlp.gate_up.alpha", "I64", [], withUnsafeBytes(of: &four) { Data($0) }),
+            ("diffusion_model.transformer_blocks.0.img_mlp.gate_up.lora_A.weight", "F32", [2, 2], f32([1, 2, 3, 4])),
+            ("diffusion_model.transformer_blocks.0.img_mlp.gate_up.lora_B.weight", "F32", [6, 2], f32((0..<12).map(Float.init))),
+        ], to: lora)
+        let report = try ForgeLoRA.forge(file: lora, to: root.appendingPathComponent("i.lora.silicon").path,
+                                         reference: { _ in self.qwenReference })
+        XCTAssertTrue(report.notes.contains { $0.contains("α/r = 2") }, "\(report.notes)")
+    }
+
+    /// `transformer_blocks.N.attn.to_q` alone is Qwen-Image-2.1's and Krea 2's diffusers name: the
+    /// installed shapes decide, and two families that both fit are no answer.
+    func testNamesSharedByTwoFamiliesAreDecidedByTheShapes() throws {
+        let lora = try safetensors([("transformer.transformer_blocks.0.attn.to_q.lora.down.weight", [2, 4], Array(repeating: 1, count: 8)),
+                                    ("transformer.transformer_blocks.0.attn.to_q.lora.up.weight", [4, 2], Array(repeating: 1, count: 8))])
+        let map = root.appendingPathComponent("s.lora.silicon").path
+        let qwen = ["transformer_blocks.0.attn.to_q.weight": [4, 4]], other = ["transformer_blocks.0.attn.to_q.weight": [6, 6]]
+        let report = try ForgeLoRA.forge(file: lora, to: map, reference: { f in
+            f == .qwenImage21 ? qwen : f == .krea2 ? other : nil })
+        XCTAssertEqual(report.family, .qwenImage21)
+        XCTAssertThrowsError(try ForgeLoRA.forge(file: lora, to: map, reference: { f in
+            f == .qwenImage21 || f == .krea2 ? qwen : nil })) { XCTAssertTrue("\($0)".contains("not recognized"), "\($0)") }
+    }
+
+    /// A LoRA that also trains the text encoder is refused by what it is, not as unknown kohya names.
+    func testATextEncoderLoRAIsRefusedAsSuch() throws {
+        let lora = try safetensors([("lora_te_layers_0_self_attn_q_proj.lora_down.weight", [2, 2], [1, 2, 3, 4]),
+                                    ("lora_te_layers_0_self_attn_q_proj.lora_up.weight", [2, 2], [1, 2, 3, 4]),
+                                    ("lora_unet_blocks_0_self_attn_q_proj.lora_down.weight", [2, 2], [1, 2, 3, 4]),
+                                    ("lora_unet_blocks_0_self_attn_q_proj.lora_up.weight", [2, 2], [1, 2, 3, 4])])
+        XCTAssertThrowsError(try ForgeLoRA.forge(file: lora, to: root.appendingPathComponent("t.lora.silicon").path,
+                                                 reference: { _ in [:] })) { XCTAssertTrue("\($0)".contains("text encoder"), "\($0)") }
+    }
+
     // ── memory: a convrot DiT imported ────────────────────────────────────────────────────────
 
     /// **An imported int8 convrot DiT widens through a scratch outside the arenas** — Z-Image's and

@@ -103,6 +103,25 @@ package final class TensorSource {
         return v
     }
 
+    /// **A scalar's value** — a float as `read` gives it, or an integer: sd-scripts saves a LoRA's
+    /// `.alpha` as `torch.tensor(alpha)`, an `I64` when the network alpha was given as an `int`,
+    /// and diffusers reads it back with `.item()`. Integers stop here: `toFloat32` would let an
+    /// `I32` of packed 4-bit weights pass as numbers.
+    package func scalar(_ name: String) throws -> Float? {
+        guard groups[name] == nil, let (f, e) = index[name], e.count == 1 else { return try read(name).first }
+        let size = ["I64": 8, "I32": 4, "I16": 2][e.dtype]
+        guard let size else { return try read(name).first }
+        let b = try f.bytes(e)
+        guard b.count == size else { throw Numerics.Failure(description: "\(name) : \(b.count) bytes for one \(e.dtype)") }
+        return b.withUnsafeBytes { p in
+            switch size {
+            case 8: Float(Int64(littleEndian: p.loadUnaligned(as: Int64.self)))
+            case 4: Float(Int32(littleEndian: p.loadUnaligned(as: Int32.self)))
+            default: Float(Int16(littleEndian: p.loadUnaligned(as: Int16.self)))
+            }
+        }
+    }
+
     /// **A 16-bit tensor's bits as published** (`BF16`, `F16`), nothing widened: what the forge
     /// writes as is when its rule moves values without computing (`ForgeDiT.tensor`). `nil`: any
     /// other dtype, or an 8-bit weight.

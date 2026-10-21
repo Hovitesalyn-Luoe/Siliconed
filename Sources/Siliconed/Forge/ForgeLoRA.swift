@@ -147,10 +147,13 @@ package enum ForgeLoRA {
         var alpha: String?
     }
 
-    /// A LoRA? — one key with the right form is enough.
+    /// A LoRA? — one key with the right form is enough. LyCORIS (`lokr_`, `hada_`) is one too, to
+    /// be refused as such by `parseKey`: taken for a model, a LoKr on Krea 2's names passed for a
+    /// checkpoint (a 1.5 GB one on the Hub).
     package static func isLoRA(_ names: [String]) -> Bool {
         names.contains { $0.contains(".lora_A") || $0.contains(".lora_B") || $0.contains(".lora_down")
-            || $0.contains(".lora_up") || $0.contains(".lora.down") || $0.hasPrefix("lora_unet_") }
+            || $0.contains(".lora_up") || $0.contains(".lora.down") || $0.hasPrefix("lora_unet_")
+            || $0.contains(".lokr_") || $0.contains(".hada_") }
     }
 
     /// Module and role of a published key, or the error saying why it is not read.
@@ -373,11 +376,33 @@ package enum ForgeLoRA {
         }
     }
 
+    /// What the forge would make of a LoRA, judged on its names and shapes alone.
+    package struct Examination {
+        package let family: Family
+        package let modules: Int
+        package let ranks: [Int]
+    }
+
     /// **Forges the LoRA.** `family`: imposed, or `nil` to recognize it from the names. `reference`:
     /// the published DiT's names and shapes of a family, `nil` when it is not installed — never a
     /// download; what it throws (a disk full, a damaged `dit.json`) is a real failure and propagates.
     package static func forge(file: String, to path: String, family imposed: Family? = nil,
                                reference: (Family) throws -> [String: [Int]]?) throws -> Report {
+        try forging(file: file, to: path, family: imposed, reference: reference).1!
+    }
+
+    /// **The forge's verdict without a value read**: names, shapes, targets — what refuses a LoRA
+    /// for another model, LyCORIS, DoRA, a text encoder. A file whose data is not there yet (a
+    /// header from the Hub, the rest of the file sparse) is judged as the import will judge it,
+    /// but for the values: a non-zero `diff` and a non-finite `alpha` are the import's to refuse.
+    package static func examine(file: String, family imposed: Family? = nil,
+                                 reference: (Family) throws -> [String: [Int]]?) throws -> Examination {
+        try forging(file: file, to: nil, family: imposed, reference: reference).0
+    }
+
+    /// `path` `nil`: examine only, nothing read past the header, nothing written.
+    private static func forging(file: String, to path: String?, family imposed: Family?,
+                                reference: (Family) throws -> [String: [Int]]?) throws -> (Examination, Report?) {
         let source = try TensorSource(paths: [file])
         let metadata = source.metadata
         var notes: [String] = []
@@ -394,6 +419,7 @@ package enum ForgeLoRA {
             case "up": p.up = key
             case "alpha": p.alpha = key
             default:
+                guard path != nil else { break }
                 let v = try source.read(key)
                 if v.contains(where: { $0 != 0 }) {
                     throw Numerics.Failure(description: "\(key) : a non-zero `\(role)` delta — the engine only applies "
@@ -412,6 +438,11 @@ package enum ForgeLoRA {
             throw Numerics.Failure(description: "\(mismatched.count) mismatched modules (down without up), including \(mismatched.prefix(3))")
         }
         guard !pairs.isEmpty else { throw Numerics.Failure(description: "no down/up pair: not a LoRA") }
+        // sd-scripts' `lora_te_`, `lora_te1_`…, diffusers' `text_encoder.`: the engine adapts the DiT only.
+        if let te = moduleOrder.first(where: { $0.hasPrefix("lora_te") || $0.hasPrefix("text_encoder") }) {
+            throw Numerics.Failure(description: "\(te) : this LoRA also adapts the text encoder, which the engine "
+                                  + "does not adapt — refused rather than half-applied")
+        }
 
         // ── The family, and the flattened kohya names ─────────────────────────────────────────
         let flattened = moduleOrder.contains { $0.hasPrefix("lora_unet_") }
@@ -450,6 +481,27 @@ package enum ForgeLoRA {
         } else {
             for m in moduleOrder { renamed[m] = m }
             family = family ?? familyOfNames(moduleOrder)
+            // Names shared by several families (`transformer_blocks.N.attn.to_q`: a LoRA on the
+            // attention alone, lightx2v's Qwen-Image-2.1 Lightning): the installed families' shapes
+            // decide — exactly one must take every module.
+            if family == nil {
+                func fits(_ f: Family, _ ref: [String: [Int]]) -> Bool {
+                    moduleOrder.allSatisfy { m in
+                        guard let a = source.shape(pairs[m]!.down!), let b = source.shape(pairs[m]!.up!),
+                              a.count == 2, b.count == 2,
+                              let parts = try? targets(m, family: f, ref: ref), !parts.isEmpty else { return false }
+                        return parts.allSatisfy { c in
+                            guard let s = ref[c.module + ".weight"], s.count == 2, s[1] == a[1] else { return false }
+                            return c.rows != nil || c.part != nil || s[0] == b[0]
+                        }
+                    }
+                }
+                let fitting = try Family.allCases.filter { f in try reference(f).map { fits(f, $0) } ?? false }
+                if fitting.count == 1 {
+                    family = fitting[0]
+                    notes.append("family recognized by the installed shapes: \(fitting[0].name)")
+                }
+            }
         }
         guard let family else {
             throw Numerics.Failure(description: "family not recognized: neither " + Family.allCases.map(\.name).joined(separator: ", "))
@@ -485,8 +537,10 @@ package enum ForgeLoRA {
             let r = a[0], kTotal = a[1]
             var scale: Float = 1
             guard r > 0 else { throw Numerics.Failure(description: "\(m) : rank 0") }
-            if let al = p.alpha {
-                let v = try source.read(al).first ?? Float(r)
+            if p.alpha != nil, path == nil {
+                alphas += 1
+            } else if let al = p.alpha {
+                let v = try source.scalar(al) ?? Float(r)
                 guard v.isFinite else { throw Numerics.Failure(description: "\(m) : alpha \(v) is not finite") }
                 scale = v / Float(r); alphas += 1
             } else if let peft {
@@ -530,6 +584,9 @@ package enum ForgeLoRA {
         } else if alphas == 0, let a = metadata["ss_network_alpha"] ?? metadata["alpha"] {
             notes.append("alpha \(a) declared in metadata only: ignored, like diffusers and ComfyUI")
         }
+
+        let examination = Examination(family: family, modules: plans.count, ranks: ranks.sorted())
+        guard let path else { return (examination, nil) }
 
         // ── The DiT map's order, then the writing ───────────────────────────────────
         let ditOrder = ForgeDiT.order(Array(ref.keys), family: family)
@@ -596,6 +653,6 @@ package enum ForgeLoRA {
             h.append(.init("order", .list(tensors.map { .string($0.name) })))
             return h
         })
-        return Report(tally: tally, family: family, name: raw, modules: modules.count, ranks: sortedRanks, notes: notes)
+        return (examination, Report(tally: tally, family: family, name: raw, modules: modules.count, ranks: sortedRanks, notes: notes))
     }
 }

@@ -120,6 +120,18 @@ final class HostileFilesTests: XCTestCase {
         assertGGUFRefused(try gguf("dims.gguf", keys: 0, kv: [], tensors: 1, infos: info, size: 70_000), "overflow")
     }
 
+    /// A GGUF header read in part (the Hub's first bytes, the rest zeros): past `readable` it is
+    /// `Unread`, never judged on the zeros; read whole, it parses as the file.
+    func testAGGUFReadInPartIsNotJudgedOnZeros() throws {
+        let kv = ggufString("general.name") + le(UInt32(8)) + ggufString(String(repeating: "x", count: 100))
+        let bytes = try Data(contentsOf: URL(fileURLWithPath: try gguf("part.gguf", keys: 1, kv: kv)))
+        let end = 24 + kv.count
+        try bytes.withUnsafeBytes { b in
+            XCTAssertThrowsError(try GGUF.parse(b.baseAddress!, size: b.count, readable: end - 1)) { XCTAssertTrue($0 is GGUF.Unread, "\($0)") }
+            XCTAssertNoThrow(try GGUF.parse(b.baseAddress!, size: b.count, readable: end))
+        }
+    }
+
     // ── OrderedJSON ─────────────────────────────────────────────────────────────────────────
 
     func testOrderedJSONDepthIsBounded() throws {

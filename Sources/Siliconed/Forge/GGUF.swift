@@ -82,11 +82,16 @@ package enum GGUF {
 
     package static func refuse(_ why: String) -> Numerics.Failure { Numerics.Failure(description: "GGUF: " + why) }
 
+    /// The header ran past `readable`: what follows was never read (`HubImport.examine`).
+    package struct Unread: Error {}
+
     /// Parses the header of a mapped GGUF file of `size` bytes and checks every tensor against it.
-    package static func parse(_ base: UnsafeRawPointer, size: Int) throws -> Header {
+    /// `readable`: only that many bytes are the file's — past it, `Unread`, never a verdict on zeros.
+    package static func parse(_ base: UnsafeRawPointer, size: Int, readable: Int? = nil) throws -> Header {
         var p = 0
         func need(_ n: Int) throws {
             guard n >= 0, p + n <= size else { throw refuse("truncated header (at byte \(p))") }
+            if let readable, p + n > readable { throw Unread() }
         }
         func u32() throws -> UInt32 { try need(4); defer { p += 4 }; return base.loadUnaligned(fromByteOffset: p, as: UInt32.self) }
         func u64() throws -> UInt64 { try need(8); defer { p += 8 }; return base.loadUnaligned(fromByteOffset: p, as: UInt64.self) }

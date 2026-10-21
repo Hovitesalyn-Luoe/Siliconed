@@ -77,6 +77,10 @@ extension AppState {
                     return ImportRun.needs(family)
                 }
             }
+            // A file downloaded from the Hub (`importFromHub`) was only there for this import —
+            // imported or refused, it goes; one waiting for its family above stays.
+            let hub = HubImport.downloads(in: b) + "/"
+            defer { for f in files where f.path.hasPrefix(hub) { try? FileManager.default.removeItem(at: f) } }
             return ImportRun.imported(try files.map {
                 try ModelImport.importFile($0.path, in: b, cancellation: cancellation, journal: journal)
             })
