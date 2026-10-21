@@ -475,6 +475,7 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
             case let .solver(solver, model): self = .solverUnsupported(solver: solver.rawValue, model: model)
             case let .schedule(schedule, model): self = .scheduleUnsupported(schedule: schedule.rawValue, model: model)
             case .detail(let model): self = .detailUnsupported(model: model)
+            case let .promptTooLong(tokens, max): self = .promptTooLong(tokens: tokens, max: max)
             }
         case let e as Strength.Failure:
             switch e {

@@ -222,17 +222,17 @@ final class MemoryNeedKrea2Tests: XCTestCase {
     }
 
     /// **The text follows the prompt, not 512**: the encoder's rows are the template's 34, the prompt
-    /// cut where `Krea2Text.identifiers` cuts, and the suffix's 5; the DiT's are the prompt's alone.
+    /// capped where `Krea2Text.admitted` refuses (1 024), and the suffix's 5; the DiT's are the prompt's alone.
     func testTheTextFollowsThePrompt() {
         XCTAssertEqual(MemoryNeed.Request.promptTokens(text: 20, family: .krea2), 59)
-        XCTAssertEqual(MemoryNeed.Request.promptTokens(text: 9000, family: .krea2), 546)
+        XCTAssertEqual(MemoryNeed.Request.promptTokens(text: 9000, family: .krea2), 1063)
         XCTAssertEqual(MemoryNeed.Request.promptTokens("woman posing in a library", family: .krea2), 64)
-        let short = need(1024, 1024, tokens: 59), long = need(1024, 1024, tokens: 546)
+        let short = need(1024, 1024, tokens: 59), long = need(1024, 1024, tokens: 1063)
         for phase in 0..<3 { XCTAssertLessThan(short.phases[phase].bytes, long.phases[phase].bytes) }
         XCTAssertEqual(long.phases[2].bytes("DiT arena"),
                        Krea2DiT.arenaBytes(config: MemoryFixtures.krea2Maps().dit, latentHeight: 128, latentWidth: 128,
-                                           maxText: 512, rank: 0))
-        XCTAssertEqual(need(1024, 1024, tokens: 546), need(1024, 1024, tokens: 4000))
+                                           maxText: Request.maximumPromptTokens + Krea2Text.suffixTokens, rank: 0))
+        XCTAssertEqual(need(1024, 1024, tokens: 1063), need(1024, 1024, tokens: 4000))
     }
 
     /// **The GQA SDPA past `maxMatrix` runs by query slices** — 1024×1536 — and MPSGraph concatenates them:

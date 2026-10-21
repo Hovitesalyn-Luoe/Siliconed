@@ -2,19 +2,19 @@ import Foundation
 
 /// **Anima's need, phase by phase** — nothing but the constructors' shape functions.
 ///
-///     crossing: text [512, 1024] · latent [16, H/8, W/8] · (img2img) the image as handed, and z₀
+///     crossing: text [L, 1024] · latent [16, H/8, W/8] · (img2img) the image as handed, and z₀
 ///
 ///     text        TextEncoder arena(T) + its staging buffers × the largest encoder layer          ┐
 ///                 + causal SDPA: mask T·T (ours) ⊕ queries' copy (MPSGraph) · its GEMM           │ one at
-///                 + the conditioner's arena (512 T5 rows reading T Qwen rows, in double)          │ a time,
+///                 + the conditioner's arena (L T5 rows reading T Qwen rows, in double)            │ a time,
 ///     references  (img2img, Détail) the `fitted` copy when the size differs                     │ each
 ///                 + the Qwen-Image encoder's two heaps and host copies (`VAEEncoder.plan`)        │ handing
-///     denoising   the DiT's arena(s, 512, r) + the velocity + LoRA `down` staging                 │ back its
-///                 + two SDPAs (self s×s, cross s×512), cut by heads or not · its GEMM             │ memory
+///     denoising   the DiT's arena(s, L, r) + the velocity   + LoRA `down` staging                 │ back its
+///                 + two SDPAs (self s×s, cross s×L), cut by heads or not · its GEMM               │ memory
 ///     decoding    the Qwen-Image decoder's two heaps and the image it returns (`AnimaVAE.plan`)    ┘
 ///                 (a batch: the images already decoded, and every latent crossing until then)
 ///
-///     peak = max(phases) + crossing + process base      s = (H/16)(W/16), T ≤ 512, r = Σ ranks
+///     peak = max(phases) + crossing + process base      s = (H/16)(W/16), T ≤ 1 024, L = 1 025, r = Σ ranks
 ///
 /// Ours, each the function its allocator calls: `TextEncoder.arenaBytes`, `TextEncoder.stagingSlots`,
 /// `Artifact.stagingBytes`, `AnimaConditioner.arenaBytes`, `AnimaDiT.arenaBytes`, `LoRA.downBytes`,
@@ -30,15 +30,16 @@ import Foundation
 ///     streamed tail, no staging buffer) and widens each weight into one fp32 `reserve` of `d·h`. The
 ///     three versions have **the same denoising need**; the map's type shows only through the text
 ///     encoder's staging, read from that map's header (a version's own encoder, if it has one);
-///   - **the text is always 512 rows in the DiT**: the conditioner pads its output to 512 with zeros
-///     that count in the softmax, and T5 is cut at 512 — so the DiT's text k/v cache
-///     (`[28, 512, 2048]` twice, 235 MB) does not follow the prompt;
+///   - **the DiT's text is charged at its bound, `L` = 1 025 rows**: the conditioner pads its output to
+///     512 with zeros that count in the softmax, and past 512 it is the T5 tokens and `</s>`, which the
+///     prompt's bytes do not bound (NFKC, below) — so the DiT's text k/v cache (`[28, L, 2048]` twice,
+///     470 MB) is charged whole, whatever the prompt;
 ///   - **two encoders' worth of text, both alive**: the conditioner reads the Qwen states in the
 ///     encoder's own arena (`hidden` is a pointer into it), so the encoder's arena, its staging buffers
 ///     and its SDPA are alive beside the conditioner's arena (`AnimaTextModule`);
 ///   - **the T5 rows are bounded by the cut, not by the prompt's bytes**: T5's normalizer is NFKC,
-///     which expands (one 3-byte ligature gives 18 letters) — the conditioner is charged at 512 rows;
-///     the Qwen rows are bounded by the bytes (`Request.promptTokens`, no template, cut at 512);
+///     which expands (one 3-byte ligature gives 18 letters) — the conditioner is charged at `L` rows;
+///     the Qwen rows are bounded by the bytes (`Request.promptTokens`, no template, refused past 1 024);
 ///   - **`modulation` and `temb` are computed in double** (`AnimaExact`): `t_embedder.linear_2`'s
 ///     `d × 3d` weight widened to double, 100 MB of the DiT's arena (`AnimaDiT.exactProducts`) — and
 ///     **tabulated for the render's σ before the first evaluation**, in an arena of their own
@@ -110,10 +111,11 @@ extension MemoryNeed {
     package static func anima(_ request: Request, maps: AnimaMaps) -> MemoryNeed {
         let dit = maps.dit, encoder = maps.encoder
         let f = MemoryLayout<Float>.size
-        // The Qwen ids are cut at 512 (`AnimaTextModule`): the encoder never sees more; the request's
-        // tokens bound them by the prompt's bytes.
-        let tokens = min(max(1, request.promptTokens), 512)
-        // T5: cut at 512, padded to 512 — the DiT's text is 512 rows whatever the prompt.
+        // The Qwen ids are refused past the bound (`AnimaTextModule`): the encoder never sees more; the
+        // request's tokens bound them by the prompt's bytes.
+        let tokens = min(max(1, request.promptTokens), Siliconed.Request.maximumPromptTokens)
+        // T5: charged at its bound whatever the prompt (NFKC expands, the bytes do not bound it),
+        // padded to 512 at least.
         let t5 = AnimaConditioner.Shape.maximumTokens
         let textRows = max(AnimaConditioner.Shape.minimumLength, t5)
         // The Qwen-Image VAE: 8 pixels per latent cell, `dit.channels` (16) per cell.
@@ -122,7 +124,7 @@ extension MemoryNeed {
         let rank = request.loraRanks.reduce(0, +)
         let (width, height) = (request.width, request.height)
 
-        // ── what crosses: the conditioning (`[512, 1024]`), the latent, img2img's image as handed
+        // ── what crosses: the conditioning (`[L, 1024]`), the latent, img2img's image as handed
         //    (kept by the request through the render) and its z₀ at the render's grid ─────────────
         let text = textRows * AnimaConditioner.Shape.dim * f
         let starts = request.references.reduce(0) { $0 + 3 * $1.width * $1.height * f + latent }
@@ -167,7 +169,7 @@ extension MemoryNeed {
                       split: HeadSplitAttention.applies(sequence: s), threads: request.threads)
           + attention("cross-attention", heads: dit.heads, rows: s, keys: textRows, headDim: dit.headDim, causal: false,
                       split: HeadSplitAttention.applies(sequence: s), threads: request.threads)
-          // Every height is exact: the image's tokens, and the text's 512.
+          // Every height is exact: the image's tokens, and the text's `L`.
           + gemm("DiT", products: [(s, inDim, d), (s, d, d), (s, d, hidden), (s, hidden, d), (s, d, outDim),
                                    (textRows, dit.textDim, d)],
                  rank: rank))

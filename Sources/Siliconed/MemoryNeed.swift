@@ -92,11 +92,12 @@ package struct MemoryNeed: Sendable, Equatable {
         }
 
         /// **An upper bound of the encoder's tokens for `prompt`**, without the tokenizer: a BPE token is
-        /// at least one UTF-8 byte, so the bytes of the template and the prompt bound the tokens, cut where
-        /// the encoder cuts (512). Z-Image: the chat template around the prompt; Qwen-Image-2.1: the
-        /// system turn, the user header, each reference's tags and the closing turn (`QwenImage21Need`);
-        /// Anima: the prompt alone (`AnimaTextModule` encodes it without a template, cut at 512); Krea 2:
-        /// its 34 template tokens, the prompt cut where `Krea2Text.identifiers` cuts, the 5 of the suffix.
+        /// at least one UTF-8 byte, so the bytes of the template and the prompt bound the tokens, capped
+        /// where the encoder refuses (`Request.admitPrompt`). Z-Image: the chat template around the
+        /// prompt; Qwen-Image-2.1: the system turn, the user header, each reference's tags and the
+        /// closing turn (`QwenImage21Need`); Anima: the prompt alone (`AnimaTextModule` encodes it without
+        /// a template, refused past 512); Krea 2: its 34 template tokens, the prompt capped where
+        /// `Krea2Text.admitted` refuses, the 5 of the suffix.
         package static func promptTokens(_ prompt: String, family: Family, references: Int = 0) -> Int {
             promptTokens(text: prompt.utf8.count, family: family, references: references)
         }
@@ -108,12 +109,13 @@ package struct MemoryNeed: Sendable, Equatable {
                 return QwenImage21Need.dropCount + 3 + references * (QwenImage21Need.tokensBefore + QwenImage21Need.tokensAfter)
                     + 5 + min(text, Qwen3VLPrompt.maxPromptTokens)
             case .anima:
-                return min(max(1, text), 512)
+                return min(max(1, text), Siliconed.Request.maximumPromptTokens)
             case .krea2:
                 return min(Krea2Text.templateTokens + text, Krea2Text.maximumIdentifiers - Krea2Text.suffixTokens)
                     + Krea2Text.suffixTokens
             case .zImage:
-                return min(Tokenizer.chatPrefix.utf8.count + text + Tokenizer.chatSuffix.utf8.count, 512)
+                return Tokenizer.chatPrefix.utf8.count + min(text, Siliconed.Request.maximumPromptTokens)
+                    + Tokenizer.chatSuffix.utf8.count
             }
         }
 

@@ -254,26 +254,26 @@ package enum Qwen3VLPrompt {
         }
     }
 
-    /// **The longest prompt Qwen-Image-2.1 renders: 512 tokens** (of the prompt alone, before the
+    /// **The longest prompt Qwen-Image-2.1 renders: 1 024 tokens** (of the prompt alone, before the
     /// template and the image slots).
     ///
     /// The reference does not bound it — `QwenImage21Pipeline._get_qwen_prompt_embeds` tokenizes the
     /// whole prompt, no `max_sequence_length` (its predecessor Qwen-Image cut at 1024) — so a bound
     /// here is the product's, not a port's: it refuses, it never truncates, and a prompt it accepts
-    /// is encoded exactly as the reference does. 512 is the cut of every other text the engine reads
-    /// (Z-Image cuts at 512), and what it costs is computed, not measured:
+    /// is encoded exactly as the reference does. 1 024 is every family's bound (`Request.maximumPromptTokens`),
+    /// and what it costs is computed, not measured:
     ///
     ///   - encoder: `TextEncoder`'s arena takes `(5h + 3a + 2kv + 3i + Dh) · 4` B = 287 KB per token
-    ///     (Qwen3-VL-8B: h = a = 4096, kv = 1024, i = 12288, Dh = 128): 147 MB for 512 tokens, plus the
-    ///     causal mask, `S²` floats twice (array and graph constant): 2 MB at S = 512, 77 MB at
-    ///     the worst edit's S ≈ 3 100;
+    ///     (Qwen3-VL-8B: h = a = 4096, kv = 1024, i = 12288, Dh = 128): 294 MB for 1 024 tokens, plus the
+    ///     causal mask, `S²` floats twice (array and graph constant): 8 MB at S = 1 024, 104 MB at
+    ///     the worst edit's S ≈ 3 600;
     ///   - DiT: every text row is a row of the prefix — `x`, `keys`, `values`, `freqs`, ~49 KB per row
-    ///     (25 MB), and the prefix K/V `2 · 32 layers · 4096 · 4` B = 1 MB per row when it is kept in
-    ///     memory (512 MB; on disk past the pipeline's fixed K/V budget).
+    ///     (50 MB), and the prefix K/V `2 · 32 layers · 4096 · 4` B = 1 MB per row when it is kept in
+    ///     memory (1 GB; on disk past the pipeline's fixed K/V budget).
     ///
     /// The need charges these figures at the prompt's own tokens (`MemoryNeed.Request.promptTokens`,
-    /// bounded by its bytes): a 512-token prompt is planned and judged as one.
-    package static let maxPromptTokens = 512
+    /// bounded by its bytes): a 1 024-token prompt is planned and judged as one.
+    package static let maxPromptTokens = Request.maximumPromptTokens
 
     /// The prompt as a user may write it for this encoder: no image slot spelled out, at most
     /// `maxPromptTokens` tokens.

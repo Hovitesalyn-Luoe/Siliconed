@@ -169,6 +169,16 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// Z-Image, Anima and Krea 2 truncate where their references do; the engine refuses there
+    /// instead, with the same case as Qwen-Image-2.1's bound.
+    func testEveryFamilysPromptIsRefusedRatherThanCut() throws {
+        XCTAssertNoThrow(try Request.admitPrompt(tokens: 504, max: 504))
+        XCTAssertThrowsError(try Request.admitPrompt(tokens: 505, max: 504)) {
+            XCTAssertEqual($0 as? Request.Failure, .promptTooLong(tokens: 505, max: 504))
+            XCTAssertEqual(EngineError($0), .promptTooLong(tokens: 505, max: 504))
+        }
+    }
+
     // ── an image in memory ──────────────────────────────────────────────────────────────────
 
     private func image(width: Int, height: Int) -> CGImage {

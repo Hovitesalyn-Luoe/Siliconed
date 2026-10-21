@@ -131,7 +131,7 @@ package final class AnimaDiT {
     /// The doubles `exactW` holds: the largest weight of `exactProducts`.
     private let exactWeight: Int
 
-    /// - Parameter textLength: the length of the text context — 512 for Anima, the conditioner
+    /// - Parameter textLength: the length of the text context — 512 at least, the conditioner
     ///   padding its output with zeros up to that. The zeros **count**: the reference does not
     ///   mask cross-attention, so each zero row takes its share of the softmax.
     package init(artifact: Artifact, latentHeight: Int, latentWidth: Int, textLength: Int = 512,

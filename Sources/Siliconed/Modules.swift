@@ -30,9 +30,8 @@ package struct ZImageTextModule: TextModule {
         // **Two scopes, not one**: a 151 k-entry dictionary and a Metal arena do not leave the same
         // residue, and measuring them together makes it impossible to know which to fix.
         do {
-            let (ids, mask) = try Tokenizer(directory: tokenizer).encodeChat(user: prompt)
-            identifiers = ids
-            realCount = mask.reduce(0, +)
+            identifiers = try Tokenizer(directory: tokenizer).admitChat(user: prompt)
+            realCount = identifiers.count
         }
         context.timings.tokenizer = Date().timeIntervalSince(begin)
         context.footprints.tokenizer = Arena.processFootprint()
@@ -199,10 +198,14 @@ package struct AnimaTextModule: TextModule {
 
     package func encoder(_ prompt: String, context: Context) throws -> Conditioning {
         let begin = Date()
-        // `padding="longest", max_length=512, truncation=True` for a single prompt: no padding,
-        // and Qwen truncated to 512 — T5 keeps its `</s>` under truncation.
-        let qwenIds = Array(try Tokenizer(directory: tokenizerQwen).encode(prompt).prefix(512))
-        let t5Ids = try T5Tokenizer(directory: tokenizerT5).encode(prompt)
+        // `padding="longest"` for a single prompt: no padding. Where the reference truncates (512,
+        // T5 keeping its `</s>`) the engine reads on, up to `Request.maximumPromptTokens` per tokenizer,
+        // and refuses past it. T5 first: its vocabulary is the finer one, it reaches the bound first on a
+        // Latin-script prompt.
+        let t5Ids = try T5Tokenizer(directory: tokenizerT5).encode(prompt, maxLength: .max)
+        try Request.admitPrompt(tokens: t5Ids.count - 1, max: Request.maximumPromptTokens)
+        let qwenIds = try Tokenizer(directory: tokenizerQwen).encode(prompt)
+        try Request.admitPrompt(tokens: qwenIds.count, max: Request.maximumPromptTokens)
         // The engine already refuses a blank prompt; this guards a direct call of the module.
         guard !qwenIds.isEmpty else { throw Request.Failure.emptyPrompt }
         context.timings.tokenizer = Date().timeIntervalSince(begin)
@@ -477,7 +480,7 @@ package struct Krea2TextModule: TextModule {
 
     package func encoder(_ prompt: String, context: Context) throws -> Conditioning {
         let begin = Date()
-        let ids = Krea2Text.identifiers(prompt, tokenizer: try Tokenizer(directory: tokenizer))
+        let ids = try Krea2Text.admitted(prompt, tokenizer: try Tokenizer(directory: tokenizer))
         let tokens = ids.count - Krea2Text.templateTokens
         context.timings.tokenizer = Date().timeIntervalSince(begin)
         context.footprints.tokenizer = Arena.processFootprint()

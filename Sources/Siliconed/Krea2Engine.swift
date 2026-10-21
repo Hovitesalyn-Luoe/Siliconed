@@ -2,7 +2,7 @@ import Foundation
 
 /// **The Krea 2 text**, as `Krea2Pipeline.get_text_hidden_states` prepares it.
 ///
-///     system template + prompt ─ tokenizer, truncated to 541 ─┐
+///     system template + prompt ─ tokenizer, 1 024 at most ───┐
 ///     "assistant" suffix (5 tokens) ───────────────────────┴─ Qwen3-VL ─ hidden_states[2, 5, …, 35]
 ///                                                            ─ the 34 template tokens removed
 ///
@@ -29,6 +29,14 @@ package enum Krea2Text {
     package static func identifiers(_ prompt: String, tokenizer: Tokenizer) -> [Int] {
         let head = Array(tokenizer.encode(template + prompt)
             .prefix(length + templateTokens - tokenizer.encode(suffix).count))
+        return head + tokenizer.encode(suffix)
+    }
+
+    /// `identifiers` for a render: the whole prompt, **refused past `Request.maximumPromptTokens`**,
+    /// never truncated. `identifiers` keeps the reference's cut (507 tokens of prompt), for the checks.
+    package static func admitted(_ prompt: String, tokenizer: Tokenizer) throws -> [Int] {
+        let head = tokenizer.encode(template + prompt)
+        try Request.admitPrompt(tokens: head.count - templateTokens, max: Request.maximumPromptTokens)
         return head + tokenizer.encode(suffix)
     }
 

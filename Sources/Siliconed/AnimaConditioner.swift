@@ -32,9 +32,10 @@ package final class AnimaConditioner {
     /// The adapter's published shapes — what its arena is sized on (`slices`).
     package enum Shape {
         package static let dim = 1024, heads = 16, headDim = 64, blocks = 6, hidden = 4096
-        /// The T5 tokens are cut at 512 (`T5Tokenizer.encode`, `</s>` kept), and the output is
-        /// padded with zeros to 512: the DiT's text is always 512 rows.
-        package static let maximumTokens = 512, minimumLength = 512
+        /// The T5 tokens are at most the prompt's bound and `</s>` (`AnimaTextModule` refuses past it),
+        /// and the output is padded with zeros to 512: the DiT's text is at least 512 rows — a
+        /// minimum of the model, where diffusers' cut at 512 made it look like a fixed length.
+        package static let maximumTokens = Request.maximumPromptTokens + 1, minimumLength = 512
     }
     package let dim = Shape.dim, heads = Shape.heads, headDim = Shape.headDim, blocks = Shape.blocks, hidden = Shape.hidden
     package let minimumLength = Shape.minimumLength

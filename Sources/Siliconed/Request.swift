@@ -125,6 +125,8 @@ package struct Request: Sendable, Equatable {
         case schedule(SigmaSchedule, model: String)
         /// More or Most detail asked of a model that does not offer it.
         case detail(model: String)
+        /// A prompt longer than its encoder reads, counted without the template (`admitPrompt`).
+        case promptTooLong(tokens: Int, max: Int)
         package var description: String {
             switch self {
             case let .references(n, max) where max == 0:
@@ -136,8 +138,25 @@ package struct Request: Sendable, Equatable {
             case let .solver(solver, model): return "\(model) does not offer the \(solver.rawValue) solver"
             case let .schedule(schedule, model): return "\(model) does not offer the \(schedule.rawValue) schedule"
             case .detail(let model): return "\(model) does not offer Detail"
+            case let .promptTooLong(tokens, max):
+                return "the prompt is \(tokens) tokens long, this model reads at most \(max): shorten it"
             }
         }
+    }
+
+    /// **The longest prompt any family renders: 1 024 tokens** of the prompt alone, the template's
+    /// left out — per tokenizer when a family has two (Anima). diffusers cuts Z-Image, Anima and Krea 2
+    /// at 512 (`max_sequence_length`, a pipeline default, not a bound of the models: their DiTs and
+    /// RoPE take longer texts) and does not bound Qwen-Image-2.1; ComfyUI bounds none of them, and the
+    /// long prompts users share are written there. 1 024 is Qwen-Image's own cut; past 512 the models
+    /// read texts longer than diffusers ever hands them.
+    package static let maximumPromptTokens = 1024
+
+    /// **No prompt is ever cut in silence**: past its bound a prompt is refused, so an image always
+    /// answers the whole prompt. `tokens` and `max` count the prompt's own tokens, the template's left
+    /// out: what the user can shorten.
+    package static func admitPrompt(tokens: Int, max: Int) throws {
+        guard tokens <= max else { throw Failure.promptTooLong(tokens: tokens, max: max) }
     }
 
     package init(_ prompt: String, width: Int, height: Int, seed: UInt64 = 42, steps: Int? = nil,

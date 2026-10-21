@@ -129,8 +129,9 @@ extension MemoryNeed {
         let dit = DiT.Config(header: maps.dit)
         guard let encoder = try? TextEncoder.Config(header: maps.encoder) else { return nil }
         let f = MemoryLayout<Float>.size
-        // `Tokenizer.encodeChat` cuts at 512: the encoder never sees more.
-        let tokens = min(max(1, request.promptTokens), 512)
+        // `Tokenizer.admitChat` refuses a longer prompt: the encoder never sees more.
+        let tokens = min(max(1, request.promptTokens),
+                         Request.promptTokens(text: Siliconed.Request.maximumPromptTokens, family: .zImage))
         // The Flux VAE: 8 pixels per latent cell, `dit.channels` (16) per cell.
         let (latentHeight, latentWidth) = (request.height / 8, request.width / 8)
         let latent = dit.channels * latentHeight * latentWidth * f

@@ -127,7 +127,7 @@ extension MemoryNeed {
     package static func krea2(_ request: Request, maps: Krea2Maps) -> MemoryNeed {
         let dit = maps.dit, encoder = maps.encoder
         let f = MemoryLayout<Float>.size
-        // The encoder's rows: the template, the prompt cut where `Krea2Text.identifiers` cuts, the
+        // The encoder's rows: the template, the prompt capped where `Krea2Text.admitted` refuses, the
         // suffix (`Request.promptTokens` bounds them by the prompt's bytes); the DiT's, without the template.
         let sequence = min(max(Krea2Text.templateTokens + 1, request.promptTokens), Krea2Text.maximumIdentifiers)
         let t = sequence - Krea2Text.templateTokens
@@ -235,9 +235,8 @@ extension Krea2Text {
     /// The suffix's tokens (`<|im_end|>`, `\n`, `<|im_start|>`, `assistant`, `\n`): what `identifiers`
     /// appends after the cut.
     package static let suffixTokens = 5
-    /// The most identifiers `identifiers` returns: the template and the prompt cut at
-    /// `length + templateTokens − suffixTokens`, then the suffix.
-    package static var maximumIdentifiers: Int { length + templateTokens }
+    /// The most identifiers a render encodes (`admitted`): the template, the prompt at its bound, the suffix.
+    package static var maximumIdentifiers: Int { templateTokens + Request.maximumPromptTokens + suffixTokens }
 }
 
 extension Krea2DiT {

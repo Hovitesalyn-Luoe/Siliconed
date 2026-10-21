@@ -433,6 +433,16 @@ package final class Tokenizer {
         Self.pad(encode(Self.chatPrefix + prompt + Self.chatSuffix), maxLength: maxLength)
     }
 
+    /// `encodeChat` for a render: the whole prompt in its template, unpadded (the encoder reads the
+    /// real tokens alone), **refused past `Request.maximumPromptTokens`**, never truncated.
+    /// `encodeChat` keeps the reference's cut at 512, for the checks.
+    package func admitChat(user prompt: String) throws -> [Int] {
+        let ids = encode(Self.chatPrefix + prompt + Self.chatSuffix)
+        let template = encode(Self.chatPrefix + Self.chatSuffix).count
+        try Request.admitPrompt(tokens: ids.count - template, max: Request.maximumPromptTokens)
+        return ids
+    }
+
     /// **Truncation and padding, separated from encoding.** This is the half of `encodeChat` that
     /// does not depend on the vocabulary — hence the half that can be checked in a millisecond, without
     /// the 7 MB of JSON that the tokenizer parses at startup.

@@ -161,11 +161,12 @@ final class MemoryNeedTests: XCTestCase {
             }
         }
         for (w, h) in formats {
-            let byTokens = try [1, 50, 100, 400, 512].map { try need(w, h, tokens: $0).peak }
+            let bound = MemoryNeed.Request.promptTokens(text: Request.maximumPromptTokens, family: .zImage)
+            let byTokens = try [1, 50, 100, 400, bound].map { try need(w, h, tokens: $0).peak }
             XCTAssertEqual(byTokens, byTokens.sorted())
             XCTAssertLessThan(byTokens[0], byTokens[4])
-            // The encoder cuts at 512: a longer prompt costs no more.
-            XCTAssertEqual(try need(w, h, tokens: 1200).peak, byTokens[4])
+            // A longer prompt is refused (`Tokenizer.admitChat`): past the bound, it costs no more.
+            XCTAssertEqual(try need(w, h, tokens: bound + 500).peak, byTokens[4])
             let byRank = try [[], [16], [64], [64, 32]].map { try need(w, h, ranks: $0).peak }
             XCTAssertEqual(byRank, byRank.sorted())
             XCTAssertLessThan(byRank[0], byRank[1])

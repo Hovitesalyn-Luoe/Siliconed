@@ -133,17 +133,18 @@ final class MemoryNeedAnimaTests: XCTestCase {
     func testTheNeedIsComputedPhaseByPhase() {
         let maps = MemoryFixtures.animaMaps()
         var peaks: [Int] = []
+        let rows = AnimaConditioner.Shape.maximumTokens
         for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
             let n = need(w, h)
             XCTAssertEqual(n.phases.map(\.kind), [.text, .denoising, .decoding])
             XCTAssertEqual(n.phases[1].bytes("DiT arena"),
-                           AnimaDiT.arenaBytes(config: maps.dit, latentHeight: h / 8, latentWidth: w / 8, textLength: 512, lora: nil))
-            XCTAssertEqual(n.phases[0].bytes("conditioner arena"), AnimaConditioner.arenaBytes(t5: 512, qwen: 50))
+                           AnimaDiT.arenaBytes(config: maps.dit, latentHeight: h / 8, latentWidth: w / 8, textLength: rows, lora: nil))
+            XCTAssertEqual(n.phases[0].bytes("conditioner arena"), AnimaConditioner.arenaBytes(t5: rows, qwen: 50))
             let plan = AnimaVAE.plan(latentHeight: h / 8, latentWidth: w / 8)
             XCTAssertEqual(n.phases[2].bytes("Qwen-Image decoder"),
                            plan.registers + plan.workspace + plan.host + plan.outside)
-            // The conditioning (512 × 1024) and the latent cross every phase.
-            XCTAssertEqual(n.crossing, 512 * 1024 * 4 + 16 * (h / 8) * (w / 8) * 4)
+            // The conditioning (its bound × 1024) and the latent cross every phase.
+            XCTAssertEqual(n.crossing, rows * 1024 * 4 + 16 * (h / 8) * (w / 8) * 4)
             peaks.append(n.peak)
         }
         XCTAssertEqual(peaks, peaks.sorted()); XCTAssertEqual(Set(peaks).count, 3)
@@ -166,16 +167,17 @@ final class MemoryNeedAnimaTests: XCTestCase {
         XCTAssertEqual(lean.phases[1...], standard.phases[1...])
     }
 
-    /// **The DiT's text is 512 rows whatever the prompt**: a long prompt grows the encoder and the
-    /// conditioner's `source`, never the denoising (its text k/v cache is `[28, 512, d]`).
-    func testTheTextIsAlwaysFiveHundredTwelveRows() {
+    /// **The DiT's text is charged at its bound whatever the prompt** (T5's rows are not bounded by
+    /// the bytes): a long prompt grows the encoder and the conditioner's `source`, never the denoising
+    /// (its text k/v cache is `[28, 1 025, d]`).
+    func testTheDiTsTextIsChargedAtItsBound() {
         let short = need(1024, 1024, tokens: 5), long = need(1024, 1024, tokens: 500)
         XCTAssertLessThan(short.phases[0].bytes, long.phases[0].bytes)
         XCTAssertEqual(short.phases[1], long.phases[1])
-        // The Qwen ids are cut at 512: beyond, nothing grows.
-        XCTAssertEqual(need(1024, 1024, tokens: 512), need(1024, 1024, tokens: 4000))
+        // The Qwen ids are refused past 1 024: beyond, nothing grows.
+        XCTAssertEqual(need(1024, 1024, tokens: 1024), need(1024, 1024, tokens: 4000))
         XCTAssertEqual(MemoryNeed.Request.promptTokens("woman posing in a library", family: .anima), 25)
-        XCTAssertEqual(MemoryNeed.Request.promptTokens(text: 9000, family: .anima), 512)
+        XCTAssertEqual(MemoryNeed.Request.promptTokens(text: 9000, family: .anima), 1024)
     }
 
     /// **A LoRA lives in the DiT's arena**, at the stack's cumulative rank and the widest module it may
@@ -186,7 +188,8 @@ final class MemoryNeedAnimaTests: XCTestCase {
         XCTAssertEqual(bounds.entry, 8192); XCTAssertEqual(bounds.output, 8192)
         let bare = need(1024, 1024), one = need(1024, 1024, ranks: [32]), two = need(1024, 1024, ranks: [32, 16])
         func arena(_ rank: Int) -> Int {
-            AnimaDiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128, textLength: 512,
+            AnimaDiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128,
+                                textLength: AnimaConditioner.Shape.maximumTokens,
                                 lora: rank > 0 ? (rank, bounds.entry, bounds.output) : nil)
         }
         XCTAssertEqual(one.phases[1].bytes("DiT arena") - bare.phases[1].bytes("DiT arena"), arena(32) - arena(0))
