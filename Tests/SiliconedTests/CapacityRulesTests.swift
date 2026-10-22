@@ -217,8 +217,8 @@ final class CapacityRulesTests: XCTestCase {
     }
 
     /// **The Neural Engine is a branch the map decides, exclusive with the AMX**: when both clear the margin,
-    /// `gemm_ane` on with its share and `amx` off, whatever the AMX gains (thermal efficiency); a product over
-    /// its threshold, a gain within the margin, or a map without it, keeps it off.
+    /// `gemm_ane` on with its share and `amx` off down to 90 % of the AMX's gain (thermal efficiency); below
+    /// it the AMX; a product over its threshold, a gain within the margin, or a map without it, keeps it off.
     func testTheNeuralEngineIsDecidedAgainstTheAMX() {
         var r = m1Pro
         r.drift = (1.0, 1.0)
@@ -231,13 +231,19 @@ final class CapacityRulesTests: XCTestCase {
         XCTAssertEqual(d.settings["amx"] as? Bool, false)
         XCTAssertEqual(d.settings["ane_fraction"] as? Double, 0.55)
         XCTAssertNil(d.settings["amx_fraction"])
-        // The AMX faster, the ANE still clearing the margin: the ANE all the same.
-        r.ane = r.gpu.map { $0.map { $0 * 1.12 } }
+        // The AMX faster, the ANE at 93 % of its rates: the ANE all the same.
+        r.ane = r.both.map { $0.map { $0 * 0.93 } }
         d = Diagnostic.decide(report(r))
         XCTAssertLessThan(d.ane!.gain, d.amx.gain)
         XCTAssertTrue(d.ane!.on)
         XCTAssertFalse(d.amx.on)
         XCTAssertEqual(d.settings["amx"] as? Bool, false)
+        // At 85 %: the AMX, clearly faster.
+        r.ane = r.both.map { $0.map { $0 * 0.85 } }
+        d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.ane!.passed)
+        XCTAssertFalse(d.ane!.on)
+        XCTAssertTrue(d.amx.on)
         // Within the margin of the GPU alone: off, and the AMX keeps the rows.
         r.ane = r.gpu.map { $0.map { $0 * 1.02 } }
         d = Diagnostic.decide(report(r))

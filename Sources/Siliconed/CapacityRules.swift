@@ -60,9 +60,9 @@ import Foundation
 ///     would have bought one path's gain with the other's loss;
 ///   - **`gemm_ane` and `amx` are exclusive**: both take rows off the GPU, and side by side they slow each
 ///     other (the M1 Pro's Anima Light 1024²: GPU + ANE 44.7 s, GPU + AMX 46.8 s, all three 46.2 s, 22/10/2026). Each
-///     is judged against the GPU alone; **when both would go on, the ANE always takes the rows**, whatever
-///     the AMX gains: thermal efficiency — the ANE does the work at a fraction of the CPU cores' power,
-///     and a Mac that heats less keeps its clocks over a batch (this M1 Pro's map of 22/10/2026: ×1.32
+///     is judged against the GPU alone; **when both would go on, the ANE takes the rows as long as its gain is
+///     at least 90 % of the AMX's** (`aneTolerance`): thermal efficiency — the ANE does the work at a fraction
+///     of the CPU cores' power, and a Mac that heats less keeps its clocks over a batch (this M1 Pro's map of 22/10/2026: ×1.32
 ///     against ×1.27, the renders tied at 44.6 against 44.2 s, the ANE kept). The ANE's
 ///     products are judged against bf16's error + 25 % (invariant 3: it computes in fp16), not the fp32
 ///     threshold; the paths that replace the fp32 one (`gemm_tensor`, `gemm_int8`, `gemm_q8`) are then
@@ -162,6 +162,10 @@ extension Diagnostic {
     /// over a few renders; the map's own witness ×0.990–0.997 on a quiet M1 Pro).
     package static let minimumMargin = 0.05
 
+    /// The share of the AMX's gain the ANE needs to take the rows from it: below, the AMX is clearly faster;
+    /// above, the ANE's efficiency decides (a choice of the product, not a measure).
+    package static let aneTolerance = 0.9
+
     /// **The rules.** Pure: the same report always gives the same decisions.
     package static func decide(products: [Product], attention: [AttentionCapacity], widening: [Widening],
                               witness: Witness, cuts: [Cut] = []) -> Decisions {
@@ -203,9 +207,9 @@ extension Diagnostic {
         let anePassed = !products.isEmpty && products.allSatisfy { $0.ane?.pass == true }
         var ane = decision(passed: anePassed, gains: gains(products, size: \.m, flops: productFlops,
                                                            reference: { $0.gpu }, candidate: \.ane))
-        // Both on: the ANE takes the rows, whatever the AMX gains — the same work at a fraction of the CPU's
-        // power and heat (a choice of the product, 22/10/2026).
-        if ane.on && amx.on { amx.on = false }
+        // Both on: the ANE takes the rows down to `aneTolerance` of the AMX's gain — the same work at a
+        // fraction of the CPU's power and heat (a choice of the product, 22/10/2026).
+        if ane.on && amx.on { if ane.gain >= aneTolerance * amx.gain { amx.on = false } else { ane.on = false } }
         var aneFraction: Double?
         if ane.on {
             let work = products.map(productFlops).reduce(0, +)
