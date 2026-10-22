@@ -117,6 +117,15 @@ package struct EngineSettings: Sendable {
     /// rate and its fill costs as much again. A branch the map turns on where it measures it faster
     /// (schema 9), apart from `gemm_int8`: on the M1 Pro the one wins and the other loses.
     package var gemmQ8 = false
+    /// **The Neural Engine beside the GPU on the widened products** (`NeuralEngine`: the last rows in fp16,
+    /// the weight's columns lifted by powers of two, a non-finite sent back to the GPU). Off by default, as
+    /// every compute branch: the map turns it on where the pair beats the GPU alone and the ANE's rows hold
+    /// the half-precision threshold. Only on the widened path: a weight read as published (`gemm_tensor`,
+    /// `gemm_int8`, `gemm_q8`) keeps its own product.
+    package var gemmANE = false
+    /// The GPU's share of the rows when `gemm_ane` is on; the ANE takes the rest by 256 rows. A machine
+    /// setting, frozen: each row is one engine's, the same seed gives the same bits.
+    package var aneFraction = 0.5
 
     /// The half-size start, **when forced** (`SILICONED_SPECTRAL`): `k` half-size evaluations of
     /// Z-Image, Qwen-Image-2.1, Anima or Krea 2, 0 = full schedule, within each plan's rules (`Spectral.forced`).
@@ -361,6 +370,8 @@ package struct EngineSettings: Sendable {
         read("SILICONED_GEMM_TENSOR", "gemm_tensor")
         read("SILICONED_GEMM_INT8", "gemm_int8")
         read("SILICONED_GEMM_Q8", "gemm_q8")
+        read("SILICONED_GEMM_ANE", "gemm_ane")
+        read("SILICONED_ANE_FRACTION", "ane_fraction")
         read("SILICONED_SPECTRAL", "spectral")
         read("SILICONED_VAE_BLOCK", "vae_bloc_requetes")
         read("SILICONED_VAE_TILE", "vae_tuile")
@@ -450,6 +461,9 @@ package struct EngineSettings: Sendable {
         flag("gemm_tensor", &gemmTensor)
         flag("gemm_int8", &gemmInt8)
         flag("gemm_q8", &gemmQ8)
+        flag("gemm_ane", &gemmANE)
+        real("ane_fraction", &aneFraction)
+        aneFraction = min(max(aneFraction, 0), 1)
         integer("spectral", &spectral)
         integer("vae_bloc_requetes", &vaeRequestBlock)
         integer("vae_tuile", &vaeTile)
@@ -498,6 +512,8 @@ package struct EngineSettings: Sendable {
             ("gemm_tensor", "\(gemmTensor)"),
             ("gemm_int8", "\(gemmInt8)"),
             ("gemm_q8", "\(gemmQ8)"),
+            ("gemm_ane", "\(gemmANE)"),
+            ("ane_fraction", String(format: "%.3f", aneFraction)),
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
             ("vae_tuile", vaeTile == 0 ? "no" : "\(vaeTile) (overlap \(vaeOverlap))"),
@@ -516,6 +532,7 @@ package struct EngineSettings: Sendable {
             "coupe_figee": frozenCut,
             "flash": flash, "head_split": headSplit,
             "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
+            "gemm_ane": gemmANE, "ane_fraction": aneFraction,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,
         ]

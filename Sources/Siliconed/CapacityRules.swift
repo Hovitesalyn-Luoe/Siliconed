@@ -11,6 +11,8 @@ import Foundation
 ///        ├─ products, m = 1024 and 4096        g_m = Σ t(GPU alone) / Σ t(GPU + AMX)   ─▶ amx
 ///        │                                     share = R_gpu / (R_gpu + R_amx)          ─▶ amx_fraction
 ///        │  cuts, k and n axes at both m         ρ = (1 − T*) / T*, T* balanced side by side ─▶ amx_shares, T(k, n, m)
+///        │                                     g_m = Σ t(GPU alone) / Σ t(GPU + ANE)    ─▶ gemm_ane (amx off if it wins)
+///        │                                     share = Σ f · T*_ane / Σ f               ─▶ ane_fraction
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen k·n)]
 ///        │                                         / Σ [t(bf16 weight) + t(copy k·n)]    ─▶ gemm_tensor
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen convrot k·n)]
@@ -56,6 +58,15 @@ import Foundation
 ///     `gemm_int8`'s: on the M1 Pro the int8 product wins and the Q8_0 one loses (×0.29–0.67: the
 ///     operand written into threadgroup memory runs `matmul2d` at ~2.3 TFLOP/s) — one setting for both
 ///     would have bought one path's gain with the other's loss;
+///   - **`gemm_ane` and `amx` are exclusive**: both take rows off the GPU, and side by side they slow each
+///     other (the M1 Pro's Anima Light 1024²: GPU + ANE 44.7 s, GPU + AMX 46.8 s, all three 46.2 s, 22/10/2026). Each
+///     is judged against the GPU alone; **when both would go on, the ANE always takes the rows**, whatever
+///     the AMX gains: thermal efficiency — the ANE does the work at a fraction of the CPU cores' power,
+///     and a Mac that heats less keeps its clocks over a batch (this M1 Pro's map of 22/10/2026: ×1.32
+///     against ×1.27, the renders tied at 44.6 against 44.2 s, the ANE kept). The ANE's
+///     products are judged against bf16's error + 25 % (invariant 3: it computes in fp16), not the fp32
+///     threshold; the paths that replace the fp32 one (`gemm_tensor`, `gemm_int8`, `gemm_q8`) are then
+///     judged against GPU + ANE. `ane_fraction` is each product's balanced share weighted by its flops;
 ///   - **flash and the head split are not exclusive**: Z-Image's blocks take flash before the split
 ///     (`Block`), Qwen-Image-2.1's target only has the split. So flash goes on only if it also beats the
 ///     split where the split goes on — otherwise Z-Image would trade a faster path for a slower one;
@@ -105,17 +116,23 @@ extension Diagnostic {
         package var int8: Decision?
         /// The products on GGUF Q8_0 weights (`gemm_q8`); `nil` before schema 9.
         package var q8: Decision?
+        /// The Neural Engine beside the GPU on the fp32 products (`gemm_ane`); `nil` before schema 10.
+        package var ane: Decision?
+        /// The GPU's share of the rows beside the ANE (`ane_fraction`) when `ane` is on; `nil` otherwise.
+        package var aneFraction: Double?
 
         package init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
-                    tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil) {
+                    tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil,
+                    ane: Decision? = nil, aneFraction: Double? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
             self.amxShares = amxShares
             self.flash = flash; self.headSplit = headSplit; self.tensor = tensor; self.int8 = int8
-            self.q8 = q8
+            self.q8 = q8; self.ane = ane
+            self.aneFraction = aneFraction.map { Diagnostic.significant($0, 3) }
         }
 
-        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8 }
+        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8, ane, aneFraction }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
@@ -124,14 +141,17 @@ extension Diagnostic {
             try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
             try c.encode(tensor, forKey: .tensor); try c.encode(int8, forKey: .int8)
             try c.encode(q8, forKey: .q8)
+            try c.encodeIfPresent(ane, forKey: .ane); try c.encodeIfPresent(aneFraction, forKey: .aneFraction)
         }
 
         /// The settings they write, under `EngineSettings`' keys (those of `store/profil.json`).
         package var settings: [String: Any] {
             let tensorOn = tensor?.on == true
+            let aneOn = ane?.on == true && !tensorOn
             var values: [String: Any] = ["amx": amx.on && !tensorOn, "flash": flash.on, "head_split": headSplit.on,
                                          "gemm_tensor": tensorOn, "gemm_int8": int8?.on == true,
-                                         "gemm_q8": q8?.on == true]
+                                         "gemm_q8": q8?.on == true, "gemm_ane": aneOn]
+            if aneOn, let aneFraction { values["ane_fraction"] = aneFraction }
             if amx.on, !tensorOn, let amxFraction { values["amx_fraction"] = amxFraction }
             if amx.on, !tensorOn, let amxShares { values["amx_shares"] = amxShares; values["amx_quantum"] = 64 }
             return values
@@ -176,8 +196,23 @@ extension Diagnostic {
         let amxPassed = !products.isEmpty && products.allSatisfy { p in
             p.amx?.pass == true && p.coexecution?.pass == true
         }
-        let amx = decision(passed: amxPassed, gains: gains(products, size: \.m, flops: productFlops,
+        var amx = decision(passed: amxPassed, gains: gains(products, size: \.m, flops: productFlops,
                                                            reference: { $0.gpu }, candidate: \.coexecution))
+
+        // ── gemm_ane: the GPU beside the Neural Engine, against the GPU alone; exclusive with amx ──
+        let anePassed = !products.isEmpty && products.allSatisfy { $0.ane?.pass == true }
+        var ane = decision(passed: anePassed, gains: gains(products, size: \.m, flops: productFlops,
+                                                           reference: { $0.gpu }, candidate: \.ane))
+        // Both on: the ANE takes the rows, whatever the AMX gains — the same work at a fraction of the CPU's
+        // power and heat (a choice of the product, 22/10/2026).
+        if ane.on && amx.on { amx.on = false }
+        var aneFraction: Double?
+        if ane.on {
+            let work = products.map(productFlops).reduce(0, +)
+            aneFraction = products.map { productFlops($0) * $0.aneGPUShare! }.reduce(0, +) / work
+        }
+        /// The fp32 path the bf16 and 8-bit paths replace: what `amx` and `gemm_ane` chose.
+        func fp32Path(_ p: Product) -> Measure? { ane.on ? p.ane : amx.on ? p.coexecution : p.gpu }
         var fraction: Double?
         if amx.on {
             // Each engine's total work over its total time: the share that ends both together.
@@ -195,14 +230,13 @@ extension Diagnostic {
         // add up in one sum. The fp32 path is the one `amx` chose.
         let widen = widening.first { $0.kind == "bf16" }?.cpu, copy = widening.first { $0.kind == "bf16 copy" }?.cpu
         let tensorPassed = !products.isEmpty && widen?.pass == true && copy?.pass == true
-            && products.allSatisfy { $0.tensor?.pass == true && (!amx.on || $0.coexecution?.pass == true) }
+            && products.allSatisfy { $0.tensor?.pass == true && fp32Path($0)?.pass == true }
         let tensorGains: [Double] = heights.compactMap { h in
             let these = products.filter { $0.m == h }
             guard !these.isEmpty else { return nil }
             var (tReference, tCandidate) = (0.0, 0.0)
             for p in these {
-                let reference = amx.on ? p.coexecution : p.gpu
-                guard let r = reference?.rate, let t = p.tensor?.rate, let w = widen?.rate, let c = copy?.rate,
+                guard let r = fp32Path(p)?.rate, let t = p.tensor?.rate, let w = widen?.rate, let c = copy?.rate,
                       r > 0, t > 0, w > 0, c > 0 else { return .nan }
                 let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
                 tReference += flops / r + values / w
@@ -220,13 +254,14 @@ extension Diagnostic {
             func candidate(_ p: Product) -> Measure? { amxRuns ? beside(p) : alone(p) }
             let passed = !products.isEmpty && widen?.pass == true && copy?.pass == true
                 && products.allSatisfy { p in alone(p)?.pass == true && candidate(p)?.pass == true
-                                              && (!amxRuns || p.coexecution?.pass == true) }
+                                              && fp32Path(p)?.pass == true }
             let gains: [Double] = heights.compactMap { h in
                 let these = products.filter { $0.m == h }
                 guard !these.isEmpty else { return nil }
                 var (tReference, tCandidate) = (0.0, 0.0)
                 for p in these {
-                    let reference = amxRuns ? p.coexecution : p.gpu
+                    // With `gemm_tensor` on, the AMX does not run: the GPU alone, or beside the ANE.
+                    let reference = amxRuns ? p.coexecution : ane.on ? p.ane : p.gpu
                     guard let r = reference?.rate, let t = candidate(p)?.rate, let w = widen?.rate, let c = copy?.rate,
                           r > 0, t > 0, w > 0, c > 0 else { return .nan }
                     let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
@@ -258,7 +293,8 @@ extension Diagnostic {
         let shares = amx.on && !cuts.isEmpty
             ? Conductor.Shares(cuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) }).description : nil
         return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor,
-                         amxShares: shares, int8: int8, q8: q8)
+                         amxShares: shares, int8: int8, q8: q8, ane: products.contains { $0.ane != nil } ? ane : nil,
+                         aneFraction: aneFraction)
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).

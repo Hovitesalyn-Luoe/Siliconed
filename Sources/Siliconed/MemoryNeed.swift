@@ -206,11 +206,13 @@ package struct MemoryNeed: Sendable, Equatable {
     /// whose height follows the prompt's tokens — a bound, not the height (`GEMM.tierBytes`). Under
     /// `int8` (`gemm_int8` or `gemm_q8`) the AMX may take a product's last columns instead, all `m` rows
     /// (`Conductor.columnWorkspaceBytes`, larger: 151 against 109 MB at Krea 2's 4096 × 16384 × 6144),
-    /// at the same bound on the share — counted for every product, the map's dtype unknown here.
+    /// at the same bound on the share — counted for every product, the map's dtype unknown here. Under
+    /// `ane` (`gemm_ane`), the Neural Engine's fp16 operands and its rows (`NeuralEngine.bytes`).
     package static func gemm(_ name: String, products: [(m: Int, k: Int, n: Int)] = [],
                              bounded: [(m: Int, k: Int, n: Int)] = [], rank: Int = 0,
                              amx: Bool = EngineSettings.effective.amx,
-                             int8: Bool = EngineSettings.effective.gemmInt8 || EngineSettings.effective.gemmQ8) -> [Term] {
+                             int8: Bool = EngineSettings.effective.gemmInt8 || EngineSettings.effective.gemmQ8,
+                             ane: Bool = EngineSettings.effective.gemmANE) -> [Term] {
         var workspace = 0
         if amx {
             for p in products + bounded where p.m >= Conductor.minimumRows {
@@ -231,8 +233,10 @@ package struct MemoryNeed: Sendable, Equatable {
             }
         }
         let tiers = GEMM.tierBytes(products: products, bounded: bounded, rank: rank)
+        let neural = ane ? NeuralEngine.bytes(products: products + bounded, gpuShare: EngineSettings.effective.aneFraction) : 0
         return (tiers > 0 ? [Term("\(name) GEMM tiers", tiers)] : [])
             + (workspace > 0 ? [Term("\(name) conductor workspace", Arena.capacity(for: workspace))] : [])
+            + (neural > 0 ? [Term("\(name) Neural Engine", neural)] : [])
     }
 
     /// **A VAE's two heaps and its host copies** (`VAELayout.bytes`), and what its graphs still

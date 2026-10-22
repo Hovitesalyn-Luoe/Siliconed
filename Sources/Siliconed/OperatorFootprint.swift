@@ -25,6 +25,8 @@ import MetalPerformanceShadersGraph
 ///
 ///     MPSGraph's compiled SDPA   ~7.4 MB per SDPA graph alive in a phase (measured alone, six shapes, constant)
 ///     MPS's GEMM state           ~3.8 MB per `MPSMatrixMultiplication` model (measured alone, four shapes, constant)
+///     Core ML's programs         ~0.4 MB per ANE program loaded (`gemm_ane`: 8 MB beyond its surfaces over five
+///                                shapes, ~6 of them the framework's first use, which `bringUp` moves into the base)
 ///     Metal's first use          the device, its queue, the compiled kernels of a process's first render
 ///                                when the base was read before them (12.0–13.1 MB for a fresh CLI)
 ///     a phase's leftovers        `malloc`'s small regions kept dirty by MPSGraph's compilation churn,
@@ -51,7 +53,11 @@ package enum OperatorFootprint {
     /// base; the first found it nowhere, brought up in its text phase after the base was read, and
     /// carried it uncharged into every phase after. Brought up first, the base reads it.
     /// The same work a render did anyway, moved before it: no time added.
-    package static func bringUp() { _ = frameworks }
+    /// Under `gemm_ane`, Core ML's too (`NeuralEngine.bringUp`).
+    package static func bringUp() {
+        _ = frameworks
+        if EngineSettings.effective.gemmANE { _ = NeuralEngine.bringUp }
+    }
 
     private static let frameworks: (MTLDevice, MTLCommandQueue)? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }

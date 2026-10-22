@@ -246,12 +246,13 @@ extension Diagnostic {
     static func measureProducts(_ o: Operands, _ bench: Bench) throws -> [Product] {
         let alone = try GEMM(freezeCut: true, coexecution: false, tensorWeights: true)
         let both = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false, int8Weights: true, q8Weights: true)
+        let neural = try GEMM(freezeCut: true, coexecution: false, tensorWeights: false, neuralEngine: true, neuralEngineShare: 0.5)
         func wrap(_ g: GEMM) throws -> (MTLBuffer, MTLBuffer, MTLBuffer) {
             (try g.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a"),
              try g.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b"),
              try g.wrap(o.c.base, bytes: o.c.capacity, name: "diagnostic.c"))
         }
-        let (aloneBuffers, bothBuffers) = (try wrap(alone), try wrap(both))
+        let (aloneBuffers, bothBuffers, neuralBuffers) = (try wrap(alone), try wrap(both), try wrap(neural))
         let bf16 = try alone.wrap(o.bf16.base, bytes: o.bf16.capacity, name: "diagnostic.bf16")
         var workspace: Pages?
         var products: [Product] = []
@@ -289,6 +290,56 @@ extension Diagnostic {
                                     weightIsTransposed: true)
                 }.0
                 gpuRows = s.m >= Conductor.minimumRows ? Conductor.cut(s.m, share) : s.m
+            }
+            // ── gemm_ane: the GPU on the first rows, the Neural Engine on the last ── Each side's wall is affine in
+            // its rows — the ANE reads the whole weight at every call, whatever its rows —: three runs at ½ and
+            // three at ¾, the medians give both lines, and the share where they cross; then measured at it,
+            // judged against bf16's error (invariant 3), not the fp32 threshold.
+            var ane: Measure?, aneShare: Double?
+            if let engine = neural.neuralEngine, engine.rows(s.m) > 0 {
+                try bench.check()
+                func run() { _ = neural.linear(a: neuralBuffers.0, b: neuralBuffers.1, c: neuralBuffers.2, m: s.m, k: s.k, n: s.n,
+                                               weightIsTransposed: true) }
+                /// Median walls of each side at `share`, with their rows; `nil` if the ANE fell back.
+                func sides(_ share: Double) -> (gpu: Double, gpuRows: Double, ane: Double, aneRows: Double)? {
+                    engine.gpuShare = share
+                    run()
+                    var walls: [(gpu: Double, ane: Double)] = []
+                    for _ in 0..<3 {
+                        let before = engine.fallbacks
+                        run()
+                        guard let last = neural.lastSides, engine.fallbacks == before else { return nil }
+                        walls.append((last.gpu, last.ane))
+                    }
+                    let rows = engine.rows(s.m)
+                    return (walls.map(\.gpu).sorted()[1], Double(s.m - rows), walls.map(\.ane).sorted()[1], Double(rows))
+                }
+                if let half = sides(0.5), let quarter = sides(0.75), half.aneRows != quarter.aneRows {
+                    let gpuSlope = (half.gpu - quarter.gpu) / (half.gpuRows - quarter.gpuRows)
+                    let aneSlope = (half.ane - quarter.ane) / (half.aneRows - quarter.aneRows)
+                    let (gpuFixed, aneFixed) = (half.gpu - gpuSlope * half.gpuRows, half.ane - aneSlope * half.aneRows)
+                    // gpuFixed + gpuSlope · (m − r) = aneFixed + aneSlope · r
+                    let r = (gpuFixed + gpuSlope * Double(s.m) - aneFixed) / (gpuSlope + aneSlope)
+                    engine.gpuShare = r.isFinite ? min(1, max(0, 1 - r / Double(s.m))) : 1
+                    let before = engine.fallbacks
+                    poison(c, rows: rows, n: s.n)
+                    let t = seconds(run)
+                    // bf16's error: the sampled rows of A rounded to bf16, times B (bf16 values), rounded to bf16.
+                    let a = o.a.floats()
+                    var rounded = [Float](repeating: 0, count: rows.count * s.k)
+                    for (i, row) in rows.enumerated() {
+                        for j in 0..<s.k { rounded[i * s.k + j] = Half.bf16.round(a[row * s.k + j]) }
+                    }
+                    let witness = rounded.withUnsafeBufferPointer {
+                        exactRows(Array(0..<rows.count), a: $0.baseAddress!, b: o.b.floats(), k: s.k, n: s.n)
+                    }.map { Half.bf16.round(Float($0)) }
+                    let floor = judge(witness, exact, columns: rows.count, rate: 0, threshold: 1).error
+                    if engine.fallbacks == before {
+                        ane = judge(gather(c, rows: rows, n: s.n), exact, columns: rows.count, rate: flops / t / 1e12,
+                                    threshold: max(fp32Threshold, floorMargin * floor))
+                        aneShare = engine.gpuShare
+                    }
+                }
             }
             var tensor: Measure?
             if alone.tensor != nil {
@@ -351,7 +402,8 @@ extension Diagnostic {
             products.append(Product(model: s.model, product: s.product, m: s.m, k: s.k, n: s.n, gpu: gpu, amx: amx,
                                     gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows, tensor: tensor,
                                     int8: int8, int8Coexecution: int8Coexecution, int8GPUColumns: int8GPUColumns,
-                                    q8: q8, q8Coexecution: q8Coexecution, q8GPUColumns: q8GPUColumns))
+                                    q8: q8, q8Coexecution: q8Coexecution, q8GPUColumns: q8GPUColumns,
+                                    ane: ane, aneGPUShare: aneShare))
         }
         return products
     }

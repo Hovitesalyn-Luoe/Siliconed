@@ -142,6 +142,11 @@ package final class GEMM {
     /// compiles it; `nil` otherwise, and every product widens as before. A caller asks
     /// `Artifact.stage` for the bf16 weight and, given one, calls `linear(a:bf16:…)`.
     package private(set) var tensor: TensorGEMM?
+    /// The Neural Engine on the last rows of a widened product (`gemm_ane`); `nil` when off.
+    package private(set) var neuralEngine: NeuralEngine?
+    /// The last product cut with the ANE: each side's wall seconds and rows, from which the map reads the
+    /// share that would have ended both together.
+    package private(set) var lastSides: (gpu: Double, gpuRows: Int, ane: Double, aneRows: Int)?
     /// What `tensor` takes: bf16 weights (`gemm_tensor`), published int8 ones (`gemm_int8`), GGUF Q8_0
     /// ones (`gemm_q8`).
     package let tensorBF16, tensorInt8, tensorQ8: Bool
@@ -157,7 +162,9 @@ package final class GEMM {
     package init(freezeCut: Bool = EngineSettings.effective.frozenCut, coexecution: Bool = Conductor.enabled,
                  tensorWeights: Bool = EngineSettings.effective.gemmTensor,
                  int8Weights: Bool = EngineSettings.effective.gemmInt8,
-                 q8Weights: Bool = EngineSettings.effective.gemmQ8) throws {
+                 q8Weights: Bool = EngineSettings.effective.gemmQ8,
+                 neuralEngine: Bool = EngineSettings.effective.gemmANE,
+                 neuralEngineShare: Double = EngineSettings.effective.aneFraction) throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure.noDevice
         }
@@ -172,6 +179,7 @@ package final class GEMM {
         tensorBF16 = tensor != nil && tensorWeights
         tensorInt8 = tensor != nil && int8Weights
         tensorQ8 = tensor?.readsBlocks == true && q8Weights
+        if neuralEngine { self.neuralEngine = NeuralEngine(gpuShare: neuralEngineShare) }
     }
 
     package enum Failure: Error, CustomStringConvertible {
@@ -217,6 +225,42 @@ package final class GEMM {
     ///   (1.578 against 3.564 TFLOP/s) and −23.6 % on a whole block.
     package func linear(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
                        weightIsTransposed: Bool = false) -> Double {
+        // The Neural Engine on the last rows, the GPU (and the AMX's cut, if on) on the first: at the same
+        // time, each row one engine's. Its rows refused or non-finite: the whole product again on the GPU —
+        // the bits of the GPU alone, never a half-computed output.
+        if let ane = neuralEngine, weightIsTransposed, case let rows = ane.rows(m), rows > 0, ane.accepts(rows: rows, k: k, n: n) {
+            let first = m - rows
+            nonisolated(unsafe) let (pa, pb, pc) = (a.contents().assumingMemoryBound(to: Float.self),
+                                                    b.contents().assumingMemoryBound(to: Float.self),
+                                                    c.contents().assumingMemoryBound(to: Float.self))
+            nonisolated(unsafe) var computed = false
+            let began = DispatchTime.now().uptimeNanoseconds
+            let group = DispatchGroup()
+            nonisolated(unsafe) var aneWall = 0.0
+            DispatchQueue.global(qos: .userInitiated).async(group: group) {
+                computed = ane.product(a: pa, w: pb, c: pc, first: first, rows: rows, k: k, n: n)
+                aneWall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
+            }
+            _ = gpuLinear(a: a, b: b, c: c, m: first, k: k, n: n, weightIsTransposed: weightIsTransposed)
+            let gpuWall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
+            group.wait()
+            lastSides = (gpuWall, first, aneWall, rows)
+            let gpuKey = "\(m)×\(k)×\(n)ᵀ ane \(rows) GPU side"
+            let gpuPrevious = census[gpuKey] ?? (0, 0, Double.infinity)
+            census[gpuKey] = (gpuPrevious.count + 1, gpuPrevious.seconds + gpuWall, min(gpuPrevious.best, gpuWall))
+            if !computed { _ = gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed) }
+            let wall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
+            let key = "\(m)×\(k)×\(n)ᵀ ane \(rows)"
+            let previous = census[key] ?? (0, 0, Double.infinity)
+            census[key] = (previous.count + 1, previous.seconds + wall, min(previous.best, wall))
+            return wall
+        }
+        return gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
+    }
+
+    /// `linear` on the GPU (and the AMX's cut): what every product ran before the Neural Engine.
+    private func gpuLinear(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
+                           weightIsTransposed: Bool) -> Double {
         // From 8 to 32 rows, the GEMM goes through the padding tiers (see `poisonedRows`). The
         // GPU/AMX cut never applies there (`amx_min` = 512).
         if GEMM.poisonedRows.contains(m) {

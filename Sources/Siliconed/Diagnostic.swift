@@ -88,7 +88,9 @@ package enum Diagnostic {
     /// (`products[].int8`, `int8Coexecution`, `int8GPUColumns`), the `int8 convrot` and `int8 copy`
     /// widenings; the decisions add `int8`. **9** (18/10/2026): the Q8_0-weight products (`products[].q8`,
     /// `q8Coexecution`, `q8GPUColumns`), the `q8_0` and `q8_0 copy` widenings; the decisions add `q8`.
-    package static let schema = 9
+    /// **10** (22/10/2026): the Neural Engine beside the GPU (`products[].ane`, `aneGPUShare`); the decisions
+    /// add `ane` and `aneFraction`.
+    package static let schema = 10
     package static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
@@ -240,21 +242,30 @@ package enum Diagnostic {
         /// The same beside the AMX on the last columns at `gpuShare` (`q8GPUColumns` to the GPU).
         package var q8Coexecution: Measure?
         package var q8GPUColumns: Int?
+        /// `gemm_ane`: `GEMM.linear` with the Neural Engine on the last rows (`NeuralEngine`, fp16, the weight's
+        /// columns lifted), the GPU alone on the first, at `aneGPUShare`; judged against **1.25 × bf16's error**
+        /// — the product of the input rounded to bf16 (the weight is), rounded to bf16 — (invariant 3: a
+        /// half-precision path no further than bf16 + 25 %), not the fp32 threshold. `nil` under `NeuralEngine.minimumRows`, or before schema 10.
+        package var ane: Measure?
+        /// The GPU's share the pair was measured at: the one that balanced both sides at a first share of ½.
+        package var aneGPUShare: Double?
 
         package init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
                     gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?, tensor: Measure? = nil,
                     int8: Measure? = nil, int8Coexecution: Measure? = nil, int8GPUColumns: Int? = nil,
-                    q8: Measure? = nil, q8Coexecution: Measure? = nil, q8GPUColumns: Int? = nil) {
+                    q8: Measure? = nil, q8Coexecution: Measure? = nil, q8GPUColumns: Int? = nil,
+                    ane: Measure? = nil, aneGPUShare: Double? = nil) {
             self.model = model; self.product = product; self.m = m; self.k = k; self.n = n; self.gpu = gpu
             self.amx = amx; self.gpuShare = gpuShare.map { Diagnostic.significant($0, 3) }
             self.coexecution = coexecution; self.coexecutionGPURows = coexecutionGPURows; self.tensor = tensor
             self.int8 = int8; self.int8Coexecution = int8Coexecution; self.int8GPUColumns = int8GPUColumns
             self.q8 = q8; self.q8Coexecution = q8Coexecution; self.q8GPUColumns = q8GPUColumns
+            self.ane = ane; self.aneGPUShare = aneGPUShare.map { Diagnostic.significant($0, 3) }
         }
 
         private enum CodingKeys: String, CodingKey {
             case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor, int8, int8Coexecution, int8GPUColumns,
-                 q8, q8Coexecution, q8GPUColumns
+                 q8, q8Coexecution, q8GPUColumns, ane, aneGPUShare
         }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
@@ -268,6 +279,7 @@ package enum Diagnostic {
             try c.encodeIfPresent(int8Coexecution, forKey: .int8Coexecution); try c.encodeIfPresent(int8GPUColumns, forKey: .int8GPUColumns)
             try c.encodeIfPresent(q8, forKey: .q8)
             try c.encodeIfPresent(q8Coexecution, forKey: .q8Coexecution); try c.encodeIfPresent(q8GPUColumns, forKey: .q8GPUColumns)
+            try c.encodeIfPresent(ane, forKey: .ane); try c.encodeIfPresent(aneGPUShare, forKey: .aneGPUShare)
         }
     }
 

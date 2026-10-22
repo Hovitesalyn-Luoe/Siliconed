@@ -27,6 +27,9 @@ final class CapacityRulesTests: XCTestCase {
         /// The Q8_0 products, likewise; and the CPU's Q8_0 widening and copy.
         var q8: [[Double]]? = nil, q8Both: [[Double]]? = nil
         var q8Widen = 23.0, q8Copy = 70.0
+        /// GPU + ANE, [size][product]; `nil`: a map before schema 10. Its error, threshold (bf16's + 25 %) and share.
+        var ane: [[Double]]? = nil
+        var aneError = 4e-4, aneThreshold = 4e-3, aneShare = 0.55
     }
 
     private static let machine = Diagnostic.Machine(chip: "Apple M1 Pro", hardwareModel: "MacBookPro18,3", performanceCores: 6,
@@ -46,7 +49,9 @@ final class CapacityRulesTests: XCTestCase {
                                           amx: ok(a, r.amxError), gpuShare: g / (g + a), coexecution: ok(r.both[h][i]),
                                           coexecutionGPURows: nil, tensor: r.tensor.map { ok($0[h][i], r.tensorError) },
                                           int8: r.int8.map { ok($0[h][i]) }, int8Coexecution: r.int8Both.map { ok($0[h][i]) },
-                                          q8: r.q8.map { ok($0[h][i]) }, q8Coexecution: r.q8Both.map { ok($0[h][i]) }))
+                                          q8: r.q8.map { ok($0[h][i]) }, q8Coexecution: r.q8Both.map { ok($0[h][i]) },
+                                          ane: r.ane.map { .init(rate: $0[h][i], error: r.aneError, threshold: r.aneThreshold) },
+                                          aneGPUShare: r.ane.map { _ in r.aneShare }))
                 }
             }
         }
@@ -209,6 +214,50 @@ final class CapacityRulesTests: XCTestCase {
         // Without its widening's rate, never.
         r.q8Widen = 0
         XCTAssertFalse(Diagnostic.decide(report(r)).q8!.on)
+    }
+
+    /// **The Neural Engine is a branch the map decides, exclusive with the AMX**: when both clear the margin,
+    /// `gemm_ane` on with its share and `amx` off, whatever the AMX gains (thermal efficiency); a product over
+    /// its threshold, a gain within the margin, or a map without it, keeps it off.
+    func testTheNeuralEngineIsDecidedAgainstTheAMX() {
+        var r = m1Pro
+        r.drift = (1.0, 1.0)
+        r.ane = r.gpu.map { $0.map { $0 * 1.7 } }
+        var d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.ane!.on)
+        XCTAssertTrue(d.amx.passed)
+        XCTAssertFalse(d.amx.on, "the larger gain keeps its branch")
+        XCTAssertEqual(d.settings["gemm_ane"] as? Bool, true)
+        XCTAssertEqual(d.settings["amx"] as? Bool, false)
+        XCTAssertEqual(d.settings["ane_fraction"] as? Double, 0.55)
+        XCTAssertNil(d.settings["amx_fraction"])
+        // The AMX faster, the ANE still clearing the margin: the ANE all the same.
+        r.ane = r.gpu.map { $0.map { $0 * 1.12 } }
+        d = Diagnostic.decide(report(r))
+        XCTAssertLessThan(d.ane!.gain, d.amx.gain)
+        XCTAssertTrue(d.ane!.on)
+        XCTAssertFalse(d.amx.on)
+        XCTAssertEqual(d.settings["amx"] as? Bool, false)
+        // Within the margin of the GPU alone: off, and the AMX keeps the rows.
+        r.ane = r.gpu.map { $0.map { $0 * 1.02 } }
+        d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.ane!.passed)
+        XCTAssertFalse(d.ane!.on)
+        XCTAssertTrue(d.amx.on)
+        XCTAssertEqual(d.settings["gemm_ane"] as? Bool, false)
+        XCTAssertNil(d.settings["ane_fraction"])
+        // Faster, but one product over bf16's error + 25 %: off.
+        r.ane = r.gpu.map { $0.map { $0 * 1.7 } }
+        r.aneError = 5e-3
+        d = Diagnostic.decide(report(r))
+        XCTAssertFalse(d.ane!.passed)
+        XCTAssertFalse(d.ane!.on)
+        XCTAssertTrue(d.amx.on)
+        // A map before schema 10: no decision, the branch off.
+        r.ane = nil
+        d = Diagnostic.decide(report(r))
+        XCTAssertNil(d.ane)
+        XCTAssertEqual(d.settings["gemm_ane"] as? Bool, false)
     }
 
     /// **Under `gemm_tensor` the AMX is off**: the int8 product is judged alone, against the GPU alone.
