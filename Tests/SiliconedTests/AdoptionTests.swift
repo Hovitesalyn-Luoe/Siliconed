@@ -28,16 +28,26 @@ final class AdoptionTests: XCTestCase {
                               sha256: try Downloader.sha256(sample), size: bytes.utf8.count)
     }
 
-    func testPublishedTableIsTheInstallationsPinnedEncoders() {
+    func testPublishedTableIsTheInstallationsPinnedEncodersAndVAEs() {
         let table = Adoption.published()
-        XCTAssertEqual(Set(table.map(\.family)), [.zImage, .krea2, .qwenImage21], "Anima's encoder is not pinned")
+        XCTAssertEqual(Set(table.map(\.family)), Set(Family.allCases))
         for x in table {
             XCTAssertEqual(x.file.sha256?.count, 64)
-            XCTAssertGreaterThan(x.file.size ?? 0, 1_000_000_000)
+            XCTAssertGreaterThan(x.file.size ?? 0, 50_000_000, "weights only, never a config")
+        }
+        // Every family's VAE, once (a component is every version's).
+        let vaes = table.filter { $0.file.destination != nil }
+        XCTAssertEqual(vaes.map(\.family).sorted { $0.rawValue < $1.rawValue }, Family.allCases.sorted { $0.rawValue < $1.rawValue })
+        XCTAssertTrue(vaes.allSatisfy { $0.file.destination == "vae.safetensors" && $0.variant == .standard })
+        // Every version of every family has its encoder's weights pinned (a sharded one, each shard).
+        for f in Family.allCases {
+            for v in f.variants {
+                XCTAssertTrue(table.contains { $0.family == f && $0.variant == v && $0.file.destination == nil }, "\(f) \(v)")
+            }
         }
         // A Compact's and a Light's encoder is one file, so one place on disk.
         let installer = Installer(library: library)
-        let z = table.filter { $0.family == .zImage }
+        let z = table.filter { $0.family == .zImage && $0.variant != .standard }
         XCTAssertEqual(Set(z.map(\.variant)), [.compact, .light])
         XCTAssertEqual(Set(z.map { installer.source($0.file) }).count, 1)
     }
@@ -103,5 +113,24 @@ final class AdoptionTests: XCTestCase {
         XCTAssertTrue(r.placed.isEmpty)
         XCTAssertEqual(r.copied, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: Installer(library: library).source(expected)))
+    }
+
+    func testVAEWaitsAmongDownloadsAndTheComponentsFolderSaysInstalled() throws {
+        let vae = try file("a/vae", "vae bytes")
+        let component = Installer.File(repository: vae.repository, path: "vae/diffusion_pytorch_model.safetensors",
+                                       destination: "vae.safetensors", sha256: vae.sha256, size: vae.size)
+        let table = [Adoption.Expectation(family: .anima, variant: .standard, file: component)]
+        let installer = Installer(library: library)
+        let r = try XCTUnwrap(Adoption.adopt(try write("ae.safetensors", "vae bytes"), in: library, among: table))
+        XCTAssertEqual(r.placed, [installer.source(component)])
+        // Never under store/composants/: that folder alone makes a family look installed.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installer.componentsFolder(.anima)))
+
+        // The family's VAE installed: nothing is needed.
+        try FileManager.default.createDirectory(atPath: installer.componentsFolder(.krea2), withIntermediateDirectories: true)
+        try Data("vae".utf8).write(to: URL(fileURLWithPath: installer.componentsFolder(.krea2) + "/vae.safetensors"))
+        let installed = [Adoption.Expectation(family: .krea2, variant: .standard, file: component)]
+        let again = try XCTUnwrap(Adoption.adopt(try write("ae2.safetensors", "vae bytes"), in: library, among: installed))
+        XCTAssertTrue(again.placed.isEmpty)
     }
 }

@@ -7,14 +7,14 @@ import Foundation
 /// (`EngineError.importNeedsFamily`) — its installation shows its license and its size first. The
 /// file brought can then be thrown away: the render only reads `store/`.
 ///
-/// **The one thing taken as a component is an encoder identical to the one an installation
+/// **The one thing taken as a component is an encoder or a VAE identical to the one an installation
 /// downloads** (`Adoption`): copied where the download would have put it, so that the installation
 /// does not fetch it. Any other encoder is refused as before.
 ///
 /// This is Draw Things' idea (`BaseModelImporter`, `LoRAImporter`): the architecture is detected,
 /// only the DiT is converted, the rest is the family's.
 package enum ModelImport {
-    package enum Kind: String, Sendable { case lora = "LoRA", model = "model", encoder = "encoder" }
+    package enum Kind: String, Sendable { case lora = "LoRA", model = "model", encoder = "encoder", vae = "VAE" }
 
     package struct Outcome: Sendable {
         package let kind: Kind
@@ -25,7 +25,7 @@ package enum ModelImport {
         package let path: String
         /// What happened, line by line (naming recognized, dtypes, roundings, installations).
         package let journal: [String]
-        /// An encoder only: the families whose installation expects this very file, and whether it
+        /// An encoder or a VAE only: the families whose installation expects this very file, and whether it
         /// was put where they will find it (`false`: each already has its encoder, nothing was copied).
         package var families: [Family] = []
         package var placed = false
@@ -178,15 +178,16 @@ package enum ModelImport {
         var families: [Family] = []
         for x in a.expected where !families.contains(x.family) { families.append(x.family) }
         let name = (file as NSString).lastPathComponent
-        var rows = ["encoder: \(name), identical (size, sha256) to the one the installation of "
+        let kind: Kind = a.expected[0].file.destination == nil ? .encoder : .vae
+        var rows = ["\(kind.rawValue): \(name), identical (size, sha256) to the one the installation of "
                     + families.map(\.name).joined(separator: ", ") + " downloads"]
         if a.placed.isEmpty {
-            rows.append("every version that expects it has its encoder already: nothing copied")
+            rows.append("every version that expects it has it already: nothing copied")
         } else {
             rows.append(a.copied == 0 ? "already in place for the installation" : "copied: the installation will not download it")
         }
         rows.forEach(journal)
-        var o = Outcome(kind: .encoder, family: families[0], name: name, path: a.placed.first ?? "", journal: rows)
+        var o = Outcome(kind: kind, family: families[0], name: name, path: a.placed.first ?? "", journal: rows)
         o.families = families
         o.placed = !a.placed.isEmpty
         return o

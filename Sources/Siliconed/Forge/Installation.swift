@@ -79,19 +79,22 @@ package struct Installer {
         switch f {
         case .zImage:
             return [File(repository: zImage, path: "tokenizer/tokenizer.json", destination: "tokenizer/tokenizer.json"),
-                    File(repository: zImage, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
+                    File(repository: zImage, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors",
+                         sha256: "f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3", size: 167666902),
                     File(repository: zImage, path: "transformer/config.json", destination: "transformer.json")]
         case .anima:
             return [File(repository: animaBase, path: "tokenizer/tokenizer.json", destination: "tokenizer/tokenizer.json"),
                     File(repository: animaBase, path: "t5_tokenizer/tokenizer.json", destination: "t5_tokenizer/tokenizer.json"),
-                    File(repository: animaBase, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
+                    File(repository: animaBase, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors",
+                         sha256: "0c8bc8b758c649abef9ea407b95408389a3b2f610d0d10fcb054fe171d0a8344", size: 253806966),
                     File(repository: animaBase, path: "transformer/config.json", destination: "transformer.json")]
         case .krea2:
             // Krea's tokenizer is Qwen-Image-2.1-Turbo's `processor/tokenizer.json` (one LFS object,
             // `be756060`); its fp32 VAE is Qwen-Image's bf16 one widened, each of its 126.9 M values
             // (Anima's file, `0c8bc8b7`). No config: `Krea2Published` holds the two the engine reads.
             return [File(repository: qwenImage21Turbo, path: "processor/tokenizer.json", destination: "tokenizer/tokenizer.json"),
-                    File(repository: qwenImage, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors")]
+                    File(repository: qwenImage, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors",
+                         sha256: "0c8bc8b758c649abef9ea407b95408389a3b2f610d0d10fcb054fe171d0a8344", size: 253806966)]
         case .qwenImage21:
             // `processor/` as published (transformers 5's serialization: `tokenizer.json` holds the
             // vocabulary, `processor_config.json` the image processor's values). The engine reads
@@ -101,7 +104,8 @@ package struct Installer {
             // The schedule: `sample_sigmas` in `model_index.json`, checked against the scheduler config.
             return ["tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "processor_config.json"]
                 .map { File(repository: qwenImage21Turbo, path: "processor/" + $0, destination: "processor/" + $0) }
-                + [File(repository: qwenImage21Turbo, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors"),
+                + [File(repository: qwenImage21Turbo, path: "vae/diffusion_pytorch_model.safetensors", destination: "vae.safetensors",
+                        sha256: "71879ffd5321e6d10c3c87513e2b474b1252efa7f3dec2969214a9bf06a6dd5c", size: 675508656),
                    File(repository: qwenImage21Turbo, path: "vae/config.json", destination: "vae.json"),
                    File(repository: qwenImage21Turbo, path: "transformer/config.json", destination: "transformer.json"),
                    File(repository: qwenImage21Turbo, path: "scheduler/scheduler_config.json", destination: "scheduler.json"),
@@ -197,11 +201,16 @@ package struct Installer {
         }
         switch f {
         case .zImage:
-            return ["config.json", "model.safetensors.index.json", "model-00001-of-00003.safetensors",
-                    "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
-                .map { File(repository: zImage, path: "text_encoder/" + $0, destination: nil) }
+            // The shards pinned (size, sha256) as a user's own copy is recognized by them (`Adoption`).
+            return ["config.json", "model.safetensors.index.json"].map { File(repository: zImage, path: "text_encoder/" + $0, destination: nil) }
+                + [("model-00001-of-00003.safetensors", "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223", 3957900840),
+                   ("model-00002-of-00003.safetensors", "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5", 3987450520),
+                   ("model-00003-of-00003.safetensors", "7ca841ee75b9c61267c0c6148fd8d096d3d21b6d3e161256a9b878154f91fc52", 99630640)]
+                .map { File(repository: zImage, path: "text_encoder/" + $0.0, destination: nil, sha256: $0.1, size: $0.2) }
         case .anima:
-            return ["config.json", "model.safetensors"].map { File(repository: animaBase, path: "text_encoder/" + $0, destination: nil) }
+            return [File(repository: animaBase, path: "text_encoder/config.json", destination: nil),
+                    File(repository: animaBase, path: "text_encoder/model.safetensors", destination: nil,
+                         sha256: "75e8db94adb374b61baca3d898fc2c0d5086d20689a96d4e74576546433a0526", size: 1192133232)]
         case .krea2:
             // Comfy-Org's bf16 file: Krea's `text_encoder/model.safetensors`, every tensor equal, under
             // `model.` (the `Qwen3VLForConditionalGeneration` layout).
@@ -209,7 +218,9 @@ package struct Installer {
                          sha256: "36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34", size: 8875719384)]
         case .qwenImage21:
             // One file, the base's four shards to the bit (750 tensors): the map's tensors are the same.
-            return ["config.json", "model.safetensors"].map { File(repository: qwenImage21Turbo, path: "text_encoder/" + $0, destination: nil) }
+            return [File(repository: qwenImage21Turbo, path: "text_encoder/config.json", destination: nil),
+                    File(repository: qwenImage21Turbo, path: "text_encoder/model.safetensors", destination: nil,
+                         sha256: "a1eee8233f3063466dd3b06e857b0a2cf13a77c543908374771d51a546beb2e0", size: 17534340584)]
         }
     }
 
@@ -392,8 +403,10 @@ package struct Installer {
         for c in Self.components(f) {
             let target = componentsFolder(f) + "/" + c.destination!
             if fm.fileExists(atPath: target) { continue }
+            // A user's copy taken by `Adoption` waits where a download would; the download verifies it.
+            if fm.fileExists(atPath: source(c)) { try fm.moveItem(atPath: source(c), toPath: target) }
             try Downloader.download(c.repository.name, revision: c.repository.revision, path: c.path, to: target,
-                                         cancellation: cancellation, journal: journal)
+                                         pinned: c.sha256, cancellation: cancellation, journal: journal)
         }
         let reference = componentsFolder(f) + "/dit.json"
         if !fm.fileExists(atPath: reference) {

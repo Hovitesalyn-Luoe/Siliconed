@@ -22211,6 +22211,34 @@
         }
       }
     },
+    "VAE already installed for %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE für %@ bereits installiert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE ya instalado para %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE déjà installé pour %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE già installato per %@"
+          }
+        }
+      }
+    },
     "VAE decoder" : {
       "localizations" : {
         "de" : {
@@ -22235,6 +22263,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Decoder VAE"
+          }
+        }
+      }
+    },
+    "VAE kept for %@: its installation will not download it" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE für %@ übernommen: die Installation lädt ihn nicht herunter"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE conservado para %@: su instalación no lo descargará"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE conservé pour %@ : son installation ne le téléchargera pas"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VAE conservato per %@: la sua installazione non lo scaricherà"
           }
         }
       }

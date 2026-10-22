@@ -1,17 +1,17 @@
 import Foundation
 
-/// **A file the user already has, taken instead of downloaded**: an encoder dropped on the app whose
-/// size and sha256 are those of a file an installation fetches (the pinned ones, `Installer.encoder`)
-/// is copied to the place its download would have had, and the installation, finding it complete,
-/// does not download it. Exact, so nothing to trust: a file that is not byte for byte the expected
+/// **A file the user already has, taken instead of downloaded**: an encoder or a VAE dropped on the app
+/// whose size and sha256 are those of a file an installation fetches (the pinned ones, `Installer.encoder`
+/// and `Installer.components`) is copied to the place its download would have had, and the installation,
+/// finding it complete, does not download it. Exact, so nothing to trust: a file that is not byte for byte the expected
 /// one is not touched here (a different encoder is another matter, and is refused as before).
 ///
 /// What is copied is the **source**, not a map: the installation forges it as it would a download,
 /// then throws it away. The app never shares a file with another tool; the copy saves the download,
 /// not the disk space (on APFS the copy is a clone, which costs none until one of the two changes).
 ///
-/// Only encoders: a DiT dropped is a model to import (`ModelImport`), and a VAE is not pinned (the
-/// Hub's announcement judges it at download).
+/// Never a DiT: a DiT dropped is a model to import (`ModelImport`). A VAE waits in `telechargements/`
+/// like an encoder, never in `store/composants/`, whose folder alone makes a family look installed.
 enum Adoption {
     /// One file an installation expects, for one version of one family.
     struct Expectation {
@@ -28,6 +28,8 @@ enum Adoption {
             f.variants.flatMap { v in
                 Installer.encoder(f, v).filter { $0.sha256 != nil && $0.size != nil }.map { Expectation(family: f, variant: v, file: $0) }
             }
+            // A family's components are every version's: listed once, under the Standard.
+            + Installer.components(f).filter { $0.sha256 != nil && $0.size != nil }.map { Expectation(family: f, variant: .standard, file: $0) }
         }
     }
 
@@ -62,7 +64,11 @@ enum Adoption {
         guard let size = found.first?.file.size else { return nil }
         let installer = Installer(library: library)
         var places: [String] = []
-        for x in found where !Library.exists(library.map(x.family.encoderMap(x.variant))) {
+        let installed = { (x: Expectation) in
+            x.file.destination.map { Library.exists(installer.componentsFolder(x.family) + "/" + $0) }
+                ?? Library.exists(library.map(x.family.encoderMap(x.variant)))
+        }
+        for x in found where !installed(x) {
             // One copy per distinct place: two versions expecting one file share it.
             let place = installer.source(x.file)
             if !places.contains(place) { places.append(place) }

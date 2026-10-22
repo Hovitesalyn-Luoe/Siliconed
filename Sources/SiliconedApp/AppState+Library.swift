@@ -91,10 +91,15 @@ extension AppState {
                 return
             }
             for r in results {
-                if r.kind == .encoder {
+                if r.kind == .encoder || r.kind == .vae {
                     let names = r.families.map(\.name).joined(separator: ", ")
-                    flash(r.placed ? String(localized: "Encoder kept for \(names): its installation will not download it")
-                                   : String(localized: "Encoder already installed for \(names)"))
+                    if r.kind == .vae {
+                        flash(r.placed ? String(localized: "VAE kept for \(names): its installation will not download it")
+                                       : String(localized: "VAE already installed for \(names)"))
+                    } else {
+                        flash(r.placed ? String(localized: "Encoder kept for \(names): its installation will not download it")
+                                       : String(localized: "Encoder already installed for \(names)"))
+                    }
                 } else if let id = r.identifier {
                     identifier = id
                     // One acceptance: the family's, read before its encoder and VAE were installed,
