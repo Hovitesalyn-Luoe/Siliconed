@@ -10,10 +10,10 @@ import Foundation
 ///       rows 0 ..< m − r     the GPU (`GEMM.linear`, MPS)                      ─┐ at the same time
 ///       rows m − r ..< m     the ANE, one Core ML program per (r, k, n):        │
 ///                              W · λ  ─▶ fp16      λ_j = 2^−⌊log₂ max_i |W_ij|⌋ ─┤
-///                              A · σ  ─▶ fp16      σ = 2^⌊log₂(2¹⁵ / (max|A| · L))⌋│
+///                              σ · A  ─▶ fp16      σ_i = 2^⌊log₂(2¹⁵ / (max_k |A_ik| · L))⌋, per row
 ///                              Y = A₁₆ · W₁₆        (fp16 out)                    │
-///                              C = Y / (λ · σ)      fp32, then checked finite    ─┘
-///     L = max_j Σ_i |W_ij| λ_j, the largest lifted column's L1 norm: |Y| ≤ max|A| · σ · L ≤ 2¹⁵, under fp16's 65 504.
+///                              C = Y / (σ · λ)      fp32, then checked finite    ─┘
+///     L = max_j Σ_k |W_kj| λ_j, the largest lifted column's L1 norm: |Y_i·| ≤ max|A_i·| · σ_i · L ≤ 2¹⁵, under fp16's 65 504.
 ///
 /// A branch the capacity map turns on (`gemm_ane`, `CapacityRules`), where it measures the pair faster
 /// than the GPU alone and the ANE's rows within the half-precision threshold; off by default, like
@@ -25,9 +25,11 @@ import Foundation
 ///     weights sit around 10⁻³, their products with the activations under it: unlifted, 4 of 12 of
 ///     Anima's products came out at 1.85 relative error. Each weight column is lifted by a power of two
 ///     to an absmax in [1, 2), undone in fp32 after: exact, the weight unchanged. The activation too, by
-///     one power of two for the whole slice, up or down, as far as the output's bound allows: Anima's
+///     a power of two per row, up or down, as far as that row's output bound allows: Anima's
 ///     cross-attention output peaks at 0.017 (3 % of it under the smallest normal) and came out at 1.5 ×
-///     bf16's error unlifted, 0.13 × lifted by 2⁸;
+///     bf16's error unlifted, 0.13 × lifted by 2⁸. Per row, not per slice: Z-Image's FFN output spans
+///     8.7·10⁵ down to rows a thousand times smaller, and one σ for the slice, set by the largest row,
+///     sank the small ones under fp16's normals — the next RMSNorm, per row, came out 11 × bf16's error;
 ///   - **a non-finite in the ANE's output sends its rows back to the GPU** (`fallbacks`): fp16 overflows
 ///     where fp32 does not, and the image never depends on the ANE having fit;
 ///   - **a program has limits the GPU does not**: past K = 8 192 or a 100 MB weight its rate falls by 5
@@ -80,6 +82,8 @@ package final class NeuralEngine: @unchecked Sendable {
     /// Per chunk of rows, one row of `max(widest part of K, n)` floats: the input scaled, a weight row's
     /// magnitudes, an output part widened.
     private var scratch: Pages?
+    /// Per row of the ANE's slice: `σ_i`, then `1 / σ_i`.
+    private var rowLifts: Pages?
     /// The chunks the CPU's passes cut rows into, on every core.
     private static let chunks = 16
     /// `L`: the largest L1 norm of a lifted weight column, the output's bound per unit of input.
@@ -113,20 +117,21 @@ package final class NeuralEngine: @unchecked Sendable {
 
     /// **What it holds over a phase's `products`** (`MemoryNeed.gemm`): each program shape's three
     /// surfaces, kept while the engine lives — a sum over the shapes, not a maximum —, and its per-column
-    /// state and per-chunk rows, grown to the largest product.
+    /// state, per-chunk rows and per-row lifts, grown to the largest product.
     package static func bytes(products: [(m: Int, k: Int, n: Int)], gpuShare: Double, shares: Conductor.Shares = .none) -> Int {
         let engine = NeuralEngine(gpuShare: gpuShare, shares: shares)
-        var shapes = Set<Shape>(), (columns, scratch) = (0, 0)
+        var shapes = Set<Shape>(), (columns, scratch, lifts) = (0, 0, 0)
         for p in products {
             let rows = engine.rows(p.m, k: p.k, n: p.n)
             guard rows > 0 else { continue }
             let these = NeuralEngine.shapes(rows: rows, k: p.k, n: p.n)
             shapes.formUnion(these)
             columns = max(columns, (2 + 2 * chunks) * p.n * 4)
+            lifts = max(lifts, 2 * rows * 4)
             scratch = max(scratch, chunks * max(these.map(\.k).max()!, p.n) * 4)
         }
         return shapes.map { s in [s.rows * s.k, s.k * s.n, s.rows * s.n].map { Arena.capacity(for: $0 * 2) }.reduce(0, +) }.reduce(0, +)
-            + (columns > 0 ? Arena.capacity(for: columns) + Arena.capacity(for: scratch) : 0)
+            + (columns > 0 ? Arena.capacity(for: columns) + Arena.capacity(for: scratch) + Arena.capacity(for: lifts) : 0)
     }
 
     /// **Core ML's first program, run once and dropped** before a render reads its base
@@ -212,23 +217,30 @@ package final class NeuralEngine: @unchecked Sendable {
         defer { timings["side", default: 0] += Double(DispatchTime.now().uptimeNanoseconds - sideStarted) * 1e-9 }
         timed("lift") { liftColumns(w, k: k, n: n, scratch: rowScratch, stride: stride) }
 
-        // The activation, by the power of two its peak and the output's bound allow. By chunks of rows on
-        // every core.
+        // Each row of the activation, by the power of two its peak and the output's bound allow. By chunks
+        // of rows on every core.
+        if (rowLifts?.capacity ?? 0) < 2 * rows * 4 { rowLifts = Pages(bytes: 2 * rows * 4) }
+        nonisolated(unsafe) let sigmas = rowLifts!.floats(), inverses = sigmas + rows
         let chunks = min(rows, NeuralEngine.chunks), per = (rows + chunks - 1) / chunks
         nonisolated(unsafe) let x = a + first * k
-        let peaks = timed("input") { () -> Float in
-            let partial = rowScratch   // chunk maxima, before the rows use it
+        let norm = liftedNorm
+        let finiteInput = timed("input") { () -> Bool in
+            nonisolated(unsafe) let flags = rowScratch   // 1 where a chunk is not finite, before the rows use it
             DispatchQueue.concurrentPerform(iterations: chunks) { chunk in
-                let (lower, upper) = (chunk * per, min(rows, (chunk + 1) * per))
-                var m: Float = 0
-                if upper > lower { vDSP_maxmgv(x + lower * k, 1, &m, vDSP_Length((upper - lower) * k)) }
-                partial[chunk] = m
+                var bad: Float = 0
+                for row in chunk * per..<min(rows, (chunk + 1) * per) {
+                    var m: Float = 0
+                    vDSP_maxmgv(x + row * k, 1, &m, vDSP_Length(k))
+                    let bound = m * norm
+                    if !m.isFinite { bad = 1 }
+                    let sigma: Float = bound > 0 && bound.isFinite ? exp2(floor(log2(32_768 / bound))) : 1
+                    (sigmas[row], inverses[row]) = (sigma, 1 / sigma)
+                }
+                flags[chunk] = bad
             }
-            return (0..<chunks).reduce(Float(0)) { !partial[$1].isFinite ? .infinity : max($0, partial[$1]) }
+            return !(0..<chunks).contains { flags[$0] != 0 }
         }
-        guard peaks.isFinite else { fallbacks += 1; return false }
-        let bound = peaks * liftedNorm
-        let sigma: Float = bound > 0 && bound.isFinite ? exp2(floor(log2(32_768 / bound))) : 1
+        guard finiteInput else { fallbacks += 1; return false }
         nonisolated(unsafe) let y = c + first * n
 
         // Part by part: its weight rows and input columns into the surfaces, the program, its output added
@@ -247,8 +259,8 @@ package final class NeuralEngine: @unchecked Sendable {
                     let (lower, upper) = (chunk * per, min(rows, (chunk + 1) * per))
                     // Scaled in fp32 (exact: a power of two, in range), then converted, row by row.
                     let scaled = rowScratch + chunk * stride
-                    var s = sigma
                     for row in lower..<upper {
+                        var s = sigmas[row]
                         vDSP_vsmul(x + row * k + k0, 1, &s, scaled, 1, vDSP_Length(count))
                         var source = vImage_Buffer(data: scaled, height: 1, width: vImagePixelCount(count), rowBytes: count * 4)
                         var target = vImage_Buffer(data: half + row * count, height: 1, width: vImagePixelCount(count),
@@ -290,9 +302,8 @@ package final class NeuralEngine: @unchecked Sendable {
             CVPixelBufferUnlockBaseAddress(binding.y, .readOnly)
         }
 
-        // Each column divided by its lift and the slice by σ, checked finite.
+        // Each column divided by its lift and each row by its σ, checked finite.
         let finite = timed("output") { () -> Bool in
-            let inverse = 1 / sigma
             nonisolated(unsafe) let u = columns!.floats() + n
             nonisolated(unsafe) let flags = rowScratch   // 1 where a chunk is not finite
             DispatchQueue.concurrentPerform(iterations: chunks) { chunk in
@@ -301,7 +312,7 @@ package final class NeuralEngine: @unchecked Sendable {
                 for row in lower..<upper {
                     let r = y + row * n
                     vDSP_vmul(r, 1, u, 1, r, 1, vDSP_Length(n))
-                    if inverse != 1 { var s = inverse; vDSP_vsmul(r, 1, &s, r, 1, vDSP_Length(n)) }
+                    if inverses[row] != 1 { var s = inverses[row]; vDSP_vsmul(r, 1, &s, r, 1, vDSP_Length(n)) }
                 }
                 if upper > lower { vDSP_maxmgv(y + lower * n, 1, &m, vDSP_Length((upper - lower) * n)) }
                 flags[chunk] = m.isFinite ? 0 : 1
