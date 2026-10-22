@@ -91,7 +91,11 @@ extension AppState {
                 return
             }
             for r in results {
-                if let id = r.identifier {
+                if r.kind == .encoder {
+                    let names = r.families.map(\.name).joined(separator: ", ")
+                    flash(r.placed ? String(localized: "Encoder kept for \(names): its installation will not download it")
+                                   : String(localized: "Encoder already installed for \(names)"))
+                } else if let id = r.identifier {
                     identifier = id
                     // One acceptance: the family's, read before its encoder and VAE were installed,
                     // covers the model built on them — no second sheet at the first render.

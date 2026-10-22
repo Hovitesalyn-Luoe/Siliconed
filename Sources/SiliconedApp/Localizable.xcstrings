@@ -7995,6 +7995,34 @@
         }
       }
     },
+    "Encoder already installed for %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoder für %@ bereits installiert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codificador ya instalado para %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encodeur déjà installé pour %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoder già installato per %@"
+          }
+        }
+      }
+    },
     "Encoder and VAE only — enough to render with an imported model" : {
       "localizations" : {
         "de" : {
@@ -8019,6 +8047,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Solo encoder e VAE — quanto basta per il rendering con un modello importato"
+          }
+        }
+      }
+    },
+    "Encoder kept for %@: its installation will not download it" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoder für %@ übernommen: die Installation lädt ihn nicht herunter"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codificador conservado para %@: su instalación no lo descargará"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encodeur conservé pour %@ : son installation ne le téléchargera pas"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoder conservato per %@: la sua installazione non lo scaricherà"
           }
         }
       }

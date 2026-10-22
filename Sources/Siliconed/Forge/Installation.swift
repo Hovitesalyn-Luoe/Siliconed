@@ -35,7 +35,9 @@ package struct Installer {
     /// `sha256`: the LFS object pinned in the recipe (a Compact's third-party files): the Hub must
     /// announce it, and the bytes must hash to it. Without it, the sha256 the Hub announces at the
     /// pinned revision is checked.
-    struct File { let repository: Repository; let path: String; let destination: String?; var sha256: String? = nil }
+    /// `size`: the byte count the Hub announces for that LFS object, pinned beside the sha256 where
+    /// a user's own copy can be recognized (`Adoption`): the cheap test before the hash.
+    struct File { let repository: Repository; let path: String; let destination: String?; var sha256: String? = nil; var size: Int? = nil }
 
     static let zImage = Repository(name: "Tongyi-MAI/Z-Image-Turbo", revision: "f332072aa78be7aecdf3ee76d5c247082da564a6")
     static let animaBase = Repository(name: "circlestone-labs/Anima-Base-v1.0-Diffusers", revision: "073c3a9db359c31ad0e8aa268d15775473c2176c")
@@ -180,17 +182,17 @@ package struct Installer {
         case (.zImage, .compact), (.zImage, .light):
             return [File(repository: zImage, path: "text_encoder/config.json", destination: nil),
                     File(repository: zImageSDNQ, path: "text_encoder/model.safetensors", destination: nil,
-                         sha256: "21a5e09e4d05ddb2900dc5c51db5e2bc7bc8b3fa08ba10b372798fba3c594677")]
+                         sha256: "21a5e09e4d05ddb2900dc5c51db5e2bc7bc8b3fa08ba10b372798fba3c594677", size: 4413905040)]
         case (.krea2, .compact), (.krea2, .light):
             // Comfy-Org's int8 convrot (`int8_tensorwise`, group 256): the 252 language-model linears and
             // the embedding table, per-row scales; the vision tower in bf16, not written.
             return [File(repository: krea2Comfy, path: "text_encoders/qwen3vl_4b_int8_convrot.safetensors", destination: nil,
-                         sha256: "32de113cbf8282b02cbff0794b637b9d6676da09314a1db5a30bcea9bf4ee01c")]
+                         sha256: "32de113cbf8282b02cbff0794b637b9d6676da09314a1db5a30bcea9bf4ee01c", size: 4858559240)]
         case (.qwenImage21, .compact), (.qwenImage21, .light):
             // The Turbo's `config.json` (the base's but `pad_token_id: null`), the base's 8-bit weights.
             return [File(repository: qwenImage21Turbo, path: "text_encoder/config.json", destination: nil),
                     File(repository: qwenImage21Unsloth, path: "Qwen-Image-2.1-text_encoder-INT8-ConvRot.safetensors",
-                         destination: nil, sha256: "0cb5ed0653e2ec8065f25a6cfb2ab6a89b6c8f143a500acea19f0e36214814b7")]
+                         destination: nil, sha256: "0cb5ed0653e2ec8065f25a6cfb2ab6a89b6c8f143a500acea19f0e36214814b7", size: 9349769248)]
         default: break
         }
         switch f {
@@ -204,7 +206,7 @@ package struct Installer {
             // Comfy-Org's bf16 file: Krea's `text_encoder/model.safetensors`, every tensor equal, under
             // `model.` (the `Qwen3VLForConditionalGeneration` layout).
             return [File(repository: krea2Comfy, path: "text_encoders/qwen3vl_4b_bf16.safetensors", destination: nil,
-                         sha256: "36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34")]
+                         sha256: "36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34", size: 8875719384)]
         case .qwenImage21:
             // One file, the base's four shards to the bit (750 tensors): the map's tensors are the same.
             return ["config.json", "model.safetensors"].map { File(repository: qwenImage21Turbo, path: "text_encoder/" + $0, destination: nil) }

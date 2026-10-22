@@ -7,10 +7,14 @@ import Foundation
 /// (`EngineError.importNeedsFamily`) — its installation shows its license and its size first. The
 /// file brought can then be thrown away: the render only reads `store/`.
 ///
+/// **The one thing taken as a component is an encoder identical to the one an installation
+/// downloads** (`Adoption`): copied where the download would have put it, so that the installation
+/// does not fetch it. Any other encoder is refused as before.
+///
 /// This is Draw Things' idea (`BaseModelImporter`, `LoRAImporter`): the architecture is detected,
 /// only the DiT is converted, the rest is the family's.
 package enum ModelImport {
-    package enum Kind: String, Sendable { case lora = "LoRA", model = "model" }
+    package enum Kind: String, Sendable { case lora = "LoRA", model = "model", encoder = "encoder" }
 
     package struct Outcome: Sendable {
         package let kind: Kind
@@ -21,6 +25,10 @@ package enum ModelImport {
         package let path: String
         /// What happened, line by line (naming recognized, dtypes, roundings, installations).
         package let journal: [String]
+        /// An encoder only: the families whose installation expects this very file, and whether it
+        /// was put where they will find it (`false`: each already has its encoder, nothing was copied).
+        package var families: [Family] = []
+        package var placed = false
         /// The identifier to pass to `Model.named` (a model) — `nil` for a LoRA.
         package var identifier: String? {
             kind == .model ? "\(family.rawValue)/" + ((path as NSString).lastPathComponent as NSString).deletingPathExtension : nil
@@ -101,6 +109,8 @@ package enum ModelImport {
     private static func importing(_ file: String, name: String?, in b: Library, cancellation: Cancellation?,
                                   journal: @escaping @Sendable (String) -> Void) throws -> Outcome {
         guard FileManager.default.fileExists(atPath: file) else { throw EngineError.fileMissing(path: file) }
+        // The size is the cheap test; a file that is not an expected encoder goes on as before.
+        if let a = try Adoption.adopt(file, in: b) { return adopted(a, file: file, journal: journal) }
         var rows: [String] = []
         let note: @Sendable (String) -> Void = { journal($0) }
         var installer = Installer(library: b)
@@ -161,6 +171,25 @@ package enum ModelImport {
         r.rows.forEach(logLine)
         rows = stack.rows
         return Outcome(kind: .model, family: family, name: name ?? base, path: path, journal: rows)
+    }
+
+    /// What `Adoption.adopt` did, told as an import's outcome.
+    private static func adopted(_ a: Adoption.Result, file: String, journal: @Sendable (String) -> Void) -> Outcome {
+        var families: [Family] = []
+        for x in a.expected where !families.contains(x.family) { families.append(x.family) }
+        let name = (file as NSString).lastPathComponent
+        var rows = ["encoder: \(name), identical (size, sha256) to the one the installation of "
+                    + families.map(\.name).joined(separator: ", ") + " downloads"]
+        if a.placed.isEmpty {
+            rows.append("every version that expects it has its encoder already: nothing copied")
+        } else {
+            rows.append(a.copied == 0 ? "already in place for the installation" : "copied: the installation will not download it")
+        }
+        rows.forEach(journal)
+        var o = Outcome(kind: .encoder, family: families[0], name: name, path: a.placed.first ?? "", journal: rows)
+        o.families = families
+        o.placed = !a.placed.isEmpty
+        return o
     }
 
     private final class Stack: @unchecked Sendable {
