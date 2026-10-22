@@ -179,7 +179,9 @@ package final class GEMM {
         tensorBF16 = tensor != nil && tensorWeights
         tensorInt8 = tensor != nil && int8Weights
         tensorQ8 = tensor?.readsBlocks == true && q8Weights
-        if neuralEngine { self.neuralEngine = NeuralEngine(gpuShare: neuralEngineShare) }
+        if neuralEngine {
+            self.neuralEngine = NeuralEngine(gpuShare: neuralEngineShare, shares: EngineSettings.effective.aneShares)
+        }
     }
 
     package enum Failure: Error, CustomStringConvertible {
@@ -228,7 +230,7 @@ package final class GEMM {
         // The Neural Engine on the last rows, the GPU (and the AMX's cut, if on) on the first: at the same
         // time, each row one engine's. Its rows refused or non-finite: the whole product again on the GPU —
         // the bits of the GPU alone, never a half-computed output.
-        if let ane = neuralEngine, weightIsTransposed, case let rows = ane.rows(m), rows > 0, ane.accepts(rows: rows, k: k, n: n) {
+        if let ane = neuralEngine, weightIsTransposed, case let rows = ane.rows(m, k: k, n: n), rows > 0, ane.accepts(rows: rows, k: k, n: n) {
             let first = m - rows
             nonisolated(unsafe) let (pa, pb, pc) = (a.contents().assumingMemoryBound(to: Float.self),
                                                     b.contents().assumingMemoryBound(to: Float.self),

@@ -13,6 +13,7 @@ import Foundation
 ///        │  cuts, k and n axes at both m         ρ = (1 − T*) / T*, T* balanced side by side ─▶ amx_shares, T(k, n, m)
 ///        │                                     g_m = Σ t(GPU alone) / Σ t(GPU + ANE)    ─▶ gemm_ane (amx off if it wins)
 ///        │                                     share = Σ f · T*_ane / Σ f               ─▶ ane_fraction
+///        │  ANE cuts, the same grid              ρ = (1 − T*) / T*, T* where both walls meet ─▶ ane_shares
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen k·n)]
 ///        │                                         / Σ [t(bf16 weight) + t(copy k·n)]    ─▶ gemm_tensor
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen convrot k·n)]
@@ -120,19 +121,23 @@ extension Diagnostic {
         package var ane: Decision?
         /// The GPU's share of the rows beside the ANE (`ane_fraction`) when `ane` is on; `nil` otherwise.
         package var aneFraction: Double?
+        /// The GPU's share beside the ANE per weight shape and height (`ane_shares`) when `ane` is on and the
+        /// report measured `aneCuts`.
+        package var aneShares: String?
 
         package init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
                     tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil,
-                    ane: Decision? = nil, aneFraction: Double? = nil) {
+                    ane: Decision? = nil, aneFraction: Double? = nil, aneShares: String? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
             self.amxShares = amxShares
             self.flash = flash; self.headSplit = headSplit; self.tensor = tensor; self.int8 = int8
             self.q8 = q8; self.ane = ane
             self.aneFraction = aneFraction.map { Diagnostic.significant($0, 3) }
+            self.aneShares = aneShares
         }
 
-        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8, ane, aneFraction }
+        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8, ane, aneFraction, aneShares }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
@@ -142,6 +147,7 @@ extension Diagnostic {
             try c.encode(tensor, forKey: .tensor); try c.encode(int8, forKey: .int8)
             try c.encode(q8, forKey: .q8)
             try c.encodeIfPresent(ane, forKey: .ane); try c.encodeIfPresent(aneFraction, forKey: .aneFraction)
+            try c.encodeIfPresent(aneShares, forKey: .aneShares)
         }
 
         /// The settings they write, under `EngineSettings`' keys (those of `store/profil.json`).
@@ -152,6 +158,7 @@ extension Diagnostic {
                                          "gemm_tensor": tensorOn, "gemm_int8": int8?.on == true,
                                          "gemm_q8": q8?.on == true, "gemm_ane": aneOn]
             if aneOn, let aneFraction { values["ane_fraction"] = aneFraction }
+            if aneOn, let aneShares { values["ane_shares"] = aneShares }
             if amx.on, !tensorOn, let amxFraction { values["amx_fraction"] = amxFraction }
             if amx.on, !tensorOn, let amxShares { values["amx_shares"] = amxShares; values["amx_quantum"] = 64 }
             return values
@@ -168,7 +175,7 @@ extension Diagnostic {
 
     /// **The rules.** Pure: the same report always gives the same decisions.
     package static func decide(products: [Product], attention: [AttentionCapacity], widening: [Widening],
-                              witness: Witness, cuts: [Cut] = []) -> Decisions {
+                              witness: Witness, cuts: [Cut] = [], aneCuts: [Cut] = []) -> Decisions {
         var drift = abs(1 - witness.gpuAfter / witness.gpuBefore)
         if let before = witness.amxBefore, let after = witness.amxAfter, before > 0 { drift = max(drift, abs(1 - after / before)) }
         let margin = max(minimumMargin, drift.isFinite ? drift : 1)
@@ -296,14 +303,17 @@ extension Diagnostic {
         // ── amx_shares: ρ = (1 − T) / T at each measured point; `Conductor.Shares` computes every product's T ──
         let shares = amx.on && !cuts.isEmpty
             ? Conductor.Shares(cuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) }).description : nil
+        // ── ane_shares: the same, on the ANE's grid ──
+        let aneShares = ane.on && !aneCuts.isEmpty
+            ? Conductor.Shares(aneCuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) }).description : nil
         return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor,
                          amxShares: shares, int8: int8, q8: q8, ane: products.contains { $0.ane != nil } ? ane : nil,
-                         aneFraction: aneFraction)
+                         aneFraction: aneFraction, aneShares: aneShares)
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).
     package static func decide(_ report: Report) -> Decisions {
         decide(products: report.products, attention: report.attention, widening: report.widening, witness: report.witness,
-               cuts: report.cuts ?? [])
+               cuts: report.cuts ?? [], aneCuts: report.aneCuts ?? [])
     }
 }

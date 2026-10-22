@@ -52,6 +52,11 @@ package final class NeuralEngine: @unchecked Sendable {
     /// The GPU's share of the rows; the ANE takes the rest, rounded to `rowUnit`. Frozen in a render
     /// (`ane_fraction`); the map moves it to find the share that balances both sides.
     package var gpuShare: Double
+    /// The GPU's share per weight shape and height (`ane_shares`, measured by the map on the cuts' grid):
+    /// with a grid, it replaces `gpuShare`.
+    package var shares: Conductor.Shares
+    /// The shares a grid may give: from the GPU alone (1) down to a twentieth of the rows.
+    package static let shareRange = 0.05...1.0
     /// Products whose ANE rows went back to the GPU (a non-finite output, or a program refused).
     package private(set) var fallbacks = 0
     /// Products the ANE took a share of.
@@ -109,11 +114,11 @@ package final class NeuralEngine: @unchecked Sendable {
     /// **What it holds over a phase's `products`** (`MemoryNeed.gemm`): each program shape's three
     /// surfaces, kept while the engine lives — a sum over the shapes, not a maximum —, and its per-column
     /// state and per-chunk rows, grown to the largest product.
-    package static func bytes(products: [(m: Int, k: Int, n: Int)], gpuShare: Double) -> Int {
-        let engine = NeuralEngine(gpuShare: gpuShare)
+    package static func bytes(products: [(m: Int, k: Int, n: Int)], gpuShare: Double, shares: Conductor.Shares = .none) -> Int {
+        let engine = NeuralEngine(gpuShare: gpuShare, shares: shares)
         var shapes = Set<Shape>(), (columns, scratch) = (0, 0)
         for p in products {
-            let rows = engine.rows(p.m)
+            let rows = engine.rows(p.m, k: p.k, n: p.n)
             guard rows > 0 else { continue }
             let these = NeuralEngine.shapes(rows: rows, k: p.k, n: p.n)
             shapes.formUnion(these)
@@ -136,8 +141,8 @@ package final class NeuralEngine: @unchecked Sendable {
         return engine
     }
 
-    package init(gpuShare: Double) {
-        self.gpuShare = gpuShare
+    package init(gpuShare: Double, shares: Conductor.Shares = .none) {
+        self.gpuShare = gpuShare; self.shares = shares
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("siliconed-ane-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)", isDirectory: true)
     }
@@ -163,11 +168,13 @@ package final class NeuralEngine: @unchecked Sendable {
     /// what is left.
     package static let releaseWait = 2.0
 
-    /// The ANE's rows of an `m`-row product: `0` when the GPU keeps them all.
-    package func rows(_ m: Int) -> Int {
+    /// The ANE's rows of an `m`-row product `k → n`: `0` when the GPU keeps them all. The share is the grid's
+    /// at `(k, n, m)` when there is one, `gpuShare` otherwise.
+    package func rows(_ m: Int, k: Int, n: Int) -> Int {
         guard m >= NeuralEngine.minimumRows else { return 0 }
+        let share = shares.share(k: k, n: n, m: m, range: NeuralEngine.shareRange) ?? gpuShare
         let unit = Double(NeuralEngine.rowUnit)
-        let r = Int((Double(m) * (1 - gpuShare) / unit).rounded()) * NeuralEngine.rowUnit
+        let r = Int((Double(m) * (1 - share) / unit).rounded()) * NeuralEngine.rowUnit
         return r > 0 && r < m ? r : 0
     }
 

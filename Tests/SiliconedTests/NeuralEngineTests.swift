@@ -54,11 +54,16 @@ final class NeuralEngineTests: XCTestCase {
 
     func testRows() {
         let ane = NeuralEngine(gpuShare: 0.5)
-        XCTAssertEqual(ane.rows(4096), 2048)
-        XCTAssertEqual(ane.rows(1024), 512)
-        XCTAssertEqual(ane.rows(512), 0, "under minimumRows: the GPU alone")
-        XCTAssertEqual(NeuralEngine(gpuShare: 0.375).rows(4096), 2560)
-        XCTAssertEqual(NeuralEngine(gpuShare: 0.99).rows(4096), 0, "under one unit: the GPU alone")
-        XCTAssertEqual(NeuralEngine(gpuShare: 0.01).rows(4096), 0, "the whole product: the GPU keeps a share")
+        XCTAssertEqual(ane.rows(4096, k: 2048, n: 2048), 2048)
+        XCTAssertEqual(ane.rows(1024, k: 2048, n: 2048), 512)
+        XCTAssertEqual(ane.rows(512, k: 2048, n: 2048), 0, "under minimumRows: the GPU alone")
+        XCTAssertEqual(NeuralEngine(gpuShare: 0.375).rows(4096, k: 2048, n: 2048), 2560)
+        XCTAssertEqual(NeuralEngine(gpuShare: 0.99).rows(4096, k: 2048, n: 2048), 0, "under one unit: the GPU alone")
+        XCTAssertEqual(NeuralEngine(gpuShare: 0.01).rows(4096, k: 2048, n: 2048), 0, "the whole product: the GPU keeps a share")
+        // A grid replaces the scalar share: T = 1 / (1 + ρ), here ρ = 1 at 4096 rows (½), 1/3 at 1024 (¾).
+        let grid = NeuralEngine(gpuShare: 0.9, shares: Conductor.Shares([.init(k: 2048, n: 2048, m: 4096, ratio: 1),
+                                                                          .init(k: 2048, n: 2048, m: 1024, ratio: 1.0 / 3)]))
+        XCTAssertEqual(grid.rows(4096, k: 2048, n: 2048), 2048)
+        XCTAssertEqual(grid.rows(1024, k: 2048, n: 2048), 256)
     }
 }

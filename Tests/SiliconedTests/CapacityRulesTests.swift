@@ -437,6 +437,30 @@ final class CapacityRulesTests: XCTestCase {
         XCTAssertNil(Diagnostic.decide(report(m1Pro)).amxShares, "no grid: the scalar share serves")
     }
 
+    /// **The ANE's grid gives each product its own share beside the ANE** (`aneCuts` → `ane_shares`), read back
+    /// through `NeuralEngine.shareRange` — and only when `gemm_ane` is on.
+    func testANECutsGiveEachShapeItsShare() throws {
+        var rates = m1Pro
+        rates.drift = (1.0, 1.0)
+        rates.ane = rates.both.map { $0.map { $0 * 1.05 } }
+        var r = report(rates)
+        r.aneCuts = Diagnostic.cutDepths.flatMap { k in Diagnostic.heights.map { m in
+            Diagnostic.Cut(k: k, n: Diagnostic.cutWidth, m: m, share: m == 1024 ? 0.9 : 0.6) } }
+        let d = Diagnostic.decide(r)
+        XCTAssertTrue(d.ane!.on)
+        let text = try XCTUnwrap(d.aneShares)
+        XCTAssertEqual(d.settings["ane_shares"] as? String, text)
+        let shares = try XCTUnwrap(Conductor.Shares(text: text))
+        XCTAssertEqual(shares.share(k: 4096, n: 6144, m: 1024, range: NeuralEngine.shareRange)!, 0.9, accuracy: 0.001)
+        XCTAssertEqual(shares.share(k: 4096, n: 6144, m: 4096, range: NeuralEngine.shareRange)!, 0.6, accuracy: 0.001)
+        // The ANE off: no grid in the settings.
+        rates.aneError = 1
+        r = report(rates)
+        r.aneCuts = [Diagnostic.Cut(k: 2048, n: 6144, m: 1024, share: 0.6)]
+        XCTAssertNil(Diagnostic.decide(r).aneShares)
+        XCTAssertNil(Diagnostic.decide(r).settings["ane_shares"])
+    }
+
     /// **The co-execution off, no grid in the settings**: the shares are the conductor's, and there is none.
     func testCutsWithoutCoexecutionGiveNoShares() {
         var rates = m1Pro

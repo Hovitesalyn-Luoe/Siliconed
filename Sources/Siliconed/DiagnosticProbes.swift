@@ -247,6 +247,7 @@ extension Diagnostic {
         let alone = try GEMM(freezeCut: true, coexecution: false, tensorWeights: true)
         let both = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false, int8Weights: true, q8Weights: true)
         let neural = try GEMM(freezeCut: true, coexecution: false, tensorWeights: false, neuralEngine: true, neuralEngineShare: 0.5)
+        neural.neuralEngine?.shares = .none
         func wrap(_ g: GEMM) throws -> (MTLBuffer, MTLBuffer, MTLBuffer) {
             (try g.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a"),
              try g.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b"),
@@ -291,36 +292,15 @@ extension Diagnostic {
                 }.0
                 gpuRows = s.m >= Conductor.minimumRows ? Conductor.cut(s.m, share) : s.m
             }
-            // ── gemm_ane: the GPU on the first rows, the Neural Engine on the last ── Each side's wall is affine in
-            // its rows — the ANE reads the whole weight at every call, whatever its rows —: three runs at ½ and
-            // three at ¾, the medians give both lines, and the share where they cross; then measured at it,
-            // judged against bf16's error (invariant 3), not the fp32 threshold.
+            // ── gemm_ane: the GPU on the first rows, the Neural Engine on the last ── At the share that ends both
+            // together (`aneBalance`), judged against bf16's error (invariant 3), not the fp32 threshold.
             var ane: Measure?, aneShare: Double?
-            if let engine = neural.neuralEngine, engine.rows(s.m) > 0 {
+            if let engine = neural.neuralEngine, engine.rows(s.m, k: s.k, n: s.n) > 0 {
                 try bench.check()
                 func run() { _ = neural.linear(a: neuralBuffers.0, b: neuralBuffers.1, c: neuralBuffers.2, m: s.m, k: s.k, n: s.n,
                                                weightIsTransposed: true) }
-                /// Median walls of each side at `share`, with their rows; `nil` if the ANE fell back.
-                func sides(_ share: Double) -> (gpu: Double, gpuRows: Double, ane: Double, aneRows: Double)? {
+                if let share = aneBalance(neural, run: run, m: s.m, k: s.k, n: s.n) {
                     engine.gpuShare = share
-                    run()
-                    var walls: [(gpu: Double, ane: Double)] = []
-                    for _ in 0..<3 {
-                        let before = engine.fallbacks
-                        run()
-                        guard let last = neural.lastSides, engine.fallbacks == before else { return nil }
-                        walls.append((last.gpu, last.ane))
-                    }
-                    let rows = engine.rows(s.m)
-                    return (walls.map(\.gpu).sorted()[1], Double(s.m - rows), walls.map(\.ane).sorted()[1], Double(rows))
-                }
-                if let half = sides(0.5), let quarter = sides(0.75), half.aneRows != quarter.aneRows {
-                    let gpuSlope = (half.gpu - quarter.gpu) / (half.gpuRows - quarter.gpuRows)
-                    let aneSlope = (half.ane - quarter.ane) / (half.aneRows - quarter.aneRows)
-                    let (gpuFixed, aneFixed) = (half.gpu - gpuSlope * half.gpuRows, half.ane - aneSlope * half.aneRows)
-                    // gpuFixed + gpuSlope · (m − r) = aneFixed + aneSlope · r
-                    let r = (gpuFixed + gpuSlope * Double(s.m) - aneFixed) / (gpuSlope + aneSlope)
-                    engine.gpuShare = r.isFinite ? min(1, max(0, 1 - r / Double(s.m))) : 1
                     let before = engine.fallbacks
                     poison(c, rows: rows, n: s.n)
                     let t = seconds(run)
@@ -406,6 +386,59 @@ extension Diagnostic {
                                     ane: ane, aneGPUShare: aneShare))
         }
         return products
+    }
+
+    /// **The GPU's share beside the ANE that ends both sides together**, for `run` (one `m × k → n` product
+    /// through `neural`). Each side's wall is affine in its rows — the ANE reads the whole weight at every
+    /// call, whatever its rows —: three runs at ½ and three at ¾, the medians give both lines, and the share
+    /// where they cross, in `NeuralEngine.shareRange`. `nil` when the ANE fell back.
+    static func aneBalance(_ neural: GEMM, run: () -> Void, m: Int, k: Int, n: Int) -> Double? {
+        guard let engine = neural.neuralEngine else { return nil }
+        func sides(_ share: Double) -> (gpu: Double, gpuRows: Double, ane: Double, aneRows: Double)? {
+            engine.gpuShare = share
+            run()
+            var walls: [(gpu: Double, ane: Double)] = []
+            for _ in 0..<3 {
+                let before = engine.fallbacks
+                run()
+                guard let last = neural.lastSides, engine.fallbacks == before else { return nil }
+                walls.append((last.gpu, last.ane))
+            }
+            let rows = engine.rows(m, k: k, n: n)
+            return (walls.map(\.gpu).sorted()[1], Double(m - rows), walls.map(\.ane).sorted()[1], Double(rows))
+        }
+        guard let half = sides(0.5), let quarter = sides(0.75), half.aneRows != quarter.aneRows else { return nil }
+        let gpuSlope = (half.gpu - quarter.gpu) / (half.gpuRows - quarter.gpuRows)
+        let aneSlope = (half.ane - quarter.ane) / (half.aneRows - quarter.aneRows)
+        let (gpuFixed, aneFixed) = (half.gpu - gpuSlope * half.gpuRows, half.ane - aneSlope * half.aneRows)
+        // gpuFixed + gpuSlope · (m − r) = aneFixed + aneSlope · r
+        let r = (gpuFixed + gpuSlope * Double(m) - aneFixed) / (gpuSlope + aneSlope)
+        let range = NeuralEngine.shareRange
+        return r.isFinite ? min(range.upperBound, max(range.lowerBound, 1 - r / Double(m))) : range.upperBound
+    }
+
+    /// **The GPU's share beside the ANE on the cuts' grid** (`aneCuts` → `ane_shares`): each `cutShapes`
+    /// product at each of `heights`, balanced by `aneBalance`. Not judged: the products judge the ANE's
+    /// arithmetic, which no share changes. Empty when no ANE program runs on this Mac.
+    static func measureANECuts(_ o: Operands, _ bench: Bench) throws -> [Cut] {
+        let neural = try GEMM(freezeCut: true, coexecution: false, tensorWeights: false, neuralEngine: true, neuralEngineShare: 0.5)
+        guard let engine = neural.neuralEngine else { return [] }
+        engine.shares = .none
+        let a = try neural.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a")
+        let b = try neural.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b")
+        let c = try neural.wrap(o.c.base, bytes: o.c.capacity, name: "diagnostic.c")
+        var cuts: [Cut] = []
+        for shape in cutShapes {
+            for m in heights {
+                try bench.check()
+                let share = aneBalance(neural, run: {
+                    _ = neural.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true)
+                }, m: m, k: shape.k, n: shape.n)
+                guard let share else { return [] }
+                cuts.append(Cut(k: shape.k, n: shape.n, m: m, share: share))
+            }
+        }
+        return cuts
     }
 
     /// **The GPU's share on the grid** (`cuts` → `amx_shares`): each `cutShapes` product at each of

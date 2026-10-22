@@ -88,8 +88,8 @@ package enum Diagnostic {
     /// (`products[].int8`, `int8Coexecution`, `int8GPUColumns`), the `int8 convrot` and `int8 copy`
     /// widenings; the decisions add `int8`. **9** (18/10/2026): the Q8_0-weight products (`products[].q8`,
     /// `q8Coexecution`, `q8GPUColumns`), the `q8_0` and `q8_0 copy` widenings; the decisions add `q8`.
-    /// **10** (22/10/2026): the Neural Engine beside the GPU (`products[].ane`, `aneGPUShare`); the decisions
-    /// add `ane` and `aneFraction`.
+    /// **10** (22/10/2026): the Neural Engine beside the GPU (`products[].ane`, `aneGPUShare`, and `aneCuts` on
+    /// the cuts' grid); the decisions add `ane`, `aneFraction` and `aneShares`.
     package static let schema = 10
     package static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
@@ -416,6 +416,9 @@ package enum Diagnostic {
         package var products: [Product]
         /// The GPU's share per weight shape and height (`Cut`); `nil` in a report before schema 7.
         package var cuts: [Cut]?
+        /// The GPU's share beside the Neural Engine on the same grid (`aneCuts` → `ane_shares`); `nil` before
+        /// schema 10, or where no ANE program ran.
+        package var aneCuts: [Cut]?
         package var lowPrecision: [LowPrecision]
         package var attention: [AttentionCapacity]
         package var widening: [Widening]
@@ -433,15 +436,16 @@ package enum Diagnostic {
                     cpuFeatures: [String: Int], settings: [String: String] = [:], before: Conditions, after: Conditions,
                     products: [Product], lowPrecision: [LowPrecision], attention: [AttentionCapacity],
                     widening: [Widening], witness: Witness, thresholds: Thresholds = Thresholds(),
-                    stages: [String: Double]? = nil, cuts: [Cut]? = nil) {
+                    stages: [String: Double]? = nil, cuts: [Cut]? = nil, aneCuts: [Cut]? = nil) {
             self.schema = schema; self.date = date; self.seconds = Diagnostic.significant(seconds, 3)
             self.thresholds = thresholds
             self.machine = machine; self.cpuFeatures = cpuFeatures; self.settings = settings
             self.before = before; self.after = after; self.products = products; self.lowPrecision = lowPrecision
             self.attention = attention; self.widening = widening; self.witness = witness; self.cuts = cuts
+            self.aneCuts = aneCuts
             self.stages = stages?.mapValues { Diagnostic.significant($0, 3) }
             self.decisions = Diagnostic.decide(products: products, attention: attention, widening: widening, witness: witness,
-                                               cuts: cuts ?? [])
+                                               cuts: cuts ?? [], aneCuts: aneCuts ?? [])
         }
 
         /// What the report is valid for: the machine and the binary that measured it.
@@ -574,10 +578,11 @@ package enum Diagnostic {
         do {
             // The products' operands (~1.1 GB) are released before the attention's peak.
             var operands: Operands? = Operands()
-            let (products, cuts) = try stage(.products) { () throws -> ([Product], [Cut]) in
+            let (products, cuts, aneCuts) = try stage(.products) { () throws -> ([Product], [Cut], [Cut]) in
                 let products = try measureProducts(operands!, bench)
                 let shares = products.compactMap(\.gpuShare).sorted()
-                return (products, try measureCuts(operands!, bench, start: shares.isEmpty ? 0.631 : shares[shares.count / 2]))
+                return (products, try measureCuts(operands!, bench, start: shares.isEmpty ? 0.631 : shares[shares.count / 2]),
+                        try measureANECuts(operands!, bench))
             }
             let lowPrecision = try stage(.lowPrecision) { try measureLowPrecision(operands!, bench) }
             operands = nil
@@ -590,7 +595,8 @@ package enum Diagnostic {
             return Report(date: ISO8601DateFormatter().string(from: started), seconds: Date().timeIntervalSince(started),
                           machine: machine(), cpuFeatures: cpuFeatures(), settings: forced, before: before,
                           after: conditions(), products: products, lowPrecision: lowPrecision, attention: attention,
-                          widening: widening, witness: witness, stages: stages, cuts: cuts)
+                          widening: widening, witness: witness, stages: stages, cuts: cuts,
+                          aneCuts: aneCuts.isEmpty ? nil : aneCuts)
         } catch {
             throw EngineError(error)
         }
