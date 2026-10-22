@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="images/icon-small.svg" type="image/svg+xml">
+<title>Open in Siliconed</title>
+<style>
+  :root { --night: #14183A; --night2: #2B1438; --deep: #0D1028; --coral: #FF5E7A; --peach: #FFB38A;
+          --teal: #6FF0E0; --text: #F3F1F8; --muted: #BDB8D3; --line: rgba(255, 255, 255, 0.11);
+          --panel: rgba(255, 255, 255, 0.045); --ink: #1A1030;
+          --grad: linear-gradient(100deg, var(--coral) 0%, var(--peach) 48%, var(--teal) 100%); }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; color: var(--text);
+         background: var(--deep) linear-gradient(160deg, var(--night) 0%, var(--deep) 45%, var(--night2) 100%) fixed;
+         font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  main { width: 100%; max-width: 520px; text-align: center; background: var(--panel); border: 1px solid var(--line);
+         border-radius: 18px; padding: 32px 24px; }
+  img { width: 72px; height: 72px; }
+  h1 { font: 700 26px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+       letter-spacing: -0.02em; margin: 12px 0 8px; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  code { font: 500 14px ui-monospace, "SF Mono", Menlo, monospace; background: rgba(255, 255, 255, 0.07);
+         padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+  .btn { display: inline-block; margin: 4px 4px 0; padding: 12px 22px; border-radius: 14px; text-decoration: none;
+         font-weight: 700; border: 1px solid var(--line); color: var(--text); background: var(--panel); }
+  .btn.primary { background: var(--grad); border-color: transparent; color: var(--ink); }
+  a { color: var(--teal); }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <img src="images/icon.svg" alt="">
+  <h1 id="title">Open in Siliconed</h1>
+  <div id="ok" hidden>
+    <p>Opening <code id="repo"></code> in Siliconed. The app shows what the repository holds and asks before it
+      downloads anything.</p>
+    <p id="missing" hidden>Nothing opened? Siliconed is probably not installed on this Mac.</p>
+    <a class="btn primary" id="again" href="#">Open Siliconed</a>
+    <a class="btn" href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">Download the .dmg</a>
+    <p style="margin-top: 18px; font-size: 14px;">Siliconed runs on Macs with Apple silicon, macOS 15 or later.
+      <a href="./">What is Siliconed?</a></p>
+  </div>
+  <div id="bad" hidden>
+    <p>This link does not name a Hugging Face repository Siliconed can open. It expects
+      <code>?repo_id=owner/name</code>, and optionally <code>&amp;file=path/to/weights.safetensors</code>.</p>
+    <a class="btn" href="./">Siliconed</a>
+  </div>
+  <noscript><p>This page needs JavaScript to open the app. You can
+    <a href="https://github.com/gwenn-ha-dev/Siliconed/releases/latest">download Siliconed</a>.</p></noscript>
+</main>
+<script>
+// Same rules as HubLink.swift: the app re-checks them, the page refuses early. Nothing but an
+// owner/name and a relative weights path goes into the link; nothing is sent anywhere.
+function isRepository(s) {
+  var parts = s.split("/");
+  if (parts.length !== 2) return false;
+  return parts.every(function (p) {
+    return p.length >= 1 && p.length <= 96 && p.indexOf("--") < 0 && p.indexOf("..") < 0
+      && /^[A-Za-z0-9._-]+$/.test(p) && !/^[-.]/.test(p) && !/[-.]$/.test(p);
+  });
+}
+function isFile(s) {
+  var lower = s.toLowerCase();
+  if (s.length > 1024 || !(/\.safetensors$/.test(lower) || /\.gguf$/.test(lower))) return false;
+  if (s.indexOf("\\") >= 0 || /[\u0000-\u001f\u007f-\u009f]/.test(s)) return false;
+  return s.split("/").every(function (c) { return c !== "" && c !== "." && c !== ".."; });
+}
+(function () {
+  var q = new URLSearchParams(location.search);
+  var repo = q.get("repo_id"), file = q.get("file") || null;
+  var good = repo !== null && isRepository(repo) && (file === null || isFile(file));
+  document.getElementById(good ? "ok" : "bad").hidden = false;
+  if (!good) return;
+  var link = "siliconed://hf?repo_id=" + encodeURIComponent(repo) + (file ? "&file=" + encodeURIComponent(file) : "");
+  document.getElementById("repo").textContent = repo + (file ? " / " + file : "");
+  document.getElementById("again").href = link;
+  location.href = link;
+  // If the app took the focus, the page is hidden by now; if not, offer the download.
+  setTimeout(function () { if (!document.hidden) document.getElementById("missing").hidden = false; }, 1800);
+})();
+</script>
+</body>
+</html>
