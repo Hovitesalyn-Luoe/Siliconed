@@ -121,6 +121,9 @@ struct RenderSettings {
     var solver: Solver = .euler
     /// **Whose σ** (`Request.schedule`): ComfyUI's only when switched on in Developer Mode.
     var schedule: SigmaSchedule = .official
+    /// **Its denoiser could take the Neural Engine** (`Engine.Render.neuralEngine`): set from the render, for
+    /// the image's panel — the choice itself is read when the job starts (`AppState.neuralEngine(for:)`).
+    var neuralEngine = false
     var isVariation: Bool { !variations.isEmpty }
 }
 

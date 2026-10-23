@@ -17,7 +17,8 @@ import Foundation
 ///
 /// A branch the capacity map turns on (`gemm_ane`, `CapacityRules`), where it measures the pair faster
 /// than the GPU alone and the ANE's rows within the half-precision threshold; off by default, like
-/// every compute branch.
+/// every compute branch. A render may still refuse it (`Request.neuralEngine`: the app's default on a
+/// Standard version), and only the denoisers take it — never an encoder.
 ///
 /// What sets it apart — what a port by analogy with the GPU/AMX cut would get wrong:
 ///
@@ -32,8 +33,8 @@ import Foundation
 ///     sank the small ones under fp16's normals — the next RMSNorm, per row, came out 11 × bf16's error;
 ///   - **a non-finite in the ANE's output sends its rows back to the GPU** (`fallbacks`): fp16 overflows
 ///     where fp32 does not, and the image never depends on the ANE having fit;
-///   - **a program has limits the GPU does not**: past K = 8 192 or a 100 MB weight its rate falls by 5
-///     (`maximumK`, `maximumWeight`): K is cut into parts, one program each, summed in fp32 — not in fp16
+///   - **a program has limits the GPU does not**: past K = 8 192 or a 100 MB weight its rate falls by 5,
+///     and it is fast only within K = 4 096 and 48 MB (`maximumK`, `maximumWeight`): K is cut into parts, one program each, summed in fp32 — not in fp16
 ///     inside the program, as one would cut a sum on the GPU;
 ///   - **its transcendental functions are approximate** (GELU, erf, tanh ~1 %, while a product holds the
 ///     fp16 rounding): a program here holds products only;

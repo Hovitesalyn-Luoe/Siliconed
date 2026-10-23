@@ -703,7 +703,8 @@ private struct Details: View {
             }
             .font(.callout)
             HStack {
-                Text("fp32 end to end · same seed, same bits")
+                Text(r.neuralEngine ? "fp32, part of the DiT in fp16 on the Neural Engine · same seed, same bits"
+                                    : "fp32 end to end · same seed, same bits")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Menu {

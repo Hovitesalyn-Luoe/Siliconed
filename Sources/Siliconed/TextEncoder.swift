@@ -127,7 +127,9 @@ package final class TextEncoder {
         // initialization. Same constraint as in `Attention.swift` and `VAE.swift`, and it always
         // costs the same way: "variable used before being initialized" on a line that
         // seems to use only locals.
-        let gemm = try GEMM(freezeCut: freezeCut)
+        // The Neural Engine serves the denoisers only (`Request.neuralEngine`): an encoder's rows are a prompt's
+        // tokens, under its minimum, and its output enters the render cache's keys, which do not name it.
+        let gemm = try GEMM(freezeCut: freezeCut, neuralEngine: false)
         let s = sequence, h = config.hidden, a = config.attentionWidth
         let kv = config.kvWidth, i = config.intermediate
         let arena = try Arena(capacity: TextEncoder.arenaBytes(config: config, sequence: s))

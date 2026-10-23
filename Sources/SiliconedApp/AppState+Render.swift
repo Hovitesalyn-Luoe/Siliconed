@@ -333,6 +333,7 @@ extension AppState {
             request.solver = settings.solver
             request.schedule = settings.schedule
             request.variations = settings.variations
+            request.neuralEngine = neuralEngine(for: settings.identifier)
 
             var progress = Engine.Progress()
             for try await item in Engine().events(request, seeds: job.seeds, model: model) {
@@ -383,7 +384,8 @@ extension AppState {
                     let entry = Entry(ordinal: lastImage, job: job.ordinal, png: finished.png, vignette: finished.vignette,
                                         width: renderResult.image.width, height: renderResult.image.height,
                                         seed: renderResult.seed, timings: renderResult.timings, footprints: renderResult.footprints,
-                                        evaluations: renderResult.evaluations, settings: settings,
+                                        evaluations: renderResult.evaluations,
+                                        settings: { var s = settings; s.neuralEngine = renderResult.neuralEngine; return s }(),
                                         metadata: named ?? renderResult.metadata, references: job.references,
                                         sketch: renderResult.sketch)
                     // A sketch belongs to its exploration, not to the history.

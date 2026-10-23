@@ -68,4 +68,24 @@ final class NeuralEngineTests: XCTestCase {
         XCTAssertEqual(grid.rows(4096, k: 2048, n: 2048), 2048)
         XCTAssertEqual(grid.rows(1024, k: 2048, n: 2048), 256)
     }
+
+    /// The Standard renders in fp32 unless asked, the 8- and 4-bit versions take the Neural Engine; the PNG
+    /// says it only when the denoiser could take it, and a choice the map left without effect keys nothing.
+    func testTheStandardStaysFp32AndThePNGSaysWhenTheEngineWasTaken() throws {
+        XCTAssertFalse(Variant.standard.neuralEngineByDefault)
+        XCTAssertTrue(Variant.compact.neuralEngineByDefault)
+        XCTAssertTrue(Variant.light.neuralEngineByDefault)
+        var render = Engine.Render(model: "krea2", prompt: "woman posing in a library", seed: 42, steps: 8, loras: [],
+                                   loraSummary: nil, image: ImageRGB(pixels: [Float](repeating: 0, count: 3 * 4), height: 2, width: 2),
+                                   reproducible: true, evaluations: 8, sketch: nil, spectral: 0, strength: nil,
+                                   startStep: 0, startSigma: 1, timings: .init(), footprints: .init(), tokens: 1)
+        XCTAssertNil(render.metadata["neural-engine"])
+        XCTAssertEqual(Engine.Render.Recipe(metadata: render.metadata)?.neuralEngine, false)
+        render.neuralEngine = true
+        let recipe = try XCTUnwrap(Engine.Render.Recipe(metadata: PNG.text(try render.png())))
+        XCTAssertTrue(recipe.neuralEngine)
+        XCTAssertEqual(recipe.unreadable, [])
+        XCTAssertFalse(EngineSettings.effective.gemmANE)
+        XCTAssertEqual(RenderCache.numerics(reproducible: true, neuralEngine: true), RenderCache.numerics(reproducible: true))
+    }
 }

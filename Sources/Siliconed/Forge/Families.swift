@@ -135,6 +135,12 @@ package enum Variant: String, CaseIterable, Sendable, Codable {
     /// compose differently. Preselected on a Mac of 8 GB (`Family.preselectedVariant`).
     case light
 
+    /// **The Neural Engine's default** (`Request.neuralEngine`): off on the Standard, whose promise is the
+    /// publisher's weights computed in fp32, the image the checks compare with the reference; on on the 8-
+    /// and 4-bit versions, whose image already differs from the Standard's, for the energy its fp16 products
+    /// save (a fifth of the machine's, M1 Pro, 1024², 23/10/2026).
+    package var neuralEngineByDefault: Bool { self != .standard }
+
     /// The physical memory at or below which the Light is preselected: 8 GiB, what an 8 GB Mac reports.
     package static let lightMemory: UInt64 = 8 << 30
 }

@@ -136,7 +136,7 @@ package final class Krea2DiT {
     private let products: WeightProducts
 
     package init(artifact: Artifact, latentHeight: Int, latentWidth: Int, maxText: Int = 512,
-                freezeCut: Bool = EngineSettings.effective.frozenCut, lora: LoRA? = nil) throws {
+                freezeCut: Bool = EngineSettings.effective.frozenCut, neuralEngine: Bool = EngineSettings.effective.gemmANE, lora: LoRA? = nil) throws {
         guard artifact.header["kind"] as? String == "krea2-turbo-dit" else {
             throw Artifact.Failure.badHeader("map \(artifact.header["kind"] ?? "?"): krea2-turbo-dit expected")
         }
@@ -148,7 +148,7 @@ package final class Krea2DiT {
         self.artifact = artifact
         self.config = Config(header: artifact.header)
         self.prefetcher = Prefetcher(artifact: artifact)
-        self.gemm = try GEMM(freezeCut: freezeCut)
+        self.gemm = try GEMM(freezeCut: freezeCut, neuralEngine: neuralEngine)
         self.elementwise = try ElementwiseGPU(device: gemm.device, queue: gemm.queue)
         self.latentHeight = latentHeight
         self.latentWidth = latentWidth
@@ -544,7 +544,7 @@ package final class Krea2TextFusion {
     private let products: WeightProducts
 
     package init(artifact: Artifact, maxTokens: Int, freezeCut: Bool = EngineSettings.effective.frozenCut,
-                lora: LoRA? = nil) throws {
+                neuralEngine: Bool = EngineSettings.effective.gemmANE, lora: LoRA? = nil) throws {
         guard artifact.header["kind"] as? String == "krea2-turbo-dit" else {
             throw Artifact.Failure.badHeader("the text fusion lives in the Krea 2 DiT map")
         }
@@ -552,7 +552,7 @@ package final class Krea2TextFusion {
         self.artifact = artifact
         self.outDim = config.dim
         self.eps = Float(config.eps)
-        self.gemm = try GEMM(freezeCut: freezeCut)
+        self.gemm = try GEMM(freezeCut: freezeCut, neuralEngine: neuralEngine)
         self.rows = maxTokens * Shape.layers
         let rank = lora?.maxRank ?? 0
         // The arena is its slices (`Krea2TextFusion.slices`), each on its page: the function the memory

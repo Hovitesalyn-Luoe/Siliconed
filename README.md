@@ -42,18 +42,7 @@ commercial use under $1M of annual revenue, a content filter required when deplo
 
 ## An engine measured on your Mac
 
-Before its very first render, Siliconed measures the Mac it runs on — about 30 to 40 seconds, no
-model needed. It times the real matrix products of the models' DiT blocks on the GPU, on the CPU's
-matrix unit (AMX) and on both at once, attention through three kernels, products read straight from
-published int8 and Q8_0 weights, and bf16 products on the GPU's tensor units, and checks every
-output against the exact result. That report becomes **this Mac's map**, measured again whenever the
-Mac, macOS or the app changes, and the map picks the kernels: one turns on only if it computed right
-and beats the default by at least 5 % (more if the machine drifted during the measure). On the M1 Pro
-of the numbers below, on 18/10/2026: GPU + AMX co-execution on (×1.30), attention split by heads
-between the GPU and the CPU on (×1.49), flash attention off (×1.05, inside the margin), Q8_0
-products off (×0.43), bf16 tensor products off (×0.53). Another chip measures its own and decides
-otherwise. The map buys speed, never another picture beyond the arithmetic it checked; Help →
-**Measure This Mac** shows it and lets you share it ([Community diagnostic](#community-diagnostic)).
+Before its very first render, Siliconed measures the Mac it runs on — about a minute, no model needed. It times the real matrix products of the models' DiT blocks on the GPU, on the CPU's matrix unit (AMX), on the Neural Engine and on the GPU beside each, attention through three kernels, products read straight from published int8 and Q8_0 weights, and bf16 products on the GPU's tensor units, and checks every output against the exact result. That report becomes **this Mac's map**, measured again whenever the Mac, macOS or the app changes, and the map picks the kernels: one turns on only if it computed right and beats the default by at least 5 % (more if the machine drifted during the measure). On the M1 Pro of the numbers below, on 23/10/2026: GPU + AMX co-execution on (×1.26), the Neural Engine beside the GPU on (×1.42), attention split by heads between the GPU and the CPU on (×1.48), flash attention off (×1.03, inside the margin), Q8_0 products off (×0.37), bf16 tensor products off (×0.47). The AMX and the Neural Engine share the products shape by shape: the Neural Engine takes a shape wherever it keeps 90 % of the AMX's speed there, for the energy it saves. Another chip measures its own and decides otherwise. The map buys speed, never another picture beyond the arithmetic it checked — the Neural Engine's fp16 is yours to choose ([how](#the-neural-engine)); Help → **Measure This Mac** shows the map and lets you share it ([Community diagnostic](#community-diagnostic)).
 
 ## Why Siliconed
 
@@ -64,7 +53,8 @@ otherwise. The map buys speed, never another picture beyond the arithmetic it ch
 - **Full fp32, still fast.** Z-Image Turbo at 1024² in 84.5 s on an M1 Pro with the 8
   evaluations its recipe calls for, the first three on a half-size grid
   ([Faster Rendering](#faster-rendering), on by default); 117.7 s with all of them at full size
-  ([next to Draw Things](#next-to-draw-things), the reference on the Mac).
+  ([next to Draw Things](#next-to-draw-things), the reference on the Mac). Or, on request, part of
+  the denoiser on the Neural Engine, for about a fifth less energy ([how](#the-neural-engine)).
 - **34 GB of model on a 16 GB Mac, within a fixed budget.** Weights are read from disk as they are
   needed. Siliconed never takes more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac):
   each render computes what it needs before it starts, takes the fastest plan that fits, and checks
@@ -276,6 +266,24 @@ LoRA, Detail, an edit, another number of steps or another schedule. Off, every e
 size and the image is the same, to the bit, as before: the one checked against diffusers, to which
 the deviations above apply.
 
+### The Neural Engine
+
+The Mac's Neural Engine computes in fp16. Where this Mac's map turned it on, it takes part of the DiT's matrix products beside the GPU, shape by shape: each weight column and each activation row is lifted by a power of two into fp16's range and brought back in fp32, and rows that overflow go back to the GPU. The text encoders and the VAE never use it. The **fp32** tag in the rack's DiT module switches it, per model: **off by default on the Standard**, which stays the publisher's weights computed in fp32, the image verified against the reference; **on by default on Compact and Light**, whose 8- and 4-bit weights already make another image than the Standard's. The tag reads **fp32 · ANE** when it is on, and an image computed with it carries `neural-engine` in its metadata. Where the map left the Neural Engine off, the tag is a plain fp32 and there is nothing to choose.
+
+On the M1 Pro, 1024², Standard, Faster Rendering, seed 42, the library prompt, 23/10/2026:
+
+| | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo |
+|---|---|---|---|
+| time in the app, off / on | 144.6–144.9 s / 135.4–137.4 s | 86.8–93.9 s / 83.4–84.0 s | 103.6 s / 99.9–100.2 s |
+| the whole machine's power, off / on | 43.9 W / 35.3 W | 38.0 W / 31.2 W | 45.4 W / 36.9 W |
+| energy per image, on against off | −26 % | −16 % | −20 % |
+| the app's peak memory, off / on | 3.41 / 3.71 GB | 3.01 / 3.23 GB | 1.97 / 2.11 GB |
+| the image, on against off | PSNR 35.9 dB: the same scene, face and light, the finest details moved (book spines) | 55.9 dB, a tenth of a level on average | 56.3 dB, a tenth of a level on average |
+| deviation of the denoiser's output, on, from the fp32 reference | 5.3·10⁻³ (512²) | 2.2·10⁻³ | 4.2·10⁻³ from the fp64 exact (512²) |
+| …as a share of the publisher's bf16 deviation | 0.15 | 0.04 | 0.30 |
+
+Times: renders queued in the app by `silicontrol`, each in a freshly opened app, 0 swap-out; off, three Z-Image renders in a row took 93.9, 89.0 and 86.8 s with the same bits, the first after the library had been moved. Power and energy: the same comparison through the command line, four renders per model alternating on and off, the whole machine's draw (display included) read from the power adapter's telemetry. The deviation is that of one evaluation of the denoiser (how: [Verification](#verification)); the bf16 one is diffusers' with the publisher's bf16 weights, as most tools compute.
+
 ### Next to Draw Things
 
 [Draw Things](https://drawthings.ai) is the reference on the Mac; here, its community engine,
@@ -304,6 +312,13 @@ Until 0.8.1 this table set Siliconed's 7 evaluations against Draw Things' 8; it 
 Siliconed's first two lines are every evaluation at full size, like Draw Things'; with Faster Rendering,
 the first 3 of its 8 evaluations run on a half-size grid, which Draw Things does not do: less work,
 another image ([how](#faster-rendering)).
+
+Eight bits against eight bits, on 23/10/2026: Siliconed's Compact (the third party's GGUF Q8_0, kept as published) against Draw Things' default `q8p`, in its community engine at `6c1dd09`; Z-Image Turbo, 1024², 8 steps, seed 42, the library prompt; each render in a freshly started process on each side (the app, the engine's server), three on each side, then Siliconed again as the witness.
+
+| | weights | time | peak memory | read from disk per render |
+|---|---|---|---|---|
+| Siliconed, Compact, Faster Rendering and the Neural Engine (both by default) | GGUF Q8_0 | 81.1–83.2 s (witness 81.3 s) | 2.6 GB | 3.7–11 GB |
+| Draw Things, default | 8 bits (`q8p`) | 135.0–144.2 s | 4.3 GB | 10–18 GB |
 
 **Within the budget, measured.** Each model's peak `phys_footprint` and its swap-outs (`vm_stat` delta)
 are measured at the product's worst case, on a 16 GB Mac with nothing else running: Qwen-Image-2.1 at

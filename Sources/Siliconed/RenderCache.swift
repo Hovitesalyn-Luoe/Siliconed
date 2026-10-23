@@ -112,10 +112,12 @@ package struct RenderCache: Sendable {
 
     /// **The settings that change a computation's bits** (AMX co-execution and its split, the flash
     /// kernel, the head split), plus the render's `reproducible`.
-    package static func numerics(reproducible: Bool) -> String {
+    package static func numerics(reproducible: Bool, neuralEngine: Bool = false) -> String {
         let s = EngineSettings.effective
+        // The Neural Engine computes in fp16: a K/V the DiT wrote with it is not one written without.
+        let ane = neuralEngine && s.gemmANE ? " ane \(s.aneFraction) \(s.aneShares)" : ""
         return "amx \(s.amx) \(s.amxFraction) \(s.amxShares) \(s.amxQuantum) \(s.amxMinimumRows) "
-            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) parallel \(s.parallel)"
+            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) parallel \(s.parallel)" + ane
     }
 
     /// The key of a text stage's output: the module, the prompt, the images it sees.

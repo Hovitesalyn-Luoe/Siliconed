@@ -114,6 +114,30 @@ final class AppState {
             Spectral.halfSizeStart = fasterRendering
         }
     }
+    private static let neuralEngineKey = "neuralEngine"
+    /// **The Neural Engine, per model and version** (the rack's fp32 tag, `Request.neuralEngine`): what the
+    /// user chose; absent, the version's default (`Variant.neuralEngineByDefault`).
+    var neuralEngineChoices = UserDefaults.standard.dictionary(forKey: AppState.neuralEngineKey) as? [String: Bool] ?? [:] {
+        didSet { UserDefaults.standard.set(neuralEngineChoices, forKey: Self.neuralEngineKey) }
+    }
+    /// This Mac's map turned the Neural Engine on: otherwise there is nothing to choose, the denoiser is fp32.
+    var neuralEngineOffered: Bool { EngineSettings.effective.gemmANE }
+    /// The key of a choice: the model and its installed version — another version starts from its own default.
+    private func neuralEngineKey(_ id: String) -> String? {
+        guard let card = cards.first(where: { $0.id == id }) else { return nil }
+        return card.isImported ? id : "\(id) \(library.variant(of: card.family).rawValue)"
+    }
+    /// Whether `id`'s denoiser may take the Neural Engine: the user's choice, else its version's default;
+    /// an imported model is the Standard's case.
+    func neuralEngine(for id: String) -> Bool {
+        guard let key = neuralEngineKey(id) else { return false }
+        if let chosen = neuralEngineChoices[key] { return chosen }
+        guard let card = cards.first(where: { $0.id == id }), !card.isImported else { return false }
+        return library.variant(of: card.family).neuralEngineByDefault
+    }
+    func setNeuralEngine(_ on: Bool, for id: String) {
+        if let key = neuralEngineKey(id) { neuralEngineChoices[key] = on }
+    }
     /// The range of a LoRA's strength slider.
     var loraStrengthRange: ClosedRange<Double> { negativeLoRAStrengths ? -1.5...1.5 : 0...1.5 }
     /// `slot` with its strength at 0 if negative while the switch is off.

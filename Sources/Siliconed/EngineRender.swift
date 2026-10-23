@@ -146,6 +146,7 @@ extension Engine {
         let context = Context(reproducible: reproducible, cancellation: cancellation,
                                 previews: request.previews, onProgress: onProgress)
         context.cache = cache
+        context.neuralEngine = request.neuralEngine && EngineSettings.effective.gemmANE
         // A sketch that reaches the plan's last evaluation is the whole render: no stop, no estimate.
         let sketch = request.sketch.map { max(1, $0) }.flatMap { $0 < plan.evaluations ? $0 : nil }
         context.stopAfter = sketch
@@ -326,7 +327,7 @@ extension Engine {
                                   detail: request.detail, solver: request.solver, schedule: request.schedule,
                                   variations: request.variations.filter { $0.effectiveStrength > 0 },
                                   modelName: model.card.name, isImportedModel: model.card.isImported,
-                                  loraOrigins: stack?.origins ?? [])
+                                  loraOrigins: stack?.origins ?? [], neuralEngine: context.neuralEngine)
                 context.emit(.image(index: n, renderResult))
                 renderResults.append(renderResult)
             }

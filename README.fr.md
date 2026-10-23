@@ -46,19 +46,7 @@ d'affaires annuel, un filtre de contenu obligatoire au déploiement.
 
 ## Un moteur mesuré sur votre Mac
 
-Avant son tout premier rendu, Siliconed mesure le Mac sur lequel il tourne — 30 à 40 secondes
-environ, sans aucun modèle. Il chronomètre les vrais produits matriciels des blocs des DiT sur le
-GPU, sur l'unité matricielle du CPU (AMX) et sur les deux à la fois, l'attention par trois noyaux,
-des produits lus directement sur les poids int8 et Q8_0 publiés, et des produits bf16 sur les unités
-tensorielles du GPU, et vérifie chaque sortie contre le résultat exact. Ce rapport devient **la carte
-de ce Mac**, refaite dès que le Mac, macOS ou l'app change, et la carte choisit les noyaux : un noyau
-ne s'allume que s'il a calculé juste et bat le défaut d'au moins 5 % (davantage si la machine a dérivé
-pendant la mesure). Sur le M1 Pro des chiffres plus bas, le 18/10/2026 : co-exécution GPU + AMX
-allumée (×1,30), attention partagée par têtes entre le GPU et le CPU allumée (×1,49), attention flash
-éteinte (×1,05, dans la marge), produits Q8_0 éteints (×0,43), produits tensoriels bf16 éteints
-(×0,53). Une autre puce mesure les siens et en décide autrement. La carte achète de la vitesse, jamais
-une autre image au-delà de l'arithmétique qu'elle a vérifiée ; Aide → **Mesurer ce Mac**
-la montre et permet de la partager ([Le diagnostic communautaire](#le-diagnostic-communautaire)).
+Avant son tout premier rendu, Siliconed mesure le Mac sur lequel il tourne — une minute environ, sans aucun modèle. Il chronomètre les vrais produits matriciels des blocs des DiT sur le GPU, sur l'unité matricielle du CPU (AMX), sur le Neural Engine et sur le GPU à côté de chacun, l'attention par trois noyaux, des produits lus directement sur les poids int8 et Q8_0 publiés, et des produits bf16 sur les unités tensorielles du GPU, et vérifie chaque sortie contre le résultat exact. Ce rapport devient **la carte de ce Mac**, refaite dès que le Mac, macOS ou l'app change, et la carte choisit les noyaux : un noyau ne s'allume que s'il a calculé juste et bat le défaut d'au moins 5 % (davantage si la machine a dérivé pendant la mesure). Sur le M1 Pro des chiffres plus bas, le 23/10/2026 : co-exécution GPU + AMX allumée (×1,26), Neural Engine à côté du GPU allumé (×1,42), attention partagée par têtes entre le GPU et le CPU allumée (×1,48), attention flash éteinte (×1,03, dans la marge), produits Q8_0 éteints (×0,37), produits tensoriels bf16 éteints (×0,47). L'AMX et le Neural Engine se partagent les produits forme par forme : le Neural Engine prend une forme partout où il garde 90 % de la vitesse de l'AMX, pour l'énergie qu'il épargne. Une autre puce mesure les siens et en décide autrement. La carte achète de la vitesse, jamais une autre image au-delà de l'arithmétique qu'elle a vérifiée — le fp16 du Neural Engine, c'est vous qui le choisissez ([comment](#le-neural-engine)) ; Aide → **Mesurer ce Mac** montre la carte et permet de la partager ([Le diagnostic communautaire](#le-diagnostic-communautaire)).
 
 ## Pourquoi Siliconed
 
@@ -69,7 +57,9 @@ la montre et permet de la partager ([Le diagnostic communautaire](#le-diagnostic
 - **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 84,5 s sur un M1 Pro avec les
   8 évaluations que demande sa recette, les trois premières sur une grille en demi-taille
   ([rendu plus rapide](#rendu-plus-rapide), allumé par défaut) ; 117,7 s toutes en pleine taille
-  ([à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac).
+  ([à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac). Ou, à la demande, une
+  partie du débruitage sur le Neural Engine, pour environ un cinquième d'énergie en moins
+  ([comment](#le-neural-engine)).
 - **34 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
@@ -293,6 +283,24 @@ une LoRA, Détail, une édition, un autre nombre de pas ni un autre calendrier. 
 évaluations sont en pleine taille et l'image est la même, au bit près, qu'avant : celle qui est
 vérifiée contre diffusers ; les écarts ci-dessus valent pour elle.
 
+### Le Neural Engine
+
+Le Neural Engine du Mac calcule en fp16. Là où la carte de ce Mac l'a allumé, il prend une partie des produits matriciels du DiT à côté du GPU, forme par forme : chaque colonne de poids et chaque ligne d'activations est remontée d'une puissance de deux dans la plage du fp16 puis ramenée en fp32, et les lignes qui débordent retournent au GPU. Les encodeurs de texte et le VAE ne s'en servent jamais. Le tag **fp32** du module DiT du rack le bascule, par modèle : **éteint par défaut sur la Standard**, qui reste les poids de l'éditeur calculés en fp32, l'image vérifiée contre la référence ; **allumé par défaut sur la Compact et la Légère**, dont les poids en 8 et 4 bits font déjà une autre image que celle de la Standard. Le tag affiche **fp32 · ANE** quand il est allumé, et une image calculée avec lui porte `neural-engine` dans ses métadonnées. Là où la carte a laissé le Neural Engine éteint, le tag est un simple fp32 et il n'y a rien à choisir.
+
+Sur le M1 Pro, 1024², Standard, rendu plus rapide, graine 42, le prompt de la bibliothèque, le 23/10/2026 :
+
+| | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo |
+|---|---|---|---|
+| temps dans l'app, éteint / allumé | 144,6–144,9 s / 135,4–137,4 s | 86,8–93,9 s / 83,4–84,0 s | 103,6 s / 99,9–100,2 s |
+| puissance de toute la machine, éteint / allumé | 43,9 W / 35,3 W | 38,0 W / 31,2 W | 45,4 W / 36,9 W |
+| énergie par image, allumé contre éteint | −26 % | −16 % | −20 % |
+| pic mémoire de l'app, éteint / allumé | 3,41 / 3,71 Go | 3,01 / 3,23 Go | 1,97 / 2,11 Go |
+| l'image, allumé contre éteint | PSNR 35,9 dB : la même scène, le même visage, la même lumière, les détails les plus fins déplacés (tranches de livres) | 55,9 dB, un dixième de niveau en moyenne | 56,3 dB, un dixième de niveau en moyenne |
+| écart de la sortie du débruiteur, allumé, à la référence fp32 | 5,3·10⁻³ (512²) | 2,2·10⁻³ | 4,2·10⁻³ de l'exact fp64 (512²) |
+| …en part de l'écart du bf16 de l'éditeur | 0,15 | 0,04 | 0,30 |
+
+Temps : des rendus mis en file dans l'app par `silicontrol`, chacun dans une app tout juste ouverte, 0 page swappée ; éteint, trois rendus de Z-Image d'affilée ont pris 93,9, 89,0 et 86,8 s aux mêmes bits, le premier juste après un déplacement de la bibliothèque. Puissance et énergie : la même comparaison en ligne de commande, quatre rendus par modèle en alternant allumé et éteint, la consommation de toute la machine (écran compris) lue dans la télémétrie de l'adaptateur secteur. L'écart est celui d'une évaluation du débruiteur (comment : [La vérification](#la-vérification)) ; celui du bf16 est celui de diffusers sur les poids bf16 de l'éditeur, comme calculent la plupart des outils.
+
 ### À côté de Draw Things
 
 [Draw Things](https://drawthings.ai) est la référence sur Mac ; ici, son moteur communautaire,
@@ -322,6 +330,13 @@ il compare maintenant 8 à 8. Les deux premières lignes de Siliconed sont en pl
 celles de Draw Things ; avec le rendu plus rapide, les 3 premières de ses 8 évaluations passent sur
 une grille de demi-taille, ce que Draw Things ne fait pas : moins de travail, une autre image
 ([comment](#rendu-plus-rapide)).
+
+Huit bits contre huit bits, le 23/10/2026 : la Compact de Siliconed (le GGUF Q8_0 du tiers, gardé tel que publié) contre le `q8p` par défaut de Draw Things, dans son moteur communautaire à `6c1dd09` ; Z-Image Turbo, 1024², 8 pas, graine 42, le prompt de la bibliothèque ; chaque rendu dans un processus tout juste lancé de chaque côté (l'app, le serveur du moteur), trois de chaque côté, puis Siliconed encore en témoin.
+
+| | poids | temps | pic mémoire | lu sur le disque par rendu |
+|---|---|---|---|---|
+| Siliconed, Compact, rendu plus rapide et Neural Engine (tous deux par défaut) | GGUF Q8_0 | 81,1–83,2 s (témoin 81,3 s) | 2,6 Go | 3,7–11 Go |
+| Draw Things, par défaut | 8 bits (`q8p`) | 135,0–144,2 s | 4,3 Go | 10–18 Go |
 
 **Dans le budget, mesuré.** Le pic `phys_footprint` de chaque modèle et ses pages swappées (delta
 `vm_stat`) sont mesurés au pire cas du produit, sur un Mac de 16 Go où rien d'autre ne tourne : Qwen-Image-2.1 à 1024×1536 avec 3 références,

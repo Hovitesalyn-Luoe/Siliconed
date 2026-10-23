@@ -110,6 +110,9 @@ package final class Engine: Sendable {
         /// (`MemoryCheck`); a phase above its need is a defect of the engine (`MemoryCheck.exceeded`).
         /// `nil` when no need was computed (a model whose maps are not installed).
         package var memory: MemoryCheck? = nil
+        /// **Its denoiser's products could take the Neural Engine** (`Request.neuralEngine`, resolved against
+        /// the map): fp16 products, another image than fp32's. False writes nothing in the metadata.
+        package var neuralEngine = false
 
         /// **The generation metadata**, as `png()` writes it (`iTXt` chunks). ASCII keys, readable
         /// values; **no date** — two identical renders must remain two identical files.
@@ -131,6 +134,7 @@ package final class Engine: Sendable {
             if detail != .normal { m["detail"] = detail.rawValue }
             if solver != .euler { m["solver"] = solver.rawValue }
             if schedule != .official { m["schedule"] = schedule.rawValue }
+            if neuralEngine { m["neural-engine"] = "true" }
             // `seed` stays the origin's: the variations turn its noise, in order (`Variation.text`).
             if !variations.isEmpty { m["variation"] = Variation.text(variations) }
             if !loras.isEmpty {
@@ -201,6 +205,9 @@ package final class Engine: Sendable {
             package var solver: Solver = .euler
             /// `Request.schedule`; `official` when the key is absent (every render before it).
             package var schedule: SigmaSchedule = .official
+            /// `Request.neuralEngine`; false when the key is absent (every render before it, and every one
+            /// computed in fp32).
+            package var neuralEngine = false
             /// The variations its noise was turned by, in order (`Request.variations`); empty for an
             /// ordinary render.
             package var variations: [Variation] = []
@@ -231,6 +238,7 @@ package final class Engine: Sendable {
                 detail = read("detail") { Detail(rawValue: $0) } ?? .normal
                 solver = read("solver") { Solver(rawValue: $0) } ?? .euler
                 schedule = read("schedule") { SigmaSchedule(rawValue: $0) } ?? .official
+                neuralEngine = read("neural-engine") { Bool($0) } ?? false
                 variations = read("variation") { Variation.parse($0) } ?? []
                 if let raw = m["lora"] {
                     // `name:0.80,…`, split at the LAST colon: the strength is always written.

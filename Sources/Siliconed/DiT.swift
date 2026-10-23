@@ -108,12 +108,12 @@ package final class DiT {
     ///   rank — the engine receives the request before building the DiT, so there is no
     ///   maximum to fix in advance and nothing to reload when the stack changes.
     package init(artifact: Artifact, latentHeight: Int, latentWidth: Int, capLength: Int,
-                freezeCut: Bool = EngineSettings.effective.frozenCut, lora: LoRA? = nil) throws {
+                freezeCut: Bool = EngineSettings.effective.frozenCut, neuralEngine: Bool = EngineSettings.effective.gemmANE, lora: LoRA? = nil) throws {
         self.lora = lora
         self.artifact = artifact
         self.prefetcher = Prefetcher(artifact: artifact)
         self.config = Config(header: artifact.header)
-        self.gemm = try GEMM(freezeCut: freezeCut)
+        self.gemm = try GEMM(freezeCut: freezeCut, neuralEngine: neuralEngine)
         self.rope = RopeTables(axesDims: config.axesDims, axesLens: config.axesLens, theta: config.theta)
         self.latentHeight = latentHeight
         self.latentWidth = latentWidth

@@ -4253,30 +4253,30 @@
         }
       }
     },
-    "An image engine for Apple silicon, in Swift and Metal — fp32 end to end, verified stage by stage against the reference.\n\nLibrary: %@" : {
+    "An image engine for Apple silicon, in Swift and Metal — fp32, verified stage by stage against the reference; the Neural Engine beside it where you choose.\n\nLibrary: %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eine Bild-Engine für Apple silicon, in Swift und Metal – durchgehend fp32, Stufe für Stufe an der Referenz überprüft.\n\nBibliothek: %@"
+            "value" : "Eine Bild-Engine für Apple silicon, in Swift und Metal – fp32, Stufe für Stufe an der Referenz überprüft; die Neural Engine daneben, wo Sie es wählen.\n\nBibliothek: %@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un motor de imagen para Apple silicon, en Swift y Metal — fp32 de principio a fin, verificado etapa por etapa frente a la referencia.\n\nBiblioteca: %@"
+            "value" : "Un motor de imagen para Apple silicon, en Swift y Metal — fp32, verificado etapa por etapa frente a la referencia; el Neural Engine al lado, donde tú lo elijas.\n\nBiblioteca: %@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un moteur d’image pour Apple silicon, en Swift et Metal — fp32 de bout en bout, vérifié étage par étage contre la référence.\n\nBibliothèque : %@"
+            "value" : "Un moteur d’image pour Apple silicon, en Swift et Metal — fp32, vérifié étage par étage contre la référence ; le Neural Engine à côté, là où vous le choisissez.\n\nBibliothèque : %@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un motore d’immagine per Apple silicon, in Swift e Metal — fp32 da cima a fondo, verificato stadio per stadio rispetto al riferimento.\n\nLibreria: %@"
+            "value" : "Un motore d’immagine per Apple silicon, in Swift e Metal — fp32, verificato stadio per stadio rispetto al riferimento; il Neural Engine accanto, dove lo scegli tu.\n\nLibreria: %@"
           }
         }
       }
@@ -13942,6 +13942,34 @@
         }
       }
     },
+    "Part of the DiT runs in fp16 on the Neural Engine: less energy (about a fifth on an M1 Pro), an image a little different from fp32's. Click for fp32 throughout." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Teil des DiT läuft in fp16 auf der Neural Engine: weniger Energie (etwa ein Fünftel auf einem M1 Pro), ein etwas anderes Bild als in fp32. Klicken für durchgehend fp32."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una parte del DiT se ejecuta en fp16 en el Neural Engine: menos energía (alrededor de una quinta parte en un M1 Pro), una imagen algo distinta de la de fp32. Haz clic para todo en fp32."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une partie du DiT tourne en fp16 sur le Neural Engine : moins d’énergie (environ un cinquième sur un M1 Pro), une image un peu différente de celle en fp32. Cliquer pour tout en fp32."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una parte del DiT gira in fp16 sul Neural Engine: meno energia (circa un quinto su un M1 Pro), un’immagine un po’ diversa da quella in fp32. Fai clic per tutto in fp32."
+          }
+        }
+      }
+    },
     "Person" : {
       "comment" : "Kind of named subject",
       "localizations" : {
@@ -18131,6 +18159,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Encoder di testo"
+          }
+        }
+      }
+    },
+    "The DiT in fp32 throughout, the image verified against the reference. Click to run part of it in fp16 on the Neural Engine: less energy (about a fifth on an M1 Pro), an image a little different." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der DiT durchgehend in fp32, das Bild an der Referenz überprüft. Klicken, um einen Teil davon in fp16 auf der Neural Engine laufen zu lassen: weniger Energie (etwa ein Fünftel auf einem M1 Pro), ein etwas anderes Bild."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El DiT todo en fp32, la imagen verificada frente a la referencia. Haz clic para ejecutar una parte en fp16 en el Neural Engine: menos energía (alrededor de una quinta parte en un M1 Pro), una imagen algo distinta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le DiT tout en fp32, l’image vérifiée contre la référence. Cliquer pour en faire tourner une partie en fp16 sur le Neural Engine : moins d’énergie (environ un cinquième sur un M1 Pro), une image un peu différente."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il DiT tutto in fp32, l’immagine verificata rispetto al riferimento. Fai clic per farne girare una parte in fp16 sul Neural Engine: meno energia (circa un quinto su un M1 Pro), un’immagine un po’ diversa."
           }
         }
       }
@@ -24103,30 +24159,58 @@
         }
       }
     },
-    "fp32 end to end, every stage verified against the reference" : {
+    "fp32 end to end, every stage verified against the reference; on request, part of the DiT on the Neural Engine" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "durchgehend fp32, jede Stufe an der Referenz überprüft"
+            "value" : "durchgehend fp32, jede Stufe an der Referenz überprüft; auf Wunsch ein Teil des DiT auf der Neural Engine"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "fp32 de principio a fin, cada etapa verificada frente a la referencia"
+            "value" : "fp32 de principio a fin, cada etapa verificada frente a la referencia; si se pide, una parte del DiT en el Neural Engine"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "fp32 de bout en bout, chaque étage vérifié contre la référence"
+            "value" : "fp32 de bout en bout, chaque étage vérifié contre la référence ; à la demande, une partie du DiT sur le Neural Engine"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "fp32 da cima a fondo, ogni stadio verificato rispetto al riferimento"
+            "value" : "fp32 da cima a fondo, ogni stadio verificato rispetto al riferimento; su richiesta, una parte del DiT sul Neural Engine"
+          }
+        }
+      }
+    },
+    "fp32, part of the DiT in fp16 on the Neural Engine · same seed, same bits" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fp32, ein Teil des DiT in fp16 auf der Neural Engine · gleicher Seed, gleiche Bits"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fp32, una parte del DiT en fp16 en el Neural Engine · misma semilla, mismos bits"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fp32, une partie du DiT en fp16 sur le Neural Engine · même graine, mêmes bits"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fp32, una parte del DiT in fp16 sul Neural Engine · stesso seme, stessi bit"
           }
         }
       }

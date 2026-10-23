@@ -100,7 +100,8 @@ package struct ZImageDenoisingModule: DenoisingModule {
         let full = { () throws -> DiT in
             if let kept = context.keptDenoiser as? DiT { return kept }
             let dit = try DiT(artifact: try Artifact(path: map), latentHeight: height, latentWidth: width,
-                              capLength: text.rows, freezeCut: context.reproducible, lora: lora)
+                              capLength: text.rows, freezeCut: context.reproducible,
+                              neuralEngine: context.neuralEngine, lora: lora)
             dit.cancellation = context.cancellation
             context.keptDenoiser = dit
             return dit
@@ -111,7 +112,7 @@ package struct ZImageDenoisingModule: DenoisingModule {
             context.keptDenoiser = nil
             let half = try DiT(artifact: try Artifact(path: map), latentHeight: planned.reducedHeight,
                                latentWidth: planned.reducedWidth, capLength: text.rows,
-                               freezeCut: context.reproducible, lora: lora)
+                               freezeCut: context.reproducible, neuralEngine: context.neuralEngine, lora: lora)
             half.cancellation = context.cancellation
             sampler = Sampler(half: half, halfSteps: planned.reduced, steps: steps, full: full)
         } else {
@@ -296,7 +297,8 @@ package struct AnimaDenoisingModule: DenoisingModule {
         let told = context.told(schedule, start: start)
         let build = { (h: Int, w: Int, range: Range<Int>) throws -> AnimaDiT in
             let dit = try AnimaDiT(artifact: try Artifact(path: map), latentHeight: h, latentWidth: w,
-                                   textLength: text.rows, freezeCut: context.reproducible, lora: lora)
+                                   textLength: text.rows, freezeCut: context.reproducible,
+                                   neuralEngine: context.neuralEngine, lora: lora)
             dit.cancellation = context.cancellation
             try dit.tabulate(sigmas: Array(told[range]))
             return dit
@@ -557,7 +559,7 @@ package struct Krea2DenoisingModule: DenoisingModule {
         let modulationKey = "krea2.modulation " + map
         func build(height: Int, width: Int) throws -> Krea2DiT {
             let dit = try Krea2DiT(artifact: artifact, latentHeight: height, latentWidth: width, maxText: tokens,
-                                   freezeCut: context.reproducible, lora: lora)
+                                   freezeCut: context.reproducible, neuralEngine: context.neuralEngine, lora: lora)
             dit.cancellation = context.cancellation
             try context.check()
             if let table = context.reserve[modulationKey] as? Krea2DiT.ModulationTable { dit.modulations = table }
@@ -602,7 +604,8 @@ package struct Krea2DenoisingModule: DenoisingModule {
             return mergeDone.merged
         }
         let fusion = try Krea2TextFusion(artifact: artifact, maxTokens: text.rows,
-                                         freezeCut: context.reproducible, lora: lora)
+                                         freezeCut: context.reproducible, neuralEngine: context.neuralEngine,
+                                         lora: lora)
         fusion.cancellation = context.cancellation
         let merged = try text.values.withUnsafeBufferPointer {
             try fusion.fuse($0.baseAddress!, tokens: text.rows)
@@ -758,6 +761,7 @@ package struct QwenImage21DenoisingModule: DenoisingModule {
         try check(steps: steps, startImage: start > 0)
         var sampler = QwenImage21Sampler(artifact: try Artifact(path: map), lora: lora)
         sampler.freezeCut = context.reproducible
+        sampler.neuralEngine = context.neuralEngine
         sampler.cancellation = context.cancellation
         sampler.storage = storage
         sampler.solver = context.solver
@@ -781,7 +785,7 @@ package struct QwenImage21DenoisingModule: DenoisingModule {
                                                        imageSlots: text.imageSlots.filter { $0 }.count)
             if QwenImage21CachePolicy.storage(prefix: prefix) == .file {
                 let key = kvKey(stack: lora?.layers ?? [], text: text, references: references, latent: latent,
-                                reproducible: context.reproducible)
+                                reproducible: context.reproducible, neuralEngine: context.neuralEngine)
                 cache.keepOnlyKV([key])
                 sampler.kept = (cache.kvPath(key), key.hex)
                 sampler.keptReserve = cache.keptReserve
@@ -807,9 +811,9 @@ package struct QwenImage21DenoisingModule: DenoisingModule {
     /// states and slots, each reference latent, and the target's grid (it closes the joint sequence).
     /// Not the seed, not σ: the conditions read `t = 0` and never see the target.
     func kvKey(stack: [LoRA.Layer], text: Conditioning, references: [Latent], latent: Latent,
-               reproducible: Bool) -> RenderCache.Key {
+               reproducible: Bool, neuralEngine: Bool) -> RenderCache.Key {
         var k = RenderCache.KeyBuilder("qwen21 kv v2")
-        k.add(RenderCache.build); k.add(RenderCache.numerics(reproducible: reproducible))
+        k.add(RenderCache.build); k.add(RenderCache.numerics(reproducible: reproducible, neuralEngine: neuralEngine))
         k.add(RenderCache.stamp(map))
         k.add(stack.count)
         for layer in stack { k.add(RenderCache.stamp(layer.artifact.path)); k.add(Int(layer.strength.bitPattern)) }

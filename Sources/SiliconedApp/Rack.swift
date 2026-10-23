@@ -272,7 +272,7 @@ struct RackView: View {
                     }
                 }
             }
-            Text("fp32 end to end, every stage verified against the reference")
+            Text("fp32 end to end, every stage verified against the reference; on request, part of the DiT on the Neural Engine")
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.caption2)
@@ -717,7 +717,18 @@ private struct DiTBox: View {
     }
 
     @ViewBuilder private var technical: some View {
-        Tag(text: Text(verbatim: "fp32"))
+        if app.neuralEngineOffered {
+            // The model's choice, per installed version: a click switches it for the next renders.
+            let on = app.neuralEngine(for: app.identifier)
+            Button { app.setNeuralEngine(!on, for: app.identifier) } label: {
+                Tag(text: Text(verbatim: on ? "fp32 · ANE" : "fp32"), symbol: on ? "leaf" : nil)
+            }
+            .buttonStyle(.plain)
+            .help(on ? String(localized: "Part of the DiT runs in fp16 on the Neural Engine: less energy (about a fifth on an M1 Pro), an image a little different from fp32's. Click for fp32 throughout.")
+                     : String(localized: "The DiT in fp32 throughout, the image verified against the reference. Click to run part of it in fp16 on the Neural Engine: less energy (about a fifth on an M1 Pro), an image a little different."))
+        } else {
+            Tag(text: Text(verbatim: "fp32"))
+        }
         if let space = app.chain?.denoising.space {
             Tag(text: Text("latent · \(space.channels) ch"), dot: WireKind.latent.color)
                 .help(Text(verbatim: "\(space.name) · ÷\(space.factor)"))

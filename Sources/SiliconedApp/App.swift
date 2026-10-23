@@ -271,7 +271,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         let style: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                                                     .foregroundColor: NSColor.secondaryLabelColor]
         let credits = NSMutableAttributedString(
-            string: String(localized: "An image engine for Apple silicon, in Swift and Metal — fp32 end to end, verified stage by stage against the reference.\n\nLibrary: \(app.library.displayPath)")
+            string: String(localized: "An image engine for Apple silicon, in Swift and Metal — fp32, verified stage by stage against the reference; the Neural Engine beside it where you choose.\n\nLibrary: \(app.library.displayPath)")
                 + "\n\n" + String(localized: "New versions:") + " ",
             attributes: style)
         var link = style
