@@ -592,7 +592,7 @@ package enum Diagnostic {
                 let products = try measureProducts(operands!, bench)
                 let shares = products.compactMap(\.gpuShare).sorted()
                 let cuts = try measureCuts(operands!, bench, start: shares.isEmpty ? 0.631 : shares[shares.count / 2])
-                return (products, cuts, try measureANECuts(operands!, bench, cuts: cuts))
+                return (products, cuts, try measureANECuts(operands!, bench, cuts: cuts, products: products))
             }
             let lowPrecision = try stage(.lowPrecision) { try measureLowPrecision(operands!, bench) }
             operands = nil

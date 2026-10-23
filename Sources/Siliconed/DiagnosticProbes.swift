@@ -446,12 +446,12 @@ extension Diagnostic {
     /// **The GPU's share beside the ANE on its grid** (`aneCuts` → `ane_shares`): each `aneShapes`
     /// product at each of `heights`, balanced by `aneBalance`, then three walls: the pair at that share and the
     /// GPU beside the AMX at the share its grid (`cuts`) gives, each the median of three runs, and the GPU alone
-    /// read off the balance's own fit —
+    /// read off the balance's own fit (a shape among `products`: their share and rates, measured already) —
     /// the routes `CapacityRules` chooses between, shape by shape. The share is checked, not trusted: below
     /// 1 024 rows the ANE leaves the line `aneBalance` draws (Krea 2's 16 384 → 6 144, K in two parts: 768 rows
     /// at 319 ms beside a GPU done in 240, the pair slower than the GPU alone, 23/10/2026). Not judged: the
     /// products judge the ANE's arithmetic, which no share changes. Empty when no ANE program runs on this Mac.
-    static func measureANECuts(_ o: Operands, _ bench: Bench, cuts amxCuts: [Cut]) throws -> [Cut] {
+    static func measureANECuts(_ o: Operands, _ bench: Bench, cuts amxCuts: [Cut], products: [Product]) throws -> [Cut] {
         let neural = try GEMM(freezeCut: true, coexecution: false, tensorWeights: false, neuralEngine: true, neuralEngineShare: 0.5)
         guard let engine = neural.neuralEngine else { return [] }
         engine.shares = .none
@@ -470,6 +470,14 @@ extension Diagnostic {
         for shape in aneShapes {
             for m in heights {
                 try bench.check()
+                // A product the map measured already (Z-Image's and Qwen-Image-2.1's MLP): its share and its rates.
+                if let p = products.first(where: { $0.k == shape.k && $0.n == shape.n && $0.m == m }),
+                   let share = p.aneGPUShare, let ane = p.ane?.rate, ane > 0, p.gpu.rate > 0 {
+                    let flops = 2 * Double(m * shape.k * shape.n) * 1e-9   // TFLOP/s → milliseconds
+                    cuts.append(Cut(k: shape.k, n: shape.n, m: m, share: share, ane: flops / ane, gpu: flops / p.gpu.rate,
+                                    amx: amx != nil ? p.coexecution.map { flops / $0.rate } : nil))
+                    continue
+                }
                 let run = { _ = neural.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true) }
                 guard let (share, alone) = aneBalanceAndAlone(neural, run: run, m: m, k: shape.k, n: shape.n) else { return [] }
                 engine.gpuShare = share
