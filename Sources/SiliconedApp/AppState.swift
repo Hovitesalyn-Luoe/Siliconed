@@ -121,22 +121,21 @@ final class AppState {
         didSet { UserDefaults.standard.set(neuralEngineChoices, forKey: Self.neuralEngineKey) }
     }
     /// This Mac's map turned the Neural Engine on: otherwise there is nothing to choose, the denoiser is fp32.
-    var neuralEngineOffered: Bool { EngineSettings.effective.gemmANE }
+    /// Not before the settings are read: `effective` read at launch would freeze the defaults, and the measure
+    /// the first render starts would apply only at the next launch (`EngineSettings.load` refuses it).
+    var neuralEngineOffered: Bool { settingsRead && EngineSettings.effective.gemmANE }
     /// The key of a choice: the model and its installed version — another version starts from its own default.
-    private func neuralEngineKey(_ id: String) -> String? {
-        guard let card = cards.first(where: { $0.id == id }) else { return nil }
-        return card.isImported ? id : "\(id) \(library.variant(of: card.family).rawValue)"
+    private func neuralEngineKey(_ card: ModelCard) -> String {
+        card.isImported ? card.id : "\(card.id) \(library.variant(of: card.family).rawValue)"
     }
     /// Whether `id`'s denoiser may take the Neural Engine: the user's choice, else its version's default;
     /// an imported model is the Standard's case.
     func neuralEngine(for id: String) -> Bool {
-        guard let key = neuralEngineKey(id) else { return false }
-        if let chosen = neuralEngineChoices[key] { return chosen }
-        guard let card = cards.first(where: { $0.id == id }), !card.isImported else { return false }
-        return library.variant(of: card.family).neuralEngineByDefault
+        guard let card = cards.first(where: { $0.id == id }) else { return false }
+        return neuralEngineChoices[neuralEngineKey(card)] ?? (!card.isImported && library.variant(of: card.family).neuralEngineByDefault)
     }
     func setNeuralEngine(_ on: Bool, for id: String) {
-        if let key = neuralEngineKey(id) { neuralEngineChoices[key] = on }
+        if let card = cards.first(where: { $0.id == id }) { neuralEngineChoices[neuralEngineKey(card)] = on }
     }
     /// The range of a LoRA's strength slider.
     var loraStrengthRange: ClosedRange<Double> { negativeLoRAStrengths ? -1.5...1.5 : 0...1.5 }

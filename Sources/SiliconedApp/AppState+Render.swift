@@ -44,7 +44,7 @@ extension AppState {
     /// image kept by the run, not the history, and no sheet is drawn unless asked (`addSheet`).
     @discardableResult
     func enqueueGrid(_ grid: RenderGrid, settings: RenderSettings, references: [ReferenceImage], previews: Bool,
-                     sketch: Bool = false, stopAfter: Int = 0) -> (run: GridRun, jobs: [Job]) {
+                     sketch: Bool = false, stopAfter: Int = 0, neuralEngine: Bool? = nil) -> (run: GridRun, jobs: [Job]) {
         lastGrid += 1
         let jobs = grid.cells.map { cell in
             var s = settings
@@ -78,6 +78,7 @@ extension AppState {
             var job = Job(ordinal: nextJobNumber(), settings: s, seeds: [cell.seed], references: used,
                           previews: previews, defaultSteps: card?.defaultSteps, plan: plan)
             job.sketch = stop
+            job.neuralEngine = neuralEngine
             return job
         }
         var run = GridRun(ordinal: lastGrid, grid: grid, settings: settings, jobs: jobs.map(\.ordinal),
@@ -333,7 +334,7 @@ extension AppState {
             request.solver = settings.solver
             request.schedule = settings.schedule
             request.variations = settings.variations
-            request.neuralEngine = neuralEngine(for: settings.identifier)
+            request.neuralEngine = job.neuralEngine ?? neuralEngine(for: settings.identifier)
 
             var progress = Engine.Progress()
             for try await item in Engine().events(request, seeds: job.seeds, model: model) {

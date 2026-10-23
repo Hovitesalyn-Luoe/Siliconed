@@ -237,11 +237,11 @@ extension Diagnostic {
             let work = products.map(productFlops).reduce(0, +)
             aneFraction = products.map { productFlops($0) * $0.aneGPUShare! }.reduce(0, +) / work
         }
-        /// The fp32 path the bf16 and 8-bit paths replace: what `amx` and `gemm_ane` chose.
         /// Whether the product's shape goes to the ANE (its grid's share under 1).
         func aneRoutes(_ p: Product) -> Bool {
             ane.on && (aneGrid.flatMap { $0.share(k: p.k, n: p.n, m: p.m, range: NeuralEngine.shareRange) }.map { $0 < 1 } ?? true)
         }
+        /// The fp32 path the bf16 and 8-bit paths replace: what `amx` and `gemm_ane` chose.
         func fp32Path(_ p: Product) -> Measure? { aneRoutes(p) ? p.ane : amx.on ? p.coexecution : p.gpu }
         var fraction: Double?
         if amx.on {

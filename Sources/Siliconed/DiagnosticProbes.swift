@@ -318,7 +318,7 @@ extension Diagnostic {
                 try bench.check()
                 func run() { _ = neural.linear(a: neuralBuffers.0, b: neuralBuffers.1, c: neuralBuffers.2, m: s.m, k: s.k, n: s.n,
                                                weightIsTransposed: true) }
-                if let share = aneBalance(neural, run: run, m: s.m, k: s.k, n: s.n) {
+                if let share = aneBalance(neural, run: run, m: s.m, k: s.k, n: s.n)?.share {
                     engine.gpuShare = share
                     let before = engine.fallbacks
                     poison(c, rows: rows, n: s.n)
@@ -410,14 +410,9 @@ extension Diagnostic {
     /// **The GPU's share beside the ANE that ends both sides together**, for `run` (one `m × k → n` product
     /// through `neural`). Each side's wall is affine in its rows — the ANE reads the whole weight at every
     /// call, whatever its rows —: three runs at ½ and three at ¾, the medians give both lines, and the share
-    /// where they cross, in `NeuralEngine.shareRange`. `nil` when the ANE fell back.
-    static func aneBalance(_ neural: GEMM, run: () -> Void, m: Int, k: Int, n: Int) -> Double? {
-        aneBalanceAndAlone(neural, run: run, m: m, k: k, n: n)?.share
-    }
-
-    /// `aneBalance`'s share, and the GPU alone's wall on all `m` rows read off the same fit: the GPU's time is
-    /// affine in its rows (`gpuFixed + gpuSlope · m`), measured at both shares — no run of its own.
-    static func aneBalanceAndAlone(_ neural: GEMM, run: () -> Void, m: Int, k: Int, n: Int) -> (share: Double, alone: Double)? {
+    /// where they cross, in `NeuralEngine.shareRange`. And the GPU alone's wall on all `m` rows, read off the
+    /// same fit (`gpuFixed + gpuSlope · m`) — no run of its own. `nil` when the ANE fell back.
+    static func aneBalance(_ neural: GEMM, run: () -> Void, m: Int, k: Int, n: Int) -> (share: Double, alone: Double)? {
         guard let engine = neural.neuralEngine else { return nil }
         func sides(_ share: Double) -> (gpu: Double, gpuRows: Double, ane: Double, aneRows: Double)? {
             engine.gpuShare = share
@@ -479,7 +474,7 @@ extension Diagnostic {
                     continue
                 }
                 let run = { _ = neural.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true) }
-                guard let (share, alone) = aneBalanceAndAlone(neural, run: run, m: m, k: shape.k, n: shape.n) else { return [] }
+                guard let (share, alone) = aneBalance(neural, run: run, m: m, k: shape.k, n: shape.n) else { return [] }
                 engine.gpuShare = share
                 let paired = seconds(run)
                 let beside = amx.flatMap { g in operands.map { (a, b, c) in

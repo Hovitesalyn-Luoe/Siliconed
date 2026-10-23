@@ -124,6 +124,8 @@ final class RemoteControl {
             .merging(r.detail == .normal ? [:] : ["detail": r.detail.rawValue]) { a, _ in a }
             .merging(r.solver == .euler ? [:] : ["solver": r.solver.rawValue]) { a, _ in a }
             .merging(r.schedule == .official ? [:] : ["schedule": r.schedule.rawValue]) { a, _ in a }
+            // What the job will ask, on a Mac whose map offers the Neural Engine: elsewhere, the answer is unchanged.
+            .merging(app.neuralEngineOffered ? ["neural_engine": t.neuralEngine ?? app.neuralEngine(for: r.identifier)] : [:]) { a, _ in a }
     }
 
     /// The variation seeds in order, each with its strength — the seed stays the origin's.
@@ -149,6 +151,7 @@ final class RemoteControl {
         if r.detail != .normal { o["detail"] = r.detail.rawValue }
         if r.solver != .euler { o["solver"] = r.solver.rawValue }
         if r.schedule != .official { o["schedule"] = r.schedule.rawValue }
+        if r.neuralEngine { o["neural_engine"] = true }
         if let g = e.grid {
             // A grid's sheet: no job made it; its seconds and evaluations are its cells' sum.
             o["job"] = nil
@@ -280,6 +283,8 @@ final class RemoteControl {
                 o["edit"] = max > 0
                 o["max_references"] = max
                 o["loras"] = b.loras(for: f.id).map { ["lora": Self.shortName($0.path), "name": $0.name] }
+                // The rack's fp32 tag, per installed version: only on a Mac whose map offers the Neural Engine.
+                if app.neuralEngineOffered { o["neural_engine"] = app.neuralEngine(for: f.id) }
             }
             return o
         }
@@ -407,6 +412,8 @@ final class RemoteControl {
         /// `--schedule official|comfyui`: the rack's ComfyUI schedule switch (`Request.schedule`), Developer
         /// Mode and the models that offer it only.
         var schedule = SigmaSchedule.official
+        /// `--ane`, `--no-ane`: the rack's fp32 tag (`Job.neuralEngine`); `nil`, the model's choice.
+        var neuralEngine: Bool?
         var loras: [(name: String, strength: Double)] = []
         /// The `--ref`, in their order: the first is image 1, the one edited.
         var references: [String] = []
@@ -477,6 +484,8 @@ final class RemoteControl {
                 }
             case "--ref": d.references.append(try value(a))
             case "--out": d.folder = try value(a)
+            case "--ane": d.neuralEngine = true
+            case "--no-ane": d.neuralEngine = false
             case "--preview": d.previews = true
             case "--no-preview": d.previews = false
             case "--wait": d.wait = true
@@ -576,6 +585,11 @@ final class RemoteControl {
         if d.detail != .normal, !model.chain.denoising.acceptsDetail {
             throw Refusal("detail", String(localized: "\(card?.name ?? model.name) doesn't offer Detail"),
                           help: String(localized: "leave out --detail"))
+        }
+        // The Neural Engine: only where this Mac's map turned it on (the rack shows no choice elsewhere).
+        if d.neuralEngine == true, !app.neuralEngineOffered {
+            throw Refusal("neural_engine", String(localized: "this Mac's capacity map leaves the Neural Engine off"),
+                          help: String(localized: "leave out --ane"))
         }
         guard let prompt = d.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Refusal("usage", String(localized: "empty prompt"))
@@ -706,14 +720,17 @@ final class RemoteControl {
                                           loras: stack, references: references.count, detail: d.detail,
                                           solver: d.solver, schedule: d.schedule)
             let used = app.namedJob(v.prompt, settings: &settings, references: references, model: model)
-            return Job(ordinal: app.nextJobNumber(), settings: settings,
-                       seeds: (0..<d.batch).map { firstNumber &+ UInt64($0) },
-                       references: used, previews: d.previews ?? app.previews,
-                       // Subjects' pictures make the plan unreduced (as `AppState.expectedPlan`); without
-                       // them, the plan as it was.
-                       defaultSteps: defaultSteps, plan: used.count > references.count ? plan.unreduced : plan)
+            var job = Job(ordinal: app.nextJobNumber(), settings: settings,
+                          seeds: (0..<d.batch).map { firstNumber &+ UInt64($0) },
+                          references: used, previews: d.previews ?? app.previews,
+                          // Subjects' pictures make the plan unreduced (as `AppState.expectedPlan`); without
+                          // them, the plan as it was.
+                          defaultSteps: defaultSteps, plan: used.count > references.count ? plan.unreduced : plan)
+            job.neuralEngine = d.neuralEngine
+            return job
         }
         app.enqueue(jobs)
+        if let on = d.neuralEngine { app.setNeuralEngine(on, for: model.identifier) }
         // The form takes what the job computes, as after a click: settings, edit images, seed — and
         // the prompt as typed, so that « Generate » would queue the same series.
         app.restoreSettings(jobs[0].settings)
@@ -905,7 +922,9 @@ final class RemoteControl {
                                       solver: d.solver, schedule: d.schedule)
         if d.sketch { app.stopExploring() }
         let (run, jobs) = app.enqueueGrid(g, settings: settings, references: references, previews: d.previews ?? app.previews,
-                                          sketch: d.sketch)
+                                          sketch: d.sketch, neuralEngine: d.neuralEngine)
+        // The rack's tag of each model the cells render, as after a click.
+        if let on = d.neuralEngine { for id in Set(jobs.map(\.settings.identifier)) { app.setNeuralEngine(on, for: id) } }
         // The form takes the grid, as after a click: settings, prompt as typed, edit images, axes.
         app.restoreSettings(settings)
         app.prompt = prompt

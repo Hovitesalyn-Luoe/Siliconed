@@ -75,6 +75,7 @@ extension Engine {
             promptTokens: MemoryNeed.Request.promptTokens(request.prompt, family: model.card.family,
                                                            references: request.references.count))
         memoryRequest.solver = request.solver
+        memoryRequest.neuralEngine = request.neuralEngine && EngineSettings.effective.gemmANE
         memoryRequest.batch = seeds.count
         memoryRequest.library = model.library ?? .processWide
         // **The request's own refusals first, before any computation and before the memory is judged**:

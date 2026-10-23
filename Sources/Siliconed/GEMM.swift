@@ -43,6 +43,10 @@ package final class GEMM {
     /// that is not a defect. The engine's best against the bench's best settles it; and the gap
     /// between the engine's best and its average quantifies what cold starts and variance cost.
     package private(set) var census: [String: (count: Int, seconds: Double, best: Double)] = [:]
+    private func record(_ key: String, _ seconds: Double) {
+        let previous = census[key] ?? (0, 0, Double.infinity)
+        census[key] = (previous.count + 1, previous.seconds + seconds, min(previous.best, seconds))
+    }
     /// Traces the first `n` calls: a gap that is constant from the first one does not have the same
     /// cause as a gap that sets in gradually.
     package var trace = 0
@@ -248,14 +252,11 @@ package final class GEMM {
             let gpuWall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
             group.wait()
             lastSides = (gpuWall, first, aneWall, rows)
-            let gpuKey = "\(m)×\(k)×\(n)ᵀ ane \(rows) GPU side"
-            let gpuPrevious = census[gpuKey] ?? (0, 0, Double.infinity)
-            census[gpuKey] = (gpuPrevious.count + 1, gpuPrevious.seconds + gpuWall, min(gpuPrevious.best, gpuWall))
+            let key = "\(m)×\(k)×\(n)ᵀ ane \(rows)"
+            record(key + " GPU side", gpuWall)
             if !computed { _ = gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed, conductor: false) }
             let wall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
-            let key = "\(m)×\(k)×\(n)ᵀ ane \(rows)"
-            let previous = census[key] ?? (0, 0, Double.infinity)
-            census[key] = (previous.count + 1, previous.seconds + wall, min(previous.best, wall))
+            record(key, wall)
             return wall
         }
         return gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
@@ -282,8 +283,7 @@ package final class GEMM {
             // Under a separate key: **wall time, not GPU time**. Mixing them would make a
             // census that compares neither with itself nor with previous sessions.
             let key = "\(m)×\(k)×\(n)\(weightIsTransposed ? "ᵀ" : "")‖"
-            let previous = census[key] ?? (0, 0, Double.infinity)
-            census[key] = (previous.count + 1, previous.seconds + wall, min(previous.best, wall))
+            record(key, wall)
             return wall
         }
         return submitRows(a: a, b: b, c: c, m: m, k: k, n: n,
@@ -297,8 +297,7 @@ package final class GEMM {
                         weightIsTransposed: Bool = false) -> Double {
         let elapsed = tensor!.linear(a: a, w: wb, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
         let key = "\(m)×\(k)×\(n)\(weightIsTransposed ? "ᵀ" : "")⊗"
-        let previous = census[key] ?? (0, 0, Double.infinity)
-        census[key] = (previous.count + 1, previous.seconds + elapsed, min(previous.best, elapsed))
+        record(key, elapsed)
         return elapsed
     }
 
@@ -371,8 +370,7 @@ package final class GEMM {
         commands.waitUntilCompleted()
         let elapsed = Attention.verdict(commands, what: "LoRA \(m)×\(k)×\(r)→\(n)")
         let key = "lora \(m)×\(k)×\(r)→\(n)"
-        let previous = census[key] ?? (0, 0, Double.infinity)
-        census[key] = (previous.count + 1, previous.seconds + elapsed, min(previous.best, elapsed))
+        record(key, elapsed)
         return elapsed
     }
 
@@ -406,8 +404,7 @@ package final class GEMM {
         commands.waitUntilCompleted()
         let elapsed = Attention.verdict(commands, what: "accumulated GEMM \(m)×\(k)×\(n)")
         let key = "\(m)×\(k)×\(n)ᵀ+"
-        let previous = census[key] ?? (0, 0, Double.infinity)
-        census[key] = (previous.count + 1, previous.seconds + elapsed, min(previous.best, elapsed))
+        record(key, elapsed)
         return elapsed
     }
 
@@ -537,8 +534,7 @@ package final class GEMM {
             }
         }
         let key = "\(m)×\(k)×\(n)\(weightIsTransposed ? "ᵀ" : "")"
-        let previous = census[key] ?? (0, 0, Double.infinity)
-        census[key] = (previous.count + 1, previous.seconds + elapsed, min(previous.best, elapsed))
+        record(key, elapsed)
         return elapsed
     }
 }

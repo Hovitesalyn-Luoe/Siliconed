@@ -180,7 +180,7 @@ extension MemoryNeed {
             Term("LoRA down staging", request.loraRanks.count > 1 ? LoRA.downBytes(k: fh, rank: request.loraRanks.max() ?? 0) : 0),
         ] + gemm("fusion", bounded: [(rows, fd, fd), (rows, fd, fh), (rows, fh, fd), (t, fd, fd), (t, fd, fh), (t, fh, fd),
                                      (t, fd, d), (t, d, d)],
-                 rank: rank))
+                 rank: rank, ane: request.neuralEngine))
 
         // ── the DiT: its arena, the map's staging blocks, the LoRA cache, the velocity; then either the
         //    modulation's tabulation or the SDPA and the GEMM, the larger ─────────────────────────────
@@ -210,7 +210,7 @@ extension MemoryNeed {
             + [Term("DiT SDPA concatenation", slices > 1 ? n * gpuHeads * dit.headDim * f : 0, outside: true)]
             // The image's rows are exact; the sequence's follow the prompt's bound.
             + gemm("DiT", products: [(s, dit.channels, d), (s, d, dit.channels)],
-                   bounded: [(n, d, d), (n, d, kv), (n, d, hidden), (n, hidden, d)], rank: rank)
+                   bounded: [(n, d, d), (n, d, kv), (n, d, hidden), (n, hidden, d)], rank: rank, ane: request.neuralEngine)
         let runningBytes = running.reduce(0) { $0 + $1.bytes }
         let tabulation = Krea2DiT.tabulationBytes(config: dit, count: Siliconed.Request.maximumSteps, rank: rank)
             + maps.timestepWidening

@@ -338,7 +338,7 @@ package final class NeuralEngine: @unchecked Sendable {
         let chunks = min(k, NeuralEngine.chunks), per = (k + chunks - 1) / chunks
         let lift = columns!.floats(), unlift = lift + n
         nonisolated(unsafe) let p = lift + 2 * n, sums = p + chunks * n
-        nonisolated(unsafe) let rowScratch = rowScratch
+        nonisolated(unsafe) let (rowScratch, w) = (rowScratch, w)
         DispatchQueue.concurrentPerform(iterations: chunks) { chunk in
             let (m, s, magnitude) = (p + chunk * n, sums + chunk * n, rowScratch + chunk * stride)
             m.update(repeating: 0, count: n)
@@ -365,7 +365,7 @@ package final class NeuralEngine: @unchecked Sendable {
     /// `W · λ` in fp16 for `rows` rows of the weight, on every core: 0.8 ms for 2 048 × 8 192 on an M1 Pro.
     private func convertWeight(_ w: UnsafePointer<Float>, rows: Int, n: Int, into target: UnsafeMutablePointer<Float16>) {
         let chunks = 32, per = (rows + chunks - 1) / chunks
-        nonisolated(unsafe) let (target, l) = (target, columns!.floats())
+        nonisolated(unsafe) let (w, target, l) = (w, target, columns!.floats())
         DispatchQueue.concurrentPerform(iterations: chunks) { chunk in
             for row in min(rows, chunk * per)..<min(rows, (chunk + 1) * per) {
                 let s = w + row * n, t = target + row * n

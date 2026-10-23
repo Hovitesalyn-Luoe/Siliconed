@@ -57,6 +57,10 @@ package struct MemoryNeed: Sendable, Equatable {
         package var minimumBands = false
         /// The update rule (`Solver.history`): the latents its walk keeps between two steps.
         package var solver: Solver = .euler
+        /// **The denoiser may take the Neural Engine** (`Request.neuralEngine` against the map's `gemm_ane`):
+        /// its surfaces are charged to the phases whose products it takes — the DiT's, Krea 2's fusion —, never
+        /// to an encoder's, which never takes it. The map's by default: what a render not yet chosen may do.
+        package var neuralEngine = EngineSettings.effective.gemmANE
         /// The images of the batch (`Engine.renderBatch`): every latent waits for the decodings, every
         /// image decoded waits for the batch's end.
         package var batch = 1
@@ -207,12 +211,13 @@ package struct MemoryNeed: Sendable, Equatable {
     /// `int8` (`gemm_int8` or `gemm_q8`) the AMX may take a product's last columns instead, all `m` rows
     /// (`Conductor.columnWorkspaceBytes`, larger: 151 against 109 MB at Krea 2's 4096 × 16384 × 6144),
     /// at the same bound on the share — counted for every product, the map's dtype unknown here. Under
-    /// `ane` (`gemm_ane`), the Neural Engine's fp16 operands and its rows (`NeuralEngine.bytes`).
+    /// `ane` (`Request.neuralEngine`: a denoiser's phase only), the Neural Engine's fp16 operands and its rows
+    /// (`NeuralEngine.bytes`).
     package static func gemm(_ name: String, products: [(m: Int, k: Int, n: Int)] = [],
                              bounded: [(m: Int, k: Int, n: Int)] = [], rank: Int = 0,
                              amx: Bool = EngineSettings.effective.amx,
                              int8: Bool = EngineSettings.effective.gemmInt8 || EngineSettings.effective.gemmQ8,
-                             ane: Bool = EngineSettings.effective.gemmANE) -> [Term] {
+                             ane: Bool = false) -> [Term] {
         var workspace = 0
         if amx {
             for p in products + bounded where p.m >= Conductor.minimumRows {

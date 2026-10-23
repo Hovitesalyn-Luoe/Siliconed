@@ -352,6 +352,21 @@ final class MemoryNeedTests: XCTestCase {
         XCTAssertEqual(OperatorFootprint.sdpaQueries(rows: 4160, heads: 30, headDim: 128), 4160 * 30 * 128 * 4)
     }
 
+    /// **The Neural Engine's surfaces go to the phases whose products it takes**: the DiT's, when the render
+    /// lets it (`Request.neuralEngine`) — never the encoder's, whose `GEMM` never has it, however long the prompt.
+    func testNeuralEngineIsChargedToTheDenoiserItServes() throws {
+        for on in [false, true] {
+            var request = Self.zRequest(width: 1024, height: 1024, promptTokens: 1100)
+            request.neuralEngine = on
+            let n = try XCTUnwrap(MemoryNeed.zImage(request, maps: Self.zImageMaps()))
+            func charged(_ kind: MemoryNeed.Phase.Kind) -> Bool {
+                n.phases.filter { $0.kind == kind }.flatMap(\.terms).contains { $0.name.hasSuffix("Neural Engine") }
+            }
+            XCTAssertFalse(charged(.text))
+            XCTAssertEqual(charged(.denoising), on)
+        }
+    }
+
     /// The map's type is in its header: an 8-bit map's tail buffers are about half a bf16 one's.
     func testAnEightBitMapNeedsSmallerBuffers() throws {
         let bf16 = try need(1024, 1024), int8 = try need(1024, 1024, maps: Self.zImageMaps(bytesPerValue: 1))

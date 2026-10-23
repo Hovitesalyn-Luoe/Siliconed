@@ -197,7 +197,7 @@ extension MemoryNeed {
           + gemm("DiT", products: [(image, inDim, d)],
                  bounded: [(sequence, d, d), (sequence, d, hidden), (sequence, hidden, d), (capPadded, dit.capDim, d),
                            (sequence, d, inDim)],
-                 rank: rank))
+                 rank: rank, ane: request.neuralEngine))
 
         // ── decoding: the decoder's two heaps and the image it returns; the latent it reads crosses ──
         let band = request.minimumBands ? min(VAE.bandElements, MemoryPlan.fluxMinimumBand) : VAE.bandElements

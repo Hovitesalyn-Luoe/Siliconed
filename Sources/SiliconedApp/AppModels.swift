@@ -122,7 +122,7 @@ struct RenderSettings {
     /// **Whose σ** (`Request.schedule`): ComfyUI's only when switched on in Developer Mode.
     var schedule: SigmaSchedule = .official
     /// **Its denoiser could take the Neural Engine** (`Engine.Render.neuralEngine`): set from the render, for
-    /// the image's panel — the choice itself is read when the job starts (`AppState.neuralEngine(for:)`).
+    /// the image's panel — the choice itself is read when the job starts (`Job.neuralEngine`).
     var neuralEngine = false
     var isVariation: Bool { !variations.isEmpty }
 }
@@ -272,6 +272,9 @@ struct Job: Identifiable {
     /// **A sketch** (`Request.sketch`): the evaluations it stops after; its image is the estimate,
     /// kept by its exploration and never put in the history. `nil`: a finished image.
     var sketch: Int? = nil
+    /// **The Neural Engine as the remote control asked it** (`add --ane`, `--no-ane`), frozen in the job;
+    /// `nil`, the model's choice when the job starts (`AppState.neuralEngine(for:)`), like a click.
+    var neuralEngine: Bool? = nil
 
     /// The key of the learned speed: same model, same format, same number of references (each one
     /// lengthens the sequence and every evaluation with it), with or without LoRA (the spectral turns off under a LoRA, and the LoRA weighs on

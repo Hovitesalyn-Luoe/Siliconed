@@ -24579,6 +24579,34 @@
         }
       }
     },
+    "leave out --ane" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--ane weglassen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "quita --ane"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "retirez --ane"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "togli --ane"
+          }
+        }
+      }
+    },
     "leave out --detail" : {
       "localizations" : {
         "de" : {
@@ -26407,6 +26435,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "questo Mac"
+          }
+        }
+      }
+    },
+    "this Mac's capacity map leaves the Neural Engine off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "die Fähigkeitskarte dieses Macs lässt die Neural Engine aus"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "el mapa de capacidades de este Mac deja apagado el Neural Engine"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "la carte des capacités de ce Mac laisse le Neural Engine éteint"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "la mappa delle capacità di questo Mac lascia spento il Neural Engine"
           }
         }
       }

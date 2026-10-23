@@ -198,6 +198,9 @@ package enum RemoteControlHelp {
         max_references → how many --ref it reads at most (Qwen-Image-2.1 3, the others 0);
                       null while it is not installed
         formats     → the suggested formats; any valid WxH is accepted (help add)
+        neural_engine → the rack's fp32 tag for the installed version: true = part of the DiT
+                      on the Neural Engine (--ane, --no-ane of « add »). Only on a Mac whose
+                      capacity map turned it on, and once the model is ready
         license_urls → the license file(s) on Hugging Face, at the revision the installation takes:
                       the model's, then each component under a license of its own (a Compact: the
                       publisher's, then each third party's model card). Z-Image has none: its model card, which
@@ -311,6 +314,13 @@ package enum RemoteControlHelp {
                               model's) instead of the Turbo's own — to compare, same seed, same
                               steps. Default: official. Jobs and images say "schedule" when it is
                               not official.
+          --ane, --no-ane     the rack's fp32 tag, as a click: part of the DiT in fp16 on the Neural
+                              Engine (less energy, an image a little different from fp32's), or
+                              fp32 throughout. Kept for the model's installed version, like the
+                              tag; the job keeps what it was given. Default: the model's choice
+                              ("neural_engine" of « models »). --ane only on a Mac whose capacity
+                              map turned the Neural Engine on. Jobs say "neural_engine" there;
+                              images, when it ran.
           --batch N           N images (1 to 8) with seeds s, s+1, …; the prompt is encoded once
                               for the whole batch (faster than N requests).
           --ref IMAGE|i7      editing by instruction: an image file or an image of the history.
@@ -360,7 +370,7 @@ package enum RemoteControlHelp {
           estimate_s : the sum, null if one job has no estimate yet.
           With --wait: one "type": "added" line per job, then the lines of « wait » for all.
 
-        FAILURES: usage, prompt, model, solver, schedule, detail, lora, format, steps, edit, ref, img2img
+        FAILURES: usage, prompt, model, solver, schedule, detail, neural_engine, lora, format, steps, edit, ref, img2img
         (--image/--strength: the app does none), subject (a named subject the prompt cites, help
         subjects), queue_full (64 waiting, or not enough room for every alternative), busy (an
         installation is running: no render until it is done), write.
@@ -424,8 +434,8 @@ package enum RemoteControlHelp {
           « wait g2 [--out D] » follows a grid later: at once if it has ended.
 
         FAILURES: usage (no --x, --batch, --x given to « add »), grid (an axis that does not read or
-        does not make a grid, more than 64 cells), prompt, model, solver, schedule, detail, lora, format, steps,
-        edit, ref, subject (a grid does not cite named subjects), queue_full, busy (an installation
+        does not make a grid, more than 64 cells), prompt, model, solver, schedule, detail, neural_engine, lora,
+        format, steps, edit, ref, subject (a grid does not cite named subjects), queue_full, busy (an installation
         is running), write.
         """,
 
@@ -674,6 +684,8 @@ package enum RemoteControlHelp {
                                Qwen-Image-2.1                              → leave it out
           detail               --detail more|most on a model without Detail (Anima, Krea 2)
                                                                            → leave it out
+          neural_engine        --ane on a Mac whose capacity map leaves the Neural Engine off
+                                                                           → leave it out
           subject              a named subject: unknown, a name taken, too many images, a model
                                that reads none, a grid citing one          → help subjects
           disabled             (subjects) named subjects are off in the app → turn them on in its menu
@@ -862,6 +874,9 @@ package enum RemoteControlHelp {
         max_references → combien de --ref il lit au plus (Qwen-Image-2.1 3, les autres 0) ;
                       null tant qu'il n'est pas installé
         formats     → les formats conseillés ; tout WxH valide est accepté (help add)
+        neural_engine → l'étiquette fp32 du rack pour la version installée : true = une part du
+                      DiT sur le Neural Engine (--ane, --no-ane de « add »). Seulement sur un Mac
+                      dont la carte des capacités l'a allumé, et le modèle prêt
         license_urls → le(s) fichier(s) de licence sur Hugging Face, à la révision que l'installation
                       prend : celui du modèle, puis chaque composant sous une licence propre
                       (une Compact : celui de l'éditeur, puis la fiche de chaque tiers). Z-Image n'en a pas : sa
@@ -974,6 +989,14 @@ package enum RemoteControlHelp {
                               pour ce modèle (ceux du modèle de base) au lieu de ceux de la Turbo —
                               pour comparer, même graine, mêmes pas. Défaut : official. Travaux et
                               images disent "schedule" s'il n'est pas official.
+          --ane, --no-ane     l'étiquette fp32 du rack, comme un clic : une part du DiT en fp16 sur
+                              le Neural Engine (moins d'énergie, une image un peu différente de
+                              celle du fp32), ou le fp32 de bout en bout. Gardé pour la version
+                              installée du modèle, comme l'étiquette ; le travail garde ce qu'on lui
+                              a donné. Défaut : le choix du modèle ("neural_engine" de « models »).
+                              --ane seulement sur un Mac dont la carte des capacités a allumé le
+                              Neural Engine. Les travaux y disent "neural_engine" ; les images,
+                              quand il a tourné.
           --batch N           N images (1 à 8) aux graines s, s+1, … ; le prompt est encodé une
                               fois pour tout le lot (plus rapide que N demandes).
           --ref IMAGE|i7      édition par instruction : un fichier image ou une image de l'historique.
@@ -1024,7 +1047,7 @@ package enum RemoteControlHelp {
           estimate_s : la somme, null si un travail n'a pas encore d'estimation.
           Avec --wait : une ligne "type": "added" par travail, puis les lignes de « wait » pour tous.
 
-        ÉCHECS : usage, prompt, model, solver, schedule, detail, lora, format, steps, edit, ref, img2img
+        ÉCHECS : usage, prompt, model, solver, schedule, detail, neural_engine, lora, format, steps, edit, ref, img2img
         (--image/--strength : l'app n'en fait pas), subject (un sujet nommé que le prompt cite,
         help subjects), queue_full (64 en attente, ou pas assez de place pour toutes les
         alternatives), busy (une installation tourne : pas de rendu avant qu'elle soit finie), write.
@@ -1088,8 +1111,8 @@ package enum RemoteControlHelp {
           « wait g2 [--out D] » suit une grille plus tard : tout de suite si elle est finie.
 
         ÉCHECS : usage (pas de --x, --batch, --x donné à « add »), grid (un axe illisible ou qui ne
-        fait pas une grille, plus de 64 cases), prompt, model, solver, schedule, detail, lora, format, steps,
-        edit, ref, subject (une grille ne cite pas de sujets nommés), queue_full, busy (une
+        fait pas une grille, plus de 64 cases), prompt, model, solver, schedule, detail, neural_engine, lora,
+        format, steps, edit, ref, subject (une grille ne cite pas de sujets nommés), queue_full, busy (une
         installation tourne), write.
         """,
 
@@ -1345,6 +1368,8 @@ package enum RemoteControlHelp {
                                que Qwen-Image-2.1                          → le retirer
           detail               --detail more|most sur un modèle sans Détail (Anima, Krea 2)
                                                                            → le retirer
+          neural_engine        --ane sur un Mac dont la carte des capacités laisse le Neural Engine
+                               éteint                                      → le retirer
           subject              un sujet nommé : inconnu, nom déjà pris, trop d'images, modèle qui
                                n'en lit pas, une grille qui en cite un     → help subjects
           disabled             (subjects) les sujets nommés sont éteints dans l'app → les allumer dans son menu
