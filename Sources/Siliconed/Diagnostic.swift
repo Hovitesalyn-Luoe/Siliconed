@@ -365,16 +365,26 @@ package enum Diagnostic {
     package struct Cut: Codable, Sendable, Equatable {
         package var k, n, m: Int
         package var share: Double
-        package init(k: Int, n: Int, m: Int, share: Double) {
+        /// The ANE's grid only (`aneCuts`), milliseconds of one product: the GPU beside the ANE at `share`,
+        /// the GPU alone, the GPU beside the AMX at its own grid's share (`nil` without co-execution) — what
+        /// `CapacityRules` routes each shape by. Written after the share: `[k, n, m, share, ane, gpu, amx]`.
+        package var ane, gpu, amx: Double?
+        package init(k: Int, n: Int, m: Int, share: Double, ane: Double? = nil, gpu: Double? = nil, amx: Double? = nil) {
             self.k = k; self.n = n; self.m = m; self.share = Diagnostic.significant(share, 3)
+            (self.ane, self.gpu, self.amx) = (ane.map { Diagnostic.significant($0, 3) }, gpu.map { Diagnostic.significant($0, 3) },
+                                              amx.map { Diagnostic.significant($0, 3) })
         }
         package init(from decoder: any Decoder) throws {
             var c = try decoder.unkeyedContainer()
             k = try c.decode(Int.self); n = try c.decode(Int.self); m = try c.decode(Int.self); share = try c.decode(Double.self)
+            if !c.isAtEnd { ane = try c.decodeNil() ? nil : try c.decode(Double.self) }
+            if !c.isAtEnd { gpu = try c.decodeNil() ? nil : try c.decode(Double.self) }
+            if !c.isAtEnd { amx = try c.decodeNil() ? nil : try c.decode(Double.self) }
         }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.unkeyedContainer()
             try c.encode(k); try c.encode(n); try c.encode(m); try c.encode(share)
+            if let ane, let gpu { try c.encode(ane); try c.encode(gpu); if let amx { try c.encode(amx) } }
         }
     }
 
@@ -581,8 +591,8 @@ package enum Diagnostic {
             let (products, cuts, aneCuts) = try stage(.products) { () throws -> ([Product], [Cut], [Cut]) in
                 let products = try measureProducts(operands!, bench)
                 let shares = products.compactMap(\.gpuShare).sorted()
-                return (products, try measureCuts(operands!, bench, start: shares.isEmpty ? 0.631 : shares[shares.count / 2]),
-                        try measureANECuts(operands!, bench))
+                let cuts = try measureCuts(operands!, bench, start: shares.isEmpty ? 0.631 : shares[shares.count / 2])
+                return (products, cuts, try measureANECuts(operands!, bench, cuts: cuts))
             }
             let lowPrecision = try stage(.lowPrecision) { try measureLowPrecision(operands!, bench) }
             operands = nil

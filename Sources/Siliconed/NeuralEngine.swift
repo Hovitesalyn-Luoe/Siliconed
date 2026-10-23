@@ -98,14 +98,20 @@ package final class NeuralEngine: @unchecked Sendable {
 
     /// **The ANE's limits on one program** (M1 Pro, macOS 27): beyond K = 8 192, or a weight of more than
     /// 3 · 2²⁴ values (100 MB in fp16), its rate falls from ~1.4 to 0.2–0.6 TFLOP/s (512 × 10 240 → 3 840: 156 ms,
-    /// 0.26 TFLOP/s; two programs on 5 120: 2 × 15 ms). K is cut into the fewest parts within both, one
+    /// 0.26 TFLOP/s; two programs on 5 120: 2 × 15 ms, 22/10/2026). And AT those limits it is not yet fast: Krea 2's
+    /// down projection in two parts of 8 192 × 6 144 ran at 0.45 TFLOP/s (2 048 rows in 930 ms); in parts of
+    /// K ≤ 4 096 and ≤ 1.5 · 2²⁴ values (48 MB), 142 ms — and 6 144² 102 → 54 ms, 12 288 → 4 096 94 → 71,
+    /// 10 240 → 3 840 76 → 64 (2 048 rows each, 23/10/2026). K is cut into the fewest parts within both, one
     /// program call each, their outputs summed in fp32.
-    package static let maximumK = 8192, maximumWeight = 3 << 24
+    package static let maximumK = 4096, maximumWeight = 3 << 23
 
     /// The number of parts of K: the fewest whose widest (`⌈k / p⌉`) holds both limits.
     package static func parts(k: Int, n: Int) -> Int {
+        func fits(_ p: Int) -> Bool { let widest = (k + p - 1) / p; return widest <= maximumK && widest * n <= maximumWeight }
         var p = 1
-        while case let widest = (k + p - 1) / p, widest > maximumK || widest * n > maximumWeight { p += 1 }
+        while !fits(p) { p += 1 }
+        // Equal parts of a multiple of 64, when a few more parts give them: an uneven K (10 240 in three) is refused.
+        if let even = (p...(p + 8)).first(where: { k % $0 == 0 && (k / $0) % 64 == 0 }) { return even }
         return p
     }
 

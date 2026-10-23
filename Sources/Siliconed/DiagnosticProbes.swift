@@ -68,6 +68,24 @@ extension Diagnostic {
         cutDepths.map { (k: $0, n: cutWidth) } + cutWidths.map { (k: cutWidth, n: $0) }
     }
 
+    /// **The ANE's grid** (`measureANECuts` → `ane_shares`): every family's own products, from the `Config`
+    /// defaults — the square of its width, its MLP up and down, Krea 2's grouped K/V and Anima's text K/V —,
+    /// at both `heights`. Not the AMX's two axes: the ANE's rate jumps from one shape to the next (its share at
+    /// 4 096 rows: 0.47 at 4 096 × 6 144, 0.69 at 6 144², 0.85 at 8 192 × 6 144, 23/10/2026), and a share read
+    /// across those axes gave Z-Image's up projection 0.37 where it balances at 0.56: its renders 12 % slower
+    /// than the AMX's. A product of another shape takes its nearest (`Conductor.Shares`).
+    package static var aneShapes: [(k: Int, n: Int)] {
+        let z = DiT.Config(header: [:]), q = QwenImage21DiT.Config(header: [:])
+        let krea = Krea2DiT.Config(header: [:]), anima = AnimaDiT.Config(header: [:])
+        var shapes: [(k: Int, n: Int)] = []
+        for (dim, hidden) in [(z.dim, z.hidden), (q.dim, q.hidden), (krea.dim, krea.hidden), (anima.dim, anima.hidden)] {
+            shapes += [(dim, dim), (dim, hidden), (hidden, dim)]
+        }
+        shapes += [(krea.dim, krea.kvWidth), (anima.textDim, anima.dim)]
+        var seen = Set<[Int]>()
+        return shapes.filter { seen.insert([$0.k, $0.n]).inserted }
+    }
+
     // ── the clock and the operands ──────────────────────────────────────────────────────────
 
     /// **Median wall seconds of three runs after a warm-up** (pipelines built, pages wired, clocks
@@ -214,7 +232,8 @@ extension Diagnostic {
         let a, b, c, bf16, q, q8Scales: Pages
         init() {
             let m = Diagnostic.heights.max()!
-            let shapes = Diagnostic.shapes.map { (m: $0.m, k: $0.k, n: $0.n) } + Diagnostic.cutShapes.map { (m: m, k: $0.k, n: $0.n) }
+            let shapes = Diagnostic.shapes.map { (m: $0.m, k: $0.k, n: $0.n) }
+                + (Diagnostic.cutShapes + Diagnostic.aneShapes).map { (m: m, k: $0.k, n: $0.n) }
             let (aFloats, bFloats) = (shapes.map { $0.m * $0.k }.max()!, shapes.map { $0.k * $0.n }.max()!)
             a = Pages(bytes: aFloats * 4); b = Pages(bytes: bFloats * 4); bf16 = Pages(bytes: bFloats * 2)
             c = Pages(bytes: shapes.map { $0.m * $0.n }.max()! * 4)
@@ -393,6 +412,12 @@ extension Diagnostic {
     /// call, whatever its rows —: three runs at ½ and three at ¾, the medians give both lines, and the share
     /// where they cross, in `NeuralEngine.shareRange`. `nil` when the ANE fell back.
     static func aneBalance(_ neural: GEMM, run: () -> Void, m: Int, k: Int, n: Int) -> Double? {
+        aneBalanceAndAlone(neural, run: run, m: m, k: k, n: n)?.share
+    }
+
+    /// `aneBalance`'s share, and the GPU alone's wall on all `m` rows read off the same fit: the GPU's time is
+    /// affine in its rows (`gpuFixed + gpuSlope · m`), measured at both shares — no run of its own.
+    static func aneBalanceAndAlone(_ neural: GEMM, run: () -> Void, m: Int, k: Int, n: Int) -> (share: Double, alone: Double)? {
         guard let engine = neural.neuralEngine else { return nil }
         func sides(_ share: Double) -> (gpu: Double, gpuRows: Double, ane: Double, aneRows: Double)? {
             engine.gpuShare = share
@@ -414,28 +439,45 @@ extension Diagnostic {
         // gpuFixed + gpuSlope · (m − r) = aneFixed + aneSlope · r
         let r = (gpuFixed + gpuSlope * Double(m) - aneFixed) / (gpuSlope + aneSlope)
         let range = NeuralEngine.shareRange
-        return r.isFinite ? min(range.upperBound, max(range.lowerBound, 1 - r / Double(m))) : range.upperBound
+        let alone = gpuFixed + gpuSlope * Double(m)
+        return (r.isFinite ? min(range.upperBound, max(range.lowerBound, 1 - r / Double(m))) : range.upperBound, alone)
     }
 
-    /// **The GPU's share beside the ANE on the cuts' grid** (`aneCuts` → `ane_shares`): each `cutShapes`
-    /// product at each of `heights`, balanced by `aneBalance`. Not judged: the products judge the ANE's
-    /// arithmetic, which no share changes. Empty when no ANE program runs on this Mac.
-    static func measureANECuts(_ o: Operands, _ bench: Bench) throws -> [Cut] {
+    /// **The GPU's share beside the ANE on its grid** (`aneCuts` → `ane_shares`): each `aneShapes`
+    /// product at each of `heights`, balanced by `aneBalance`, then three walls: the pair at that share and the
+    /// GPU beside the AMX at the share its grid (`cuts`) gives, each the median of three runs, and the GPU alone
+    /// read off the balance's own fit —
+    /// the routes `CapacityRules` chooses between, shape by shape. The share is checked, not trusted: below
+    /// 1 024 rows the ANE leaves the line `aneBalance` draws (Krea 2's 16 384 → 6 144, K in two parts: 768 rows
+    /// at 319 ms beside a GPU done in 240, the pair slower than the GPU alone, 23/10/2026). Not judged: the
+    /// products judge the ANE's arithmetic, which no share changes. Empty when no ANE program runs on this Mac.
+    static func measureANECuts(_ o: Operands, _ bench: Bench, cuts amxCuts: [Cut]) throws -> [Cut] {
         let neural = try GEMM(freezeCut: true, coexecution: false, tensorWeights: false, neuralEngine: true, neuralEngineShare: 0.5)
         guard let engine = neural.neuralEngine else { return [] }
         engine.shares = .none
         let a = try neural.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a")
         let b = try neural.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b")
         let c = try neural.wrap(o.c.base, bytes: o.c.capacity, name: "diagnostic.c")
+        // The AMX's route as a render takes it: its conductor frozen at its grid's share for the shape.
+        let amx = amxCuts.isEmpty ? nil : try GEMM(freezeCut: true, coexecution: true, tensorWeights: false, neuralEngine: false)
+        if let conductor = amx?.conductor {
+            conductor.shares = Conductor.Shares(amxCuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) })
+        }
+        let operands = try amx.map { g in (try g.wrap(o.a.base, bytes: o.a.capacity, name: "diagnostic.a"),
+                                           try g.wrap(o.b.base, bytes: o.b.capacity, name: "diagnostic.b"),
+                                           try g.wrap(o.c.base, bytes: o.c.capacity, name: "diagnostic.c")) }
         var cuts: [Cut] = []
-        for shape in cutShapes {
+        for shape in aneShapes {
             for m in heights {
                 try bench.check()
-                let share = aneBalance(neural, run: {
-                    _ = neural.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true)
-                }, m: m, k: shape.k, n: shape.n)
-                guard let share else { return [] }
-                cuts.append(Cut(k: shape.k, n: shape.n, m: m, share: share))
+                let run = { _ = neural.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true) }
+                guard let (share, alone) = aneBalanceAndAlone(neural, run: run, m: m, k: shape.k, n: shape.n) else { return [] }
+                engine.gpuShare = share
+                let paired = seconds(run)
+                let beside = amx.flatMap { g in operands.map { (a, b, c) in
+                    seconds { _ = g.linear(a: a, b: b, c: c, m: m, k: shape.k, n: shape.n, weightIsTransposed: true) } } }
+                cuts.append(Cut(k: shape.k, n: shape.n, m: m, share: share, ane: paired * 1e3, gpu: alone * 1e3,
+                                amx: beside.map { $0 * 1e3 }))
             }
         }
         return cuts

@@ -444,15 +444,15 @@ final class CapacityRulesTests: XCTestCase {
         rates.drift = (1.0, 1.0)
         rates.ane = rates.both.map { $0.map { $0 * 1.05 } }
         var r = report(rates)
-        r.aneCuts = Diagnostic.cutDepths.flatMap { k in Diagnostic.heights.map { m in
-            Diagnostic.Cut(k: k, n: Diagnostic.cutWidth, m: m, share: m == 1024 ? 0.9 : 0.6) } }
+        r.aneCuts = Diagnostic.aneShapes.flatMap { s in Diagnostic.heights.map { m in
+            Diagnostic.Cut(k: s.k, n: s.n, m: m, share: m == 1024 ? 0.9 : 0.6) } }
         let d = Diagnostic.decide(r)
         XCTAssertTrue(d.ane!.on)
         let text = try XCTUnwrap(d.aneShares)
         XCTAssertEqual(d.settings["ane_shares"] as? String, text)
         let shares = try XCTUnwrap(Conductor.Shares(text: text))
-        XCTAssertEqual(shares.share(k: 4096, n: 6144, m: 1024, range: NeuralEngine.shareRange)!, 0.9, accuracy: 0.001)
-        XCTAssertEqual(shares.share(k: 4096, n: 6144, m: 4096, range: NeuralEngine.shareRange)!, 0.6, accuracy: 0.001)
+        XCTAssertEqual(shares.share(k: 3840, n: 10240, m: 1024, range: NeuralEngine.shareRange)!, 0.9, accuracy: 0.001)
+        XCTAssertEqual(shares.share(k: 3840, n: 10240, m: 4096, range: NeuralEngine.shareRange)!, 0.6, accuracy: 0.001)
         // The ANE off: no grid in the settings.
         rates.aneError = 1
         r = report(rates)
@@ -477,6 +477,59 @@ final class CapacityRulesTests: XCTestCase {
     /// read linearly in `log k` or `log n` (the geometric middle gives the mean ratio), then in `log m`; the
     /// nearest point outside the grid; clamped to `Conductor.fractionRange`; a grid without its square point
     /// reads `k` only; the text reads back; an empty grid gives no share.
+    /// **With walls, the ANE and the AMX share the shapes**: a shape goes to the ANE where its pair beats the
+    /// GPU alone and keeps 90 % of the AMX's speed, to the AMX elsewhere (ρ = 0: the GPU's whole share); both
+    /// stay on. No shape the ANE's: the ANE off.
+    func testEachShapeGoesToItsEngine() throws {
+        var rates = m1Pro
+        rates.drift = (1.0, 1.0)
+        rates.ane = rates.both.map { $0.map { $0 * 1.05 } }
+        var r = report(rates)
+        // 3840 → 10240: the ANE at 95 % of the AMX (kept); 16384 → 6144: the ANE beaten (the AMX's).
+        r.aneCuts = [Diagnostic.Cut(k: 3840, n: 10240, m: 4096, share: 0.56, ane: 63, gpu: 94, amx: 60),
+                     Diagnostic.Cut(k: 16384, n: 6144, m: 4096, share: 0.83, ane: 317, gpu: 273, amx: 183)]
+        let d = Diagnostic.decide(r)
+        XCTAssertTrue(d.ane!.on); XCTAssertTrue(d.amx.on)
+        XCTAssertEqual(d.settings["amx"] as? Bool, true); XCTAssertEqual(d.settings["gemm_ane"] as? Bool, true)
+        let shares = try XCTUnwrap(Conductor.Shares(text: try XCTUnwrap(d.aneShares)))
+        XCTAssertEqual(shares.share(k: 3840, n: 10240, m: 4096, range: NeuralEngine.shareRange)!, 0.56, accuracy: 0.001)
+        XCTAssertEqual(shares.share(k: 16384, n: 6144, m: 4096, range: NeuralEngine.shareRange)!, 1)
+        XCTAssertEqual(NeuralEngine(gpuShare: 0.5, shares: shares).rows(4096, k: 16384, n: 6144), 0, "the AMX's shape")
+        // At 85 % of the AMX: the AMX's too — no shape left, the ANE off.
+        r.aneCuts![0].ane = 71
+        XCTAssertFalse(Diagnostic.decide(r).ane!.on)
+        // The AMX off (its measure failed): the ANE takes every shape its pair wins against the GPU alone.
+        rates.amxError = 1e-3
+        r = report(rates)
+        r.aneCuts = [Diagnostic.Cut(k: 3840, n: 10240, m: 4096, share: 0.56, ane: 71, gpu: 94, amx: 60)]
+        XCTAssertTrue(Diagnostic.decide(r).ane!.on)
+        XCTAssertFalse(Diagnostic.decide(r).amx.on)
+    }
+
+    /// The walls survive the report's JSON, after the share; a cut without them reads as before.
+    func testCutWallsRoundTrip() throws {
+        let cut = Diagnostic.Cut(k: 6144, n: 1536, m: 4096, share: 0.612, ane: 15.5, gpu: 24.4, amx: 17.4)
+        let data = try JSONEncoder().encode([cut, Diagnostic.Cut(k: 2048, n: 6144, m: 1024, share: 0.5)])
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "[[6144,1536,4096,0.612,15.5,24.4,17.4],[2048,6144,1024,0.5]]")
+        XCTAssertEqual(try JSONDecoder().decode([Diagnostic.Cut].self, from: data).first, cut)
+    }
+
+    /// **A grid of a family's shapes** (the ANE's): a shape measured reads its own share, at its height
+    /// interpolated in log m; another shape reads its nearest in log k + log n — never two axes' product,
+    /// which an ANE's jumps from one shape to the next would make up.
+    func testSharesReadTheShapeItselfOrItsNearest() {
+        let t = { (share: Double) in (1 - share) / share }
+        let shares = Conductor.Shares([.init(k: 3840, n: 3840, m: 4096, ratio: t(0.5)), .init(k: 3840, n: 10240, m: 4096, ratio: t(0.56)),
+                                       .init(k: 6144, n: 6144, m: 4096, ratio: t(0.7)), .init(k: 3840, n: 10240, m: 1024, ratio: t(0.68)),
+                                       .init(k: 3840, n: 3840, m: 1024, ratio: t(0.6)), .init(k: 6144, n: 6144, m: 1024, ratio: t(0.8))])
+        let range = NeuralEngine.shareRange
+        XCTAssertEqual(shares.share(k: 3840, n: 10240, m: 4096, range: range)!, 0.56, accuracy: 1e-9)
+        XCTAssertEqual(shares.share(k: 3840, n: 10240, m: 1024, range: range)!, 0.68, accuracy: 1e-9)
+        XCTAssertEqual(shares.share(k: 3840, n: 10240, m: 4128, range: range)!, 0.56, accuracy: 1e-9, "beyond the tallest: its share")
+        XCTAssertEqual(shares.share(k: 4096, n: 4096, m: 4096, range: range)!, 0.5, accuracy: 1e-9, "nearest: 3 840²")
+        XCTAssertEqual(shares.share(k: 6144, n: 5120, m: 4096, range: range)!, 0.7, accuracy: 1e-9, "nearest: 6 144²")
+    }
+
     func testSharesComposeTheTwoAxes() throws {
         func point(_ k: Int, _ n: Int, _ m: Int, _ ratio: Double) -> Conductor.Shares.Point { .init(k: k, n: n, m: m, ratio: ratio) }
         let shares = Conductor.Shares([point(2048, 4096, 1024, 0.6), point(4096, 4096, 1024, 0.5), point(8192, 4096, 1024, 0.4),

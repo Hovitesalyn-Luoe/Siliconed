@@ -453,7 +453,15 @@ package final class Conductor: @unchecked Sendable {
             }
             func ratio(at h: Int) -> Double {
                 let level = points.filter { $0.m == h }
-                guard let pivot = level.first(where: { $0.k == $0.n }) else { return between(level, k, at: \.k, value: \.ratio) }
+                // The shape measured itself, when it was; then one axis, or two through one pivot (the AMX's
+                // grid); otherwise (the ANE's grid, a family's shapes) the nearest shape in log k + log n.
+                if let exact = level.first(where: { $0.k == k && $0.n == n }) { return exact.ratio }
+                if level.allSatisfy({ $0.n == level[0].n }) { return between(level, k, at: \.k, value: \.ratio) }
+                let pivot = level.first(where: { $0.k == $0.n })
+                guard let pivot, level.allSatisfy({ $0.k == pivot.k || $0.n == pivot.n }) else {
+                    func distance(_ p: Point) -> Double { abs(log(Double(p.k) / Double(k))) + abs(log(Double(p.n) / Double(n))) }
+                    return level.min { distance($0) < distance($1) }!.ratio
+                }
                 let depth = between(level.filter { $0.n == pivot.n }, k, at: \.k, value: \.ratio)
                 let width = between(level.filter { $0.k == pivot.k }, n, at: \.n, value: \.ratio)
                 return depth * width / pivot.ratio

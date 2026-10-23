@@ -40,16 +40,18 @@ final class NeuralEngineTests: XCTestCase {
         XCTAssertEqual(length, 58)
     }
 
-    /// K cut within the ANE's limits: K ≤ 8 192 and a part's weight ≤ 3 · 2²⁴ values.
+    /// K cut within the ANE's limits: K ≤ 4 096 and a part's weight ≤ 1.5 · 2²⁴ values, in equal parts of a
+    /// multiple of 64 when a few more give them.
     func testParts() {
         XCTAssertEqual(NeuralEngine.parts(k: 2048, n: 8192), 1)
-        XCTAssertEqual(NeuralEngine.parts(k: 8192, n: 2048), 1)
-        XCTAssertEqual(NeuralEngine.parts(k: 4096, n: 12288), 1, "100 MB: within")
-        XCTAssertEqual(NeuralEngine.parts(k: 10240, n: 3840), 2)
-        XCTAssertEqual(NeuralEngine.parts(k: 12288, n: 4096), 2)
-        XCTAssertEqual(NeuralEngine.parts(k: 8192, n: 8192), 2, "134 MB: two parts of 67")
-        XCTAssertEqual(NeuralEngine.parts(k: 16384, n: 2048), 2)
-        XCTAssertEqual(NeuralEngine.parts(k: 8193, n: 64), 2)
+        XCTAssertEqual(NeuralEngine.parts(k: 3840, n: 3840), 1)
+        XCTAssertEqual(NeuralEngine.parts(k: 3840, n: 10240), 2, "39 M values: two of 1 920")
+        XCTAssertEqual(NeuralEngine.parts(k: 6144, n: 6144), 2, "two parts of 3 072")
+        XCTAssertEqual(NeuralEngine.parts(k: 8192, n: 2048), 2, "K ≤ 4 096")
+        XCTAssertEqual(NeuralEngine.parts(k: 10240, n: 3840), 4, "three would be uneven: four of 2 560")
+        XCTAssertEqual(NeuralEngine.parts(k: 12288, n: 4096), 3)
+        XCTAssertEqual(NeuralEngine.parts(k: 16384, n: 6144), 4)
+        XCTAssertEqual(NeuralEngine.parts(k: 4097, n: 64), 2, "no even split within reach: the fewest parts")
     }
 
     func testRows() {

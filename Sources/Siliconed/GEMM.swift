@@ -227,9 +227,10 @@ package final class GEMM {
     ///   (1.578 against 3.564 TFLOP/s) and −23.6 % on a whole block.
     package func linear(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
                        weightIsTransposed: Bool = false) -> Double {
-        // The Neural Engine on the last rows, the GPU (and the AMX's cut, if on) on the first: at the same
-        // time, each row one engine's. Its rows refused or non-finite: the whole product again on the GPU —
-        // the bits of the GPU alone, never a half-computed output.
+        // The Neural Engine on the last rows, the GPU alone on the first — the pair the map measured, the AMX
+        // left to the shapes the ANE's grid does not take (`ane_shares`): at the same time, each row one
+        // engine's. Its rows refused or non-finite: the whole product again on the GPU — the bits of the GPU
+        // alone, never a half-computed output.
         if let ane = neuralEngine, weightIsTransposed, case let rows = ane.rows(m, k: k, n: n), rows > 0, ane.accepts(rows: rows, k: k, n: n) {
             let first = m - rows
             nonisolated(unsafe) let (pa, pb, pc) = (a.contents().assumingMemoryBound(to: Float.self),
@@ -243,14 +244,14 @@ package final class GEMM {
                 computed = ane.product(a: pa, w: pb, c: pc, first: first, rows: rows, k: k, n: n)
                 aneWall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
             }
-            _ = gpuLinear(a: a, b: b, c: c, m: first, k: k, n: n, weightIsTransposed: weightIsTransposed)
+            _ = gpuLinear(a: a, b: b, c: c, m: first, k: k, n: n, weightIsTransposed: weightIsTransposed, conductor: false)
             let gpuWall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
             group.wait()
             lastSides = (gpuWall, first, aneWall, rows)
             let gpuKey = "\(m)×\(k)×\(n)ᵀ ane \(rows) GPU side"
             let gpuPrevious = census[gpuKey] ?? (0, 0, Double.infinity)
             census[gpuKey] = (gpuPrevious.count + 1, gpuPrevious.seconds + gpuWall, min(gpuPrevious.best, gpuWall))
-            if !computed { _ = gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed) }
+            if !computed { _ = gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed, conductor: false) }
             let wall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
             let key = "\(m)×\(k)×\(n)ᵀ ane \(rows)"
             let previous = census[key] ?? (0, 0, Double.infinity)
@@ -260,9 +261,10 @@ package final class GEMM {
         return gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
     }
 
-    /// `linear` on the GPU (and the AMX's cut): what every product ran before the Neural Engine.
+    /// `linear` on the GPU (and the AMX's cut, unless `conductor` is false): what every product ran before
+    /// the Neural Engine.
     private func gpuLinear(a: MTLBuffer, b: MTLBuffer, c: MTLBuffer, m: Int, k: Int, n: Int,
-                           weightIsTransposed: Bool) -> Double {
+                           weightIsTransposed: Bool, conductor allowed: Bool = true) -> Double {
         // From 8 to 32 rows, the GEMM goes through the padding tiers (see `poisonedRows`). The
         // GPU/AMX cut never applies there (`amx_min` = 512).
         if GEMM.poisonedRows.contains(m) {
@@ -271,7 +273,7 @@ package final class GEMM {
         }
         // The per-token cut, if the conductor takes it. It returns `nil` when it does not
         // apply — too few rows — and the original path resumes, unchanged.
-        if let conductor, let wall = conductor.linear(a: a, b: b, c: c, m: m, k: k, n: n,
+        if allowed, let conductor, let wall = conductor.linear(a: a, b: b, c: c, m: m, k: k, n: n,
                                                       weightIsTransposed: weightIsTransposed,
                                                       multiply: { rows in
             submitRows(a: a, b: b, c: c, m: rows, k: k, n: n,

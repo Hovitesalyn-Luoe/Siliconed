@@ -11,9 +11,9 @@ import Foundation
 ///        ├─ products, m = 1024 and 4096        g_m = Σ t(GPU alone) / Σ t(GPU + AMX)   ─▶ amx
 ///        │                                     share = R_gpu / (R_gpu + R_amx)          ─▶ amx_fraction
 ///        │  cuts, k and n axes at both m         ρ = (1 − T*) / T*, T* balanced side by side ─▶ amx_shares, T(k, n, m)
-///        │                                     g_m = Σ t(GPU alone) / Σ t(GPU + ANE)    ─▶ gemm_ane (amx off if it wins)
+///        │                                     g_m = Σ t(GPU alone) / Σ t(GPU + ANE)    ─▶ gemm_ane (beside amx, shape by shape)
 ///        │                                     share = Σ f · T*_ane / Σ f               ─▶ ane_fraction
-///        │  ANE cuts, the same grid              ρ = (1 − T*) / T*, T* where both walls meet ─▶ ane_shares
+///        │  ANE cuts, the families' shapes       ρ = (1 − T*) / T* where its pair wins, 0 where the AMX's does ─▶ ane_shares
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen k·n)]
 ///        │                                         / Σ [t(bf16 weight) + t(copy k·n)]    ─▶ gemm_tensor
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen convrot k·n)]
@@ -59,12 +59,14 @@ import Foundation
 ///     `gemm_int8`'s: on the M1 Pro the int8 product wins and the Q8_0 one loses (×0.29–0.67: the
 ///     operand written into threadgroup memory runs `matmul2d` at ~2.3 TFLOP/s) — one setting for both
 ///     would have bought one path's gain with the other's loss;
-///   - **`gemm_ane` and `amx` are exclusive**: both take rows off the GPU, and side by side they slow each
-///     other (the M1 Pro's Anima Light 1024²: GPU + ANE 44.7 s, GPU + AMX 46.8 s, all three 46.2 s, 22/10/2026). Each
-///     is judged against the GPU alone; **when both would go on, the ANE takes the rows as long as its gain is
-///     at least 90 % of the AMX's** (`aneTolerance`): thermal efficiency — the ANE does the work at a fraction
-///     of the CPU cores' power, and a Mac that heats less keeps its clocks over a batch (this M1 Pro's map of 22/10/2026: ×1.32
-///     against ×1.27, the renders tied at 44.6 against 44.2 s, the ANE kept). The ANE's
+///   - **`gemm_ane` and `amx` share the shapes, never a product**: both take rows off the GPU, and side by
+///     side they slow each other (the M1 Pro's Anima Light 1024²: GPU + ANE 44.7 s, GPU + AMX 46.8 s, all three
+///     46.2 s, 22/10/2026), so a product the ANE takes has the GPU alone beside it. Each is judged against the
+///     GPU alone; **with both on, each shape of the ANE's grid goes to the ANE where its pair beats the GPU
+///     alone and keeps 90 % of the AMX's speed** (`aneTolerance`), to the AMX elsewhere: thermal efficiency —
+///     the ANE does the work at a fraction of the CPU cores' power. One engine for every shape was wrong both
+///     ways on this M1 Pro (23/10/2026): Z-Image 1024² under the ANE 4 % slower for 10 % less energy, Krea 2 22 %
+///     slower and 10 % MORE energy, its down projection (K = 16 384) 317 ms beside the ANE, 183 beside the AMX. The ANE's
 ///     products are judged against bf16's error + 25 % (invariant 3: it computes in fp16), not the fp32
 ///     threshold; the paths that replace the fp32 one (`gemm_tensor`, `gemm_int8`, `gemm_q8`) are then
 ///     judged against GPU + ANE. `ane_fraction` is each product's balanced share weighted by its flops;
@@ -210,20 +212,37 @@ extension Diagnostic {
         var amx = decision(passed: amxPassed, gains: gains(products, size: \.m, flops: productFlops,
                                                            reference: { $0.gpu }, candidate: \.coexecution))
 
-        // ── gemm_ane: the GPU beside the Neural Engine, against the GPU alone; exclusive with amx ──
+        // ── gemm_ane: the GPU beside the Neural Engine, against the GPU alone; beside amx, shape by shape ──
         let anePassed = !products.isEmpty && products.allSatisfy { $0.ane?.pass == true }
         var ane = decision(passed: anePassed, gains: gains(products, size: \.m, flops: productFlops,
                                                            reference: { $0.gpu }, candidate: \.ane))
-        // Both on: the ANE takes the rows down to `aneTolerance` of the AMX's gain — the same work at a
-        // fraction of the CPU's power and heat (a choice of the product, 22/10/2026).
-        if ane.on && amx.on { if ane.gain >= aneTolerance * amx.gain { amx.on = false } else { ane.on = false } }
+        // Each shape of the ANE's grid to the ANE where its pair beats the GPU alone and keeps `aneTolerance`
+        // of the AMX's speed — the same work at a fraction of the CPU's power and heat (a choice of the
+        // product, 22/10/2026) —, to the AMX elsewhere: Krea 2's down projection is the AMX's, its other
+        // products the ANE's. A grid without walls (before 23/10/2026): one engine for every shape.
+        let routed = !aneCuts.isEmpty && aneCuts.allSatisfy { $0.ane != nil && $0.gpu != nil }
+        func aneTakes(_ cut: Cut) -> Bool {
+            guard let paired = cut.ane, let alone = cut.gpu, paired < alone else { return false }
+            guard amx.on, let beside = cut.amx else { return true }
+            return paired * aneTolerance <= beside
+        }
+        if ane.on && routed && !aneCuts.contains(where: aneTakes) { ane.on = false }
+        if ane.on && amx.on && !routed { if ane.gain >= aneTolerance * amx.gain { amx.on = false } else { ane.on = false } }
+        // The grid the GEMM reads: ρ where the ANE takes the shape, 0 (the GPU's whole share) where it does not.
+        let aneGrid = ane.on && !aneCuts.isEmpty
+            ? Conductor.Shares(aneCuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: !routed || aneTakes($0) ? (1 - $0.share) / $0.share : 0) })
+            : nil
         var aneFraction: Double?
         if ane.on {
             let work = products.map(productFlops).reduce(0, +)
             aneFraction = products.map { productFlops($0) * $0.aneGPUShare! }.reduce(0, +) / work
         }
         /// The fp32 path the bf16 and 8-bit paths replace: what `amx` and `gemm_ane` chose.
-        func fp32Path(_ p: Product) -> Measure? { ane.on ? p.ane : amx.on ? p.coexecution : p.gpu }
+        /// Whether the product's shape goes to the ANE (its grid's share under 1).
+        func aneRoutes(_ p: Product) -> Bool {
+            ane.on && (aneGrid.flatMap { $0.share(k: p.k, n: p.n, m: p.m, range: NeuralEngine.shareRange) }.map { $0 < 1 } ?? true)
+        }
+        func fp32Path(_ p: Product) -> Measure? { aneRoutes(p) ? p.ane : amx.on ? p.coexecution : p.gpu }
         var fraction: Double?
         if amx.on {
             // Each engine's total work over its total time: the share that ends both together.
@@ -272,7 +291,7 @@ extension Diagnostic {
                 var (tReference, tCandidate) = (0.0, 0.0)
                 for p in these {
                     // With `gemm_tensor` on, the AMX does not run: the GPU alone, or beside the ANE.
-                    let reference = amxRuns ? p.coexecution : ane.on ? p.ane : p.gpu
+                    let reference = aneRoutes(p) ? p.ane : amxRuns ? p.coexecution : p.gpu
                     guard let r = reference?.rate, let t = candidate(p)?.rate, let w = widen?.rate, let c = copy?.rate,
                           r > 0, t > 0, w > 0, c > 0 else { return .nan }
                     let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
@@ -304,8 +323,7 @@ extension Diagnostic {
         let shares = amx.on && !cuts.isEmpty
             ? Conductor.Shares(cuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) }).description : nil
         // ── ane_shares: the same, on the ANE's grid ──
-        let aneShares = ane.on && !aneCuts.isEmpty
-            ? Conductor.Shares(aneCuts.map { .init(k: $0.k, n: $0.n, m: $0.m, ratio: (1 - $0.share) / $0.share) }).description : nil
+        let aneShares = aneGrid?.description
         return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor,
                          amxShares: shares, int8: int8, q8: q8, ane: products.contains { $0.ane != nil } ? ane : nil,
                          aneFraction: aneFraction, aneShares: aneShares)
