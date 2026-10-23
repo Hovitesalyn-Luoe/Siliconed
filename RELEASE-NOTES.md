@@ -2,6 +2,62 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.14
+
+### The Neural Engine
+
+- **The Mac's Neural Engine joins the GPU** in the image model's matrix products, where this Mac's
+  measure finds the pair faster than the GPU alone. Beside the CPU's matrix unit, it takes a
+  product's shape wherever it keeps 90 % of that unit's speed, for the energy it saves. It computes
+  in fp16: each weight column and each activation row is lifted by a power of two into fp16's
+  range, then brought back in fp32, and rows that overflow go back to the GPU. The text encoders
+  and the VAE never use it.
+- **Your choice, per model**: the **fp32** tag of the rack's DiT module switches it. **Off by
+  default on the Standard**, which stays the publisher's weights computed in fp32, its image checked
+  against the reference; **on by default on Compact and Light**, whose 8- and 4-bit weights already
+  make another image. The tag reads **fp32 · ANE** when it is on, and an image computed with it
+  carries `neural-engine` in its metadata. Where the measure left the Neural Engine off, there is
+  nothing to choose.
+- **On an M1 Pro**, 1024², Standard, Faster Rendering: 16 to 26 % less energy per image, and as
+  fast or faster — Krea 2 135.4–137.4 s instead of 144.6–144.9 s, Z-Image 83.4–84.0 s instead of
+  86.8–93.9 s, Qwen-Image-2.1 99.9–100.2 s instead of 103.6 s. The image moves by a tenth of a
+  level on average on Z-Image and Qwen-Image-2.1; Krea 2 keeps its scene, face and light, and its
+  finest details move. Every figure: [The Neural Engine](README.md#the-neural-engine).
+- **Eight bits against eight bits**: Z-Image Compact at 1024², with Faster Rendering and the Neural
+  Engine (both by default), renders in 81.1–83.2 s; Draw Things' default 8-bit `q8p`, 135.0–144.2 s
+  on the same Mac ([Next to Draw Things](README.md#next-to-draw-things)).
+- **This Mac is measured again** before the first render after the update, about a minute, as after
+  every version: the measure now includes the Neural Engine, on each model's own products.
+- **The remote control**: `silicontrol add --ane` or `--no-ane`, like a click on the tag;
+  `neural_engine` in `models`, in jobs and in images.
+
+### Open a Hugging Face model in the app
+
+- **The app opens `siliconed://hf` links**, relayed by a page of the site that offers the .dmg
+  when the app is not installed: what Hugging Face's « Use this model » button opens, once Hugging
+  Face lists Siliconed. A family's own repository opens its installation; any other repository
+  lists the `.safetensors` and `.gguf` files the app could import — each judged on its header
+  before anything downloads —, with their size and license. The file chosen is downloaded, verified,
+  then imported like a dropped file. Nothing in the link is trusted.
+- **More LoRAs import**: an integer `alpha` (as sd-scripts saves it) is read instead of refused; a
+  LoRA that touches only the attention finds its family from the installed models' shapes, when
+  only one takes it all; a LyCORIS file or a text-encoder LoRA is refused with its own message
+  instead of being taken for something else.
+
+### Fewer downloads
+
+- **A text encoder or a VAE you already have is taken instead of downloaded.** Dropped on the app,
+  a file equal in size and SHA-256 to one an installation fetches — the 8-bit encoders of Z-Image,
+  Qwen-Image-2.1 and Krea 2, Krea 2's bf16 encoder, the Standard encoders, every family's VAE — is
+  copied where the download would have put it, then verified like a download.
+
+### Longer prompts
+
+- **Every model reads up to 1,024 tokens of prompt**, and refuses a longer one with a message. Until
+  0.13, Z-Image, Anima and Krea 2 silently ignored everything past 512 tokens, as the reference
+  pipelines do by default, and Qwen-Image-2.1 refused past 512. A prompt under 512 tokens gives the
+  same image as before.
+
 ## 0.13
 
 ### Your library on another disk

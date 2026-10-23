@@ -2,6 +2,65 @@
 
 # Siliconed — notes de version
 
+## 0.14
+
+### Le Neural Engine
+
+- **Le Neural Engine du Mac rejoint le GPU** dans les produits matriciels du modèle d’image, là où
+  la mesure de ce Mac trouve la paire plus rapide que le GPU seul. À côté de l’unité matricielle du
+  CPU, il prend la forme d’un produit partout où il garde 90 % de sa vitesse, pour l’énergie qu’il
+  épargne. Il calcule en fp16 : chaque colonne de poids et chaque ligne d’activations est remontée
+  d’une puissance de deux dans la plage du fp16, puis ramenée en fp32, et les lignes qui débordent
+  retournent au GPU. Les encodeurs de texte et le VAE ne s’en servent jamais.
+- **Votre choix, par modèle** : le tag **fp32** du module DiT du rack le bascule. **Éteint par
+  défaut sur la Standard**, qui reste les poids de l’éditeur calculés en fp32, son image vérifiée
+  contre la référence ; **allumé par défaut sur la Compact et la Légère**, dont les poids en 8 et
+  4 bits font déjà une autre image. Le tag affiche **fp32 · ANE** quand il est allumé, et une image
+  calculée avec lui porte `neural-engine` dans ses métadonnées. Là où la mesure a laissé le Neural
+  Engine éteint, il n’y a rien à choisir.
+- **Sur un M1 Pro**, 1024², Standard, rendu plus rapide : de 16 à 26 % d’énergie en moins par image,
+  et aussi vite ou plus — Krea 2 135,4–137,4 s au lieu de 144,6–144,9 s, Z-Image 83,4–84,0 s au lieu
+  de 86,8–93,9 s, Qwen-Image-2.1 99,9–100,2 s au lieu de 103,6 s. L’image bouge d’un dixième de
+  niveau en moyenne sur Z-Image et Qwen-Image-2.1 ; Krea 2 garde sa scène, son visage et sa lumière,
+  et ses plus fins détails bougent. Tous les chiffres : [Le Neural Engine](README.fr.md#le-neural-engine).
+- **Huit bits contre huit bits** : Z-Image Compact en 1024², avec le rendu plus rapide et le Neural
+  Engine (tous deux par défaut), rend en 81,1–83,2 s ; le `q8p` 8 bits par défaut de Draw Things,
+  en 135,0–144,2 s sur le même Mac ([À côté de Draw Things](README.fr.md#à-côté-de-draw-things)).
+- **Ce Mac est mesuré à nouveau** avant le premier rendu après la mise à jour, environ une minute,
+  comme après chaque version : la mesure comprend désormais le Neural Engine, sur les produits
+  propres à chaque modèle.
+- **La télécommande** : `silicontrol add --ane` ou `--no-ane`, comme un clic sur le tag ;
+  `neural_engine` dans `models`, dans les travaux et dans les images.
+
+### Ouvrir un modèle de Hugging Face dans l’app
+
+- **L’app ouvre les liens `siliconed://hf`**, relayés par une page du site qui propose le .dmg
+  quand l’app n’est pas installée : ce qu’ouvre le bouton « Use this model » de Hugging Face, une
+  fois que Hugging Face référence Siliconed. Le dépôt propre d’une famille ouvre son installation ;
+  tout autre dépôt liste les fichiers `.safetensors` et `.gguf` que l’app pourrait importer — chacun
+  jugé sur son en-tête avant tout téléchargement —, avec leur taille et leur licence. Le fichier
+  choisi est téléchargé, vérifié, puis importé comme un fichier déposé. Rien du lien n’est cru sur
+  parole.
+- **Plus de LoRA s’importent** : un `alpha` entier (comme l’enregistre sd-scripts) est lu au lieu
+  d’être refusé ; une LoRA qui ne touche que l’attention trouve sa famille d’après les formes des
+  modèles installés, quand une seule la prend tout entière ; un fichier LyCORIS ou une LoRA
+  d’encodeur de texte est refusé avec son propre message au lieu d’être pris pour autre chose.
+
+### Moins de téléchargements
+
+- **Un encodeur de texte ou un VAE que vous avez déjà est pris au lieu d’être téléchargé.** Déposé
+  sur l’app, un fichier égal en taille et en SHA-256 à l’un de ceux qu’une installation récupère —
+  les encodeurs 8 bits de Z-Image, Qwen-Image-2.1 et Krea 2, l’encodeur bf16 de Krea 2, les
+  encodeurs de la Standard, le VAE de chaque famille — est copié là où le téléchargement l’aurait
+  mis, puis vérifié comme un téléchargement.
+
+### Des prompts plus longs
+
+- **Chaque modèle lit jusqu’à 1 024 tokens de prompt**, et refuse un prompt plus long avec un
+  message. Jusqu’à la 0.13, Z-Image, Anima et Krea 2 ignoraient sans rien dire tout ce qui dépassait
+  512 tokens, comme les pipelines de référence par défaut, et Qwen-Image-2.1 refusait au-delà de 512.
+  Un prompt de moins de 512 tokens donne la même image qu’avant.
+
 ## 0.13
 
 ### Votre bibliothèque sur un autre disque
