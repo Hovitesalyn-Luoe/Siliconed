@@ -100,7 +100,7 @@ package enum RemoteControlHelp {
       open                                     launches the app and waits until it answers
       models                                   installed models, formats, LoRAs, default steps
       install ID [--standard|--compact|--light] shows a model's license and size in the app, to accept there
-      diagnose [--issue]                       measures this Mac (≈ 30 s, no model) → the report's JSON
+      diagnose [--issue]                       measures this Mac (≈ 1 min, no model) → the report's JSON
       add [options] "<prompt>" [format] [seed] puts a request in the queue → its job (t3)
       grid --x AXIS [--y AXIS] [options] "<prompt>" …
                                                an XY grid: one job per cell, then a sheet → its grid (g2)
@@ -251,7 +251,7 @@ package enum RemoteControlHelp {
         silicontrol diagnose [--issue]
 
         « Measure This Mac » (the app's Help menu), from the terminal. The sheet opens in
-        the app and the diagnostic runs — about 30 s, no model needed: the fp32 matrix products of
+        the app and the diagnostic runs — about a minute, no model needed: the fp32 matrix products of
         the DiT blocks on the GPU, on the CPU's matrix unit and on both, fp16 and bf16 products,
         the attention through the engine's three kernels, the weight widening on the CPU and the
         GPU; each output checked against the exact result. The queue waits for it, and it for the
@@ -775,7 +775,7 @@ package enum RemoteControlHelp {
       open                                     lance l'app et attend qu'elle réponde
       models                                   modèles installés, formats, LoRA, pas par défaut
       install ID [--standard|--compact|--light] montre dans l'app la licence et la place d'un modèle, à accepter là
-      diagnose [--issue]                       mesure ce Mac (≈ 30 s, sans modèle) → le JSON du rapport
+      diagnose [--issue]                       mesure ce Mac (≈ 1 min, sans modèle) → le JSON du rapport
       add [options] "<prompt>" [format] [seed] met une demande en file → son travail (t3)
       grid --x AXE [--y AXE] [options] "<prompt>" …
                                                une grille XY : un travail par case, puis une planche → sa grille (g2)
@@ -928,7 +928,7 @@ package enum RemoteControlHelp {
         silicontrol diagnose [--issue]
 
         « Mesurer ce Mac » (menu Aide de l'app), depuis le terminal. La feuille s'ouvre
-        dans l'app et le diagnostic tourne — environ 30 s, sans modèle : les produits matriciels
+        dans l'app et le diagnostic tourne — environ une minute, sans modèle : les produits matriciels
         fp32 des blocs du DiT sur le GPU, sur l'unité matricielle du CPU et sur les deux, des
         produits fp16 et bf16, l'attention par les trois noyaux du moteur, l'élargissement des
         poids sur le CPU et le GPU ; chaque sortie vérifiée contre le résultat exact. La file

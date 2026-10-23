@@ -28,7 +28,7 @@ extension AppState {
         diagnosticOpen = true
     }
 
-    /// **Runs `Diagnostic.run`** in a child process (`CapacityMeasure`, ~30 s), the queue held meanwhile.
+    /// **Runs `Diagnostic.run`** in a child process (`CapacityMeasure`, ~1 min), the queue held meanwhile.
     func startDiagnostic() {
         guard diagnosticBlocker == nil else { return }
         measure()

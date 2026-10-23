@@ -3665,34 +3665,6 @@
         }
       }
     },
-    "About 30 seconds, without any model: Siliconed measures this Mac before its first render and after each update, and chooses how it computes from it. Measured again here, it applies from the next launch." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Etwa 30 Sekunden, ohne Modell: Siliconed misst diesen Mac vor dem ersten Rendering und nach jedem Update und wählt danach, wie er rechnet. Hier erneut gemessen, gilt es ab dem nächsten Start."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unos 30 segundos, sin ningún modelo: Siliconed mide este Mac antes de su primer renderizado y tras cada actualización, y elige a partir de ello cómo calcula. Medido de nuevo aquí, se aplica desde el siguiente arranque."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Environ 30 secondes, sans aucun modèle : Siliconed mesure ce Mac avant son premier rendu et après chaque mise à jour, et choisit d’après elle comment il calcule. Mesuré à nouveau ici, cela s’applique au lancement suivant."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Circa 30 secondi, senza alcun modello: Siliconed misura questo Mac prima del suo primo rendering e dopo ogni aggiornamento, e sceglie in base a ciò come calcola. Misurato di nuovo qui, vale dal prossimo avvio."
-          }
-        }
-      }
-    },
     "About Siliconed" : {
       "localizations" : {
         "de" : {
@@ -3717,6 +3689,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Informazioni su Siliconed"
+          }
+        }
+      }
+    },
+    "About a minute, without any model: Siliconed measures this Mac before its first render and after each update, and chooses how it computes from it. Measured again here, it applies from the next launch." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etwa eine Minute, ohne Modell: Siliconed misst diesen Mac vor dem ersten Rendering und nach jedem Update und wählt danach, wie er rechnet. Hier erneut gemessen, gilt es ab dem nächsten Start."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alrededor de un minuto, sin ningún modelo: Siliconed mide este Mac antes de su primer renderizado y tras cada actualización, y elige a partir de ello cómo calcula. Medido de nuevo aquí, se aplica desde el siguiente arranque."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environ une minute, sans aucun modèle : Siliconed mesure ce Mac avant son premier rendu et après chaque mise à jour, et choisit d’après elle comment il calcule. Mesuré à nouveau ici, cela s’applique au lancement suivant."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Circa un minuto, senza alcun modello: Siliconed misura questo Mac prima del suo primo rendering e dopo ogni aggiornamento, e sceglie in base a ciò come calcola. Misurato di nuovo qui, vale dal prossimo avvio."
           }
         }
       }
@@ -11770,30 +11770,30 @@
         }
       }
     },
-    "Matrix products, attention and weight widening, on the GPU and on the CPU, each checked against the exact result. No model is needed, nothing is downloaded. About 30 seconds; the queue waits meanwhile." : {
+    "Matrix products, attention and weight widening, on the GPU and on the CPU, each checked against the exact result. No model is needed, nothing is downloaded. About a minute; the queue waits meanwhile." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Matrixprodukte, Attention und Aufweitung der Gewichte, auf der GPU und auf der CPU, jeweils gegen das exakte Ergebnis geprüft. Kein Modell nötig, nichts wird heruntergeladen. Etwa 30 Sekunden; die Warteschlange wartet so lange."
+            "value" : "Matrixprodukte, Attention und Aufweitung der Gewichte, auf der GPU und auf der CPU, jeweils gegen das exakte Ergebnis geprüft. Kein Modell nötig, nichts wird heruntergeladen. Etwa eine Minute; die Warteschlange wartet so lange."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Productos matriciales, atención y ampliación de los pesos, en la GPU y en la CPU, cada uno comprobado frente al resultado exacto. No hace falta ningún modelo, no se descarga nada. Unos 30 segundos; la cola espera mientras tanto."
+            "value" : "Productos matriciales, atención y ampliación de los pesos, en la GPU y en la CPU, cada uno comprobado frente al resultado exacto. No hace falta ningún modelo, no se descarga nada. Alrededor de un minuto; la cola espera mientras tanto."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Produits matriciels, attention et élargissement des poids, sur le GPU et sur le CPU, chacun vérifié contre le résultat exact. Aucun modèle n’est nécessaire, rien n’est téléchargé. Environ 30 secondes ; la file attend pendant ce temps."
+            "value" : "Produits matriciels, attention et élargissement des poids, sur le GPU et sur le CPU, chacun vérifié contre le résultat exact. Aucun modèle n’est nécessaire, rien n’est téléchargé. Environ une minute ; la file attend pendant ce temps."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Prodotti matriciali, attenzione e ampliamento dei pesi, sulla GPU e sulla CPU, ciascuno verificato rispetto al risultato esatto. Non serve alcun modello, non si scarica nulla. Circa 30 secondi; la coda attende nel frattempo."
+            "value" : "Prodotti matriciali, attenzione e ampliamento dei pesi, sulla GPU e sulla CPU, ciascuno verificato rispetto al risultato esatto. Non serve alcun modello, non si scarica nulla. Circa un minuto; la coda attende nel frattempo."
           }
         }
       }
@@ -16700,30 +16700,30 @@
         }
       }
     },
-    "Siliconed measures this Mac before its first render — about 30 seconds." : {
+    "Siliconed measures this Mac before its first render — about a minute." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Siliconed misst diesen Mac vor dem ersten Rendering – etwa 30 Sekunden."
+            "value" : "Siliconed misst diesen Mac vor dem ersten Rendering – etwa eine Minute."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Siliconed mide este Mac antes de su primer renderizado: unos 30 segundos."
+            "value" : "Siliconed mide este Mac antes de su primer renderizado: alrededor de un minuto."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Siliconed mesure ce Mac avant son premier rendu — environ 30 secondes."
+            "value" : "Siliconed mesure ce Mac avant son premier rendu — environ une minute."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Siliconed misura questo Mac prima del suo primo rendering: circa 30 secondi."
+            "value" : "Siliconed misura questo Mac prima del suo primo rendering: circa un minuto."
           }
         }
       }

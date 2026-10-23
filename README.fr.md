@@ -4,8 +4,8 @@
 
 *Siliconed — enhanced by silicone.*
 
-**La génération d'images pour Apple silicon qui fait tout le calcul, le prouve, s'ajuste à votre
-Mac, et ne prend jamais plus de mémoire que son budget.**
+**La génération d'images pour Apple silicon qui mesure votre Mac, choisit ses noyaux pour cette
+puce, fait tout le calcul, le prouve, et ne prend jamais plus de mémoire que son budget.**
 
 Siliconed est une app macOS libre et gratuite pour la **génération d'images à partir de texte et
 l'édition d'images par IA, en local**, sur les Mac Apple silicon (M1 et suivants). Elle fait tourner
@@ -21,32 +21,84 @@ installé.
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20et%20suivants-black)
 
-![Une photo faite avec Krea 2 Turbo — une Irlandaise rousse en combinaison shorty sur une plage sauvage de l’ouest de l’Irlande, sa planche de surf sous le bras — et son édition en bande dessinée western, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
+![Une photo ensoleillée de Krea 2 Turbo — une Irlandaise rousse en combinaison shorty qui sort des vagues en riant, sa planche de surf sous le bras, à contre-jour d’un soleil bas — et son édition en bande dessinée western, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
 
 *Une photo de Krea 2 Turbo, éditée par Qwen-Image-2.1 avec une phrase (« Convert this photo to a western
-comic book style with cel shading »), comparées sous le rideau.*
+comic book style with cel shading », graine 42, 215 s sur un M1 Pro), comparées sous le rideau.*
 
-## Krea 2 Turbo, nouveau dans la 0.12
+## Krea 2 Turbo, le plus gros des quatre
 
-[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), de Krea, est le quatrième modèle : un DiT
-de 12,9 milliards de paramètres, le plus gros des quatre, pour des images esthétiques, de la
-photographie à la peinture. Il lit le prompt avec Qwen3-VL-4B et fait toute sa recette de 8
-évaluations en fp32 sur les poids bf16 de l'éditeur : **1024² en 145,6 s, 1024×1536 en 216,9 s sur
-un M1 Pro de 16 Go** avec le [rendu plus rapide](#rendu-plus-rapide), allumé par défaut (221,1 s et
-355,3 s avec toutes les évaluations en pleine taille), ses 34,4 Go lus depuis le disque dans le
-budget mémoire. La sortie de son
-débruiteur est à 1,44·10⁻⁴ de la référence fp32 à 1024². Il s'installe en Standard, Compact ou Légère
+[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), de Krea, est le quatrième modèle, arrivé
+dans la 0.12 : un DiT de 12,9 milliards de paramètres, le plus gros des quatre, pour des images
+esthétiques, de la photographie à la peinture. Il lit le prompt avec Qwen3-VL-4B et fait toute sa
+recette de 8 évaluations en fp32 sur les poids bf16 de l'éditeur : **1024² en 145,6 s, 1024×1536 en
+216,9 s sur un M1 Pro de 16 Go** avec le [rendu plus rapide](#rendu-plus-rapide), allumé par défaut
+(221,1 s et 355,3 s avec toutes les évaluations en pleine taille), ses 34,4 Go lus depuis le disque
+dans le budget mémoire. La sortie de son débruiteur est à 1,44·10⁻⁴ de la référence fp32 à 1024².
+Il s'installe en Standard, Compact ou Légère
 (34,4, 19,5 ou 12,8 Go), depuis des copies ouvertes prouvées identiques aux fichiers de Krea
 ([pourquoi](#les-modèles)), sous la licence Krea 2 Community : usage commercial sous 1 M$ de chiffre
 d'affaires annuel, un filtre de contenu obligatoire au déploiement.
 
-![Une photo de Krea 2 Turbo en 1248×832 : une jeune Irlandaise aux longs cheveux auburn ondulés et aux taches de rousseur, en combinaison shorty à manches courtes, sa planche de surf sous le bras, qui sourit sur une plage sauvage de l’ouest de l’Irlande, des vagues de l’Atlantique qui déferlent derrière elle sous un ciel couvert](docs/images/krea2.jpg)
+![Une photo de Krea 2 Turbo en 1248×832, en contre-plongée : une jeune Irlandaise aux longs cheveux auburn ondulés et aux taches de rousseur, en combinaison shorty à manches courtes, qui sort des vagues en riant, sa planche de surf sous le bras, à contre-jour d’un soleil doré bas avec un reflet d’objectif, des embruns lumineux, une eau turquoise et un ciel bleu profond](docs/images/krea2.jpg)
 
-*Krea 2 Turbo, Standard, 1248×832, 8 pas, sur un M1 Pro : « Photo of a young Irish woman with long wavy auburn red hair, pale freckled skin and green eyes, wearing a short-sleeved shorty wetsuit, holding her surfboard under her arm on a wild beach in the west of Ireland. Atlantic waves breaking behind her, green cliffs, overcast soft light. Natural skin texture, candid smile, 35 mm photograph. », graine 1001, 226 s.*
+*Krea 2 Turbo, Standard, 1248×832, 8 pas, graine 3001, 229 s sur un M1 Pro de 16 Go : « Editorial
+surf photograph, low angle, of a young Irish woman with long wavy auburn red hair, pale freckled skin
+and green eyes, in a short-sleeved shorty wetsuit, running out of the surf laughing, surfboard under
+her arm, on a rare sunny day in the west of Ireland. Golden late-afternoon backlight, sun flare,
+spray glowing in the light, turquoise water, deep blue sky, high contrast, vivid colors, sharp
+focus, shot on a 50 mm lens. »*
 
 ## Un moteur mesuré sur votre Mac
 
-Avant son tout premier rendu, Siliconed mesure le Mac sur lequel il tourne — une minute environ, sans aucun modèle. Il chronomètre les vrais produits matriciels des blocs des DiT sur le GPU, sur l'unité matricielle du CPU (AMX), sur le Neural Engine et sur le GPU à côté de chacun, l'attention par trois noyaux, des produits lus directement sur les poids int8 et Q8_0 publiés, et des produits bf16 sur les unités tensorielles du GPU, et vérifie chaque sortie contre le résultat exact. Ce rapport devient **la carte de ce Mac**, refaite dès que le Mac, macOS ou l'app change, et la carte choisit les noyaux : un noyau ne s'allume que s'il a calculé juste et bat le défaut d'au moins 5 % (davantage si la machine a dérivé pendant la mesure). Sur le M1 Pro des chiffres plus bas, le 23/10/2026 : co-exécution GPU + AMX allumée (×1,26), Neural Engine à côté du GPU allumé (×1,42), attention partagée par têtes entre le GPU et le CPU allumée (×1,48), attention flash éteinte (×1,03, dans la marge), produits Q8_0 éteints (×0,37), produits tensoriels bf16 éteints (×0,47). L'AMX et le Neural Engine se partagent les produits forme par forme : le Neural Engine prend une forme partout où il garde 90 % de la vitesse de l'AMX, pour l'énergie qu'il épargne. Une autre puce mesure les siens et en décide autrement. La carte achète de la vitesse, jamais une autre image au-delà de l'arithmétique qu'elle a vérifiée — le fp16 du Neural Engine, c'est vous qui le choisissez ([comment](#le-neural-engine)) ; Aide → **Mesurer ce Mac** montre la carte et permet de la partager ([Le diagnostic communautaire](#le-diagnostic-communautaire)).
+**Deux Mac ne calculent pas pareil, alors Siliconed ne devine pas.** Avant le premier rendu qui suit
+chaque installation ou mise à jour — et dès que le Mac ou macOS change —, il mesure le Mac sur lequel
+il tourne, en une minute environ et sans aucun modèle. Il chronomètre les vrais produits matriciels
+des blocs des DiT sur le GPU, sur l'unité matricielle du CPU (AMX), sur le Neural Engine et sur le
+GPU à côté de chacun, l'attention par trois noyaux, des produits lus directement sur les poids int8
+et Q8_0 publiés, et des produits bf16 sur les unités tensorielles du GPU, et vérifie chaque sortie
+contre le résultat exact. Ce rapport devient **la carte de ce Mac**, et la carte choisit les
+noyaux : un noyau ne s'allume que s'il a calculé juste et bat le défaut d'au moins 5 % (davantage
+si la machine a dérivé pendant la mesure).
+
+Ce que la carte a décidé sur le M1 Pro des chiffres plus bas, 16 Go, le 23/10/2026 (app 0.14) :
+
+| Noyau | Décision | Contre le défaut |
+|---|---|---|
+| co-exécution GPU + unité matricielle du CPU (AMX) | **allumée** | ×1,26 |
+| le Neural Engine à côté du GPU | **allumé** | ×1,42 |
+| attention partagée par têtes entre le GPU et le CPU | **allumée** | ×1,48 |
+| attention flash | éteinte, dans la marge | ×1,03 |
+| produits sur les poids Q8_0 publiés | éteints | ×0,37 |
+| produits bf16 sur les unités tensorielles du GPU | éteints | ×0,47 |
+
+Les produits sur les poids int8 publiés (la Compact de Krea 2 et de Qwen-Image-2.1) ont gagné sur
+cette puce à la mesure de la 0.12 (18/10/2026) et se sont allumés. L'AMX et le Neural Engine se
+partagent les produits forme par forme : le Neural Engine prend une forme partout où il garde 90 %
+de la vitesse de l'AMX, pour l'énergie qu'il épargne. C'est un seul Mac : une autre puce mesure les
+siens et en décide autrement, et son rapport peut remplir une ligne du tableau du
+[diagnostic communautaire](#le-diagnostic-communautaire). La carte achète de la vitesse, jamais une
+autre image au-delà de l'arithmétique qu'elle a vérifiée ; le fp16 du Neural Engine, c'est vous qui
+le choisissez, par modèle (ci-dessous). Aide → **Mesurer ce Mac** montre la carte et permet de la
+partager.
+
+### Le Neural Engine
+
+Le Neural Engine du Mac calcule en fp16. Là où la carte de ce Mac l'a allumé, il prend une partie des produits matriciels du DiT à côté du GPU, forme par forme : chaque colonne de poids et chaque ligne d'activations est remontée d'une puissance de deux dans la plage du fp16 puis ramenée en fp32, et les lignes qui débordent retournent au GPU. Les encodeurs de texte et le VAE ne s'en servent jamais. Le tag **fp32** du module DiT du rack le bascule, par modèle : **éteint par défaut sur la Standard**, qui reste les poids de l'éditeur calculés en fp32, l'image vérifiée contre la référence ; **allumé par défaut sur la Compact et la Légère**, dont les poids en 8 et 4 bits font déjà une autre image que celle de la Standard. Le tag affiche **fp32 · ANE** quand il est allumé, et une image calculée avec lui porte `neural-engine` dans ses métadonnées. Là où la carte a laissé le Neural Engine éteint, le tag est un simple fp32 et il n'y a rien à choisir.
+
+Sur le M1 Pro, 1024², Standard, rendu plus rapide, graine 42, le prompt de la bibliothèque, le 23/10/2026 :
+
+| | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo |
+|---|---|---|---|
+| temps dans l'app, éteint / allumé | 144,6–144,9 s / 135,4–137,4 s | 86,8–93,9 s / 83,4–84,0 s | 103,6 s / 99,9–100,2 s |
+| puissance de toute la machine, éteint / allumé | 43,9 W / 35,3 W | 38,0 W / 31,2 W | 45,4 W / 36,9 W |
+| énergie par image, allumé contre éteint | −26 % | −16 % | −20 % |
+| pic mémoire de l'app, éteint / allumé | 3,41 / 3,71 Go | 3,01 / 3,23 Go | 1,97 / 2,11 Go |
+| l'image, allumé contre éteint | PSNR 35,9 dB : la même scène, le même visage, la même lumière, les détails les plus fins déplacés (tranches de livres) | 55,9 dB, un dixième de niveau en moyenne | 56,3 dB, un dixième de niveau en moyenne |
+| écart de la sortie du débruiteur, allumé, à la référence fp32 | 5,3·10⁻³ (512²) | 2,2·10⁻³ | 4,2·10⁻³ de l'exact fp64 (512²) |
+| …en part de l'écart du bf16 de l'éditeur | 0,15 | 0,04 | 0,30 |
+
+Temps : des rendus mis en file dans l'app par `silicontrol`, chacun dans une app tout juste ouverte, 0 page swappée ; éteint, trois rendus de Z-Image d'affilée ont pris 93,9, 89,0 et 86,8 s aux mêmes bits, le premier juste après un déplacement de la bibliothèque. Puissance et énergie : la même comparaison en ligne de commande, quatre rendus par modèle en alternant allumé et éteint, la consommation de toute la machine (écran compris) lue dans la télémétrie de l'adaptateur secteur. L'écart est celui d'une évaluation du débruiteur (comment : [La vérification](#la-vérification)) ; celui du bf16 est celui de diffusers sur les poids bf16 de l'éditeur, comme calculent la plupart des outils.
 
 ## Pourquoi Siliconed
 
@@ -57,9 +109,12 @@ Avant son tout premier rendu, Siliconed mesure le Mac sur lequel il tourne — u
 - **Tout en fp32, et rapide quand même.** Z-Image Turbo à 1024² en 84,5 s sur un M1 Pro avec les
   8 évaluations que demande sa recette, les trois premières sur une grille en demi-taille
   ([rendu plus rapide](#rendu-plus-rapide), allumé par défaut) ; 117,7 s toutes en pleine taille
-  ([à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac). Ou, à la demande, une
-  partie du débruitage sur le Neural Engine, pour environ un cinquième d'énergie en moins
+  ([à côté de Draw Things](#à-côté-de-draw-things), la référence sur Mac). Là où la carte de ce Mac
+  le permet, une partie du débruitage passe sur le Neural Engine, pour 16 à 26 % d'énergie en moins
+  par image sur un M1 Pro : à votre choix sur la Standard, par défaut sur la Compact et la Légère
   ([comment](#le-neural-engine)).
+- **Ajusté à ce Mac.** Aucun noyau ne s'allume d'après le nom de la puce : la carte mesurée sur ce
+  Mac allume ou éteint chacun ([ce qu'elle a décidé sur un M1 Pro](#un-moteur-mesuré-sur-votre-mac)).
 - **34 Go de modèle sur un Mac de 16 Go, dans un budget fixe.** Les poids sont lus depuis le disque
   au moment où ils servent. Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go
   (10 Go sur un Mac de 16 Go) : chaque rendu calcule ce qu'il lui faut avant de commencer, prend le
@@ -81,7 +136,10 @@ Avant son tout premier rendu, Siliconed mesure le Mac sur lequel il tourne — u
 `Siliconed.app` génère des images à partir d'un prompt, les édite par instruction, et tient une file
 et un historique. Elle suit la langue du système (anglais, français, allemand, espagnol ou italien).
 
-![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages, son temps et sa mémoire), une image Krea 2 Turbo en 1248×832 à droite — une Irlandaise rousse sur une plage de l’ouest de l’Irlande, sa planche de surf sous le bras —, l’historique en dessous](docs/images/window.jpg)
+![La fenêtre : le rack à gauche (prompt, encodeur de texte, débruiteur, décodeur, chacun avec ses réglages et son temps), une image Krea 2 Turbo en 1248×832 à droite — une Irlandaise rousse qui sort des vagues en riant, sa planche de surf sous le bras, sous un ciel ensoleillé —, l’historique en dessous](docs/images/window.jpg)
+
+*La fenêtre, avec la photo de Krea 2 Turbo plus haut : le rack montre la chaîne, les réglages et le
+temps de chaque étage ; l'historique court sous le canevas.*
 
 ### Créer
 
@@ -111,13 +169,13 @@ et un historique. Elle suit la langue du système (anglais, français, allemand,
 - **Un historique comme dans Photos** : flèches, ⌫ et ⌘Z, sélection multiple, comparaison côte à
   côte, export, glisser-déposer, Partager.
 
-![Une édition par Qwen-Image-2.1 : la photo Krea 2 de la surfeuse en image 1 dans la boîte Images, l’instruction « Convert this photo to a western comic book style with cel shading », le résultat en cel shading dans le canevas](docs/images/edit.jpg)
+![Une édition par Qwen-Image-2.1 dans la fenêtre : la photo Krea 2 de la surfeuse en image 1 dans la boîte Images, l’instruction « Convert this photo to a western comic book style with cel shading », le résultat en cel shading dans le canevas](docs/images/edit.jpg)
 
-*Qwen-Image-2.1 Turbo, Standard : « Convert this photo to a western comic book style with cel shading », la photo Krea 2 en image 1, graine 42, 206 s.*
+*Qwen-Image-2.1 Turbo, Standard : « Convert this photo to a western comic book style with cel shading », la photo Krea 2 en image 1, 1248×832, graine 42, 215 s.*
 
-![Une édition par Qwen-Image-2.1, sous le rideau qui glisse : la surfeuse de Krea 2 en combinaison, puis en chemisier de lin blanc, la plage, ses cheveux et sa planche inchangés](docs/images/outfit.gif)
+![Une édition par Qwen-Image-2.1, sous le rideau qui glisse : la surfeuse de Krea 2 qui sort des vagues en combinaison, puis en chemisier de lin blanc, son visage, ses cheveux, sa planche et la mer inchangés](docs/images/outfit.gif)
 
-*Une édition qui ne change que ce qu’on lui dit : « Replace her wetsuit with a white linen blouse. Keep her face, hair, surfboard, pose and the beach unchanged. », la photo Krea 2 en image 1, graine 42, 211 s.*
+*Une édition qui ne change que ce qu’on lui dit : « Replace her wetsuit with a white linen blouse. Keep her face, hair, surfboard, pose and the beach unchanged. », la photo Krea 2 en image 1, 203 s.*
 
 ### Explorer
 
@@ -129,11 +187,19 @@ finie) ; dès qu'un modèle a rendu à cette taille, le panneau dit ce que la 
 avant de la lancer. « Finir cette image » rend la case choisie jusqu'au bout avec la même graine :
 l'image que son esquisse annonçait.
 
-![Une exploration avec Anima Turbo et la LoRA inCase dans le canevas : une grille d’esquisses d’une Irlandaise rousse en extérieur, les graines sur un axe et la force de la LoRA sur l’autre, les axes en étiquettes, « Finish This Image » sous la case choisie](docs/images/grid.jpg)
+![Une exploration avec Anima Turbo et la LoRA inCase qui se remplit dans le canevas : des esquisses d’une Irlandaise rousse qui rit sur une plage ensoleillée au pied des falaises, la couleur de la combinaison en colonnes (teal, coral red, mustard yellow, navy) et la force de la LoRA en lignes (0 ; 0,5 ; 1), les axes en étiquettes, la dernière ligne encore en cours](docs/images/grid.jpg)
 
-![La case finie : une peinture d’Anima Turbo avec la LoRA inCase, une jeune Irlandaise rousse en gros plan, en extérieur](docs/images/anima.jpg)
+*Une exploration avec Anima Turbo et la LoRA inCase : la couleur de la combinaison écrite entre
+accolades dans le prompt (`{teal|coral red|mustard yellow|navy}`) en colonnes, inCase à 0, 0,5 et 1
+en lignes ; des esquisses en 512×768, environ 16 s chacune sur un M1 Pro.*
 
-*La case choisie, finie : Anima Turbo avec la LoRA inCase, force 0,6, « A close-up portrait of a young Irish woman with long wavy auburn red hair, pale freckled skin and green eyes, wearing a teal shorty wetsuit, standing on a windswept beach in the west of Ireland. Atlantic waves and green cliffs behind her, soft overcast light, wind in her hair. », 512×768, graine 2003, 17 s.*
+![La case finie dans la fenêtre : une illustration d’Anima Turbo avec la LoRA inCase, une jeune Irlandaise rousse qui rit, en combinaison bleu marine, en gros plan, des falaises et des vagues qui déferlent derrière elle](docs/images/anima.jpg)
+
+*La case choisie, finie : Anima Turbo avec la LoRA inCase à 1, « A close-up portrait of a young
+Irish woman with long wavy auburn red hair, pale freckled skin and green eyes, laughing, wearing a
+navy shorty wetsuit, on a sunny cliff-top beach in the west of Ireland. Big Atlantic waves breaking
+into white spray below green sea cliffs, deep blue sky, bright sunlight, wind in her hair. »,
+512×768, graine 4001, 20,8 s.*
 
 ### La gestion des modèles
 
@@ -173,7 +239,7 @@ les modèles que vous rendez, le temps de la session, et les efface en quittant�
 et la mesure de ce Mac restent sur le Mac. Débranché, le disque est signalé : rien ne se rend avant
 son retour.
 
-![La fenêtre Modèles, Krea 2 Turbo sélectionné : Standard, Compact ou Légère, la licence et la place sur le disque montrées avant tout téléchargement](docs/images/models.jpg)
+![La fenêtre Modèles : les quatre modèles des éditeurs installés en Standard, chacun avec sa licence et sa place sur le disque (Z-Image Turbo 20,36 Go, Qwen-Image-2.1 Turbo 31,21 Go, Anima Turbo 5,65 Go, Krea 2 Turbo 34,4 Go), la LoRA inCase pour Anima en dessous, la place occupée et libre en bas](docs/images/models.jpg)
 
 ### Privé par construction
 
@@ -283,24 +349,6 @@ une LoRA, Détail, une édition, un autre nombre de pas ni un autre calendrier. 
 évaluations sont en pleine taille et l'image est la même, au bit près, qu'avant : celle qui est
 vérifiée contre diffusers ; les écarts ci-dessus valent pour elle.
 
-### Le Neural Engine
-
-Le Neural Engine du Mac calcule en fp16. Là où la carte de ce Mac l'a allumé, il prend une partie des produits matriciels du DiT à côté du GPU, forme par forme : chaque colonne de poids et chaque ligne d'activations est remontée d'une puissance de deux dans la plage du fp16 puis ramenée en fp32, et les lignes qui débordent retournent au GPU. Les encodeurs de texte et le VAE ne s'en servent jamais. Le tag **fp32** du module DiT du rack le bascule, par modèle : **éteint par défaut sur la Standard**, qui reste les poids de l'éditeur calculés en fp32, l'image vérifiée contre la référence ; **allumé par défaut sur la Compact et la Légère**, dont les poids en 8 et 4 bits font déjà une autre image que celle de la Standard. Le tag affiche **fp32 · ANE** quand il est allumé, et une image calculée avec lui porte `neural-engine` dans ses métadonnées. Là où la carte a laissé le Neural Engine éteint, le tag est un simple fp32 et il n'y a rien à choisir.
-
-Sur le M1 Pro, 1024², Standard, rendu plus rapide, graine 42, le prompt de la bibliothèque, le 23/10/2026 :
-
-| | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo |
-|---|---|---|---|
-| temps dans l'app, éteint / allumé | 144,6–144,9 s / 135,4–137,4 s | 86,8–93,9 s / 83,4–84,0 s | 103,6 s / 99,9–100,2 s |
-| puissance de toute la machine, éteint / allumé | 43,9 W / 35,3 W | 38,0 W / 31,2 W | 45,4 W / 36,9 W |
-| énergie par image, allumé contre éteint | −26 % | −16 % | −20 % |
-| pic mémoire de l'app, éteint / allumé | 3,41 / 3,71 Go | 3,01 / 3,23 Go | 1,97 / 2,11 Go |
-| l'image, allumé contre éteint | PSNR 35,9 dB : la même scène, le même visage, la même lumière, les détails les plus fins déplacés (tranches de livres) | 55,9 dB, un dixième de niveau en moyenne | 56,3 dB, un dixième de niveau en moyenne |
-| écart de la sortie du débruiteur, allumé, à la référence fp32 | 5,3·10⁻³ (512²) | 2,2·10⁻³ | 4,2·10⁻³ de l'exact fp64 (512²) |
-| …en part de l'écart du bf16 de l'éditeur | 0,15 | 0,04 | 0,30 |
-
-Temps : des rendus mis en file dans l'app par `silicontrol`, chacun dans une app tout juste ouverte, 0 page swappée ; éteint, trois rendus de Z-Image d'affilée ont pris 93,9, 89,0 et 86,8 s aux mêmes bits, le premier juste après un déplacement de la bibliothèque. Puissance et énergie : la même comparaison en ligne de commande, quatre rendus par modèle en alternant allumé et éteint, la consommation de toute la machine (écran compris) lue dans la télémétrie de l'adaptateur secteur. L'écart est celui d'une évaluation du débruiteur (comment : [La vérification](#la-vérification)) ; celui du bf16 est celui de diffusers sur les poids bf16 de l'éditeur, comme calculent la plupart des outils.
-
 ### À côté de Draw Things
 
 [Draw Things](https://drawthings.ai) est la référence sur Mac ; ici, son moteur communautaire,
@@ -362,9 +410,9 @@ sont refusés avant tout calcul.
 ## Le diagnostic communautaire
 
 Une machine ne fait pas un banc. **Mesurer ce Mac** (menu Aide ; *Measure This Mac*
-en anglais) montre la carte que ce Mac a mesurée avant son premier rendu, en 30 à 40
-secondes environ et sans aucun modèle : les produits matriciels des blocs des modèles sur le GPU, sur
-l'unité matricielle du CPU et sur les deux à la fois, des produits fp16 et bf16, des produits sur les
+en anglais) montre la carte que ce Mac a mesurée avant son premier rendu, en une minute environ et
+sans aucun modèle : les produits matriciels des blocs des modèles sur le GPU, sur l'unité
+matricielle du CPU, sur le Neural Engine et sur le GPU à côté de chacun, des produits fp16 et bf16, des produits sur les
 poids int8 et Q8_0 publiés, l'attention par les trois noyaux du moteur, l'élargissement des poids sur
 le CPU et sur le GPU — chaque résultat vérifié contre le résultat exact calculé en double précision —
 et ce que la carte en a décidé. Il copie le rapport JSON et ouvre un formulaire d'issue GitHub où le

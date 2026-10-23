@@ -2,7 +2,7 @@
 // sent as a GitHub issue only if the user wants** (`Diagnostic.swift`). The sheet says the tuning first:
 // sharing is an option, not its purpose (the user, 19/10/2026).
 //
-// Three states in one sheet: what the diagnostic does and how long (~30 s, no model needed; it occupies
+// Three states in one sheet: what the diagnostic does and how long (~1 min, no model needed; it occupies
 // the GPU and the CPU, so it waits for an empty queue — and the queue waits for it); its progress; then
 // the report as a person reads it — the chip, the memory, and per capacity its throughput and ✓/✗, the
 // output computed right against the exact or not. « Open the issue » copies the report and opens GitHub's
@@ -48,7 +48,7 @@ struct DiagnosticSheet: View {
 
     private var ready: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Matrix products, attention and weight widening, on the GPU and on the CPU, each checked against the exact result. No model is needed, nothing is downloaded. About 30 seconds; the queue waits meanwhile.")
+            Text("Matrix products, attention and weight widening, on the GPU and on the CPU, each checked against the exact result. No model is needed, nothing is downloaded. About a minute; the queue waits meanwhile.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             mapStatus

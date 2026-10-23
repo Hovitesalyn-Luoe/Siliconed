@@ -341,7 +341,7 @@ struct LicenseRequest: Identifiable {
     var id: String { card.id }
 }
 
-/// **The diagnostic** (`Diagnostic.run`, ~30 s, no weights): what it measures, while it runs, then its report.
+/// **The diagnostic** (`Diagnostic.run`, ~1 min, no weights): what it measures, while it runs, then its report.
 enum DiagnosticPhase {
     /// Not started: the sheet explains what it does, and how long.
     case ready
