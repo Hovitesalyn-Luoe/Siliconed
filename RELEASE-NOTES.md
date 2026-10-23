@@ -58,6 +58,11 @@ English · [Français](RELEASE-NOTES.fr.md)
   pipelines do by default, and Qwen-Image-2.1 refused past 512. A prompt under 512 tokens gives the
   same image as before.
 
+### Fixed
+
+- **A LoRA trained with a different rank per layer showed « rank 0 »** in the Models window and in
+  the rack's tooltip; it now shows its range, « ranks 2–57 » for inCase on Anima.
+
 ## 0.13
 
 ### Your library on another disk

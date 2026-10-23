@@ -172,7 +172,11 @@ package struct LoRACard: Sendable, Identifiable, Hashable {
     /// The identifier of the targeted model (`cible.modele`, written by `ForgeLoRA` from the DiT of
     /// the family against which it checked every shape).
     package let target: String
+    /// The largest rank. A LoRA trained with per-module ranks (Incase on Anima: 2 to 57) has its
+    /// header's `rang` written as their sorted list, not one number.
     package let rank: Int
+    /// The smallest rank: `rank` itself when every module has the same.
+    package let smallestRank: Int
     /// The trainer's `modelspec.resolution`, if it said.
     package let resolution: String?
     /// The declared training model (`ss_sd_model_name`) — Krea-2-**Raw** for Incase.
@@ -197,7 +201,9 @@ package struct LoRACard: Sendable, Identifiable, Hashable {
             (metadata?[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
         self.path = path; self.rawName = raw; self.name = LoRACard.readableName(raw)
-        self.target = target; self.rank = header["rang"] as? Int ?? 0
+        self.target = target
+        let ranks = header["rang"] as? [Int] ?? (header["rang"] as? Int).map { [$0] } ?? []
+        self.rank = ranks.max() ?? 0; self.smallestRank = ranks.min() ?? 0
         self.resolution = meta("modelspec.resolution"); self.trainedOn = meta("ss_sd_model_name")
         let trainer = (header["trainer_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }, shown = name
         self.trainerName = trainer.flatMap {

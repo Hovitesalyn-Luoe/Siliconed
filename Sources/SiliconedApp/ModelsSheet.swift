@@ -359,7 +359,9 @@ struct ModelManagement: View {
             Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary).frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 Text(l.name).fontWeight(.medium).lineLimit(1)
-                Text("for \(Family(rawValue: l.target)?.name ?? l.target) · rank \(l.rank)")
+                let family = Family(rawValue: l.target)?.name ?? l.target
+                Text(l.smallestRank == l.rank ? String(localized: "for \(family) · rank \(l.rank)")
+                     : String(localized: "for \(family) · ranks \(l.smallestRank)–\(l.rank)"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             .help(l.fromItsMetadata.joined(separator: "\n"))

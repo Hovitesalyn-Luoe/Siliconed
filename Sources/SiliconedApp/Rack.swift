@@ -953,7 +953,7 @@ struct LoRARow: View {
     /// The name's tooltip: what the file says of itself.
     private var details: String {
         guard let f = app.loraCard(slot.path) else { return String(localized: "Choose a LoRA") }
-        let line = ([f.name, String(localized: "rank \(f.rank)"), f.resolution.map { String(localized: "trained at \($0)") }, f.trainedOn]
+        let line = ([f.name, (f.smallestRank == f.rank ? String(localized: "rank \(f.rank)") : String(localized: "ranks \(f.smallestRank)–\(f.rank)")), f.resolution.map { String(localized: "trained at \($0)") }, f.trainedOn]
             .compactMap { $0 }).joined(separator: " · ")
         return ([line] + f.fromItsMetadata).joined(separator: "\n")
     }

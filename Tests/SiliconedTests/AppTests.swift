@@ -93,11 +93,16 @@ final class AppTests: XCTestCase {
         XCTAssertEqual(f.name, "Niji semi realism v5")
         XCTAssertEqual(f.target, "anima")
         XCTAssertEqual(f.rank, 64)
+        XCTAssertEqual(f.smallestRank, 64)
         XCTAssertEqual(f.resolution, "1024x1024")
         XCTAssertNil(f.trainedOn, "an empty metadata field is not a value")
         XCTAssertEqual(f.path, "/s/niji.lora.silicon")
         XCTAssertNil(LoRACard(header: header(nil), path: "x"), "without a target: refused at render time, absent from the catalog")
         XCTAssertNil(LoRACard(header: header("anima", kind: "z-image-turbo-dit"), path: "x"))
+        var mixed = header("anima"); mixed["rang"] = [2, 16, 57]
+        let m = try XCTUnwrap(LoRACard(header: mixed, path: "x"), "per-module ranks: the forge writes their sorted list")
+        XCTAssertEqual(m.smallestRank, 2)
+        XCTAssertEqual(m.rank, 57)
     }
 
     /// The trainer's name is kept only when it is not the one shown; a map forged before the keys

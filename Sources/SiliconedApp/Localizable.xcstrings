@@ -24131,6 +24131,34 @@
         }
       }
     },
+    "for %@ · ranks %lld–%lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "für %1$@ · Ränge %2$lld–%3$lld"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "para %1$@ · rangos %2$lld–%3$lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pour %1$@ · rangs %2$lld–%3$lld"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "per %1$@ · ranghi %2$lld–%3$lld"
+          }
+        }
+      }
+    },
     "fp32 end to end · same seed, same bits" : {
       "localizations" : {
         "de" : {
@@ -25555,6 +25583,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "rango %lld"
+          }
+        }
+      }
+    },
+    "ranks %lld–%lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ränge %1$lld–%2$lld"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "rangos %1$lld–%2$lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "rangs %1$lld–%2$lld"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ranghi %1$lld–%2$lld"
           }
         }
       }

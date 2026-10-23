@@ -61,6 +61,12 @@
   512 tokens, comme les pipelines de référence par défaut, et Qwen-Image-2.1 refusait au-delà de 512.
   Un prompt de moins de 512 tokens donne la même image qu’avant.
 
+### Corrigé
+
+- **Une LoRA entraînée avec un rang différent par couche affichait « rang 0 »** dans la fenêtre
+  Modèles et dans l’infobulle du rack ; elle affiche maintenant son étendue, « rangs 2–57 » pour
+  inCase sur Anima.
+
 ## 0.13
 
 ### Votre bibliothèque sur un autre disque
