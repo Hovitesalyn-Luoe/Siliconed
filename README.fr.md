@@ -34,7 +34,7 @@ esthétiques, de la photographie à la peinture. Il lit le prompt avec Qwen3-VL-
 recette de 8 évaluations en fp32 sur les poids bf16 de l'éditeur : **1024² en 145,6 s, 1024×1536 en
 216,9 s sur un M1 Pro de 16 Go** avec le [rendu plus rapide](#rendu-plus-rapide), allumé par défaut
 (221,1 s et 355,3 s avec toutes les évaluations en pleine taille), ses 34,4 Go lus depuis le disque
-dans le budget mémoire. La sortie de son débruiteur est à 1,44·10⁻⁴ de la référence fp32 à 1024².
+dans le budget mémoire. La sortie de son débruiteur est à 2,6·10⁻⁴ de la référence fp32 à 1024².
 Il s'installe en Standard, Compact ou Légère
 (34,4, 19,5 ou 12,8 Go), depuis des copies ouvertes prouvées identiques aux fichiers de Krea
 ([pourquoi](#les-modèles)), sous la licence Krea 2 Community : usage commercial sous 1 M$ de chiffre
@@ -305,7 +305,7 @@ Machine de référence : MacBook Pro M1 Pro (8 cœurs, 14 cœurs GPU), 16 Go. G
 | autres, Standard | | | une édition à 1 image 211 s, à 2 images 297 s | 512² 12,1 s |
 | 1024², Légère (4 à 6 bits), rendu plus rapide (par défaut) | 153,8 s | 89,7–91,1 s | 111,0 s | 35,4 s |
 | pic mémoire, Standard / Légère | 3,07 Go (1024×1536 : 3,51 Go), le moteur seul / 1,55 Go | 2,8 Go / 2,1 Go | 1,8–2,7 Go / 1,5 Go | 1,4 Go (le moteur seul) / 1,4 Go |
-| écart à la référence fp32 (`model_out`, pleine taille) | 1,44·10⁻⁴ (1024²) | 1,2·10⁻⁵ | 3,0·10⁻⁶ de l'exact fp64 (512²) | 1,4·10⁻⁵ de l'exact fp64 (1024²), la référence fp32 à 1,5·10⁻⁵ |
+| écart de la sortie du débruiteur (`model_out`, pire canal) à la référence fp32 · à l'exact fp64 (celui de la référence) | 2,6·10⁻⁴ · 3,3·10⁻⁴ (3,1·10⁻⁴), 1024² | 9,8·10⁻⁶ · 1,2·10⁻⁵ (1,3·10⁻⁵), 1024² | 3,1·10⁻⁶ · 2,6·10⁻⁶ (2,5·10⁻⁶), 512² | 1,4·10⁻⁵ · par plan latent 2,9·10⁻⁶ (3,8·10⁻⁶), 1024² |
 
 Chaque temps est celui d'un rendu mis en file dans l'app par `silicontrol`, de la file au PNG, la
 carte de ce Mac en service. Avec le rendu plus rapide : le 19/10/2026, app 0.12, le réglage à sa
@@ -318,7 +318,9 @@ de quelques pour cent d'un rendu à l'autre) ; le 1024×1536 de Krea 2 : la m
 Qwen-Image-2.1 le 15/10/2026 avec la 0.10, Z-Image le 14/10/2026 avec la 0.8.2. Le pic mémoire est
 le `phys_footprint` de l'app, relevé toutes les 100 ms. Les autres temps et le pic d'Anima Turbo sont
 ceux du moteur seul, sans l'app, cache de rendu éteint (14–15/10/2026) ; les pics de Krea 2 Turbo
-en Standard aussi (17/10/2026). Comment l'écart est mesuré : [La vérification](#la-vérification).
+en Standard aussi (17/10/2026). Les écarts sont ceux qu'a imprimés
+`siliconed check <modèle> dit --size <côté>` sur le même Mac le 24/10/2026, contre des goldens écrits par
+`tools/oracle/` ; chez vous, ils diffèrent sur les derniers chiffres ([VERIFY.fr.md](VERIFY.fr.md), [La vérification](#la-vérification)).
 
 Jusqu'à la 0.8.1, Z-Image Turbo faisait 7 des 8 évaluations du DiT que demande sa recette ; les temps
 publiés alors (82–85 s à 1024²) valaient pour 7. Corrigé dans la 0.8.2 : 8 évaluations en pleine

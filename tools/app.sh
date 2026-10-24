@@ -1,11 +1,13 @@
 #!/bin/zsh
-# **Siliconed.app — the product, one artifact.** Builds the two products in release and
+# **Siliconed.app — the product, one artifact.** Builds the products in release and
 # packages them into `Siliconed.app` at the repository root (ignored by git), then opens it:
 #
 #     Contents/MacOS/Siliconed          the app (target `SiliconedApp`)
 #     Contents/Helpers/silicontrol      the remote control (target `Silicontrol`, Foundation only);
 #                                       the app's menu links it into the PATH; `silicontrol help`
 #                                       is the complete reference
+#     Contents/Helpers/siliconed        `siliconed check`: the engine checked against the reference's goldens
+#                                       (VERIFY.md) — the very binary the app renders with, no Xcode needed
 #     Contents/Helpers/siliconed-dev    the maintainer's command line, when its sources are present
 #     Contents/Resources/               the phrases (en, fr, de, es, it), the icon, the library's resource bundle
 #
@@ -41,6 +43,7 @@ done
 
 swift build -c release --product SiliconedApp
 swift build -c release --product silicontrol
+swift build -c release --product siliconed
 # The maintainer's command line, when its sources are present (Package.swift), ships beside it.
 dev=0; [[ -d Sources/CLI ]] && dev=1 && swift build -c release --product siliconed-dev
 tools/translations.sh
@@ -50,6 +53,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 cp .build/release/SiliconedApp "$app/Contents/MacOS/Siliconed"
 cp .build/release/silicontrol "$app/Contents/Helpers/silicontrol"
+cp .build/release/siliconed "$app/Contents/Helpers/siliconed"
 (( dev )) && cp .build/release/siliconed-dev "$app/Contents/Helpers/siliconed-dev"
 xcrun xcstringstool compile Sources/SiliconedApp/Localizable.xcstrings --output-directory "$app/Contents/Resources" >/dev/null
 # English is the language of the keys: the compiler emits only what differs (the translations, and

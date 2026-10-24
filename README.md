@@ -32,7 +32,7 @@ to painting. It reads the prompt with Qwen3-VL-4B and runs its whole 8-evaluatio
 the publisher's bf16 weights: **1024² in 145.6 s, 1024×1536 in 216.9 s on a 16 GB M1 Pro** with
 [Faster Rendering](#faster-rendering), on by default (221.1 s and 355.3 s with every evaluation at
 full size), its 34.4 GB streamed from disk within the memory budget. Its denoiser's output is
-1.44·10⁻⁴ from the fp32 reference at 1024². It installs as Standard, Compact or Light (34.4, 19.5 or
+2.6·10⁻⁴ from the fp32 reference at 1024². It installs as Standard, Compact or Light (34.4, 19.5 or
 12.8 GB), from open copies proven identical to Krea's files ([why](#models)), under the Krea 2
 Community license: commercial use under $1M of annual revenue, a content filter required when
 deployed.
@@ -288,7 +288,7 @@ Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. Seed 42, 8
 | other, Standard | | | an edit with 1 image 211 s, with 2 images 297 s | 512² 12.1 s |
 | 1024², Light (4 to 6 bits), Faster Rendering (default) | 153.8 s | 89.7–91.1 s | 111.0 s | 35.4 s |
 | peak memory, Standard / Light | 3.07 GB (1024×1536: 3.51 GB), the engine alone / 1.55 GB | 2.8 GB / 2.1 GB | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / 1.4 GB |
-| deviation from the fp32 reference (`model_out`, full size) | 1.44·10⁻⁴ (1024²) | 1.2·10⁻⁵ | 3.0·10⁻⁶ from the fp64 exact (512²) | 1.4·10⁻⁵ from the fp64 exact (1024²), the fp32 reference at 1.5·10⁻⁵ |
+| deviation of the denoiser's output (`model_out`, worst channel) from the fp32 reference · from the fp64 exact (the reference's own) | 2.6·10⁻⁴ · 3.3·10⁻⁴ (3.1·10⁻⁴), 1024² | 9.8·10⁻⁶ · 1.2·10⁻⁵ (1.3·10⁻⁵), 1024² | 3.1·10⁻⁶ · 2.6·10⁻⁶ (2.5·10⁻⁶), 512² | 1.4·10⁻⁵ · per latent plane 2.9·10⁻⁶ (3.8·10⁻⁶), 1024² |
 
 Each time is a render queued in the app by `silicontrol`, from the queue to the PNG, this Mac's map
 in service. With Faster Rendering: 19/10/2026, app 0.12, the setting at its default; a Z-Image 1024²
@@ -300,8 +300,9 @@ witness, took 123.6 s (the machine drifts by a few percent from one render to th
 1024×1536: the same series. The other times: Qwen-Image-2.1 on
 15/10/2026 with 0.10, Z-Image on 14/10/2026 with 0.8.2. Peak memory is the app's `phys_footprint`,
 sampled every 100 ms. Anima Turbo's other times and its peak are those of the engine alone, without
-the app, render cache off (14–15/10/2026); Krea 2 Turbo's Standard peaks too (17/10/2026). How the deviation
-is measured: [Verification](#verification).
+the app, render cache off (14–15/10/2026); Krea 2 Turbo's Standard peaks too (17/10/2026). The deviations are what
+`siliconed check <model> dit --size <side>` printed on the same Mac on 24/10/2026, against goldens written by
+`tools/oracle/`; on yours they differ in the last digits ([VERIFY.md](VERIFY.md), [Verification](#verification)).
 
 Until 0.8.1, Z-Image Turbo ran 7 of the 8 DiT evaluations its recipe calls for; the times published
 then (82–85 s at 1024²) were for 7. Fixed in 0.8.2: 8 full-size evaluations. Faster Rendering is

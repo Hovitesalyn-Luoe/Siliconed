@@ -10,12 +10,17 @@ The reference is the publisher's own: [diffusers](https://github.com/huggingface
 
 The numerical kernels (RoPE tables, resampling, the GPU's element-wise operations, attention, the split of a matrix product between GPU and AMX) are checked without any model.
 
+`siliconed` ships inside the app (0.15 and later): it is the very engine the app renders with, and running it needs no Xcode. The oracle scripts come from this repository, at the app's version (Siliconed → About shows it):
+
 ```sh
-swift build -c release --product siliconed
+alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
+git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Siliconed
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
 oracle-env/bin/python tools/oracle/kernels.py all          # the RoPE and resampling goldens, seconds
-.build/release/siliconed check kernels
+siliconed check kernels
 ```
+
+To check your own build instead: `swift build -c release --product siliconed` (Xcode 26), then `.build/release/siliconed` in place of the alias.
 
 Each stage prints its measures, then one verdict line, `✓`, `✗` or `—` (skipped, and why). The exit code says the same: 0 passed, 1 failed, 2 skipped, 64 a usage error.
 
@@ -25,7 +30,7 @@ Install a model in the app first (Z-Image is the smallest download): `siliconed 
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py text         # downloads the reference weights once
-.build/release/siliconed check z-image text
+siliconed check z-image text
 ```
 
 `siliconed check list` lists every stage, what it proves, how it is judged and which command writes its goldens; the table below is its output. Goldens go to `./goldens` unless `--goldens DIR` or `SILICONED_GOLDENS` says otherwise, for the scripts and the checks alike. To write every golden of a model at once, `oracle-env/bin/python tools/oracle/z-image.py all` (likewise `qwen-image-2.1.py`, `anima.py`, `krea2.py`); what it costs is below.

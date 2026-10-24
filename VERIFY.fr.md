@@ -10,12 +10,17 @@ La référence est celle de l'éditeur : [diffusers](https://github.com/hugging
 
 Les noyaux numériques (tables RoPE, rééchantillonnage, opérations élément par élément du GPU, attention, partage d'un produit matriciel entre GPU et AMX) se vérifient sans aucun modèle.
 
+`siliconed` est livré dans l'app (0.15 et suivantes) : c'est le moteur même avec lequel l'app rend, et il tourne sans Xcode. Les scripts d'oracle viennent de ce dépôt, à la version de l'app (Siliconed → À propos l'affiche) :
+
 ```sh
-swift build -c release --product siliconed
+alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
+git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Siliconed
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
 oracle-env/bin/python tools/oracle/kernels.py all          # les goldens RoPE et rééchantillonnage, quelques secondes
-.build/release/siliconed check kernels
+siliconed check kernels
 ```
+
+Pour vérifier plutôt votre propre compilation : `swift build -c release --product siliconed` (Xcode 26), puis `.build/release/siliconed` à la place de l'alias.
 
 Chaque étape affiche ses mesures, puis une ligne de verdict, `✓`, `✗` ou `—` (sautée, avec la raison). Le code de sortie dit la même chose : 0 réussi, 1 échoué, 2 sauté, 64 erreur d'usage.
 
@@ -25,7 +30,7 @@ Installer d'abord un modèle dans l'app (Z-Image est le plus léger à télécha
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py text         # télécharge une fois les poids de référence
-.build/release/siliconed check z-image text
+siliconed check z-image text
 ```
 
 `siliconed check list` liste chaque étape, ce qu'elle prouve, comment elle est jugée et quelle commande écrit ses goldens ; la table en bas de page est sa sortie. Les goldens vont dans `./goldens`, sauf si `--goldens DIR` ou `SILICONED_GOLDENS` en dit autrement, pour les scripts comme pour les contrôles. Pour écrire d'un coup tous les goldens d'un modèle : `oracle-env/bin/python tools/oracle/z-image.py all` (de même `qwen-image-2.1.py`, `anima.py`, `krea2.py`) ; ce que ça coûte est plus bas.
@@ -51,7 +56,7 @@ Le *témoin* est le même calcul en float64. Là où il existe, il tranche : le
 
 Le débruiteur de Krea 2 a quelques frontières si mal conditionnées qu'un changement d'une unité sur le dernier chiffre de l'entrée déplace la sortie de plus que la règle ne permet, référence comprise. Là, une mesure qui échoue au témoin est jugée par *nuages* : la référence et le moteur tournent tous deux sur des entrées décalées d'un ulp, et l'écart médian du moteur doit rester sous 1,25 fois le pire de la référence. Ce sont les étapes dont la règle dit « clouds when the oracle has draws ».
 
-Deux mesures de Krea 2 passent de peu sur notre M1 Pro : la vitesse `v_2` de la trajectoire en 512² (5,08e-4 pour une tolérance de 5,14e-4) et `block0_attn_out` du débruiteur en 1024² (3,53e-3 pour 3,59e-3). La tolérance se calcule sur l'écart de votre propre référence, elle suit donc les arrondis de votre processeur, et ces deux mesures peuvent échouer d'un cheveu sur un autre Mac. La règle n'est pas desserrée pour elles ; si elles échouent chez vous, une issue avec la sortie de `siliconed check` nous aide à trouver la couche qui porte l'écart.
+Deux mesures de Krea 2 passent de peu sur notre M1 Pro : la vitesse `v_2` de la trajectoire en 512² (5,08e-4 pour une tolérance de 5,14e-4) et `block0_attn_out` du débruiteur en 1024² (3,53e-3 pour 3,59e-3). La tolérance se calcule sur l'écart de votre propre référence, elle suit donc les arrondis de votre processeur, et ces deux mesures peuvent échouer d'un cheveu sur un autre Mac. La règle n'est pas desserrée pour elles ; si elles échouent chez vous, une issue avec la sortie de `siliconed check` nous aide à trouver la couche qui porte l'écart.
 
 Ce qui n'est **pas** affirmé : les mêmes bits que la référence, ni qu'un autre Mac. Le moteur calcule dans un autre ordre sur un autre processeur ; il est jugé sur sa distance à la valeur exacte, pas sur ses bits. Les LoRA ne sont pas couvertes ici : ce sont des fichiers que vous choisissez, pas une part de ce que Siliconed livre.
 
