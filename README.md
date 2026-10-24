@@ -151,7 +151,7 @@ time; the history runs below the canvas.*
 
 ### Edit
 
-- **Editing by instruction** with Qwen-Image-2.1: give it 1 to 3 images and a sentence (“replace the
+- **Editing by instruction** with Qwen-Image-2.1 Turbo: give it 1 to 3 images and a sentence (“replace the
   cloudy sky with a blue sky”); its encoder sees the images. In the app an edit is capped at a
   surface of 1024².
 - **Curtain**: drag a line across two images, or across an edit or an enlargement and its

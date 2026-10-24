@@ -161,7 +161,7 @@ temps de chaque étage ; l'historique court sous le canevas.*
 
 ### Éditer
 
-- **L'édition par instruction** avec Qwen-Image-2.1 : donnez-lui 1 à 3 images et une phrase
+- **L'édition par instruction** avec Qwen-Image-2.1 Turbo : donnez-lui 1 à 3 images et une phrase
   (« remplace le ciel nuageux par un ciel bleu ») ; son encodeur voit les images. Dans l'app, une
   édition est plafonnée à une surface de 1024².
 - **Le rideau** : faites glisser une ligne sur deux images, ou sur une édition ou un agrandissement
