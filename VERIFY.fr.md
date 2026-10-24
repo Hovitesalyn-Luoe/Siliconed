@@ -121,7 +121,7 @@ oracle-env/bin/python tools/oracle/z-image.py text --long
 siliconed check z-image text --long
 ```
 
-**Le Neural Engine.** L'app peut partager les produits matriciels du débruiteur avec le Neural Engine du Mac, qui calcule en fp16 ([README](README.fr.md#le-neural-engine)). `--neural-engine` vérifie ce chemin : chaque produit élargi du DiT d'au moins 512 lignes donne la moitié de ses lignes à l'ANE, le même partage sur tous les Mac et plus qu'aucune carte n'en donne (un rendu laisse au GPU les produits de moins de 1 024 lignes), et l'étape est jugée contre la référence calculée en bf16 sur les mêmes entrées, le moteur ayant droit à l'écart propre au bf16 plus 25 %. Le verdict dit combien de produits l'ANE a calculés ; sur un Mac où il n'en calcule aucun, l'étape est sautée. Les étapes `dit` des quatre modèles l'acceptent.
+**Le Neural Engine.** L'app peut partager les produits matriciels du débruiteur avec le Neural Engine du Mac, qui calcule en fp16 ([ENGINE](docs/ENGINE.fr.md#le-neural-engine)). `--neural-engine` vérifie ce chemin : chaque produit élargi du DiT d'au moins 512 lignes donne la moitié de ses lignes à l'ANE, le même partage sur tous les Mac et plus qu'aucune carte n'en donne (un rendu laisse au GPU les produits de moins de 1 024 lignes), et l'étape est jugée contre la référence calculée en bf16 sur les mêmes entrées, le moteur ayant droit à l'écart propre au bf16 plus 25 %. Le verdict dit combien de produits l'ANE a calculés ; sur un Mac où il n'en calcule aucun, l'étape est sautée. Les étapes `dit` des quatre modèles l'acceptent.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py bf16 --size 1024
