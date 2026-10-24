@@ -72,9 +72,9 @@ enum AnimaStages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, and its output per latent plane against the fp64 witness",
-        sizes: ["512", "1024", "768x512"], options: ["--map"],
-        oracle: "tools/oracle/anima.py dit --size {size}; witness --size {size} --step 0", weights: ["DiT"],
-        rule: "the rule, floor 5e-4; model_out per latent plane at the fp64 witness; on a rectangle, the transposed golden must deviate"
+        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine"],
+        oracle: "tools/oracle/anima.py dit --size {size}; witness --size {size} --step 0; with --neural-engine, bf16 --size {size}", weights: ["DiT"],
+        rule: "the rule, floor 5e-4; model_out per latent plane at the fp64 witness; on a rectangle, the transposed golden must deviate; with --neural-engine, against bf16's own error + 25 %"
     ) { invocation in
         let report = Report(title: "\(model) dit \(invocation.size)")
         let file = "anima/goldens-anima-dit-\(invocation.size).safetensors"
@@ -92,7 +92,7 @@ enum AnimaStages {
         let started = Date()
         _ = try dit.forward(latent: latent.baseAddress!, context: context.baseAddress!, sigma: sigma[0])
         if invocation.profile { printTimings(dit.timings, seconds: Date().timeIntervalSince(started)) }
-        let half = HalfPrecisionReference(goldens: invocation.goldens, file: file)
+        let half = try invocation.halfReference(file, script: "tools/oracle/anima.py bf16 --size \(invocation.size)")
         let d = dit.config.dim
         let widths = ["temb": 3 * d, "embedded_timestep": d, "model_out": height * width]
         // Per channel against the oracle: the witness's worst POSITION is a noisy statistic here (an
@@ -108,6 +108,7 @@ enum AnimaStages {
             }
             if let m = Judge.orientation(out, expected, height: height, width: width) { report.add(m) }
         }
+        if invocation.neuralEngine { try NeuralEngineRun.account(report) }
         return report
     }
 

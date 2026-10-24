@@ -70,9 +70,9 @@ enum Krea2Stages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists",
-        sizes: ["512", "1024", "768x512"], options: ["--map"],
-        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3", weights: ["DiT"],
-        rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate"
+        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine"],
+        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine, bf16 --size {size}", weights: ["DiT"],
+        rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine, against bf16's own error + 25 %"
     ) { invocation in
         let report = Report(title: "\(model) dit \(invocation.size)")
         let stem = "krea2/goldens-krea2-dit-\(invocation.size)"
@@ -95,7 +95,7 @@ enum Krea2Stages {
         let out = try dit.forward(latent: latent.baseAddress!, text: text.baseAddress!, textRows: t, sigma: sigma[0])
         if invocation.profile { printTimings(dit.timings, seconds: Date().timeIntervalSince(started)) }
         let recorded = dit.boundaries.merging(["model_out": out]) { $1 }
-        let half = HalfPrecisionReference(goldens: invocation.goldens, file: stem + ".safetensors")
+        let half = try invocation.halfReference(stem + ".safetensors", script: "tools/oracle/krea2.py bf16 --size \(invocation.size)")
         // The oracle's draws of these inputs: `draw-krea2-R-step0-jitterN`.
         let draws = stem.replacingOccurrences(of: "goldens-krea2-dit-", with: "draw-krea2-") + "-step0"
         var clouds = Clouds(draws: (1...8).compactMap { invocation.goldens.optional(draws + "-jitter\($0).safetensors") }) { seed in
@@ -124,6 +124,7 @@ enum Krea2Stages {
             }
             if let m = Judge.orientation(out, expected, height: height, width: width) { report.add(m) }
         }
+        if invocation.neuralEngine { try NeuralEngineRun.account(report) }
         return report
     }
 

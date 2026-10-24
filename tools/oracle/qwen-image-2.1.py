@@ -5,12 +5,17 @@
     qwen-image-2.1.py vision                the vision tower, picture by picture          -> goldens-qwen21-vision
     qwen-image-2.1.py references [--side S] a picture with transparency, prepared          -> goldens-qwen21-preprocess-alpha-S
     qwen-image-2.1.py dit [--edit N]        one DiT evaluation, three ways                 -> goldens-qwen21-dit[-editN]-512
+    qwen-image-2.1.py bf16                  that evaluation in bfloat16                    -> witness-bf16-qwen21-dit-512
     qwen-image-2.1.py witness               that evaluation in float64                     -> witness-qwen21-f64-512
     qwen-image-2.1.py trajectory [--edit N] the 8-step sampler                             -> goldens-qwen21-trajectory[-editN]-512
     qwen-image-2.1.py vae [--edit N]        the decoder on the trajectory's final latent   -> goldens-qwen21-vae[-editN]-512
     qwen-image-2.1.py vae-encode            the encoder on both pictures                   -> goldens-qwen21-vae-encode-512
     qwen-image-2.1.py vae-witness           the VAE in float64                             -> witness-qwen21-vae-f64-512
     qwen-image-2.1.py all                   every stage above, in an order that satisfies their dependencies
+
+`bf16` is the bar of a half-precision path (the ANE's fp16 products): the generation `dit` golden's
+evaluation with the reference in bfloat16, on that golden's inputs. It is not part of `all` (costly, and only
+that path reads it).
 
 Goldens go in `<goldens>/qwen21/`. The pictures they read ship in `tools/oracle/inputs/` and are copied to
 `<goldens>/inputs/`, where the engine reads the very same files: two made with Siliconed and Z-Image (their
@@ -628,6 +633,31 @@ def stage_dit(n: int = 0):
     print(f"  {time.time() - t0:.0f} s")
 
 
+def stage_bf16():
+    """`dit` (prefill only) with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)` and
+    `__call__` run it: weights as published, `hidden_states` and `prompt_embeds` in bf16, `timestep` in the
+    latents' dtype; the module keeps its own float32 islands (sinusoid `freqs`, RoPE, the RMSNorm variance,
+    SDPA's accumulation). The inputs are the dit golden's own; the boundaries the check judges are widened to
+    float32 (exact) under the golden's keys. Generation only: the check reads the half-precision bar there."""
+    t0 = time.time()
+    half = torch.bfloat16
+    name = f"goldens-qwen21-dit-{RESOLUTION}"
+    golden = read(name, "qwen-image-2.1.py dit")
+    info = json.loads((OUT / f"{name}.json").read_text())
+    model, _ = load_transformer(half)
+    taps, _ = dit_taps(model)
+    out = model(hidden_states=golden["hidden_states"][None].to(half),
+                encoder_hidden_states=read(text_golden(0), "qwen-image-2.1.py text")["prompt_embeds"][None].to(half),
+                timestep=golden["timestep"].to(half), img_shapes=[[tuple(s) for s in info["img_shapes"]]],
+                img_mask=golden["img_mask"][None].bool(), return_dict=False)[0][0]
+    kept = ("img_in_out", "txt_in_out", "temb", "modulation", "norm_out", "joint_in",
+            "layer0_out", "layer1_out", "layer_last_out")
+    payload = {"model_out": out[-info["target"]:].float(), **{k: taps[k].float() for k in kept}}
+    report = {"bf16_vs_fp32_model_out": gap("bf16 vs fp32, model_out", payload["model_out"], golden["model_out"])}
+    write(f"witness-bf16-qwen21-dit-{RESOLUTION}", payload, {"dtype": "bfloat16", "inputs": name, **report})
+    print(f"  {time.time() - t0:.0f} s")
+
+
 # ------------------------------------------------------------------ the trajectory
 
 def stage_trajectory(n: int = 0):
@@ -891,7 +921,7 @@ def main() -> None:
     global OUT, INPUTS
     common.unbuffered()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("stage", choices=["text", "vision", "references", "dit", "witness", "trajectory", "vae",
+    p.add_argument("stage", choices=["text", "vision", "references", "dit", "bf16", "witness", "trajectory", "vae",
                                      "vae-encode", "vae-witness", "all"])
     p.add_argument("--edit", type=int, choices=[0, 1, 2], default=0,
                    help="editing with N pictures (text, dit, trajectory, vae); 0 is generation")
@@ -913,6 +943,8 @@ def main() -> None:
         stage_references(args.side)
     elif args.stage == "dit":
         stage_dit(n)
+    elif args.stage == "bf16":
+        stage_bf16()
     elif args.stage == "witness":
         stage_witness()
     elif args.stage == "trajectory":

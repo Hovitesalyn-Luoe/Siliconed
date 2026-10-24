@@ -4,11 +4,15 @@
     anima.py tokenizer                      the T5 tokenizer on a corpus of edge cases -> anima/t5-corpus.json
     anima.py text                           both tokenizers, Qwen3-0.6B, the conditioner -> goldens-anima-text
     anima.py dit --size 512 [1024 768x512]  one DiT evaluation at the first sigma       -> goldens-anima-dit-<size>
+    anima.py bf16 --size 1024               the same evaluation in bfloat16             -> witness-bf16-anima-dit-<size>
     anima.py trajectory --size 512 [1024]   the 8-step Euler loop                       -> goldens-anima-trajectory-<size>
     anima.py vae --size 512 [1024 768x512]  the decoder on the final latent             -> goldens-anima-vae-<size>
     anima.py witness --size 512 --step 0    one guided evaluation in float64            -> witness-anima-f64-<size>-step<n>
     anima.py vae-witness --size 512         the decoder in float64                      -> witness-anima-vae-f64-<size>
     anima.py all [--size 512 1024 768x512]  all of the above, in an order that satisfies their dependencies
+
+`bf16` is the bar of a half-precision path (the ANE's fp16 products): the `dit` evaluation with the
+reference in bfloat16, on the `dit` golden's inputs. It is not part of `all` (costly, and only that path reads it).
 
 Goldens go in `<goldens>/anima/`; `--goldens DIR`, else `SILICONED_GOLDENS`, else `./goldens`. Each stage
 rereads what an earlier one wrote (`dit` the text, `trajectory` the text, `vae` the trajectory, a rectangle's
@@ -259,16 +263,9 @@ def initial_latent(height: int, width: int) -> torch.Tensor:
                         device=torch.device("cpu"), dtype=torch.float32)
 
 
-def stage_dit(size: str):
-    height, width, name = common.parse_size(size)
-    embeds = read("goldens-anima-text", "anima.py text")["prompt_embeds"][None]
-    model = load_transformer()
-    scheduler = schedule()
-    latent = initial_latent(height, width)
-    t = scheduler.timesteps[0]
-    timestep = (t / scheduler.config.num_train_timesteps).expand(1).float()
-    padding = torch.zeros(1, 1, height, width)
-
+def probe_dit(model) -> dict:
+    """The boundaries the engine is judged at: patch embedding, time embedding, blocks 0, 1, 13, 27 and
+    block 0's three branches. Returns the dict the hooks fill during the forward pass."""
     taps = {}
     model.patch_embed.register_forward_hook(common.tap(taps, "patch_embed_out", lambda o: o[0].flatten(0, 2)))
 
@@ -281,12 +278,44 @@ def stage_dit(size: str):
     block0.attn1.register_forward_hook(common.tap(taps, "block0_attn1_out"))
     block0.attn2.register_forward_hook(common.tap(taps, "block0_attn2_out"))
     block0.ff.register_forward_hook(common.tap(taps, "block0_ff_out"))
+    return taps
+
+
+def stage_dit(size: str):
+    height, width, name = common.parse_size(size)
+    embeds = read("goldens-anima-text", "anima.py text")["prompt_embeds"][None]
+    model = load_transformer()
+    scheduler = schedule()
+    latent = initial_latent(height, width)
+    t = scheduler.timesteps[0]
+    timestep = (t / scheduler.config.num_train_timesteps).expand(1).float()
+    padding = torch.zeros(1, 1, height, width)
+
+    taps = probe_dit(model)
 
     out = model(hidden_states=latent, timestep=timestep, encoder_hidden_states=embeds,
                 padding_mask=padding, return_dict=False)[0]
     payload = {"latent_in": latent[0, :, 0], "timestep": timestep, "prompt_embeds": embeds[0],
                "model_out": out[0, :, 0], **taps}
     write(f"goldens-anima-dit-{name}", payload, {"sigma": float(scheduler.sigmas[0])})
+
+
+def stage_bf16(size: str):
+    """`dit` with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)` runs it: weights,
+    latent, text and timestep in bf16 (the published weights are bf16, so the cast is exact). The inputs are
+    the dit golden's own; the boundaries are widened to float32 (exact) under the golden's keys, minus its
+    inputs. Writes `witness-bf16-anima-dit-<size>`."""
+    height, width, name = common.parse_size(size)
+    golden = read(f"goldens-anima-dit-{name}", f"anima.py dit --size {name}")
+    half = torch.bfloat16
+    model = load_transformer().to(half)
+    taps = probe_dit(model)
+    out = model(hidden_states=golden["latent_in"][:, None][None].to(half), timestep=golden["timestep"].to(half),
+                encoder_hidden_states=golden["prompt_embeds"][None].to(half),
+                padding_mask=torch.zeros(1, 1, height, width, dtype=half), return_dict=False)[0]
+    taps["model_out"] = out[0, :, 0]
+    write(f"witness-bf16-anima-dit-{name}", {k: v.float() for k, v in taps.items()},
+          {"dtype": "bfloat16", "inputs": f"goldens-anima-dit-{name}"})
 
 
 def stage_trajectory(size: str):
@@ -475,7 +504,7 @@ def main() -> None:
     global OUT
     common.unbuffered()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("stage", choices=["tokenizer", "text", "dit", "trajectory", "vae", "witness", "vae-witness", "all"])
+    p.add_argument("stage", choices=["tokenizer", "text", "dit", "bf16", "trajectory", "vae", "witness", "vae-witness", "all"])
     p.add_argument("--size", nargs="+", default=None,
                    help="512, 1024 or WIDTHxHEIGHT (dit, vae: a rectangle too; default 512, all: every size)")
     p.add_argument("--step", type=int, default=0, help="witness only: the step of the trajectory (default 0, the one the check reads)")
@@ -494,7 +523,7 @@ def main() -> None:
             if args.stage == "witness":
                 stage_witness(size, args.step)
             else:
-                {"dit": stage_dit, "trajectory": stage_trajectory, "vae": stage_vae,
+                {"dit": stage_dit, "bf16": stage_bf16, "trajectory": stage_trajectory, "vae": stage_vae,
                  "vae-witness": stage_vae_witness}[args.stage](size)
 
 

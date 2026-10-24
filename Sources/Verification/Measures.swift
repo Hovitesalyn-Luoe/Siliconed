@@ -115,6 +115,36 @@ extension Judge {
     }
 }
 
+/// **`--neural-engine`: the DiT's products shared with the Neural Engine**, half of every widened product's
+/// rows, whatever this Mac's map or profile says: the same split on every Mac, and more of the ANE than a
+/// map gives — the strictest case. The ANE computes in fp16, so the stage is judged against the reference
+/// run in bf16 (`HalfPrecisionReference`). Set through the environment, which has the last word over the
+/// profile, before anything reads the engine's settings; the tally then says what the ANE computed.
+package enum NeuralEngineRun {
+    package static func enable() throws {
+        setenv("SILICONED_GEMM_ANE", "1", 1)
+        setenv("SILICONED_ANE_FRACTION", "0.5", 1)
+        setenv("SILICONED_ANE_SHARES", "", 1)
+        let settings = EngineSettings.effective
+        guard settings.gemmANE, settings.aneFraction == 0.5, settings.aneShares.isEmpty else {
+            throw UsageError("--neural-engine: the engine's settings were read before it")
+        }
+    }
+
+    /// How many of the DiT's products the ANE computed. None (no ANE on this Mac, every product refused):
+    /// skipped, since what would be judged is the GPU's fp32 against a looser bar.
+    package static func account(_ report: Report) throws {
+        let (handed, givenBack) = GEMM.neuralEngineTally.withLock { $0 }
+        guard handed > givenBack else {
+            throw Skip("--neural-engine: the Neural Engine computed none of the DiT's products on this Mac"
+                       + " (\(handed) handed, \(givenBack) given back to the GPU)")
+        }
+        report.add(Judge.holds("Neural Engine", true,
+                               note: "half the rows of \(handed - givenBack) products"
+                                   + (givenBack > 0 ? ", \(givenBack) given back to the GPU" : "")))
+    }
+}
+
 /// **Invariant 3 for a half-precision path** (the ANE's products in fp16): the reference that sets the
 /// bar is the reference run in bf16 on the golden's inputs, beside the golden as `witness-bf16-X`.
 /// `nil` when the engine's path is fp32, or the bf16 reference is missing (said: the fp32 rule applies).

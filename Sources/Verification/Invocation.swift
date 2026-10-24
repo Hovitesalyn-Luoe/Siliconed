@@ -4,6 +4,7 @@ import Siliconed
 // **One check's arguments, the same grammar for every stage**:
 //
 //     siliconed check <model> <stage> [--size 512|1024|WxH] [--edit N] [--goldens DIR] [--map PATH] [--profile]
+//                                     [--neural-engine]
 //
 // Named options only, no positional magic: `--size` is the only thing that names a size, so a number
 // meant for something else is never taken for one. An option a stage does not accept is a usage
@@ -21,6 +22,8 @@ package struct Invocation: Sendable {
     package let map: String?
     /// `--profile`: the evaluation's time budget after the verdict's figures.
     package let profile: Bool
+    /// `--neural-engine`: the DiT's products shared with the Neural Engine (`NeuralEngineRun`).
+    package let neuralEngine: Bool
     package let goldens: Goldens
     /// A stage's own options (`--sequence 256`), by name, the last value given.
     package let extras: [String: String]
@@ -41,7 +44,7 @@ package struct Invocation: Sendable {
                 let all = (accepted.union(Self.common)).sorted().joined(separator: " ")
                 throw UsageError("this stage does not take \(option) (it takes: \(all))")
             }
-            if option == "--profile" { flags.insert(option); i += 1; continue }
+            if Self.flags.contains(option) { flags.insert(option); i += 1; continue }
             guard i + 1 < arguments.count, !arguments[i + 1].hasPrefix("--") else { throw UsageError("\(option) expects a value") }
             values[option, default: []].append(arguments[i + 1])
             i += 2
@@ -58,9 +61,14 @@ package struct Invocation: Sendable {
         }
         map = values["--map"]?.last
         profile = flags.contains("--profile")
+        neuralEngine = flags.contains("--neural-engine")
+        if neuralEngine { try NeuralEngineRun.enable() }
         goldens = Goldens(directory: values["--goldens"]?.last)
         extras = values.compactMapValues(\.last).filter { !Self.known.contains($0.key) }
     }
+
+    /// The options that take no value.
+    private static let flags: Set<String> = ["--profile", "--neural-engine"]
 
     /// The options parsed above; any other accepted option lands in `extras`.
     private static let known: Set<String> = ["--size", "--goldens", "--edit", "--map"]
@@ -70,6 +78,14 @@ package struct Invocation: Sendable {
         let path = map ?? Library.processWide.map(standard)
         guard FileManager.default.fileExists(atPath: path) else { throw Skip("map missing: \(path) — siliconed install") }
         return path
+    }
+
+    /// The bf16 reference beside `file` when the engine runs a half-precision path. Under `--neural-engine`
+    /// it is required: the fp32 rule would fail the ANE's fp16 products for what they are, not for a fault.
+    package func halfReference(_ file: String, script: String) throws -> HalfPrecisionReference? {
+        let half = HalfPrecisionReference(goldens: goldens, file: file)
+        if neuralEngine, half == nil { throw Skip("bf16 reference missing beside \(file) — \(script)") }
+        return half
     }
 
     /// A stage's own integer option, `fallback` when absent.

@@ -1,6 +1,7 @@
 import Accelerate
 import Metal
 import MetalPerformanceShaders
+import Synchronization
 
 /// The engine's GEMM: `MPSMatrixMultiplication` in fp32.
 ///
@@ -151,6 +152,9 @@ package final class GEMM {
     /// The last product cut with the ANE: each side's wall seconds and rows, from which the map reads the
     /// share that would have ended both together.
     package private(set) var lastSides: (gpu: Double, gpuRows: Int, ane: Double, aneRows: Int)?
+    /// Every product of this process the ANE was handed, and how many of them it gave back (refused or
+    /// non-finite, recomputed on the GPU alone): a check run on the ANE says what the ANE actually computed.
+    package static let neuralEngineTally = Mutex<(handed: Int, givenBack: Int)>((0, 0))
     /// What `tensor` takes: bf16 weights (`gemm_tensor`), published int8 ones (`gemm_int8`), GGUF Q8_0
     /// ones (`gemm_q8`).
     package let tensorBF16, tensorInt8, tensorQ8: Bool
@@ -252,6 +256,7 @@ package final class GEMM {
             let gpuWall = Double(DispatchTime.now().uptimeNanoseconds - began) * 1e-9
             group.wait()
             lastSides = (gpuWall, first, aneWall, rows)
+            Self.neuralEngineTally.withLock { $0.handed += 1; if !computed { $0.givenBack += 1 } }
             let key = "\(m)×\(k)×\(n)ᵀ ane \(rows)"
             record(key + " GPU side", gpuWall)
             if !computed { _ = gpuLinear(a: a, b: b, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed, conductor: false) }

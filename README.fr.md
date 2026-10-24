@@ -95,10 +95,10 @@ Sur le M1 Pro, 1024², Standard, rendu plus rapide, graine 42, le prompt de la b
 | énergie par image, allumé contre éteint | −26 % | −16 % | −20 % |
 | pic mémoire de l'app, éteint / allumé | 3,41 / 3,71 Go | 3,01 / 3,23 Go | 1,97 / 2,11 Go |
 | l'image, allumé contre éteint | PSNR 35,9 dB : la même scène, le même visage, la même lumière, les détails les plus fins déplacés (tranches de livres) | 55,9 dB, un dixième de niveau en moyenne | 56,3 dB, un dixième de niveau en moyenne |
-| écart de la sortie du débruiteur, allumé, à la référence fp32 | 5,3·10⁻³ (512²) | 2,2·10⁻³ | 4,2·10⁻³ de l'exact fp64 (512²) |
-| …en part de l'écart du bf16 de l'éditeur | 0,15 | 0,04 | 0,30 |
+| écart de la sortie du débruiteur à l'exact fp64, la moitié des lignes de chaque produit sur le Neural Engine | 4,8·10⁻³ (512²) | 3,6·10⁻³ (1024²) | 4,4·10⁻³ (512²) |
+| …en part de l'écart du bf16 de l'éditeur | 0,14 | 0,06 | 0,31 |
 
-Temps : des rendus mis en file dans l'app par `silicontrol`, chacun dans une app tout juste ouverte, 0 page swappée ; éteint, trois rendus de Z-Image d'affilée ont pris 93,9, 89,0 et 86,8 s aux mêmes bits, le premier juste après un déplacement de la bibliothèque. Puissance et énergie : la même comparaison en ligne de commande, quatre rendus par modèle en alternant allumé et éteint, la consommation de toute la machine (écran compris) lue dans la télémétrie de l'adaptateur secteur. L'écart est celui d'une évaluation du débruiteur (comment : [La vérification](#la-vérification)) ; celui du bf16 est celui de diffusers sur les poids bf16 de l'éditeur, comme calculent la plupart des outils.
+Temps : des rendus mis en file dans l'app par `silicontrol`, chacun dans une app tout juste ouverte, 0 page swappée ; éteint, trois rendus de Z-Image d'affilée ont pris 93,9, 89,0 et 86,8 s aux mêmes bits, le premier juste après un déplacement de la bibliothèque. Puissance et énergie : la même comparaison en ligne de commande, quatre rendus par modèle en alternant allumé et éteint, la consommation de toute la machine (écran compris) lue dans la télémétrie de l'adaptateur secteur. L'écart est celui d'une évaluation du débruiteur avec plus de Neural Engine qu'aucune carte n'en donne, la moitié des lignes de chaque produit, tel que l'imprime `siliconed check <modèle> dit --neural-engine` ([VERIFY.fr.md](VERIFY.fr.md)), le 24/10/2026 ; celui du bf16 est celui de diffusers sur les poids bf16 de l'éditeur, comme calculent la plupart des outils.
 
 ## Pourquoi Siliconed
 

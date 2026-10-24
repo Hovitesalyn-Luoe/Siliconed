@@ -89,10 +89,10 @@ On the M1 Pro, 1024², Standard, Faster Rendering, seed 42, the library prompt, 
 | energy per image, on against off | −26 % | −16 % | −20 % |
 | the app's peak memory, off / on | 3.41 / 3.71 GB | 3.01 / 3.23 GB | 1.97 / 2.11 GB |
 | the image, on against off | PSNR 35.9 dB: the same scene, face and light, the finest details moved (book spines) | 55.9 dB, a tenth of a level on average | 56.3 dB, a tenth of a level on average |
-| deviation of the denoiser's output, on, from the fp32 reference | 5.3·10⁻³ (512²) | 2.2·10⁻³ | 4.2·10⁻³ from the fp64 exact (512²) |
-| …as a share of the publisher's bf16 deviation | 0.15 | 0.04 | 0.30 |
+| deviation of the denoiser's output from the fp64 exact, half of every product's rows on the Neural Engine | 4.8·10⁻³ (512²) | 3.6·10⁻³ (1024²) | 4.4·10⁻³ (512²) |
+| …as a share of the publisher's bf16 deviation | 0.14 | 0.06 | 0.31 |
 
-Times: renders queued in the app by `silicontrol`, each in a freshly opened app, 0 swap-out; off, three Z-Image renders in a row took 93.9, 89.0 and 86.8 s with the same bits, the first after the library had been moved. Power and energy: the same comparison through the command line, four renders per model alternating on and off, the whole machine's draw (display included) read from the power adapter's telemetry. The deviation is that of one evaluation of the denoiser (how: [Verification](#verification)); the bf16 one is diffusers' with the publisher's bf16 weights, as most tools compute.
+Times: renders queued in the app by `silicontrol`, each in a freshly opened app, 0 swap-out; off, three Z-Image renders in a row took 93.9, 89.0 and 86.8 s with the same bits, the first after the library had been moved. Power and energy: the same comparison through the command line, four renders per model alternating on and off, the whole machine's draw (display included) read from the power adapter's telemetry. The deviation is that of one evaluation of the denoiser with more of the Neural Engine than any map gives, half of every product's rows, as `siliconed check <model> dit --neural-engine` prints it ([VERIFY.md](VERIFY.md)), 24/10/2026; the bf16 one is diffusers' with the publisher's bf16 weights, as most tools compute.
 
 ## Why Siliconed
 

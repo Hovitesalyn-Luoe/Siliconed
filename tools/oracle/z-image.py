@@ -4,9 +4,13 @@
     z-image.py text                       the Qwen3-4B encoder             -> goldens-text
     z-image.py dit --size 512 [...]       one DiT evaluation, 41 boundaries -> goldens-dit-<size>
     z-image.py witness --size 512         the same evaluation in float64    -> witness-dit-f64-<size>
+    z-image.py bf16 --size 1024           the same evaluation in bfloat16   -> witness-bf16-dit-<size>
     z-image.py trajectory --size 512      the 8-step sampler and its image  -> goldens-trajectory-<size>
     z-image.py vae --size 768x512         the decoder on a rectangle        -> goldens-vae-<size>
-    z-image.py all                        every stage at every size the check reads
+    z-image.py all                        every stage at every size the check reads (not `bf16`)
+
+`bf16` is the bar of a half-precision path (the ANE's fp16 products); `all` leaves it out
+because it is costly and only that path reads it.
 
 Each stage consumes the one before it (`dit` reads the conditioning `text` wrote, `vae` crops the
 1024 trajectory's final latent), so they are written in that order and from the same prompt:
@@ -217,6 +221,28 @@ def dit(goldens: Path, size: str) -> None:
         summary_extra=True)
 
 
+def bf16(goldens: Path, size: str) -> None:
+    """The same evaluation as `dit` with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)`
+    runs it: weights, latent, text and timestep all bf16. The inputs are the dit golden's own, so the
+    only difference with it is the arithmetic; its boundaries are widened to float32 (exact) and keep
+    the dit golden's keys. A half-precision engine path is judged against this, not against the float32
+    golden. Writes `witness-bf16-dit-<size>`."""
+    _, _, name = common.parse_size(size)
+    golden = common.read_golden(goldens, f"goldens-dit-{name}", f"z-image.py dit --size {name}")
+    half = torch.bfloat16
+    model, config = build_dit(common.snapshot(REPOSITORY, ["transformer"]), half)
+    rec = Recorder()
+    probe_dit(model, rec)
+    latent, caps, sigma = (golden[k].to(half) for k in ("in_latent", "in_caps", "in_sigma"))
+    rec.tensors["in_latent"], rec.tensors["in_caps"], rec.tensors["in_sigma"] = (
+        t.to(torch.float32) for t in (latent, caps, sigma))
+    out = model(x=[latent], t=sigma, cap_feats=[caps], return_dict=False)
+    rec.keep("model_out", out[0] if isinstance(out, (tuple, list)) else out)
+    common.write_golden(goldens, f"witness-bf16-dit-{name}", rec.tensors, {
+        "resolution": name, "dtype": "bfloat16", "device": "cpu", "inputs": f"goldens-dit-{name}",
+        "config": config}, summary_extra=True)
+
+
 # ===================================================================================== witness
 
 def channel_error(got: torch.Tensor, exact: torch.Tensor) -> tuple[float, float]:
@@ -381,7 +407,7 @@ def everything(goldens: Path, prompt: str, sizes: list[str]) -> None:
 def main() -> None:
     common.unbuffered()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("stage", choices=["text", "dit", "witness", "trajectory", "vae", "all"])
+    p.add_argument("stage", choices=["text", "dit", "witness", "trajectory", "bf16", "vae", "all"])
     p.add_argument("--size", nargs="+", default=None,
                    help="512, 1024 or WIDTHxHEIGHT (default: 512; vae: 768x512; all: 512 1024)")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
@@ -395,7 +421,7 @@ def main() -> None:
         everything(goldens, args.prompt, sizes)
     else:
         for size in sizes:
-            {"dit": dit, "witness": witness, "trajectory": trajectory, "vae": vae}[args.stage](goldens, size)
+            {"dit": dit, "witness": witness, "bf16": bf16, "trajectory": trajectory, "vae": vae}[args.stage](goldens, size)
 
 
 if __name__ == "__main__":

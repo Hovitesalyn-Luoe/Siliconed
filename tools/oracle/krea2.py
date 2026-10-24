@@ -3,6 +3,7 @@
 
     krea2.py text                              template, tokenizer, Qwen3-VL; the 12 taps    -> goldens-krea2-text
     krea2.py dit --size 512 [1024 768x512]     one DiT evaluation at the first sigma         -> goldens-krea2-dit-<size>
+    krea2.py bf16 --size 512 [1024 768x512]    the same evaluation in bfloat16               -> witness-bf16-krea2-dit-<size>
     krea2.py trajectory --size 512 [1024]      the 8-step Euler loop                         -> goldens-krea2-trajectory-<size>
     krea2.py vae --size 512 [1024 768x512]     the decoder on the final latent               -> goldens-krea2-vae-<size>
     krea2.py witness --size 512                time, img_in, blocks 0-1 in float64           -> witness-krea2-f64-<size>
@@ -16,6 +17,9 @@ rereads what an earlier one wrote, so run them in the order above. The DiT weigh
 encoder 17.6 GB: both are built on `meta`, their resident parts loaded, and each block is loaded (WIDENED to
 fp32) just before its forward pass and dropped just after. Expect minutes per evaluation, most of an hour for a
 1024 trajectory, and a machine that swaps; the float64 evaluations (`witness-step`) stream 3.5 GB blocks.
+
+`bf16` is the bar of a half-precision path (the ANE's fp16 products): the `dit` evaluation with the
+reference in bfloat16, on the `dit` golden's inputs. It is not part of `all` (costly, and only that path reads it).
 
 `all` writes what `siliconed check krea2` reads at the sizes asked (default 512): the text, the DiT
 evaluation and its head witness, the trajectory and the float64 witness of every one of its eight steps
@@ -185,7 +189,7 @@ def stage_text():
 
 # ------------------------------------------------------------------ the DiT
 
-def load_transformer():
+def load_transformer(dtype: torch.dtype = torch.float32):
     from diffusers import Krea2Transformer2DModel
     config = Krea2Transformer2DModel.load_config(snap() / "transformer")
     with torch.device("meta"):
@@ -196,10 +200,10 @@ def load_transformer():
     if set(checkpoint.keys) != module_keys:
         missing, extra = sorted(module_keys - set(checkpoint.keys)), sorted(set(checkpoint.keys) - module_keys)
         raise SystemExit(f"keys: {len(missing)} missing {missing[:4]}, {len(extra)} extra {extra[:4]}")
-    resident = {k: checkpoint.tensor(k, torch.float32) for k in checkpoint.keys if not k.startswith("transformer_blocks.")}
+    resident = {k: checkpoint.tensor(k, dtype) for k in checkpoint.keys if not k.startswith("transformer_blocks.")}
     model.load_state_dict(resident, strict=False, assign=True)
     for i, block in enumerate(model.transformer_blocks):
-        Streamed(block, f"transformer_blocks.{i}.", checkpoint, torch.float32)
+        Streamed(block, f"transformer_blocks.{i}.", checkpoint, dtype)
     return model
 
 
@@ -236,6 +240,23 @@ def valid_rows(t, mask):
     return torch.cat([t[:text_len][mask[0]], t[text_len:]], dim=0)
 
 
+def probe_dit(model, mask) -> dict:
+    """The boundaries the engine is judged at: the text fusion, block 0 inside out, blocks 1, 13, 27.
+    Returns the dict the hooks fill during the forward pass."""
+    taps = {}
+    model.time_embed.register_forward_hook(common.tap(taps, "temb", lambda o: o[0, 0]))
+    model.time_mod_proj.register_forward_hook(common.tap(taps, "temb_mod", lambda o: o[0, 0]))
+    model.text_fusion.register_forward_hook(common.tap(taps, "text_fused", lambda o: o[0][mask[0]]))
+    model.txt_in.register_forward_hook(common.tap(taps, "txt_in_out", lambda o: o[0][mask[0]]))
+    model.img_in.register_forward_hook(common.tap(taps, "img_in_out"))
+    b0 = model.transformer_blocks[0]
+    b0.attn.register_forward_hook(common.tap(taps, "block0_attn_out", lambda o: valid_rows(o[0], mask)))
+    b0.ff.register_forward_hook(common.tap(taps, "block0_ff_out", lambda o: valid_rows(o[0], mask)))
+    for i in (0, 1, 13, 27):
+        model.transformer_blocks[i].register_forward_hook(common.tap(taps, f"block{i}_out", lambda o: valid_rows(o[0], mask)))
+    return taps
+
+
 def stage_dit(size: str):
     """One evaluation at the first sigma, with probes: the text fusion, block 0 inside out, blocks 1, 13, 27."""
     height, width, name = common.parse_size(size)
@@ -248,23 +269,34 @@ def stage_dit(size: str):
     t = scheduler.timesteps[0]
     timestep = (t / scheduler.config.num_train_timesteps).expand(1).float()
 
-    taps = {}
-    model.time_embed.register_forward_hook(common.tap(taps, "temb", lambda o: o[0, 0]))
-    model.time_mod_proj.register_forward_hook(common.tap(taps, "temb_mod", lambda o: o[0, 0]))
-    model.text_fusion.register_forward_hook(common.tap(taps, "text_fused", lambda o: o[0][mask[0]]))
-    model.txt_in.register_forward_hook(common.tap(taps, "txt_in_out", lambda o: o[0][mask[0]]))
-    model.img_in.register_forward_hook(common.tap(taps, "img_in_out"))
-    b0 = model.transformer_blocks[0]
-    b0.attn.register_forward_hook(common.tap(taps, "block0_attn_out", lambda o: valid_rows(o[0], mask)))
-    b0.ff.register_forward_hook(common.tap(taps, "block0_ff_out", lambda o: valid_rows(o[0], mask)))
-    for i in (0, 1, 13, 27):
-        model.transformer_blocks[i].register_forward_hook(common.tap(taps, f"block{i}_out", lambda o: valid_rows(o[0], mask)))
+    taps = probe_dit(model, mask)
 
     out = model(hidden_states=packed, encoder_hidden_states=embeds, timestep=timestep,
                 position_ids=positions, encoder_attention_mask=mask, return_dict=False)[0]
     payload = {"latent_in": latent, "timestep": timestep, "model_out": unpack(pipe, out, height, width),
                "model_out_packed": out[0], **taps}
     write(f"goldens-krea2-dit-{name}", payload, {"sigma": float(scheduler.sigmas[0])})
+
+
+def stage_bf16(size: str):
+    """`dit` with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)` runs it: weights,
+    latent, text and timestep in bf16. The inputs are the dit golden's own, so only the arithmetic differs;
+    the boundaries are widened to float32 (exact) under the golden's keys, minus its inputs."""
+    height, width, name = common.parse_size(size)
+    golden = read(f"goldens-krea2-dit-{name}", f"krea2.py dit --size {name}")
+    embeds, mask = text_inputs()
+    model = load_transformer(torch.bfloat16)
+    pipe = make_pipeline(transformer=model)
+    positions = pipe.prepare_position_ids(embeds.shape[1], height // 16, width // 16, torch.device("cpu"))
+    packed = pipe._pack_latents(golden["latent_in"][None], 1, 16, height // 8, width // 8)
+    taps = probe_dit(model, mask)
+    half = torch.bfloat16
+    out = model(hidden_states=packed.to(half), encoder_hidden_states=embeds.to(half),
+                timestep=golden["timestep"].to(half), position_ids=positions, encoder_attention_mask=mask,
+                return_dict=False)[0].float()
+    payload = {"model_out": unpack(pipe, out, height, width), "model_out_packed": out[0],
+               **{k: v.float() for k, v in taps.items()}}
+    write(f"witness-bf16-krea2-dit-{name}", payload, {"dtype": "bfloat16", "inputs": f"goldens-krea2-dit-{name}"})
 
 
 def stage_trajectory(size: str):
@@ -553,7 +585,7 @@ def main() -> None:
     global OUT
     common.unbuffered()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("stage", choices=["text", "dit", "trajectory", "vae", "witness", "witness-step", "draw",
+    p.add_argument("stage", choices=["text", "dit", "bf16", "trajectory", "vae", "witness", "witness-step", "draw",
                                      "vae-witness", "all"])
     p.add_argument("--size", nargs="+", default=None,
                    help="512, 1024 or WIDTHxHEIGHT (dit, witness, vae: a rectangle too; default 512, all: every size)")
@@ -586,7 +618,7 @@ def main() -> None:
         elif args.stage == "draw":
             stage_draw(size, args.step[0], args.jitter[0])
         else:
-            {"dit": stage_dit, "trajectory": stage_trajectory, "vae": stage_vae, "witness": stage_witness,
+            {"dit": stage_dit, "bf16": stage_bf16, "trajectory": stage_trajectory, "vae": stage_vae, "witness": stage_witness,
              "vae-witness": stage_vae_witness}[args.stage](size)
 
 
