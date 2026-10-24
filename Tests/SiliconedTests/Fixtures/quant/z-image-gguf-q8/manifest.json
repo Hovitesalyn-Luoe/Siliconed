@@ -15,10 +15,16 @@
   "metadata": 3
  },
  "rows": 256,
+ "types": {
+  "BF16": 28,
+  "F32": 245,
+  "Q8_0": 180
+ },
  "libraries": {
   "torch": "2.14.1",
-  "diffusers": "0.41.0.dev0",
-  "gguf": "0.19.0"
+  "diffusers": "0.41.0",
+  "gguf": "0.19.0",
+  "numpy": "2.5.3"
  },
  "quantized": [
   "layers.0.attention.to_k.weight",
@@ -183,10 +189,16 @@
   "layers.0.attention.qkv.weight": {
    "kind": "GGUF Q8_0",
    "values": 2949120,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -196,17 +208,21 @@
     "different_from_fp32_reference": 2404537,
     "max_abs": 0.00048065185546875,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   },
   "layers.0.feed_forward.w2.weight": {
    "kind": "GGUF Q8_0",
    "values": 2621440,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -216,17 +232,21 @@
     "different_from_fp32_reference": 2027729,
     "max_abs": 0.001312255859375,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   },
   "layers.29.attention.out.weight": {
    "kind": "GGUF Q8_0",
    "values": 983040,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -236,9 +256,7 @@
     "different_from_fp32_reference": 801377,
     "max_abs": 0.00048065185546875,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   }
  },
  "pieces": {

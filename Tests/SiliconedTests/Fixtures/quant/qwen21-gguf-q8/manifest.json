@@ -15,10 +15,16 @@
   "metadata": 0
  },
  "rows": 256,
+ "types": {
+  "BF16": 4,
+  "F32": 65,
+  "Q8_0": 196
+ },
  "libraries": {
   "torch": "2.14.1",
-  "diffusers": "0.41.0.dev0",
-  "gguf": "0.19.0"
+  "diffusers": "0.41.0",
+  "gguf": "0.19.0",
+  "numpy": "2.5.3"
  },
  "quantized": [
   "transformer_blocks.0.attn.to_q.weight",
@@ -254,10 +260,16 @@
   "model.diffusion_model.transformer_blocks.0.attn.to_q.weight": {
    "kind": "GGUF Q8_0",
    "values": 1048576,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -267,17 +279,21 @@
     "different_from_fp32_reference": 854898,
     "max_abs": 0.00048065185546875,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   },
   "model.diffusion_model.transformer_blocks.0.img_mlp.out.weight": {
    "kind": "GGUF Q8_0",
    "values": 3145728,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -287,17 +303,21 @@
     "different_from_fp32_reference": 2548552,
     "max_abs": 0.000209808349609375,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   },
   "model.diffusion_model.transformer_blocks.0.img_mlp.gate_up.weight": {
    "kind": "GGUF Q8_0",
    "values": 2097152,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -307,17 +327,21 @@
     "different_from_fp32_reference": 1708555,
     "max_abs": 8.96453857421875e-05,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   },
   "model.diffusion_model.transformer_blocks.31.attn.to_out.0.weight": {
    "kind": "GGUF Q8_0",
    "values": 1048576,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -327,17 +351,21 @@
     "different_from_fp32_reference": 857079,
     "max_abs": 0.0001220703125,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   },
   "model.diffusion_model.modulation.1.weight": {
    "kind": "GGUF Q8_0",
    "values": 1048576,
+   "gguf_py": {
+    "different_bits": 0,
+    "different_values": 0
+   },
    "vs_d_times_q_fp32": {
     "different": 0,
     "max_abs": 0.0
    },
+   "d_subnormal": 0,
+   "d_zero": 0,
    "vs_exact_fp64": {
     "different": 0,
     "max_abs": 0.0
@@ -347,9 +375,7 @@
     "different_from_fp32_reference": 804346,
     "max_abs": 0.00018310546875,
     "max_rel": 0.00048146364949446316
-   },
-   "d_subnormal": 0,
-   "d_zero": 0
+   }
   }
  },
  "pieces": {
