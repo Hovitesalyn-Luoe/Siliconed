@@ -31,7 +31,7 @@ oracle-env/bin/python tools/oracle/kernels.py all
 siliconed check kernels
 ```
 
-Sur notre MacBook Pro M1 Pro, en 15 secondes :
+Sur notre MacBook Pro M1 Pro :
 
 ```
 ✓ kernels widen · 7 measures
@@ -52,7 +52,7 @@ Anima est le modèle le plus léger à vérifier de bout en bout. L'installer d'
 
 ```sh
 oracle-env/bin/python tools/oracle/anima.py all     # télécharge une fois 5 Go de poids de référence, puis 7 min
-siliconed check anima                               # chaque étape à chaque taille : 2 min 30 s
+siliconed check anima                               # chaque étape à chaque taille : 3 min
 ```
 
 Sur notre MacBook Pro M1 Pro :
@@ -80,7 +80,7 @@ Les deux mêmes commandes, pour chaque modèle : `tools/oracle/<script> all`, p
 |---|---|---|---|---|---|
 | Z-Image | `z-image.py` | 31 Go | 39 min | la trajectoire 1024² : 14 min, 13,3 Go | 7 min |
 | Qwen-Image-2.1 | `qwen-image-2.1.py` | 30 Go | 27 min | le témoin fp64 du décodeur : 43 s, 15,5 Go | 10 min |
-| Anima | `anima.py` | 5 Go | 7 min | le décodeur 1024² : 1 min, 20,8 Go | 2 min 30 s |
+| Anima | `anima.py` | 5 Go | 7 min | le décodeur 1024² : 1 min, 20,8 Go | 3 min |
 | Krea 2 | `krea2.py` | 33 Go | 1 h 45 min | les huit témoins fp64 des pas à 1024² : 44 min, 11 Go | 16 min |
 
 Sur un MacBook Pro M1 Pro, 16 Go, temps écoulé. Le téléchargement vient en plus des poids de l'app. L'oracle fait passer le débruiteur bloc par bloc en float32 (celui de Krea 2 pèse 48 Go à cette précision), si bien qu'un Mac de 16 Go exécute chaque script ; une étape dont le pic dépasse la mémoire de la machine (les décodeurs 1024²) tourne en swap et prend plus longtemps.

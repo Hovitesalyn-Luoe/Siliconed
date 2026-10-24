@@ -31,7 +31,7 @@ oracle-env/bin/python tools/oracle/kernels.py all
 siliconed check kernels
 ```
 
-On our MacBook Pro M1 Pro, in 15 seconds:
+On our MacBook Pro M1 Pro:
 
 ```
 ✓ kernels widen · 7 measures
@@ -52,7 +52,7 @@ Anima is the lightest model to check end to end. Install it in the app first (St
 
 ```sh
 oracle-env/bin/python tools/oracle/anima.py all     # downloads 5 GB of reference weights once, then 7 min
-siliconed check anima                               # every stage at every size: 2 min 30 s
+siliconed check anima                               # every stage at every size: 3 min
 ```
 
 On our MacBook Pro M1 Pro:
@@ -80,7 +80,7 @@ The same two commands, for each model: `tools/oracle/<script> all`, then `silico
 |---|---|---|---|---|---|
 | Z-Image | `z-image.py` | 31 GB | 39 min | the 1024² trajectory: 14 min, 13.3 GB | 7 min |
 | Qwen-Image-2.1 | `qwen-image-2.1.py` | 30 GB | 27 min | the fp64 decoder witness: 43 s, 15.5 GB | 10 min |
-| Anima | `anima.py` | 5 GB | 7 min | the 1024² decoder: 1 min, 20.8 GB | 2 min 30 s |
+| Anima | `anima.py` | 5 GB | 7 min | the 1024² decoder: 1 min, 20.8 GB | 3 min |
 | Krea 2 | `krea2.py` | 33 GB | 1 h 45 min | the eight fp64 step witnesses at 1024²: 44 min, 11 GB | 16 min |
 
 On a MacBook Pro M1 Pro, 16 GB, wall time. The download comes on top of the app's own weights. The oracle streams the denoiser block by block in float32 (Krea 2's is 48 GB at that precision), so a 16 GB Mac runs every script; a stage whose peak passes the machine's memory (the 1024² decoders) runs in swap and takes longer.
