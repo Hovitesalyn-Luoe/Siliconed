@@ -51,6 +51,8 @@ The *witness* is the same computation in float64. Where it exists, it decides: f
 
 Krea 2's denoiser has a few boundaries so ill-conditioned that a change of one unit in the last place of the input moves the output by more than the rule allows, the reference included. There, a measure that fails at the witness is judged by *clouds*: the reference and the engine are both run on inputs moved by one ulp, and the engine's median error must stay within 1.25 times the reference's worst. These are the stages whose rule says "clouds when the oracle has draws".
 
+Two Krea 2 measures pass with little to spare on our M1 Pro: the velocity `v_2` of the 512² trajectory (5.08e-4 for an allowance of 5.14e-4) and `block0_attn_out` of the 1024² denoiser (3.53e-3 for 3.59e-3). The allowance is computed from your reference's own error, so it moves with your CPU's rounding, and these two may fail by a hair on another Mac. The rule is not loosened for them; if they fail on yours, an issue with the output of `siliconed check` helps us find which layer carries the gap.
+
 What is **not** claimed: the same bits as the reference, or as another Mac. The engine computes in another order on another device; it is judged on how close it comes to the exact value, not on its bits. LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
 
 ## What it costs
