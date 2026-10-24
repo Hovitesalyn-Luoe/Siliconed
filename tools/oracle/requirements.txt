@@ -1,0 +1,15 @@
+# The oracle scripts' environment: exact versions, the ones the goldens are written with.
+# A torch or diffusers of another version can move the last bits of a golden (its CPU kernels
+# and schedulers are part of the reference), so the check's thresholds are only meaningful against these.
+accelerate==1.15.0
+diffusers==0.41.0
+huggingface_hub==1.33.0
+numpy==2.5.3
+pillow==12.3.0
+safetensors==0.8.0
+tokenizers==0.23.2
+torch==2.14.1
+# Not imported by the scripts, but transformers picks the image processor the model's config names
+# (the torchvision one, fused normalization) only when it is installed; without it, Pillow's, one rounding apart.
+torchvision==0.29.1
+transformers==5.19.0

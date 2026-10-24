@@ -7,3 +7,8 @@
 /Tests/SiliconedTests/Fixtures/quant/*/*.gguf
 /Tests/SiliconedTests/Fixtures/quant/*/*.safetensors
 /Tests/SiliconedTests/Fixtures/quant/comfy/*/
+
+# What VERIFY.md has a reader create: the oracle environment, the goldens, Python caches.
+/oracle-env/
+/goldens/
+__pycache__/
