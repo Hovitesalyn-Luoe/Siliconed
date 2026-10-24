@@ -481,9 +481,11 @@ un chiffre global. Quand la référence fp32 porte sa propre erreur d'arrondi, l
 jugées contre un calcul fp64 du même étage, et le moteur ne doit pas s'en écarter de plus que la
 référence plus 25 %. Le pic mémoire se lit sur `phys_footprint`, échantillonné pendant le rendu, le
 swap sur `vm_stat`, et chaque chrono est encadré par une mesure témoin avant et après, car la machine
-dérive de plusieurs pour cent d'un rendu à l'autre. Le banc d'oracles et le journal des mesures ne
-font pas partie de ce dépôt ; ce qui est livré, ce sont les tests unitaires purs, et le diagnostic,
-qui vérifie une machine contre des résultats exacts calculés sur son propre CPU.
+dérive de plusieurs pour cent d'un rendu à l'autre. La comparaison à la référence est livrée : les
+scripts d'oracle de `tools/oracle/` et la commande `siliconed check` la refont sur votre Mac, étape
+par étape, avec les empreintes de nos goldens pour y comparer les vôtres ; [VERIFY.fr.md](VERIFY.fr.md)
+dit comment, et ce que ça coûte. Le journal des mesures ne fait pas partie de ce dépôt. Le diagnostic
+de l'app vérifie une machine contre des résultats exacts calculés sur son propre CPU.
 
 ## Documentation
 

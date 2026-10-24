@@ -460,9 +460,11 @@ figure. Where the fp32 reference carries its own rounding error, both are judged
 computation of the same stage, and the engine may be no further from it than the reference plus
 25 %. Peak memory is read from `phys_footprint`, sampled during the render, swap from `vm_stat`, and
 each timing is framed by a witness measurement before and after, since the machine drifts by several
-percent from one render to the next. The oracle harness and the measurement journal are not part
-of this repository; what ships is the pure unit tests, and the diagnostic, which checks a machine
-against exact results computed on its own CPU.
+percent from one render to the next. The comparison with the reference ships: the oracle scripts
+in `tools/oracle/` and the `siliconed check` command run it on your Mac, stage by stage, with the
+fingerprints of our goldens to compare yours against; [VERIFY.md](VERIFY.md) says how, and what it
+costs. The measurement journal is not part of this repository. The diagnostic in the app checks a
+machine against exact results computed on its own CPU.
 
 ## Documentation
 
