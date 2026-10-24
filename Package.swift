@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .executable(name: "SiliconedApp", targets: ["SiliconedApp"]),
         .executable(name: "silicontrol", targets: ["Silicontrol"]),
+        .executable(name: "siliconed", targets: ["SiliconedCommand"]),
     ],
     targets: [
         // The current CBLAS headers of Accelerate (the old ones are deprecated since macOS 13.3).
@@ -30,6 +31,13 @@ let package = Package(
         // `Siliconed.app/Contents/Helpers/silicontrol`: a pipe to the running app's socket,
         // Foundation only — it does not link the engine.
         .executableTarget(name: "Silicontrol", dependencies: ["SilicontrolHelp"]),
+        // **`siliconed`, the command line**: `siliconed check` runs every stage of every model against the
+        // reference implementation's goldens (`VERIFY.md`). The stages live in `Verification`, which the
+        // maintainer's tool links too; the executable target is named apart because the file system does
+        // not tell `Siliconed` from `siliconed`.
+        .target(name: "Verification", dependencies: ["Siliconed", "AMXLegacy"],
+                cSettings: [.define("ACCELERATE_NEW_LAPACK")]),
+        .executableTarget(name: "SiliconedCommand", dependencies: ["Verification"]),
         // **The remote control's help**, Foundation only: one text for both sides — `silicontrol`
         // answers `help` without launching the app, the app answers it on its socket.
         .target(name: "SilicontrolHelp"),
@@ -38,7 +46,7 @@ let package = Package(
         // weights. A few tests do touch Metal — the GPU dequantization of synthetic 8-bit maps on
         // the Metal device (`GGUFTests`, `QuantizedMapTests`), an `MPSGraph` built to fail on
         // purpose (`TokenizerAndVAETests`) — on kilobytes, in milliseconds.
-        .testTarget(name: "SiliconedTests", dependencies: ["Siliconed", "SilicontrolHelp"],
+        .testTarget(name: "SiliconedTests", dependencies: ["Siliconed", "SilicontrolHelp", "Verification"],
                     exclude: ["Fixtures"]),
     ]
 )
@@ -49,6 +57,6 @@ let package = Package(
 // A clone without them builds the app and `silicontrol` alone (and the library they link).
 if FileManager.default.fileExists(atPath: Context.packageDirectory + "/Sources/CLI") {
     package.products.append(.executable(name: "siliconed-dev", targets: ["CLI"]))
-    package.targets.append(.executableTarget(name: "CLI", dependencies: ["Siliconed", "AMXLegacy"],
+    package.targets.append(.executableTarget(name: "CLI", dependencies: ["Siliconed", "AMXLegacy", "Verification"],
                                              cSettings: [.define("ACCELERATE_NEW_LAPACK")]))
 }
