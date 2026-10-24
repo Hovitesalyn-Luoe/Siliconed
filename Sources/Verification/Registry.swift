@@ -34,21 +34,14 @@ package enum CheckCommand {
                 }
                 return stage.execute(Array(arguments.dropFirst(2))).exitCode
             }
-            var codes: Set<Int32> = []
-            for stage in kernels {
-                print("\n── \(stage.name)")
-                codes.insert(stage.execute(Array(arguments.dropFirst())).exitCode)
-            }
-            // A failure outranks a skip that comes after it: 64, then 1, then 2, then 0.
-            return [64, 1, 2].first(where: codes.contains) ?? 0
+            return inTurn(kernels.map { ($0.name, $0, Array(arguments.dropFirst())) })
         default:
             let stages = all.filter { $0.model == first }
             guard !stages.isEmpty else {
                 return unknown("model '\(first)'", among: all.reduce(into: []) { if !$0.contains($1.model) { $0.append($1.model) } })
             }
-            guard let name = arguments.dropFirst().first else {
-                print("siliconed check \(first) <stage>: " + stages.map(\.name).joined(separator: " · "))
-                return 64
+            guard let name = arguments.dropFirst().first, !name.hasPrefix("--") else {
+                return inTurn(everyStage(stages, Array(arguments.dropFirst())))
             }
             guard let stage = stages.first(where: { $0.name == name }) else {
                 return unknown("stage '\(name)' of \(first)", among: stages.map(\.name))
@@ -60,8 +53,35 @@ package enum CheckCommand {
     static let usage = """
         siliconed check list [--markdown]              every verified stage: what it proves, its rule, its oracle
         siliconed check kernels [NAME]                 the kernels against their definition, no weights
+        siliconed check <model> [--size S] [--goldens DIR]   every stage, at every size the model's oracle `all` writes
         siliconed check <model> <stage> [--size 512|1024|WxH] [--goldens DIR] …
         """
+
+    /// `check <model>`: each stage at each of its sizes (or at `--size` alone, where the stage has it) and
+    /// in each of its variants — what the oracle's `all` writes. `--long` and `--neural-engine` stay per
+    /// stage, as their goldens stay out of `all`.
+    static func everyStage(_ stages: [Stage], _ arguments: [String]) -> [(String, Stage, [String])] {
+        let size = arguments.firstIndex(of: "--size").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+        return stages.flatMap { stage in
+            (size.map { stage.sizes.contains($0) ? [$0] : [] } ?? stage.sizes).flatMap { s in
+                stage.variants.map { variant in
+                    let sized = size == nil && stage.sizes.count > 1 ? ["--size", s] : []
+                    let title = ["\(stage.model) \(stage.name)"] + (stage.sizes.count > 1 ? [s] : []) + variant
+                    return (title.joined(separator: " "), stage, sized + variant + arguments)
+                }
+            }
+        }
+    }
+
+    /// Runs one after the other. A failure outranks a skip that comes after it: 64, then 1, then 2, then 0.
+    private static func inTurn(_ runs: [(title: String, stage: Stage, arguments: [String])]) -> Int32 {
+        var codes: Set<Int32> = []
+        for run in runs {
+            print("\n── \(run.title)")
+            codes.insert(run.stage.execute(run.arguments).exitCode)
+        }
+        return [64, 1, 2].first(where: codes.contains) ?? 0
+    }
 
     private static func unknown(_ what: String, among: [String]) -> Int32 {
         FileHandle.standardError.write("✗ unknown \(what): \(among.joined(separator: " · "))\n".data(using: .utf8)!)

@@ -4,43 +4,88 @@
 
 Siliconed affirme que chaque étage de chaque modèle qu'il livre calcule ce que calcule l'implémentation de référence. **Cette page montre comment le vérifier soi-même**, sur son Mac, sans nous croire sur parole.
 
-La référence est celle de l'éditeur : [diffusers](https://github.com/huggingface/diffusers) et [transformers](https://github.com/huggingface/transformers), en float32 sur le CPU, avec les poids publiés. Des scripts Python l'exécutent et figent ses réponses en *goldens* ; `siliconed check` fait tourner le moteur sur les mêmes entrées et le juge contre elles, étage par étage.
+La référence est celle de l'éditeur : [diffusers](https://github.com/huggingface/diffusers) et [transformers](https://github.com/huggingface/transformers), en float32 sur le CPU, avec les poids publiés. Des scripts Python de ce dépôt l'exécutent et figent ses réponses en *goldens*. `siliconed check` fait tourner le moteur sur les mêmes entrées et le juge contre elles, étage par étage : encodeur de texte, débruiteur, échantillonneur, décodeur.
 
-## Cinq minutes, sans poids
+Ce qui n'est **pas** affirmé : les mêmes bits que la référence, ni qu'un autre Mac. Le moteur calcule dans un autre ordre sur un autre processeur ; il est jugé sur sa distance à la valeur exacte (la [règle](#la-règle) plus bas), pas sur ses bits.
 
-Les noyaux numériques (tables RoPE, rééchantillonnage, opérations élément par élément du GPU, attention, partage d'un produit matriciel entre GPU et AMX) se vérifient sans aucun modèle.
+## Mise en place
 
-`siliconed` est livré dans l'app (0.15 et suivantes) : c'est le moteur même avec lequel l'app rend, et il tourne sans Xcode. Les scripts d'oracle viennent de ce dépôt, à la version de l'app (Siliconed → À propos l'affiche) :
+Il faut l'app (0.15 ou suivante), Python 3.12, et ce dépôt à la version de l'app (Siliconed → À propos l'affiche). `siliconed` est livré dans l'app : c'est le moteur même avec lequel l'app rend, et il tourne sans Xcode.
 
 ```sh
 alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
 git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Siliconed
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
-oracle-env/bin/python tools/oracle/kernels.py all          # les goldens RoPE et rééchantillonnage, quelques secondes
-siliconed check kernels
 ```
 
 Pour vérifier plutôt votre propre compilation : `swift build -c release --product siliconed` (Xcode 26), puis `.build/release/siliconed` à la place de l'alias.
 
-Chaque étape affiche ses mesures, puis une ligne de verdict, `✓`, `✗` ou `—` (sautée, avec la raison). Le code de sortie dit la même chose : 0 réussi, 1 échoué, 2 sauté, 64 erreur d'usage.
+Chaque étape affiche ses mesures, puis une ligne de verdict : `✓`, `✗`, ou `—` (sautée, avec la raison). Le code de sortie dit la même chose : 0 réussi, 1 échoué, 2 sauté, 64 erreur d'usage. Les goldens vont dans `./goldens`, pour les scripts comme pour les contrôles, sauf si `--goldens DIR` ou `SILICONED_GOLDENS` en dit autrement.
 
-## Une étape de modèle
+## 1 · Les noyaux : cinq minutes, sans poids
 
-Installer d'abord un modèle dans l'app (Z-Image est le plus léger à télécharger) : `siliconed check` lit les poids que l'app a installés, jamais ceux que télécharge l'oracle. Puis, pour l'encodeur de texte :
-
-```sh
-oracle-env/bin/python tools/oracle/z-image.py text         # télécharge une fois les poids de référence
-siliconed check z-image text
-```
-
-`siliconed check list` liste chaque étape, ce qu'elle prouve, comment elle est jugée et quelle commande écrit ses goldens ; la table en bas de page est sa sortie. Les goldens vont dans `./goldens`, sauf si `--goldens DIR` ou `SILICONED_GOLDENS` en dit autrement, pour les scripts comme pour les contrôles. Pour écrire d'un coup tous les goldens d'un modèle : `oracle-env/bin/python tools/oracle/z-image.py all` (de même `qwen-image-2.1.py`, `anima.py`, `krea2.py`) ; ce que ça coûte est plus bas.
-
-**Les prompts longs.** L'app lit jusqu'à 1 024 tokens de prompt et refuse au-delà ; les pipelines de référence coupent à 512 par défaut. `text --long` vérifie l'entre-deux : le script lit `tools/oracle/inputs/long-prompt.txt` (844 tokens pour les tokenizers Qwen, 954 pour le T5 d'Anima), la longueur de séquence de la référence relevée pour que rien n'en soit coupé, et le contrôle lit le même prompt comme l'app l'admet. Comme `bf16`, il est hors de `all` :
+Les noyaux numériques (tables RoPE, rééchantillonnage, opérations élément par élément du GPU, attention, partage d'un produit matriciel entre GPU et AMX) se vérifient sans aucun modèle.
 
 ```sh
-oracle-env/bin/python tools/oracle/z-image.py text --long
-siliconed check z-image text --long
+oracle-env/bin/python tools/oracle/kernels.py all
+siliconed check kernels
 ```
+
+Sur notre MacBook Pro M1 Pro, en 15 secondes :
+
+```
+✓ kernels widen · 7 measures
+✓ kernels arena · 6 measures
+✓ kernels elementwise · 7 measures
+✓ kernels gelu · 1 measure
+✓ kernels sdpa S=4128 · 16 measures
+✓ kernels gemm-split · 9 measures
+✓ kernels rope · 13 measures
+✓ kernels resample · 6 measures
+```
+
+Le [workflow kernels](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/kernels.yml) lance ces deux commandes sur les Mac de GitHub chaque fois que le moteur ou ses contrôles changent. Son GPU est virtuel : les étapes GPU y sont sautées, celles du CPU jugées.
+
+## 2 · Un modèle entier : Anima, dix minutes et 5 Go
+
+Anima est le modèle le plus léger à vérifier de bout en bout. L'installer d'abord dans l'app (Standard) : `siliconed check` lit les poids que l'app a installés, jamais ceux que télécharge l'oracle. Puis :
+
+```sh
+oracle-env/bin/python tools/oracle/anima.py all     # télécharge une fois 5 Go de poids de référence, puis 7 min
+siliconed check anima                               # chaque étape à chaque taille : 2 min 30 s
+```
+
+Sur notre MacBook Pro M1 Pro :
+
+```
+✓ anima tokenizer · 1 measure
+✓ anima text · 9 measures · nearest its threshold: prompt_embeds 1.33e-05 of 5.00e-04
+✓ anima dit 512 · 12 measures · nearest its threshold: model_out per plane 2.13e-06 of 2.51e-06
+✓ anima dit 1024 · 12 measures · nearest its threshold: model_out per plane 2.93e-06 of 4.74e-06
+✓ anima dit 768x512 · 12 measures · nearest its threshold: temb 4.14e-05 of 5.00e-04
+✓ anima trajectory 512 · 9 measures · nearest its threshold: v_6 1.45e-04 of 5.00e-04
+✓ anima trajectory 1024 · 9 measures · nearest its threshold: v_1 5.01e-05 of 5.00e-04
+✓ anima vae 512 · 1 measure · nearest its threshold: image RGB 6.33e-07 of 1.28e-06
+✓ anima vae 1024 · 1 measure · nearest its threshold: image RGB 3.18e-07 of 1.05e-06
+✓ anima vae 768x512 · 2 measures · nearest its threshold: image RGB 3.66e-07 of 1.28e-06
+```
+
+Vos chiffres différeront sur les derniers chiffres : la référence elle-même arrondit autrement sur un autre processeur. Les verdicts, non. Une étape se lance aussi seule, `siliconed check anima dit --size 1024` ; `siliconed check list` les nomme toutes.
+
+## 3 · Tous les modèles
+
+Les deux mêmes commandes, pour chaque modèle : `tools/oracle/<script> all`, puis `siliconed check <modèle>`.
+
+| Modèle | Script | Téléchargement | Oracle, toutes les étapes | Son étape la plus lourde | Contrôle |
+|---|---|---|---|---|---|
+| Z-Image | `z-image.py` | 31 Go | 39 min | la trajectoire 1024² : 14 min, 13,3 Go | 7 min |
+| Qwen-Image-2.1 | `qwen-image-2.1.py` | 30 Go | 27 min | le témoin fp64 du décodeur : 43 s, 15,5 Go | 10 min |
+| Anima | `anima.py` | 5 Go | 7 min | le décodeur 1024² : 1 min, 20,8 Go | 2 min 30 s |
+| Krea 2 | `krea2.py` | 33 Go | 1 h 45 min | les huit témoins fp64 des pas à 1024² : 44 min, 11 Go | 16 min |
+
+Sur un MacBook Pro M1 Pro, 16 Go, temps écoulé. Le téléchargement vient en plus des poids de l'app. L'oracle fait passer le débruiteur bloc par bloc en float32 (celui de Krea 2 pèse 48 Go à cette précision), si bien qu'un Mac de 16 Go exécute chaque script ; une étape dont le pic dépasse la mémoire de la machine (les décodeurs 1024²) tourne en swap et prend plus longtemps.
+
+Deux mesures de Krea 2 passent de peu sur notre Mac : la vitesse `v_2` de la trajectoire en 512² (5,08e-4 pour une tolérance de 5,14e-4) et `block0_attn_out` du débruiteur en 1024² (3,53e-3 pour 3,59e-3). La tolérance se calcule sur l'écart de votre propre référence, elle suit donc les arrondis de votre processeur, et ces deux mesures peuvent échouer d'un cheveu sur un autre Mac. La règle n'est pas desserrée pour elles. Si elles échouent chez vous, une issue avec la sortie de `siliconed check` nous aide à trouver la couche qui porte l'écart.
 
 ## Vos goldens sont-ils les nôtres ?
 
@@ -59,38 +104,35 @@ Le chiffre d'une étape est l'**écart relatif par canal** : pour chaque canal 
     sans témoin :   écart(moteur, référence)  ≤ 5e-4
     avec témoin :   écart(moteur, témoin)     ≤ max(plancher, 1,25 · écart(référence, témoin))
 
-Le *témoin* est le même calcul en float64. Là où il existe, il tranche : le float32 a sa propre erreur d'arrondi, et sur une frontière mal conditionnée la référence elle-même peut être à 4e-3 de la valeur exacte ; le moteur peut alors en être aussi loin que la référence, plus 25 %. La ligne de chaque étape dans `check list` donne sa règle : une identité (tokens, plannings) se juge au bit près, quelques étapes ont un plancher plus serré, et un rectangle se contrôle aussi contre sa transposée, qui doit échouer, pour qu'une hauteur et une largeur inversées ne passent pas.
+Le *témoin* est le même calcul en float64. Là où il existe, il tranche : le float32 a sa propre erreur d'arrondi, et sur une frontière mal conditionnée la référence elle-même peut être à 4e-3 de la valeur exacte ; le moteur peut alors en être aussi loin que la référence, plus 25 %.
 
-Le débruiteur de Krea 2 a quelques frontières si mal conditionnées qu'un changement d'une unité sur le dernier chiffre de l'entrée déplace la sortie de plus que la règle ne permet, référence comprise. Là, une mesure qui échoue au témoin est jugée par *nuages* : la référence et le moteur tournent tous deux sur des entrées décalées d'un ulp, et l'écart médian du moteur doit rester sous 1,25 fois le pire de la référence. Ce sont les étapes dont la règle dit « clouds when the oracle has draws ».
+La ligne de chaque étape dans `check list` donne sa règle. Une identité (tokens, plannings) se juge au bit près. Quelques étapes ont un plancher plus serré. Un rectangle se contrôle aussi contre sa transposée, qui doit échouer, pour qu'une hauteur et une largeur inversées ne passent pas.
 
-Deux mesures de Krea 2 passent de peu sur notre M1 Pro : la vitesse `v_2` de la trajectoire en 512² (5,08e-4 pour une tolérance de 5,14e-4) et `block0_attn_out` du débruiteur en 1024² (3,53e-3 pour 3,59e-3). La tolérance se calcule sur l'écart de votre propre référence, elle suit donc les arrondis de votre processeur, et ces deux mesures peuvent échouer d'un cheveu sur un autre Mac. La règle n'est pas desserrée pour elles ; si elles échouent chez vous, une issue avec la sortie de `siliconed check` nous aide à trouver la couche qui porte l'écart.
+Le débruiteur de Krea 2 a quelques frontières si mal conditionnées qu'un changement d'une unité sur le dernier chiffre de l'entrée déplace la sortie de plus que la règle ne permet, référence comprise. Là, une mesure qui échoue au témoin est jugée par *nuages* : la référence et le moteur tournent tous deux sur des entrées décalées d'un ulp, et l'écart médian du moteur doit rester sous 1,25 fois le pire de la référence. Ce sont les étapes dont la règle dit « clouds when the oracle has draws ».
 
-**Le Neural Engine.** L'app peut partager les produits matriciels du débruiteur avec le Neural Engine du Mac, qui calcule en fp16 ([README](README.fr.md#le-neural-engine)). `--neural-engine` vérifie ce chemin : chaque produit élargi du DiT donne la moitié de ses lignes à l'ANE, le même partage sur tous les Mac et plus qu'aucune carte n'en donne, et l'étape est jugée contre la référence calculée en bf16 sur les mêmes entrées, le moteur ayant droit à l'écart propre au bf16 plus 25 %. Ce calcul bf16 est une étape de script de plus, hors de `all` :
+## Au-delà de `all`
+
+Deux contrôles demandent des goldens que `all` n'écrit pas, chacun par une étape de script de plus. `siliconed check <modèle>` les laisse de côté ; ils se lancent étape par étape.
+
+**Les prompts longs.** L'app lit jusqu'à 1 024 tokens de prompt et refuse au-delà ; les pipelines de référence coupent à 512 par défaut. `text --long` vérifie l'entre-deux : le script lit `tools/oracle/inputs/long-prompt.txt` (844 tokens pour les tokenizers Qwen, 954 pour le T5 d'Anima), la longueur de séquence de la référence relevée pour que rien n'en soit coupé, et le contrôle lit le même prompt comme l'app l'admet.
+
+```sh
+oracle-env/bin/python tools/oracle/z-image.py text --long
+siliconed check z-image text --long
+```
+
+**Le Neural Engine.** L'app peut partager les produits matriciels du débruiteur avec le Neural Engine du Mac, qui calcule en fp16 ([README](README.fr.md#le-neural-engine)). `--neural-engine` vérifie ce chemin : chaque produit élargi du DiT donne la moitié de ses lignes à l'ANE, le même partage sur tous les Mac et plus qu'aucune carte n'en donne, et l'étape est jugée contre la référence calculée en bf16 sur les mêmes entrées, le moteur ayant droit à l'écart propre au bf16 plus 25 %. Le verdict dit combien de produits l'ANE a calculés ; sur un Mac où il n'en calcule aucun, l'étape est sautée. Les étapes `dit` des quatre modèles l'acceptent.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py bf16 --size 1024
 siliconed check z-image dit --size 1024 --neural-engine
 ```
 
-Le verdict dit combien de produits l'ANE a calculés ; sur un Mac où il n'en calcule aucun, l'étape est sautée. Les étapes `dit` des quatre modèles l'acceptent, et l'édition de Qwen-Image-2.1 aussi : `qwen-image-2.1.py bf16 --edit N` écrit la barre de `dit --edit N`.
+L'édition de Qwen-Image-2.1, avec une et deux images de référence, fait partie de son `all` et de `siliconed check qwen-image-2.1` ; une étape seule, c'est `siliconed check qwen-image-2.1 dit --edit 2`. Sa barre sous le Neural Engine s'écrit par `qwen-image-2.1.py bf16 --edit N`.
 
-Ce qui n'est **pas** affirmé : les mêmes bits que la référence, ni qu'un autre Mac. Le moteur calcule dans un autre ordre sur un autre processeur ; il est jugé sur sa distance à la valeur exacte, pas sur ses bits. Les LoRA ne sont pas couvertes ici : ce sont des fichiers que vous choisissez, pas une part de ce que Siliconed livre.
+Les LoRA ne sont pas couvertes ici : ce sont des fichiers que vous choisissez, pas une part de ce que Siliconed livre.
 
-## Ce que ça coûte
-
-Sur un MacBook Pro M1 Pro, 16 Go. Téléchargement : les poids de référence que récupèrent les scripts, en plus de ceux de l'app. Oracle : le `all` des scripts, temps écoulé, puis son étape la plus lourde avec son pic mémoire. Contrôle : `siliconed check` sur toutes les étapes du modèle, temps écoulé.
-
-| Modèle | Téléchargement | Oracle, toutes les étapes | Son étape la plus lourde | Contrôle |
-|---|---|---|---|---|
-| noyaux | — | moins de 5 s | — | quelques secondes |
-| Z-Image | 31 Go | 39 min | la trajectoire 1024² : 14 min, 13,3 Go | 7 min |
-| Qwen-Image-2.1 | 30 Go | 27 min | le témoin fp64 du décodeur : 43 s, 15,5 Go | 10 min |
-| Anima | 5 Go | 7 min | le décodeur 1024² : 1 min, 20,8 Go | 3 min |
-| Krea 2 | 33 Go | 1 h 45 min | les huit témoins fp64 des pas à 1024² : 44 min, 11 Go | 16 min |
-
-L'oracle fait passer le débruiteur bloc par bloc en float32 (celui de Krea 2 pèse 48 Go à cette précision), si bien qu'un Mac de 16 Go exécute chaque script ; une étape dont le pic dépasse la mémoire de la machine (les décodeurs 1024²) tourne en swap et prend plus longtemps.
-
-## Les étapes
+## Toutes les étapes
 
 La sortie de `siliconed check list --markdown`, telle que la commande l'écrit, en anglais. `{size}` vaut 512, 1024 ou un rectangle comme 768x512 ; les étapes sans taille se contrôlent à celle de la référence.
 

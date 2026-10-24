@@ -15,6 +15,9 @@ package struct Stage: Sendable {
     package let sizes: [String]
     /// Options beyond `Invocation.common`.
     package let options: Set<String>
+    /// The argument sets `check <model>` runs at each size, one per golden the oracle's `all` writes
+    /// (Qwen-Image-2.1's `--edit 1`, `--edit 2`); `[[]]`, the stage as it stands.
+    package let variants: [[String]]
     /// The script that writes the stage's goldens and its arguments, `nil` for a stage judged against
     /// a definition (a kernel against double precision, a bit-exact identity).
     package let oracle: String?
@@ -26,12 +29,13 @@ package struct Stage: Sendable {
     package let run: @Sendable (Invocation) throws -> Report
 
     package init(model: String, name: String, proves: String, sizes: [String] = ["512"], options: Set<String> = [],
-                 oracle: String?, weights: [String], rule: String, run: @escaping @Sendable (Invocation) throws -> Report) {
+                 variants: [[String]] = [[]], oracle: String?, weights: [String], rule: String, run: @escaping @Sendable (Invocation) throws -> Report) {
         self.model = model
         self.name = name
         self.proves = proves
         self.sizes = sizes
         self.options = options
+        self.variants = variants
         self.oracle = oracle
         self.weights = weights
         self.rule = rule

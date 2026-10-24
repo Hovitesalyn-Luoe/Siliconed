@@ -133,4 +133,20 @@ final class VerificationRegistryTests: XCTestCase {
         XCTAssertEqual(Command.run(["check", "kernels"], stages: [skips, fails]), 1)
         XCTAssertEqual(Command.run(["check", "kernels"], stages: [skips]), 2)
     }
+
+    func testAModelAloneRunsEveryStageAtEverySize() {
+        let stages = Registry.stages.filter { $0.model == "anima" }
+        let runs = CheckCommand.everyStage(stages, ["--goldens", "g"])
+        XCTAssertEqual(runs.map(\.0), ["anima tokenizer", "anima text", "anima dit 512", "anima dit 1024", "anima dit 768x512",
+                                       "anima trajectory 512", "anima trajectory 1024",
+                                       "anima vae 512", "anima vae 1024", "anima vae 768x512"])
+        XCTAssertEqual(runs[3].2, ["--size", "1024", "--goldens", "g"])
+        XCTAssertEqual(runs[0].2, ["--goldens", "g"])
+        let at1024 = CheckCommand.everyStage(stages, ["--size", "1024"])
+        XCTAssertEqual(at1024.map(\.0), ["anima dit 1024", "anima trajectory 1024", "anima vae 1024"])
+        XCTAssertEqual(at1024[0].2, ["--size", "1024"])
+        let qwen = CheckCommand.everyStage(Registry.stages.filter { $0.model == "qwen-image-2.1" }, [])
+        XCTAssertEqual(qwen.filter { $0.1.name == "dit" }.map(\.2), [[], ["--edit", "1"], ["--edit", "2"]])
+        XCTAssert(qwen.map(\.0).contains("qwen-image-2.1 references --side 443"))
+    }
 }

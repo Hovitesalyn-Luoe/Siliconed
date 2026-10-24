@@ -16,6 +16,8 @@ enum QwenImageStages {
     static let all: [Stage] = [text, vision, references, dit, trajectory, vae, vaeEncode]
 
     static let model = "qwen-image-2.1"
+    /// Generation, then editing with one and two pictures: what the oracle's `all` writes for a stage.
+    static let edits: [[String]] = [[], ["--edit", "1"], ["--edit", "2"]]
     /// The test pictures, by number of references.
     static let pictures = [1: ["two-women-cloudy-window.png"], 2: ["two-women-cloudy-window.png", "border-collie.png"]]
 
@@ -30,7 +32,7 @@ enum QwenImageStages {
     static let text = Stage(
         model: model, name: "text",
         proves: "Qwen3-VL-8B reads the prompt (and with --edit N, the N pictures; with --long, a prompt past 512 tokens): template, identifiers, positions, 36 layers, prompt_embeds",
-        options: ["--edit", "--long"], oracle: "tools/oracle/qwen-image-2.1.py text [--edit N]; text --long", weights: ["text encoder"],
+        options: ["--edit", "--long"], variants: edits, oracle: "tools/oracle/qwen-image-2.1.py text [--edit N]; text --long", weights: ["text encoder"],
         rule: "identifiers and masks bit for bit; the rule, floor 5e-4 (with images, the deep layers judged on their text rows)"
     ) { invocation in
         if let n = invocation.edit {
@@ -184,7 +186,7 @@ enum QwenImageStages {
     static let references = Stage(
         model: model, name: "references",
         proves: "a reference with transparency, prepared as the pipeline does: the VAE's RGBA input and the vision copy over white (at 512, Pillow premultiplies around its Lanczos; at 443 it copies)",
-        options: ["--side"], oracle: "tools/oracle/qwen-image-2.1.py references [--side 443]", weights: [],
+        options: ["--side"], variants: [[], ["--side", "443"]], oracle: "tools/oracle/qwen-image-2.1.py references [--side 443]", weights: [],
         rule: "bit for bit; the vision copy on its bytes (the Pil and Fast processors differ by 6e-8 in float)"
     ) { invocation in
         // `--side`: the reference's prepared side, not an image size — 443 is where the 512×384 test
@@ -211,7 +213,7 @@ enum QwenImageStages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation three ways — prefill of the conditions, the step from their K/V cache, the full pass under the block-causal mask — plus the layout and the modulation",
-        options: ["--edit", "--map", "--neural-engine"],
+        options: ["--edit", "--map", "--neural-engine"], variants: edits,
         oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine, bf16 [--edit N]", weights: ["DiT"],
         rule: "layout bit for bit; the rule, floor 5e-4, at the fp64 witness where one exists; cache and full pass ≤ 1e-5 apart; a second step the same bits; with --neural-engine, against bf16's own error + 25 %, cache and full pass too"
     ) { invocation in
@@ -343,7 +345,7 @@ enum QwenImageStages {
     static let trajectory = Stage(
         model: model, name: "trajectory",
         proves: "the 8 steps: σ, timesteps and noise to the bit, then each step's velocity from the oracle's latent and encoder states; the product's free run from the real inputs is shown",
-        options: ["--edit", "--map"],
+        options: ["--edit", "--map"], variants: edits,
         oracle: "tools/oracle/qwen-image-2.1.py trajectory [--edit N]", weights: ["DiT", "text encoder", "VAE"],
         rule: "schedule and noise bit for bit; the rule on each guided velocity, floor 5e-4; the free run's final latent and image are shown, not judged"
     ) { invocation in
@@ -432,7 +434,7 @@ enum QwenImageStages {
     static let vae = Stage(
         model: model, name: "vae",
         proves: "the decoder on the trajectory's final latent (with --edit N, the edit's): unpacking and de-normalization to the bit, then the RGBA image plane by plane",
-        options: ["--edit"], oracle: "tools/oracle/qwen-image-2.1.py vae [--edit N]; vae-witness", weights: ["VAE"],
+        options: ["--edit"], variants: edits, oracle: "tools/oracle/qwen-image-2.1.py vae [--edit N]; vae-witness", weights: ["VAE"],
         rule: "vae_in bit for bit; the rule per plane, floor 5e-4, at the fp64 witness where one exists; on a rectangle, the transposed image must deviate"
     ) { invocation in
         let tag = invocation.edit.map { "-edit\($0)" } ?? ""

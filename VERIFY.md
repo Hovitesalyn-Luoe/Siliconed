@@ -4,43 +4,88 @@ English · [Français](VERIFY.fr.md)
 
 Siliconed claims that each stage of each model it ships computes what the reference implementation computes. **This page shows how to check that claim yourself**, on your Mac, without trusting our figures.
 
-The reference is the publisher's own: [diffusers](https://github.com/huggingface/diffusers) and [transformers](https://github.com/huggingface/transformers), in float32 on the CPU, with the published weights. Python scripts run it and freeze its answers into *goldens*; `siliconed check` runs the engine on the same inputs and judges it against them, stage by stage.
+The reference is the publisher's own: [diffusers](https://github.com/huggingface/diffusers) and [transformers](https://github.com/huggingface/transformers), in float32 on the CPU, with the published weights. Python scripts in this repository run it and freeze its answers into *goldens*. `siliconed check` runs the engine on the same inputs and judges it against them, stage by stage: text encoder, denoiser, sampler, decoder.
 
-## Five minutes, no weights
+What is **not** claimed: the same bits as the reference, or as another Mac. The engine computes in another order on another device; it is judged on how close it comes to the exact value (the [rule](#the-rule) below), not on its bits.
 
-The numerical kernels (RoPE tables, resampling, the GPU's element-wise operations, attention, the split of a matrix product between GPU and AMX) are checked without any model.
+## Setting up
 
-`siliconed` ships inside the app (0.15 and later): it is the very engine the app renders with, and running it needs no Xcode. The oracle scripts come from this repository, at the app's version (Siliconed → About shows it):
+You need the app (0.15 or later), Python 3.12, and this repository at the app's version (Siliconed → About shows it). `siliconed` ships inside the app: it is the very engine the app renders with, and it runs without Xcode.
 
 ```sh
 alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
 git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Siliconed
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
-oracle-env/bin/python tools/oracle/kernels.py all          # the RoPE and resampling goldens, seconds
-siliconed check kernels
 ```
 
 To check your own build instead: `swift build -c release --product siliconed` (Xcode 26), then `.build/release/siliconed` in place of the alias.
 
-Each stage prints its measures, then one verdict line, `✓`, `✗` or `—` (skipped, and why). The exit code says the same: 0 passed, 1 failed, 2 skipped, 64 a usage error.
+Each stage prints its measures, then one verdict line: `✓`, `✗`, or `—` (skipped, and why). The exit code says the same: 0 passed, 1 failed, 2 skipped, 64 a usage error. Goldens go to `./goldens`, for the scripts and the checks alike, unless `--goldens DIR` or `SILICONED_GOLDENS` says otherwise.
 
-## One model stage
+## 1 · The kernels: five minutes, no weights
 
-Install a model in the app first (Z-Image is the smallest download): `siliconed check` reads the weights the app installed, never the ones the oracle downloads. Then, for the text encoder:
-
-```sh
-oracle-env/bin/python tools/oracle/z-image.py text         # downloads the reference weights once
-siliconed check z-image text
-```
-
-`siliconed check list` lists every stage, what it proves, how it is judged and which command writes its goldens; the table below is its output. Goldens go to `./goldens` unless `--goldens DIR` or `SILICONED_GOLDENS` says otherwise, for the scripts and the checks alike. To write every golden of a model at once, `oracle-env/bin/python tools/oracle/z-image.py all` (likewise `qwen-image-2.1.py`, `anima.py`, `krea2.py`); what it costs is below.
-
-**Long prompts.** The app reads up to 1,024 tokens of prompt and refuses a longer one; the reference pipelines cut at 512 by default. `text --long` checks the stretch between the two: the script reads `tools/oracle/inputs/long-prompt.txt` (844 tokens for the Qwen tokenizers, 954 for Anima's T5) with the reference's sequence length raised so that none of it is cut, and the check reads the same prompt the way the app admits it. Like `bf16`, it is not part of `all`:
+The numerical kernels (RoPE tables, resampling, the GPU's element-wise operations, attention, the split of a matrix product between GPU and AMX) are checked without any model.
 
 ```sh
-oracle-env/bin/python tools/oracle/z-image.py text --long
-siliconed check z-image text --long
+oracle-env/bin/python tools/oracle/kernels.py all
+siliconed check kernels
 ```
+
+On our MacBook Pro M1 Pro, in 15 seconds:
+
+```
+✓ kernels widen · 7 measures
+✓ kernels arena · 6 measures
+✓ kernels elementwise · 7 measures
+✓ kernels gelu · 1 measure
+✓ kernels sdpa S=4128 · 16 measures
+✓ kernels gemm-split · 9 measures
+✓ kernels rope · 13 measures
+✓ kernels resample · 6 measures
+```
+
+The [kernels workflow](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/kernels.yml) runs these two commands on GitHub's Macs each time the engine or its checks change. Its GPU is virtual, so the GPU stages are skipped there; the CPU ones are judged.
+
+## 2 · One whole model: Anima, ten minutes and 5 GB
+
+Anima is the lightest model to check end to end. Install it in the app first (Standard): `siliconed check` reads the weights the app installed, never the ones the oracle downloads. Then:
+
+```sh
+oracle-env/bin/python tools/oracle/anima.py all     # downloads 5 GB of reference weights once, then 7 min
+siliconed check anima                               # every stage at every size: 2 min 30 s
+```
+
+On our MacBook Pro M1 Pro:
+
+```
+✓ anima tokenizer · 1 measure
+✓ anima text · 9 measures · nearest its threshold: prompt_embeds 1.33e-05 of 5.00e-04
+✓ anima dit 512 · 12 measures · nearest its threshold: model_out per plane 2.13e-06 of 2.51e-06
+✓ anima dit 1024 · 12 measures · nearest its threshold: model_out per plane 2.93e-06 of 4.74e-06
+✓ anima dit 768x512 · 12 measures · nearest its threshold: temb 4.14e-05 of 5.00e-04
+✓ anima trajectory 512 · 9 measures · nearest its threshold: v_6 1.45e-04 of 5.00e-04
+✓ anima trajectory 1024 · 9 measures · nearest its threshold: v_1 5.01e-05 of 5.00e-04
+✓ anima vae 512 · 1 measure · nearest its threshold: image RGB 6.33e-07 of 1.28e-06
+✓ anima vae 1024 · 1 measure · nearest its threshold: image RGB 3.18e-07 of 1.05e-06
+✓ anima vae 768x512 · 2 measures · nearest its threshold: image RGB 3.66e-07 of 1.28e-06
+```
+
+Your figures will differ in the last digits: the reference itself rounds differently on another CPU. The verdicts should not. A stage can also be run alone, `siliconed check anima dit --size 1024`; `siliconed check list` names them all.
+
+## 3 · Every model
+
+The same two commands, for each model: `tools/oracle/<script> all`, then `siliconed check <model>`.
+
+| Model | Script | Download | Oracle, every stage | Its heaviest stage | Check |
+|---|---|---|---|---|---|
+| Z-Image | `z-image.py` | 31 GB | 39 min | the 1024² trajectory: 14 min, 13.3 GB | 7 min |
+| Qwen-Image-2.1 | `qwen-image-2.1.py` | 30 GB | 27 min | the fp64 decoder witness: 43 s, 15.5 GB | 10 min |
+| Anima | `anima.py` | 5 GB | 7 min | the 1024² decoder: 1 min, 20.8 GB | 2 min 30 s |
+| Krea 2 | `krea2.py` | 33 GB | 1 h 45 min | the eight fp64 step witnesses at 1024²: 44 min, 11 GB | 16 min |
+
+On a MacBook Pro M1 Pro, 16 GB, wall time. The download comes on top of the app's own weights. The oracle streams the denoiser block by block in float32 (Krea 2's is 48 GB at that precision), so a 16 GB Mac runs every script; a stage whose peak passes the machine's memory (the 1024² decoders) runs in swap and takes longer.
+
+Two Krea 2 measures pass with little to spare on our Mac: the velocity `v_2` of the 512² trajectory (5.08e-4 for an allowance of 5.14e-4) and `block0_attn_out` of the 1024² denoiser (3.53e-3 for 3.59e-3). The allowance is computed from your reference's own error, so it moves with your CPU's rounding, and these two may fail by a hair on another Mac. The rule is not loosened for them. If they fail on yours, an issue with the output of `siliconed check` helps us find which layer carries the gap.
 
 ## Are your goldens ours?
 
@@ -59,38 +104,35 @@ A stage's figure is the **relative error per channel**: for each channel (the la
     without a witness:   error(engine, reference)  ≤ 5e-4
     with a witness:      error(engine, witness)    ≤ max(floor, 1.25 · error(reference, witness))
 
-The *witness* is the same computation in float64. Where it exists, it decides: float32 has its own rounding error, and on an ill-conditioned boundary the reference itself can be 4e-3 away from the exact value; the engine may then be no further from the exact value than the reference is, plus 25 %. Each stage's line in `check list` gives its own rule: an identity (tokens, schedules) is judged bit for bit, a few stages have a tighter floor, and a rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
+The *witness* is the same computation in float64. Where it exists, it decides: float32 has its own rounding error, and on an ill-conditioned boundary the reference itself can be 4e-3 away from the exact value; the engine may then be no further from the exact value than the reference is, plus 25 %.
+
+Each stage's line in `check list` gives its own rule. An identity (tokens, schedules) is judged bit for bit. A few stages have a tighter floor. A rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
 
 Krea 2's denoiser has a few boundaries so ill-conditioned that a change of one unit in the last place of the input moves the output by more than the rule allows, the reference included. There, a measure that fails at the witness is judged by *clouds*: the reference and the engine are both run on inputs moved by one ulp, and the engine's median error must stay within 1.25 times the reference's worst. These are the stages whose rule says "clouds when the oracle has draws".
 
-Two Krea 2 measures pass with little to spare on our M1 Pro: the velocity `v_2` of the 512² trajectory (5.08e-4 for an allowance of 5.14e-4) and `block0_attn_out` of the 1024² denoiser (3.53e-3 for 3.59e-3). The allowance is computed from your reference's own error, so it moves with your CPU's rounding, and these two may fail by a hair on another Mac. The rule is not loosened for them; if they fail on yours, an issue with the output of `siliconed check` helps us find which layer carries the gap.
+## Beyond `all`
 
-**The Neural Engine.** The app can share the denoiser's matrix products with the Mac's Neural Engine, which computes in fp16 ([README](README.md#the-neural-engine)). `--neural-engine` checks that path: every widened product of the DiT gives half its rows to the ANE, the same split on every Mac and more than any map gives, and the stage is judged against the reference run in bf16 on the same inputs, the engine allowed bf16's own error plus 25 %. That bf16 run is one more script stage, not part of `all`:
+Two checks need goldens that `all` does not write, each from one more script stage. `siliconed check <model>` leaves them out; they run stage by stage.
+
+**Long prompts.** The app reads up to 1,024 tokens of prompt and refuses a longer one; the reference pipelines cut at 512 by default. `text --long` checks the stretch between the two: the script reads `tools/oracle/inputs/long-prompt.txt` (844 tokens for the Qwen tokenizers, 954 for Anima's T5) with the reference's sequence length raised so that none of it is cut, and the check reads the same prompt the way the app admits it.
+
+```sh
+oracle-env/bin/python tools/oracle/z-image.py text --long
+siliconed check z-image text --long
+```
+
+**The Neural Engine.** The app can share the denoiser's matrix products with the Mac's Neural Engine, which computes in fp16 ([README](README.md#the-neural-engine)). `--neural-engine` checks that path: every widened product of the DiT gives half its rows to the ANE, the same split on every Mac and more than any map gives, and the stage is judged against the reference run in bf16 on the same inputs, the engine allowed bf16's own error plus 25 %. The verdict says how many products the ANE computed; on a Mac where it computes none, the stage is skipped. The `dit` stages of the four models take it.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py bf16 --size 1024
 siliconed check z-image dit --size 1024 --neural-engine
 ```
 
-The verdict says how many products the ANE computed; on a Mac where it computes none, the stage is skipped. The `dit` stages of the four models take it, and Qwen-Image-2.1's editing too: `qwen-image-2.1.py bf16 --edit N` writes the bar of `dit --edit N`.
+Qwen-Image-2.1's editing, with one and two reference pictures, is part of its `all` and of `siliconed check qwen-image-2.1`; one stage alone is `siliconed check qwen-image-2.1 dit --edit 2`. Its Neural Engine bar is written by `qwen-image-2.1.py bf16 --edit N`.
 
-What is **not** claimed: the same bits as the reference, or as another Mac. The engine computes in another order on another device; it is judged on how close it comes to the exact value, not on its bits. LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
+LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
 
-## What it costs
-
-On a MacBook Pro M1 Pro, 16 GB. Download: the reference weights the scripts fetch, beside the app's own. Oracle: the scripts' `all`, wall time, then its heaviest stage with its peak memory. Check: `siliconed check` over every stage of the model, wall time.
-
-| Model | Download | Oracle, every stage | Its heaviest stage | Check |
-|---|---|---|---|---|
-| kernels | — | under 5 s | — | a few seconds |
-| Z-Image | 31 GB | 39 min | the 1024² trajectory: 14 min, 13.3 GB | 7 min |
-| Qwen-Image-2.1 | 30 GB | 27 min | the fp64 decoder witness: 43 s, 15.5 GB | 10 min |
-| Anima | 5 GB | 7 min | the 1024² decoder: 1 min, 20.8 GB | 3 min |
-| Krea 2 | 33 GB | 1 h 45 min | the eight fp64 step witnesses at 1024²: 44 min, 11 GB | 16 min |
-
-The oracle streams the denoiser block by block in float32 (Krea 2's is 48 GB at that precision), so a 16 GB Mac runs every script; a stage whose peak passes the machine's memory (the 1024² decoders) runs in swap and takes longer.
-
-## The stages
+## Every stage
 
 The output of `siliconed check list --markdown`. `{size}` is 512, 1024 or a rectangle such as 768x512; the stages that take no size are checked at the reference's own.
 
