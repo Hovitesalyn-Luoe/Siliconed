@@ -49,8 +49,8 @@ import Foundation
 package final class NeuralEngine: @unchecked Sendable {
     /// The ANE's rows come in this unit: an odd multiple of 128 costs about the next multiple of 256.
     package static let rowUnit = 256
-    /// Below this height the GPU alone: a program's fixed cost buys nothing on so few rows.
-    package static let minimumRows = 1024
+    /// Below this height the GPU alone (`ane_min`, 1024 by default).
+    package static let minimumRows = EngineSettings.effective.aneMinimumRows
 
     /// The GPU's share of the rows; the ANE takes the rest, rounded to `rowUnit`. Frozen in a render
     /// (`ane_fraction`); the map moves it to find the share that balances both sides.

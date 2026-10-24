@@ -115,8 +115,8 @@ extension Judge {
     }
 }
 
-/// **`--neural-engine`: the DiT's products shared with the Neural Engine**, half of every widened product's
-/// rows, whatever this Mac's map or profile says: the same split on every Mac, and more of the ANE than a
+/// **`--neural-engine`: the DiT's products shared with the Neural Engine**, half the rows of every widened product
+/// of 512 rows or more, whatever this Mac's map or profile says: the same split on every Mac, and more of the ANE than a
 /// map gives — the strictest case. The ANE computes in fp16, so the stage is judged against the reference
 /// run in bf16 (`HalfPrecisionReference`). Set through the environment, which has the last word over the
 /// profile, before anything reads the engine's settings; the tally then says what the ANE computed.
@@ -125,8 +125,12 @@ package enum NeuralEngineRun {
         setenv("SILICONED_GEMM_ANE", "1", 1)
         setenv("SILICONED_ANE_FRACTION", "0.5", 1)
         setenv("SILICONED_ANE_SHARES", "", 1)
+        // Every product of 512 rows or more, not only those the render's threshold takes (1024): the
+        // conditions of an edit (1 021 rows for a short prompt) and its steps (988 at 512²) included.
+        setenv("SILICONED_ANE_MIN", "\(2 * NeuralEngine.rowUnit)", 1)
         let settings = EngineSettings.effective
-        guard settings.gemmANE, settings.aneFraction == 0.5, settings.aneShares.isEmpty else {
+        guard settings.gemmANE, settings.aneFraction == 0.5, settings.aneShares.isEmpty,
+              settings.aneMinimumRows == 2 * NeuralEngine.rowUnit else {
             throw UsageError("--neural-engine: the engine's settings were read before it")
         }
     }

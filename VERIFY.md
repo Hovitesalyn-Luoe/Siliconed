@@ -121,7 +121,7 @@ oracle-env/bin/python tools/oracle/z-image.py text --long
 siliconed check z-image text --long
 ```
 
-**The Neural Engine.** The app can share the denoiser's matrix products with the Mac's Neural Engine, which computes in fp16 ([README](README.md#the-neural-engine)). `--neural-engine` checks that path: every widened product of the DiT gives half its rows to the ANE, the same split on every Mac and more than any map gives, and the stage is judged against the reference run in bf16 on the same inputs, the engine allowed bf16's own error plus 25 %. The verdict says how many products the ANE computed; on a Mac where it computes none, the stage is skipped. The `dit` stages of the four models take it.
+**The Neural Engine.** The app can share the denoiser's matrix products with the Mac's Neural Engine, which computes in fp16 ([README](README.md#the-neural-engine)). `--neural-engine` checks that path: every widened product of the DiT with 512 rows or more gives half its rows to the ANE, the same split on every Mac and more than any map gives (a render leaves products under 1,024 rows to the GPU), and the stage is judged against the reference run in bf16 on the same inputs, the engine allowed bf16's own error plus 25 %. The verdict says how many products the ANE computed; on a Mac where it computes none, the stage is skipped. The `dit` stages of the four models take it.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py bf16 --size 1024

@@ -126,6 +126,9 @@ package struct EngineSettings: Sendable {
     /// The GPU's share of the rows when `gemm_ane` is on; the ANE takes the rest by 256 rows. A machine
     /// setting, frozen: each row is one engine's, the same seed gives the same bits.
     package var aneFraction = 0.5
+    /// Below this height, the GPU alone: a program's fixed cost buys nothing on so few rows. Lowered only
+    /// by a check that must put every product on the ANE (`siliconed check … --neural-engine`).
+    package var aneMinimumRows = 1024
     /// The GPU's share beside the ANE per weight shape and height (`ane_shares`, `Conductor.Shares`' text),
     /// set by the map from its grid; with it, `aneFraction` only serves the shapes it cannot place.
     package var aneShares = Conductor.Shares.none
@@ -375,6 +378,7 @@ package struct EngineSettings: Sendable {
         read("SILICONED_GEMM_Q8", "gemm_q8")
         read("SILICONED_GEMM_ANE", "gemm_ane")
         read("SILICONED_ANE_FRACTION", "ane_fraction")
+        read("SILICONED_ANE_MIN", "ane_min")
         read("SILICONED_ANE_SHARES", "ane_shares")
         read("SILICONED_SPECTRAL", "spectral")
         read("SILICONED_VAE_BLOCK", "vae_bloc_requetes")
@@ -468,6 +472,7 @@ package struct EngineSettings: Sendable {
         flag("gemm_ane", &gemmANE)
         real("ane_fraction", &aneFraction)
         aneFraction = min(max(aneFraction, 0), 1)
+        integer("ane_min", &aneMinimumRows)
         if let raw = values["ane_shares"] {
             if let shares = Conductor.Shares(text: "\(raw)") { aneShares = shares; provenance["ane_shares"] = source }
             else { warnings.append("⚠ « ane_shares » unreadable (\(raw)): the scalar share applies.") }
@@ -521,7 +526,7 @@ package struct EngineSettings: Sendable {
             ("gemm_int8", "\(gemmInt8)"),
             ("gemm_q8", "\(gemmQ8)"),
             ("gemm_ane", "\(gemmANE)"),
-            ("ane_fraction", String(format: "%.3f", aneFraction)),
+            ("ane_fraction", String(format: "%.3f", aneFraction)), ("ane_min", "\(aneMinimumRows)"),
             ("ane_shares", aneShares.isEmpty ? "none" : "\(aneShares.points.count) points"),
             ("spectral", "\(spectral)"),
             ("vae_bloc_requetes", "\(vaeRequestBlock)"),
@@ -541,7 +546,7 @@ package struct EngineSettings: Sendable {
             "coupe_figee": frozenCut,
             "flash": flash, "head_split": headSplit,
             "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
-            "gemm_ane": gemmANE, "ane_fraction": aneFraction, "ane_shares": aneShares.description,
+            "gemm_ane": gemmANE, "ane_fraction": aneFraction, "ane_min": aneMinimumRows, "ane_shares": aneShares.description,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,
         ]
