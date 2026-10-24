@@ -2,7 +2,7 @@ English · [Français](README.fr.md)
 
 # Siliconed
 
-**Image generation for Apple silicon that measures your Mac, picks its kernels for your chip, does the full computation, checks it against the reference, and never takes more memory than its budget.**
+**Generate and edit images on your Mac, locally, with recent open-weight models: computed in full precision, checked against the original code, and never using more memory than a fixed budget.**
 
 Siliconed is a free, open-source macOS app for **local text-to-image generation and AI image editing** on Apple silicon Macs (M1 and later). It runs recent diffusion models — [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo), [Qwen-Image-2.1 Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) and [Anima Turbo](https://huggingface.co/circlestone-labs/Anima) — natively in Swift and Metal: no Python, no server, no cloud, nothing leaves your Mac. It works offline once a model is installed.
 
@@ -14,10 +14,13 @@ Siliconed is a free, open-source macOS app for **local text-to-image generation 
 
 *A photo from Krea 2 Turbo, edited by Qwen-Image-2.1 with one sentence (“Convert this photo to a western comic book style with cel shading”, seed 42, 215 s on an M1 Pro), compared under the curtain.*
 
+## Download
+
+The app ships as a `.dmg` on the [Releases](https://github.com/gwenn-ha-dev/Siliconed/releases) page. Requirements: macOS 15 or later, Apple silicon. Models install from inside the app; you choose which ones. To build it yourself: [Build from source](docs/ENGINE.md#build-from-source).
+
 ## What it does
 
-- **Generates images from text and edits them by instruction.** Qwen-Image-2.1 Turbo takes 1 to 3 images and a sentence (“replace the cloudy sky with a blue sky”).
-- **Four models**, each under its own license: Krea 2 Turbo, Z-Image Turbo, Qwen-Image-2.1 Turbo and Anima Turbo, all with LoRA support. Licenses, sizes and sources: [Models](docs/APP.md#models).
+- **Generates images from text and edits them by instruction.** Qwen-Image-2.1 Turbo takes 1 to 3 images and a sentence (“replace the cloudy sky with a blue sky”). Which model for what, with licenses and sizes: [Models](docs/APP.md#models).
 - **Explores before it commits.** A grid of quick sketches across seeds, steps, LoRA strengths or models; the cell you pick becomes the finished image.
 - **Takes your own models.** Import LoRAs and fine-tunes from Civitai or Hugging Face.
 - **Local and private.** Rendering happens on your Mac, with no content filter added by the app. It follows the system language (English, French, German, Spanish or Italian).
@@ -27,14 +30,11 @@ More about the app: [docs/APP.md](docs/APP.md).
 
 ## What sets it apart
 
+- **Fast, without cutting corners.** Z-Image Turbo at 1024² in 84.5 s on a MacBook Pro M1 Pro with 16 GB, in fp32, with the 8 evaluations its recipe calls for (by default the first three at half size). [All the numbers](docs/ENGINE.md#numbers).
+- **Large models on a 16 GB Mac.** 34 GB of model run on a 16 GB Mac: weights are read from disk as they are needed, and Siliconed never takes more than ¾ of the Mac's memory minus 2 GB. Each render works out what it needs before it starts; one beyond the budget is refused up front. [How it is measured](docs/ENGINE.md#memory-and-the-budget).
 - **Checked against the original models.** Every stage is compared, channel by channel, with the reference implementation (diffusers / transformers in fp32 on CPU), and what cannot be checked does not ship. Run the checks yourself: [VERIFY.md](VERIFY.md).
-- **Never more memory than its budget.** The budget is ¾ of the Mac's memory minus 2 GB. Each render works out what it needs before it starts, and a render beyond the budget is refused up front. [How it is measured](docs/ENGINE.md#memory-and-the-budget).
-- **It measures your Mac and picks its kernels.** Before the first render, in about a minute and without any model, it times its kernels on your chip and checks every result against the exact one. A kernel turns on only if it computed right and beat the default. [What it decided on an M1 Pro](docs/ENGINE.md#an-engine-measured-on-your-mac).
+- **Tuned to your Mac.** Before the first render, in about a minute and without any model, it times its kernels on your chip and checks every result against the exact one; a kernel turns on only if it computed right and beat the default. [What it decided on an M1 Pro](docs/ENGINE.md#an-engine-measured-on-your-mac).
 - **Measured next to Draw Things** on the same Mac, with the method and every figure: [Next to Draw Things](docs/ENGINE.md#next-to-draw-things).
-
-## Download
-
-The app ships as a `.dmg` on the [Releases](https://github.com/gwenn-ha-dev/Siliconed/releases) page. Requirements: macOS 15 or later, Apple silicon. The timings in [the engine page](docs/ENGINE.md#numbers) were measured with 16 GB of memory. To build it yourself: [Build from source](docs/ENGINE.md#build-from-source).
 
 ## Documentation
 

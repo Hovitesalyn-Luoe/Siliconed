@@ -10,13 +10,6 @@
 
 Le moteur derrière elle, avec les mesures : [Le moteur de Siliconed](ENGINE.fr.md).
 
-## En bref
-
-- **Fait pour être piloté par une IA.** `silicontrol` pilote l'app ouverte depuis un terminal, en sortie JSON ; `silicontrol help` est tout ce qu'un agent a besoin de lire.
-- **Vos modèles, à votre façon.** Importez LoRA et fine-tunes depuis Civitai ou Hugging Face, installez en pleine taille, en 8 bits ou en 4 à 6 bits, et voyez chaque licence et la place disque avant le premier octet téléchargé.
-- **Explorer avant de choisir.** Une grille d'esquisses rapides à travers graines, pas, forces de LoRA, modèles ou variantes du prompt ; la case choisie devient l'image finie.
-- **Reproductible au bit près.** Même prompt, même graine, mêmes réglages, même version, sur le même Mac : la même image, octet pour octet. Une version peut changer les pixels : la 0.12 le fait, de quelques unités sur le dernier chiffre, maintenant que son arithmétique arrondit comme la référence.
-
 ## Créer
 
 - **Quatre modèles.** Krea 2 Turbo, Z-Image Turbo, Qwen-Image-2.1 Turbo et Anima Turbo, chacun sous sa propre licence ([Les modèles](#les-modèles)). Tous quatre lisent le prompt avec un modèle de langage.
@@ -26,6 +19,7 @@ Le moteur derrière elle, avec les mesures : [Le moteur de Siliconed](ENGINE.fr
 - **Les variations** : des cousines d'une image, subtiles ou marquées, aux mêmes réglages.
 - **Agrandir ×4** avec la super-résolution de macOS (macOS 26) : aucun prompt, rien d'ajouté, bords et textures affinés ; 1024² devient 4096² en une ou deux secondes.
 - **Les LoRA** sur les quatre modèles.
+- **Reproductible au bit près.** Même prompt, même graine, mêmes réglages, même version, sur le même Mac : la même image, octet pour octet. Une version peut changer les pixels : la 0.12 le fait, de quelques unités sur le dernier chiffre, maintenant que son arithmétique arrondit comme la référence.
 
 Chaque côté doit être d'au moins 512 et multiple de 16 ; la surface n'a pas de plafond. Ce qu'un format coûte se calcule sur les formes du modèle avant le premier calcul et se juge contre le budget mémoire du Mac (les ¾ de sa RAM moins 2 Gio) : un Mac qui ne peut pas le tenir le refuse, et dit lequel le peut. Les formats au-delà de 1024×1536 sont chiffrés par les mêmes formules ; Anima Turbo en 2048² a été rendu sur le Mac de référence de 16 Go, avec un pic de 5,4 Go. Sous 512² les modèles sont hors de leur domaine. Qwen-Image-2.1 veut des multiples de 32 (son VAE divise par 16), et Anima au plus 2048 px de côté (les positions que sa référence calcule) ; l'un et l'autre sont refusés avant tout calcul, de même que tout côté au-delà de 8192 px.
 
@@ -79,7 +73,7 @@ Seulement des modèles récents dont l'encodeur de texte est un modèle de langa
 
 ### Krea 2 Turbo, le plus gros des quatre
 
-[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), de Krea, est le quatrième modèle, arrivé dans la 0.12 : un DiT de 12,9 milliards de paramètres, le plus gros des quatre, pour des images esthétiques, de la photographie à la peinture. Il lit le prompt avec Qwen3-VL-4B et fait toute sa recette de 8 évaluations en fp32 sur les poids bf16 de l'éditeur : **1024² en 145,6 s, 1024×1536 en 216,9 s sur un M1 Pro de 16 Go** avec le [rendu plus rapide](ENGINE.fr.md#rendu-plus-rapide), allumé par défaut (221,1 s et 355,3 s avec toutes les évaluations en pleine taille), ses 34,4 Go lus depuis le disque dans le budget mémoire. La sortie de son débruiteur est à 2,6·10⁻⁴ de la référence fp32 à 1024². Il s'installe en Standard, Compact ou Légère (34,4, 19,5 ou 12,8 Go), depuis des copies ouvertes prouvées identiques aux fichiers de Krea ([pourquoi](#les-modèles)), sous la licence Krea 2 Community : usage commercial sous 1 M$ de chiffre d'affaires annuel, un filtre de contenu obligatoire au déploiement.
+[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), de Krea, est le quatrième modèle, arrivé dans la 0.12 : un DiT de 12,9 milliards de paramètres, le plus gros des quatre, pour des images esthétiques, de la photographie à la peinture. Il lit le prompt avec Qwen3-VL-4B et fait toute sa recette de 8 évaluations en fp32 sur les poids bf16 de l'éditeur, avec le [rendu plus rapide](ENGINE.fr.md#rendu-plus-rapide) allumé par défaut (temps et écarts : [Les chiffres](ENGINE.fr.md#les-chiffres)), ses poids lus depuis le disque dans le budget mémoire. Il s'installe en Standard, Compact ou Légère (tailles : [La gestion des modèles](#la-gestion-des-modèles)), depuis des copies ouvertes prouvées identiques aux fichiers de Krea ([pourquoi](#les-modèles)), sous la licence Krea 2 Community : usage commercial sous 1 M$ de chiffre d'affaires annuel, un filtre de contenu obligatoire au déploiement.
 
 ![Une photo de Krea 2 Turbo en 1248×832, en contre-plongée : une jeune Irlandaise aux longs cheveux auburn ondulés et aux taches de rousseur, en combinaison shorty à manches courtes, qui sort des vagues en riant, sa planche de surf sous le bras, à contre-jour d’un soleil doré bas avec un reflet d’objectif, des embruns lumineux, une eau turquoise et un ciel bleu profond](images/krea2.jpg)
 

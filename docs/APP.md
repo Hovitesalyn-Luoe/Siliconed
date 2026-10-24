@@ -10,13 +10,6 @@ English · [Français](APP.fr.md)
 
 The engine behind it, with the measurements: [The Siliconed engine](ENGINE.md).
 
-## In short
-
-- **Built to be driven by an AI.** `silicontrol` drives the running app from a terminal, with JSON output; `silicontrol help` is all an agent needs to read.
-- **Your models, your way.** Import LoRAs and fine-tunes from Civitai or Hugging Face, install full-size, in 8 bits or in 4 to 6 bits, and see each license and the disk space before the first byte is downloaded.
-- **Explore before you commit.** A grid of quick sketches across seeds, steps, LoRA strengths, models or prompt variants; the cell you pick becomes the finished image.
-- **Reproducible to the bit.** Same prompt, seed, settings and version on the same Mac, same image, byte for byte. A version may change the pixels: 0.12 does, by a few units in the last place, now that its arithmetic rounds as the reference does.
-
 ## Create
 
 - **Four models.** Krea 2 Turbo, Z-Image Turbo, Qwen-Image-2.1 Turbo and Anima Turbo, each under its own license ([Models](#models)). All four read the prompt with a language model.
@@ -26,6 +19,7 @@ The engine behind it, with the measurements: [The Siliconed engine](ENGINE.md).
 - **Variations**: new takes on an image, subtle or strong, with the same settings.
 - **Enlarge ×4** with macOS's own super-resolution (macOS 26): no prompt, nothing added, edges and texture sharpened; 1024² becomes 4096² in a second or two.
 - **LoRAs** on all four models.
+- **Reproducible to the bit.** Same prompt, seed, settings and version on the same Mac, same image, byte for byte. A version may change the pixels: 0.12 does, by a few units in the last place, now that its arithmetic rounds as the reference does.
 
 Each side must be at least 512 and a multiple of 16; the area has no ceiling. What a format costs is computed from the model's shapes before the first computation and judged against the Mac's memory budget (¾ of its RAM minus 2 GiB): a Mac that cannot hold it is refused, and told which one can. Formats past 1024×1536 are priced by the same formulas; Anima Turbo at 2048² was rendered on the 16 GB reference Mac, peaking at 5.4 GB. Below 512² the models are outside their domain. Qwen-Image-2.1 needs multiples of 32 (its VAE divides by 16), and Anima at most 2048 px on a side (the positions its reference computes); both are refused before any computation, and so is any side past 8192 px.
 
@@ -79,7 +73,7 @@ Only recent models whose text encoder is a language model — no Stable Diffusio
 
 ### Krea 2 Turbo, the largest of the four
 
-[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), by Krea, is the fourth model, added in 0.12: a 12.9-billion-parameter DiT, the largest of the four, for aesthetic images from photography to painting. It reads the prompt with Qwen3-VL-4B and runs its whole 8-evaluation recipe in fp32 on the publisher's bf16 weights: **1024² in 145.6 s, 1024×1536 in 216.9 s on a 16 GB M1 Pro** with [Faster Rendering](ENGINE.md#faster-rendering), on by default (221.1 s and 355.3 s with every evaluation at full size), its 34.4 GB streamed from disk within the memory budget. Its denoiser's output differs from the fp32 reference by 2.6·10⁻⁴ at 1024². It installs as Standard, Compact or Light (34.4, 19.5 or 12.8 GB), from open copies proven to be identical to Krea's files ([why](#models)), under the Krea 2 Community license: commercial use under $1M of annual revenue, a content filter required when deployed.
+[Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), by Krea, is the fourth model, added in 0.12: a 12.9-billion-parameter DiT, the largest of the four, for aesthetic images from photography to painting. It reads the prompt with Qwen3-VL-4B and runs its whole 8-evaluation recipe in fp32 on the publisher's bf16 weights, with [Faster Rendering](ENGINE.md#faster-rendering) on by default (times and deviations: [Numbers](ENGINE.md#numbers)), its weights streamed from disk within the memory budget. It installs as Standard, Compact or Light (sizes: [Model management](#model-management)), from open copies proven to be identical to Krea's files ([why](#models)), under the Krea 2 Community license: commercial use under $1M of annual revenue, a content filter required when deployed.
 
 ![A Krea 2 Turbo photo at 1248×832, low angle: a young Irish woman with long wavy auburn hair and freckles, in a short-sleeved shorty wetsuit, running out of the surf laughing with her surfboard under her arm, backlit by a low golden sun with lens flare, glowing spray, turquoise water and a deep blue sky](images/krea2.jpg)
 
