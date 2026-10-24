@@ -19,7 +19,7 @@ enum QwenImageStages {
     /// Generation, then editing with one and two pictures: what the oracle's `all` writes for a stage.
     static let edits: [[String]] = [[], ["--edit", "1"], ["--edit", "2"]]
     /// The test pictures, by number of references.
-    static let pictures = [1: ["two-women-cloudy-window.png"], 2: ["two-women-cloudy-window.png", "border-collie.png"]]
+    static let pictures = [1: ["surfer-raincoat-cloudy-beach.png"], 2: ["surfer-raincoat-cloudy-beach.png", "border-collie-beach.png"]]
 
     static func encoder() throws -> (Artifact, Tokenizer) {
         let library = Library.processWide

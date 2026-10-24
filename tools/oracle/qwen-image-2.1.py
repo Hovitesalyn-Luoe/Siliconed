@@ -106,11 +106,11 @@ from common import Checkpoint, Streamed
 REPOSITORY = "Qwen/Qwen-Image-2.1-Turbo"
 PROMPT = "a 30 year old woman posing in a library"
 EDIT_PROMPTS = {
-    1: "Replace the cloudy sky in the window with a clear blue sky, and adapt the light on the women accordingly.",
-    2: "Remove the second woman, on the right in the red sweater, from <image1>, and put the dog from <image2> "
+    1: "Replace the cloudy sky with a clear blue sky, and adapt the light on the women accordingly.",
+    2: "Remove the second woman, on the right in the yellow raincoat, from <image1>, and put the dog from <image2> "
        "in her place, lit like the rest of <image1>.",
 }
-EDIT_IMAGES = {1: ["two-women-cloudy-window.png"], 2: ["two-women-cloudy-window.png", "border-collie.png"]}
+EDIT_IMAGES = {1: ["surfer-raincoat-cloudy-beach.png"], 2: ["surfer-raincoat-cloudy-beach.png", "border-collie-beach.png"]}
 ALPHA_PICTURE = "rgba-512x384.png"
 SEED = 0
 RESOLUTION = 512
