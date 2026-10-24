@@ -25,21 +25,23 @@ enum Krea2Stages {
 
     static let text = Stage(
         model: model, name: "text",
-        proves: "the prompt's identifiers, the 12 Qwen3-VL taps (padding removed, judged against states computed with it), then the fusion and txt_in on the oracle's taps",
-        oracle: "tools/oracle/krea2.py text", weights: ["text encoder", "DiT (the fusion)"],
+        proves: "the prompt's identifiers, the 12 Qwen3-VL taps (padding removed, judged against states computed with it), then the fusion and txt_in on the oracle's taps (with --long, a prompt past 512 tokens read whole, as the app admits it: no fusion golden for it)",
+        options: ["--long"], oracle: "tools/oracle/krea2.py text [--long]", weights: ["text encoder", "DiT (the fusion)"],
         rule: "identifiers bit for bit; the rule, floor 5e-4"
     ) { invocation in
-        let report = Report(title: "\(model) text")
-        let goldens = try invocation.goldens.open("krea2/goldens-krea2-text.safetensors")
-        let dit512 = try invocation.goldens.open("krea2/goldens-krea2-dit-512.safetensors")
-        guard let prompt = try invocation.goldens.manifest("krea2/goldens-krea2-text")["prompt"] as? String,
+        let stem = invocation.long ? "krea2/goldens-krea2-text-long" : "krea2/goldens-krea2-text"
+        let report = Report(title: "\(model) text\(invocation.long ? " --long" : "")")
+        let goldens = try invocation.goldens.open(stem + ".safetensors")
+        guard let prompt = try invocation.goldens.manifest(stem)["prompt"] as? String,
               let paddedIds = goldens.int32("ids"), let mask = goldens.int32("mask"),
               let validEntry = goldens.entries["hidden_valid"], let oracleHidden = goldens.float32("hidden_valid") else {
             throw Skip("\(goldens.path): prompt, ids, mask or hidden_valid missing")
         }
         // The reference pads in the middle and masks: its valid tokens are the engine's whole prompt.
         let valid = zip(paddedIds, mask).filter { $0.1 != 0 }.map { $0.0 }
-        let ids = Krea2Text.identifiers(prompt, tokenizer: try Tokenizer(directory: try Library.processWide.component(.krea2, "tokenizer")))
+        // `identifiers` keeps the reference's default cut; past it, the app's admission is what a render reads.
+        let tokenizer = try Tokenizer(directory: try Library.processWide.component(.krea2, "tokenizer"))
+        let ids = invocation.long ? try Krea2Text.admitted(prompt, tokenizer: tokenizer) : Krea2Text.identifiers(prompt, tokenizer: tokenizer)
         let tokens = valid.withUnsafeBufferPointer { Judge.integers("tokens", ids, $0) }
         report.add(tokens)
         guard tokens.passed else { return report }
@@ -59,6 +61,9 @@ enum Krea2Stages {
                 Judge.boundary("tap \(sockets[slot])", engine: engine, oracle: $0, columns: width)
             })
         }
+        // The fusion's golden is the 512² DiT evaluation's, on the short prompt.
+        guard !invocation.long else { return report }
+        let dit512 = try invocation.goldens.open("krea2/goldens-krea2-dit-512.safetensors")
         let fusion = try Krea2TextFusion(artifact: try Artifact(path: try invocation.ditMap(ditMap)), maxTokens: t)
         fusion.recordBoundaries = true
         let fused = try fusion.fuse(oracleHidden.baseAddress!, tokens: t)

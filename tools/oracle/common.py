@@ -30,6 +30,12 @@ REVISIONS = {
     "krea/Krea-2-Turbo": "98e0fe118d17c9e3547fbb2e25acdbae2cadf7c7",
 }
 
+# The long prompt of `text --long`: 844 Qwen tokens, 954 T5 tokens, past the 512 the reference pipelines
+# cut at by default and inside the 1,024 the engine reads (template excluded). The pipelines are given
+# `max_sequence_length=LONG_SEQUENCE_LENGTH`, so nothing of it is cut on either side.
+LONG_PROMPT = (Path(__file__).resolve().parent / "inputs" / "long-prompt.txt").read_text().strip()
+LONG_SEQUENCE_LENGTH = 1024
+
 # ------------------------------------------------------------------------------------ the folder
 
 

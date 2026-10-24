@@ -39,17 +39,19 @@ enum AnimaStages {
 
     static let text = Stage(
         model: model, name: "text",
-        proves: "the prompt through both tokenizers, Qwen3-0.6B (final norm included) and the conditioner, to the DiT's [512, 1024] context",
-        oracle: "tools/oracle/anima.py text", weights: ["text encoder", "DiT (the conditioner)"],
+        proves: "the prompt through both tokenizers, Qwen3-0.6B (final norm included) and the conditioner, to the DiT's [512, 1024] context (with --long, a prompt past 512 tokens: more rows)",
+        options: ["--long"], oracle: "tools/oracle/anima.py text [--long]", weights: ["text encoder", "DiT (the conditioner)"],
         rule: "identifiers bit for bit; the rule, floor 5e-4"
     ) { invocation in
-        let report = Report(title: "\(model) text")
-        let goldens = try invocation.goldens.open("anima/goldens-anima-text.safetensors")
-        guard let prompt = try invocation.goldens.manifest("anima/goldens-anima-text")["prompt"] as? String else {
-            throw Skip("goldens-anima-text.json: no prompt")
+        let stem = invocation.long ? "anima/goldens-anima-text-long" : "anima/goldens-anima-text"
+        let report = Report(title: "\(model) text\(invocation.long ? " --long" : "")")
+        let goldens = try invocation.goldens.open(stem + ".safetensors")
+        guard let prompt = try invocation.goldens.manifest(stem)["prompt"] as? String else {
+            throw Skip("\(stem).json: no prompt")
         }
         let qwenIds = try Tokenizer(directory: try Library.processWide.component(.anima, "tokenizer")).encode(prompt)
-        let t5Ids = try T5Tokenizer(directory: try Library.processWide.component(.anima, "t5_tokenizer")).encode(prompt)
+        // Uncut, as the app reads it (`AnimaModules.encoder`); the reference cuts at its `max_sequence_length`.
+        let t5Ids = try T5Tokenizer(directory: try Library.processWide.component(.anima, "t5_tokenizer")).encode(prompt, maxLength: .max)
         report.add(Judge.integers("Qwen tokens", qwenIds, goldens.int32("qwen_ids")))
         report.add(Judge.integers("T5 tokens", t5Ids, goldens.int32("t5_ids")))
         let encoder = try TextEncoder(artifact: try Artifact(path: Library.processWide.map("qwen3-0.6b-encoder.v0.silicon")),

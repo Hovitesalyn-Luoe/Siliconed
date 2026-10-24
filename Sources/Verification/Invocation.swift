@@ -4,7 +4,7 @@ import Siliconed
 // **One check's arguments, the same grammar for every stage**:
 //
 //     siliconed check <model> <stage> [--size 512|1024|WxH] [--edit N] [--goldens DIR] [--map PATH] [--profile]
-//                                     [--neural-engine]
+//                                     [--neural-engine] [--long]
 //
 // Named options only, no positional magic: `--size` is the only thing that names a size, so a number
 // meant for something else is never taken for one. An option a stage does not accept is a usage
@@ -24,6 +24,8 @@ package struct Invocation: Sendable {
     package let profile: Bool
     /// `--neural-engine`: the DiT's products shared with the Neural Engine (`NeuralEngineRun`).
     package let neuralEngine: Bool
+    /// `--long`: the text stages on the oracle's long prompt (past 512 tokens), golden `…-text-long`.
+    package let long: Bool
     package let goldens: Goldens
     /// A stage's own options (`--sequence 256`), by name, the last value given.
     package let extras: [String: String]
@@ -63,12 +65,13 @@ package struct Invocation: Sendable {
         profile = flags.contains("--profile")
         neuralEngine = flags.contains("--neural-engine")
         if neuralEngine { try NeuralEngineRun.enable() }
+        long = flags.contains("--long")
         goldens = Goldens(directory: values["--goldens"]?.last)
         extras = values.compactMapValues(\.last).filter { !Self.known.contains($0.key) }
     }
 
     /// The options that take no value.
-    private static let flags: Set<String> = ["--profile", "--neural-engine"]
+    private static let flags: Set<String> = ["--profile", "--neural-engine", "--long"]
 
     /// The options parsed above; any other accepted option lands in `extras`.
     private static let known: Set<String> = ["--size", "--goldens", "--edit", "--map"]

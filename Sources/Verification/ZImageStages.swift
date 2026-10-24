@@ -18,34 +18,40 @@ enum ZImageStages {
 
     static let tokenizer = Stage(
         model: "z-image", name: "tokenizer",
-        proves: "the chat template and the tokenizer give transformers' 512 identifiers and mask, padding included",
-        oracle: "tools/oracle/z-image.py text", weights: ["tokenizer"], rule: "bit for bit"
+        proves: "the chat template and the tokenizer give transformers' 512 identifiers and mask, padding included, and the app's admission the same real tokens (with --long, past 512: 1024)",
+        options: ["--long"], oracle: "tools/oracle/z-image.py text [--long]", weights: ["tokenizer"], rule: "bit for bit"
     ) { invocation in
-        let report = Report(title: "z-image tokenizer")
+        let stem = invocation.long ? "goldens-text-long" : "goldens-text"
+        let report = Report(title: "z-image tokenizer\(invocation.long ? " --long" : "")")
         let tokenizer = try Tokenizer(directory: try Library.processWide.component(.zImage, "tokenizer"))
-        let goldens = try invocation.goldens.open("goldens-text.safetensors")
+        let goldens = try invocation.goldens.open(stem + ".safetensors")
         guard let truth = goldens.int32("input_ids"), let mask = goldens.int32("attention_mask") else {
             throw Skip("\(goldens.path): no input_ids or attention_mask")
         }
         // The prompt lives in one place, the oracle's, which writes it beside the goldens.
-        let info = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: invocation.goldens.path("goldens-text.json")))) as? [String: Any]
-        guard let prompt = info?["prompt"] as? String else { throw Skip("goldens-text.json holds no prompt") }
+        guard let prompt = try invocation.goldens.manifest(stem)["prompt"] as? String else { throw Skip("\(stem).json holds no prompt") }
         let (ids, ours) = tokenizer.encodeChat(user: prompt, maxLength: truth.count)
         // All 512, padding included: the wrong padding token gives right features (the extraction is
         // masked) and a wrong encoder, found three stages later.
         report.add(Judge.identity("input_ids", differing: (0..<ids.count).filter { ids[$0] != Int(truth[$0]) }.count, of: ids.count))
         report.add(Judge.identity("attention_mask", differing: (0..<ours.count).filter { ours[$0] != Int(mask[$0]) }.count, of: ours.count))
+        // What a render reads: the same real tokens, admitted whole, unpadded.
+        let real = (0..<mask.count).filter { mask[$0] != 0 }.map { truth[$0] }
+        do {
+            let admitted = try tokenizer.admitChat(user: prompt)
+            report.add(real.withUnsafeBufferPointer { Judge.integers("admitted (the app's path)", admitted, $0) })
+        } catch { report.add(Judge.holds("admitted (the app's path)", false, note: "\(error)")) }
         return report
     }
 
     static let text = Stage(
         model: "z-image", name: "text",
-        proves: "the Qwen3-4B encoder gives the reference's hidden states, layer by layer, and its cap_feats",
-        oracle: "tools/oracle/z-image.py text", weights: ["text encoder"], rule: "the rule, floor 2e-4"
+        proves: "the Qwen3-4B encoder gives the reference's hidden states, layer by layer, and its cap_feats (with --long, on a prompt past 512 tokens)",
+        options: ["--long"], oracle: "tools/oracle/z-image.py text [--long]", weights: ["text encoder"], rule: "the rule, floor 2e-4"
     ) { invocation in
-        let report = Report(title: "z-image text")
+        let report = Report(title: "z-image text\(invocation.long ? " --long" : "")")
         let artifact = try Artifact(path: Library.processWide.map("qwen3-4b-encoder.v0.silicon"))
-        let goldens = try invocation.goldens.open("goldens-text.safetensors")
+        let goldens = try invocation.goldens.open(invocation.long ? "goldens-text-long.safetensors" : "goldens-text.safetensors")
         guard let truthIds = goldens.int32("input_ids"), let mask = goldens.int32("attention_mask") else {
             throw Skip("\(goldens.path): no input_ids or attention_mask")
         }
@@ -60,7 +66,7 @@ enum ZImageStages {
             let name = "layer\(layer)_out"
             guard let expected = goldens.float32(name) else { continue }
             guard let got = encoder.boundaries[name] else { report.add(Judge.missing(name)); continue }
-            // The reference is padded to 512: the computed positions only.
+            // The reference is padded (512, or 1024 with --long): the computed positions only.
             let kept = min(got.count, real * width)
             report.add(Judge.boundary(name, engine: Array(got.prefix(kept)), oracle: UnsafeBufferPointer(rebasing: expected.prefix(kept)),
                                       columns: width, floor: 2e-4))

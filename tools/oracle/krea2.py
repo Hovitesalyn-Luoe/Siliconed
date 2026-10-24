@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Krea 2 Turbo's goldens: what `siliconed check krea2 <stage>` judges the engine against.
 
-    krea2.py text                              template, tokenizer, Qwen3-VL; the 12 taps    -> goldens-krea2-text
+    krea2.py text [--long]                     template, tokenizer, Qwen3-VL; the 12 taps    -> goldens-krea2-text[-long]
     krea2.py dit --size 512 [1024 768x512]     one DiT evaluation at the first sigma         -> goldens-krea2-dit-<size>
     krea2.py bf16 --size 512 [1024 768x512]    the same evaluation in bfloat16               -> witness-bf16-krea2-dit-<size>
     krea2.py trajectory --size 512 [1024]      the 8-step Euler loop                         -> goldens-krea2-trajectory-<size>
@@ -135,7 +135,8 @@ def make_pipeline(**modules):
     return pipe
 
 
-def stage_text():
+def stage_text(prompt: str = PROMPT, length: int = MAX_SEQUENCE_LENGTH, stem: str = "goldens-krea2-text"):
+    """`--long`: `common.LONG_PROMPT`, the pipeline's `max_sequence_length` raised to keep all of it."""
     encoder = load_text_encoder()
     layers = encoder.language_model.layers
     inputs_of = {}
@@ -150,9 +151,9 @@ def stage_text():
     pipe = make_pipeline(text_encoder=encoder)
     # The identifiers, recomputed here with the same call as the reference, to record them.
     prefix_idx = pipe.prompt_template_encode_start_idx
-    text_tokens = pipe.tokenizer([pipe.prompt_template_encode_prefix + PROMPT], truncation=True,
+    text_tokens = pipe.tokenizer([pipe.prompt_template_encode_prefix + prompt], truncation=True,
                                  padding="max_length",
-                                 max_length=MAX_SEQUENCE_LENGTH + prefix_idx - pipe.prompt_template_encode_num_suffix_tokens,
+                                 max_length=length + prefix_idx - pipe.prompt_template_encode_num_suffix_tokens,
                                  return_tensors="pt")
     suffix = pipe.tokenizer([pipe.prompt_template_encode_suffix], return_tensors="pt")
     ids = torch.cat([text_tokens.input_ids, suffix.input_ids], dim=1)[0]
@@ -161,7 +162,7 @@ def stage_text():
     assert prefix_alone.shape[0] == prefix_idx, f"template: {prefix_alone.shape[0]} tokens, {prefix_idx} expected"
     assert torch.equal(ids[:prefix_idx], prefix_alone), "the template does not tokenize the same alone and followed by the prompt"
 
-    hidden, hidden_mask = pipe.get_text_hidden_states(PROMPT, MAX_SEQUENCE_LENGTH, device=torch.device("cpu"))
+    hidden, hidden_mask = pipe.get_text_hidden_states(prompt, length, device=torch.device("cpu"))
     hidden, hidden_mask = hidden[0], hidden_mask[0]
     assert torch.equal(hidden_mask, mask[prefix_idx:])
 
@@ -182,8 +183,9 @@ def stage_text():
                # two whole layers, to locate a deviation: the first tapped and the last
                "layer2_in_valid": inputs_of[2][mask][prefix_idx:],
                "layer35_in_valid": inputs_of[35][mask][prefix_idx:]}
-    write("goldens-krea2-text", payload, {
-        "prefix_tokens": prefix_idx, "real_tokens": real, "valid_after_prefix": int(valid.numel()),
+    assert real < ids.shape[0], f"{real} tokens: the prompt was cut at {length}"
+    write(stem, payload, {
+        "prompt": prompt, "max_sequence_length": length, "prefix_tokens": prefix_idx, "real_tokens": real, "valid_after_prefix": int(valid.numel()),
         "select_layers": list(select)})
 
 
@@ -596,6 +598,7 @@ def main() -> None:
     p.add_argument("--witness-steps", type=int, nargs="+", default=list(range(8)),
                    help="all only: the steps whose whole evaluation is taken in float64 (default: all eight)")
     p.add_argument("--draws", type=int, default=0, help="all only: jitters 1..N of every step's draw (default 0: none)")
+    p.add_argument("--long", action="store_true", help="text only: the long prompt, past 512 tokens -> goldens-krea2-text-long")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
     OUT = common.goldens_directory(args.goldens) / "krea2"
@@ -603,7 +606,7 @@ def main() -> None:
     if args.stage == "all":
         everything(common.goldens_directory(args.goldens), args.size or ["512", "1024", "768x512"], args.witness_steps, args.draws)
     elif args.stage == "text":
-        stage_text()
+        stage_text(common.LONG_PROMPT, common.LONG_SEQUENCE_LENGTH, "goldens-krea2-text-long") if args.long else stage_text()
         return
     sizes = args.size or ["512"]
     jitters = args.jitter if args.stage == "draw" else [0]

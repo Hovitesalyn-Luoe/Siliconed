@@ -2,7 +2,7 @@
 """Anima Turbo v1.1's goldens: what `siliconed check anima <stage>` judges the engine against.
 
     anima.py tokenizer                      the T5 tokenizer on a corpus of edge cases -> anima/t5-corpus.json
-    anima.py text                           both tokenizers, Qwen3-0.6B, the conditioner -> goldens-anima-text
+    anima.py text [--long]                  both tokenizers, Qwen3-0.6B, the conditioner -> goldens-anima-text[-long]
     anima.py dit --size 512 [1024 768x512]  one DiT evaluation at the first sigma       -> goldens-anima-dit-<size>
     anima.py bf16 --size 1024               the same evaluation in bfloat16             -> witness-bf16-anima-dit-<size>
     anima.py trajectory --size 512 [1024]   the 8-step Euler loop                       -> goldens-anima-trajectory-<size>
@@ -212,17 +212,18 @@ def stage_tokenizer():
     print(f"-> {OUT / 't5-corpus.json'} ({len(out)} cases)")
 
 
-def stage_text():
+def stage_text(prompt: str = PROMPT, length: int = MAX_SEQUENCE_LENGTH, stem: str = "goldens-anima-text"):
     """Reproduces `AnimaTextEncoderStep` + `AnimaConditionStep`: no chat template, "longest" padding (hence
     none for a single prompt), `last_hidden_state` (final norm INCLUDED, unlike Z-Image), then the
-    conditioner, padded to 512 with zeros."""
+    conditioner, padded to 512 with zeros (a minimum: a longer text keeps its rows). `--long`:
+    `common.LONG_PROMPT`, `max_sequence_length` raised for both tokenizers."""
     from transformers import AutoTokenizer, Qwen3Model
     from transformers import T5TokenizerFast
     tokenizer = AutoTokenizer.from_pretrained(base() / "tokenizer")
     t5 = T5TokenizerFast.from_pretrained(base() / "t5_tokenizer")
-    qwen_inputs = tokenizer([PROMPT], padding="longest", max_length=MAX_SEQUENCE_LENGTH,
+    qwen_inputs = tokenizer([prompt], padding="longest", max_length=length,
                             truncation=True, return_tensors="pt")
-    t5_inputs = t5([PROMPT], padding="longest", max_length=MAX_SEQUENCE_LENGTH,
+    t5_inputs = t5([prompt], padding="longest", max_length=length,
                    truncation=True, return_tensors="pt")
 
     encoder = Qwen3Model.from_pretrained(base() / "text_encoder", torch_dtype=torch.float32).eval()
@@ -243,7 +244,10 @@ def stage_text():
     payload = {"qwen_ids": qwen_inputs.input_ids[0].to(torch.int32),
                "t5_ids": t5_inputs.input_ids[0].to(torch.int32),
                "qwen_last_hidden": qwen[0], "prompt_embeds": embeds[0], **probes, **taps}
-    write("goldens-anima-text", payload, {
+    for inputs in (qwen_inputs, t5_inputs):
+        assert inputs.input_ids.shape[1] < length, f"{inputs.input_ids.shape[1]} tokens: the prompt was cut at {length}"
+    write(stem, payload, {
+        "prompt": prompt, "max_sequence_length": length,
         "qwen_tokens": int(qwen_inputs.input_ids.shape[1]),
         "t5_tokens": int(t5_inputs.input_ids.shape[1])})
 
@@ -508,6 +512,7 @@ def main() -> None:
     p.add_argument("--size", nargs="+", default=None,
                    help="512, 1024 or WIDTHxHEIGHT (dit, vae: a rectangle too; default 512, all: every size)")
     p.add_argument("--step", type=int, default=0, help="witness only: the step of the trajectory (default 0, the one the check reads)")
+    p.add_argument("--long", action="store_true", help="text only: the long prompt, past 512 tokens -> goldens-anima-text-long")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
     OUT = common.goldens_directory(args.goldens) / "anima"
@@ -517,7 +522,7 @@ def main() -> None:
     elif args.stage == "tokenizer":
         stage_tokenizer()
     elif args.stage == "text":
-        stage_text()
+        stage_text(common.LONG_PROMPT, common.LONG_SEQUENCE_LENGTH, "goldens-anima-text-long") if args.long else stage_text()
     else:
         for size in args.size or ["512"]:
             if args.stage == "witness":

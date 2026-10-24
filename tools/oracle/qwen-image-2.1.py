@@ -2,10 +2,11 @@
 """Qwen-Image-2.1 Turbo's goldens: what `siliconed check qwen-image-2.1 <stage>` judges the engine against.
 
     qwen-image-2.1.py text [--edit N]       Qwen3-VL-8B reads the prompt (and N pictures) -> qwen21/goldens-qwen21-text[-image-N]
+    qwen-image-2.1.py text --long           the same on the long prompt, past 512 tokens  -> qwen21/goldens-qwen21-text-long
     qwen-image-2.1.py vision                the vision tower, picture by picture          -> goldens-qwen21-vision
     qwen-image-2.1.py references [--side S] a picture with transparency, prepared          -> goldens-qwen21-preprocess-alpha-S
     qwen-image-2.1.py dit [--edit N]        one DiT evaluation, three ways                 -> goldens-qwen21-dit[-editN]-512
-    qwen-image-2.1.py bf16                  that evaluation in bfloat16                    -> witness-bf16-qwen21-dit-512
+    qwen-image-2.1.py bf16 [--edit N]       that evaluation in bfloat16                    -> witness-bf16-qwen21-dit[-editN]-512
     qwen-image-2.1.py witness               that evaluation in float64                     -> witness-qwen21-f64-512
     qwen-image-2.1.py trajectory [--edit N] the 8-step sampler                             -> goldens-qwen21-trajectory[-editN]-512
     qwen-image-2.1.py vae [--edit N]        the decoder on the trajectory's final latent   -> goldens-qwen21-vae[-editN]-512
@@ -13,8 +14,8 @@
     qwen-image-2.1.py vae-witness           the VAE in float64                             -> witness-qwen21-vae-f64-512
     qwen-image-2.1.py all                   every stage above, in an order that satisfies their dependencies
 
-`bf16` is the bar of a half-precision path (the ANE's fp16 products): the generation `dit` golden's
-evaluation with the reference in bfloat16, on that golden's inputs. It is not part of `all` (costly, and only
+`bf16` is the bar of a half-precision path (the ANE's fp16 products): the `dit` golden's evaluation (with
+`--edit N`, the edit's) with the reference in bfloat16, on that golden's inputs. It is not part of `all` (costly, and only
 that path reads it).
 
 Goldens go in `<goldens>/qwen21/`. The pictures they read ship in `tools/oracle/inputs/` and are copied to
@@ -332,8 +333,9 @@ def capture_encoder_call(encoder, record: dict, stop: bool):
     return encoder.register_forward_pre_hook(hook, with_kwargs=True)
 
 
-def stage_text(n: int):
-    """`n = 0`: the generation prompt; `n >= 1`: the edit prompt with its N pictures (`text --edit N`)."""
+def stage_text(n: int, long: bool = False):
+    """`n = 0`: the generation prompt; `n >= 1`: the edit prompt with its N pictures (`text --edit N`);
+    `long`: `common.LONG_PROMPT`, generation only. The pipeline cuts no prompt (no `max_sequence_length`)."""
     encoder = load_text_encoder()
     n_layers = len(encoder.model.language_model.layers)
     if n == 0:
@@ -351,7 +353,8 @@ def stage_text(n: int):
         result["image"] = kwargs.get("image")
         raise Captured
     pipe.encode_prompt = encode_prompt
-    run_pipeline(pipe, n, RESOLUTION)
+    prompt = common.LONG_PROMPT if long else EDIT_PROMPTS[n] if n else PROMPT
+    run_pipeline(pipe, n, RESOLUTION, prompt=prompt)
 
     prompt_embeds, mask, image_pad_mask = result["out"]
     assert mask is None, "single prompt: the pipeline drops an all-true mask"
@@ -374,7 +377,7 @@ def stage_text(n: int):
     payload = {"ids": ids.to(torch.int32), "prompt_embeds": prompt_embeds[0],
                "image_pad_mask": image_pad_mask[0].to(torch.int32),
                "inv_freq": rope.inv_freq.float(), **taps}
-    extra = {"prompt": EDIT_PROMPTS[n] if n else PROMPT, "tokens": len(ids), "drop_idx": drop,
+    extra = {"prompt": prompt, "tokens": len(ids), "drop_idx": drop,
              "embeds": prompt_embeds.shape[1], "last_layer": n_layers - 1,
              "mrope_section": list(rope.mrope_section), "mrope_interleaved": True,
              "rope_theta": encoder.config.text_config.rope_parameters["rope_theta"],
@@ -391,7 +394,7 @@ def stage_text(n: int):
         extra["condition_sizes"] = [list(i.size) for i in result["image"]]
         extra["images"] = EDIT_IMAGES[n]
         extra["image_slots"] = int(image_pad_mask.sum())
-    write(text_golden(n), payload, extra)
+    write(text_golden(n) + ("-long" if long else ""), payload, extra)
 
 
 def stage_vision():
@@ -633,28 +636,31 @@ def stage_dit(n: int = 0):
     print(f"  {time.time() - t0:.0f} s")
 
 
-def stage_bf16():
-    """`dit` (prefill only) with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)` and
-    `__call__` run it: weights as published, `hidden_states` and `prompt_embeds` in bf16, `timestep` in the
+def stage_bf16(n: int = 0):
+    """`dit [--edit N]` (prefill only) with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)`
+    and `__call__` run it: weights as published, `hidden_states` and `prompt_embeds` in bf16, `timestep` in the
     latents' dtype; the module keeps its own float32 islands (sinusoid `freqs`, RoPE, the RMSNorm variance,
     SDPA's accumulation). The inputs are the dit golden's own; the boundaries the check judges are widened to
-    float32 (exact) under the golden's keys. Generation only: the check reads the half-precision bar there."""
+    float32 (exact) under the golden's keys. Without a cache the prefill still runs per segment, as the golden's,
+    and with references the encoder's mask is `None` there too (`replay_encoder`)."""
     t0 = time.time()
     half = torch.bfloat16
-    name = f"goldens-qwen21-dit-{RESOLUTION}"
-    golden = read(name, "qwen-image-2.1.py dit")
+    tag = f"-edit{n}" if n else ""
+    name = f"goldens-qwen21-dit{tag}-{RESOLUTION}"
+    golden = read(name, "qwen-image-2.1.py dit" + (f" --edit {n}" if n else ""))
+    text = read(text_golden(n), "qwen-image-2.1.py text" + (f" --edit {n}" if n else ""))
     info = json.loads((OUT / f"{name}.json").read_text())
     model, _ = load_transformer(half)
     taps, _ = dit_taps(model)
     out = model(hidden_states=golden["hidden_states"][None].to(half),
-                encoder_hidden_states=read(text_golden(0), "qwen-image-2.1.py text")["prompt_embeds"][None].to(half),
+                encoder_hidden_states=text["prompt_embeds"][None].to(half),
                 timestep=golden["timestep"].to(half), img_shapes=[[tuple(s) for s in info["img_shapes"]]],
                 img_mask=golden["img_mask"][None].bool(), return_dict=False)[0][0]
     kept = ("img_in_out", "txt_in_out", "temb", "modulation", "norm_out", "joint_in",
             "layer0_out", "layer1_out", "layer_last_out")
     payload = {"model_out": out[-info["target"]:].float(), **{k: taps[k].float() for k in kept}}
     report = {"bf16_vs_fp32_model_out": gap("bf16 vs fp32, model_out", payload["model_out"], golden["model_out"])}
-    write(f"witness-bf16-qwen21-dit-{RESOLUTION}", payload, {"dtype": "bfloat16", "inputs": name, **report})
+    write(f"witness-bf16-qwen21-dit{tag}-{RESOLUTION}", payload, {"dtype": "bfloat16", "inputs": name, **report})
     print(f"  {time.time() - t0:.0f} s")
 
 
@@ -924,7 +930,8 @@ def main() -> None:
     p.add_argument("stage", choices=["text", "vision", "references", "dit", "bf16", "witness", "trajectory", "vae",
                                      "vae-encode", "vae-witness", "all"])
     p.add_argument("--edit", type=int, choices=[0, 1, 2], default=0,
-                   help="editing with N pictures (text, dit, trajectory, vae); 0 is generation")
+                   help="editing with N pictures (text, dit, bf16, trajectory, vae); 0 is generation")
+    p.add_argument("--long", action="store_true", help="text only, generation: the long prompt, past 512 tokens")
     p.add_argument("--side", type=int, default=512, help="references only: the prepared side (512, 443)")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
@@ -936,7 +943,9 @@ def main() -> None:
     if args.stage == "all":
         common.run_stages(__file__, goldens, ALL)
     elif args.stage == "text":
-        stage_text(n)
+        if args.long and n:
+            p.error("--long is generation's: no --edit")
+        stage_text(n, args.long)
     elif args.stage == "vision":
         stage_vision()
     elif args.stage == "references":
@@ -944,7 +953,7 @@ def main() -> None:
     elif args.stage == "dit":
         stage_dit(n)
     elif args.stage == "bf16":
-        stage_bf16()
+        stage_bf16(n)
     elif args.stage == "witness":
         stage_witness()
     elif args.stage == "trajectory":

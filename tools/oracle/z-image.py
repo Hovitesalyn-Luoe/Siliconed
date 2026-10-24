@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Z-Image Turbo's goldens: what `siliconed check z-image <stage>` judges the engine against.
 
-    z-image.py text                       the Qwen3-4B encoder             -> goldens-text
+    z-image.py text [--long]              the Qwen3-4B encoder             -> goldens-text[-long]
     z-image.py dit --size 512 [...]       one DiT evaluation, 41 boundaries -> goldens-dit-<size>
     z-image.py witness --size 512         the same evaluation in float64    -> witness-dit-f64-<size>
     z-image.py bf16 --size 1024           the same evaluation in bfloat16   -> witness-bf16-dit-<size>
@@ -11,6 +11,9 @@
 
 `bf16` is the bar of a half-precision path (the ANE's fp16 products); `all` leaves it out
 because it is costly and only that path reads it.
+
+`text --long` reads `common.LONG_PROMPT` (past 512 tokens) with the sequence length raised to match; no
+other stage reads it.
 
 Each stage consumes the one before it (`dit` reads the conditioning `text` wrote, `vae` crops the
 1024 trajectory's final latent), so they are written in that order and from the same prompt:
@@ -48,10 +51,10 @@ torch.set_grad_enabled(False)
 
 # ======================================================================================= text
 
-def text(goldens: Path, prompt: str) -> None:
+def text(goldens: Path, prompt: str, length: int = MAX_SEQUENCE_LENGTH, stem: str = "goldens-text") -> None:
     """Reproduces `ZImagePipeline._encode_prompt`:
 
-        chat template (add_generation_prompt, enable_thinking) -> tokenize, pad to 512 ->
+        chat template (add_generation_prompt, enable_thinking) -> tokenize, pad to 512 (`--long`: 1024) ->
         Qwen3 trunk with output_hidden_states -> hidden_states[-2] -> rows of the real tokens
 
     The DiT receives the real token count, not 512: the padding is cut by the attention mask."""
@@ -63,7 +66,7 @@ def text(goldens: Path, prompt: str) -> None:
     tokenizer = AutoTokenizer.from_pretrained(str(root / "tokenizer"))
     templated = tokenizer.apply_chat_template([{"role": "user", "content": prompt}], tokenize=False,
                                               add_generation_prompt=True, enable_thinking=True)
-    encoded = tokenizer([templated], padding="max_length", max_length=MAX_SEQUENCE_LENGTH,
+    encoded = tokenizer([templated], padding="max_length", max_length=length,
                         truncation=True, return_tensors="pt")
     ids, mask = encoded.input_ids, encoded.attention_mask.bool()
     real = int(mask.sum())
@@ -121,9 +124,10 @@ def text(goldens: Path, prompt: str) -> None:
         "layer35_out": probes["layer35_out"],
         "final_norm_out": probes["final_norm_out"],
     }
-    common.write_golden(goldens, "goldens-text", payload, {
+    assert real < length, f"{real} tokens: the prompt was cut at {length}"
+    common.write_golden(goldens, stem, payload, {
         "prompt": prompt, "templated": templated, "real_tokens": real,
-        "max_sequence_length": MAX_SEQUENCE_LENGTH, "dtype": "float32", "device": "cpu"})
+        "max_sequence_length": length, "dtype": "float32", "device": "cpu"})
 
 
 def conditioning(goldens: Path) -> torch.Tensor:
@@ -412,10 +416,13 @@ def main() -> None:
                    help="512, 1024 or WIDTHxHEIGHT (default: 512; vae: 768x512; all: 512 1024)")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     p.add_argument("--prompt", default=PROMPT, help="text and all only; the checks read the prompt from the golden")
+    p.add_argument("--long", action="store_true", help="text only: the long prompt, past 512 tokens -> goldens-text-long")
     args = p.parse_args()
     goldens = common.goldens_directory(args.goldens)
     sizes = args.size or {"vae": ["768x512"], "all": ["512", "1024", "768x512", "832x1216"]}.get(args.stage, ["512"])
-    if args.stage == "text":
+    if args.stage == "text" and args.long:
+        text(goldens, common.LONG_PROMPT, common.LONG_SEQUENCE_LENGTH, "goldens-text-long")
+    elif args.stage == "text":
         text(goldens, args.prompt)
     elif args.stage == "all":
         everything(goldens, args.prompt, sizes)

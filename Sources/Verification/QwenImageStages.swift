@@ -29,16 +29,20 @@ enum QwenImageStages {
 
     static let text = Stage(
         model: model, name: "text",
-        proves: "Qwen3-VL-8B reads the prompt (and with --edit N, the N pictures): template, identifiers, positions, 36 layers, prompt_embeds",
-        options: ["--edit"], oracle: "tools/oracle/qwen-image-2.1.py text [--edit N]", weights: ["text encoder"],
+        proves: "Qwen3-VL-8B reads the prompt (and with --edit N, the N pictures; with --long, a prompt past 512 tokens): template, identifiers, positions, 36 layers, prompt_embeds",
+        options: ["--edit", "--long"], oracle: "tools/oracle/qwen-image-2.1.py text [--edit N]; text --long", weights: ["text encoder"],
         rule: "identifiers and masks bit for bit; the rule, floor 5e-4 (with images, the deep layers judged on their text rows)"
     ) { invocation in
-        if let n = invocation.edit { return try textWithImages(n, invocation) }
-        let report = Report(title: "\(model) text")
-        let goldens = try invocation.goldens.open("qwen21/goldens-qwen21-text.safetensors")
-        let info = try invocation.goldens.manifest("qwen21/goldens-qwen21-text")
+        if let n = invocation.edit {
+            guard !invocation.long else { throw UsageError("--long is generation's: no --edit") }
+            return try textWithImages(n, invocation)
+        }
+        let stem = invocation.long ? "qwen21/goldens-qwen21-text-long" : "qwen21/goldens-qwen21-text"
+        let report = Report(title: "\(model) text\(invocation.long ? " --long" : "")")
+        let goldens = try invocation.goldens.open(stem + ".safetensors")
+        let info = try invocation.goldens.manifest(stem)
         guard let prompt = info["prompt"] as? String, let drop = info["drop_idx"] as? Int else {
-            throw Skip("qwen21/goldens-qwen21-text.json: prompt or drop_idx missing")
+            throw Skip("\(stem).json: prompt or drop_idx missing")
         }
         let (artifact, tokenizer) = try encoder()
         let encoder = try Qwen3VLEncoder(artifact: artifact, tokenizer: tokenizer)
@@ -208,7 +212,7 @@ enum QwenImageStages {
         model: model, name: "dit",
         proves: "one evaluation three ways — prefill of the conditions, the step from their K/V cache, the full pass under the block-causal mask — plus the layout and the modulation",
         options: ["--edit", "--map", "--neural-engine"],
-        oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine, bf16", weights: ["DiT"],
+        oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine, bf16 [--edit N]", weights: ["DiT"],
         rule: "layout bit for bit; the rule, floor 5e-4, at the fp64 witness where one exists; cache and full pass ≤ 1e-5 apart; a second step the same bits; with --neural-engine, against bf16's own error + 25 %, cache and full pass too"
     ) { invocation in
         let n = invocation.edit ?? 0
