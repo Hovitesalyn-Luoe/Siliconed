@@ -8,6 +8,8 @@ The reference is the publisher's own: [diffusers](https://github.com/huggingface
 
 What is **not** claimed: the same bits as the reference, or as another Mac. The engine computes in another order on another device; it is judged on how close it comes to the exact value (the [rule](#the-rule) below), not on its bits.
 
+The figures here, and the checks, are those of the render at full size, Faster Rendering off. Faster Rendering produces, by construction, another image from the same seed, and nothing compares that image with the reference ([ENGINE](ENGINE.md#faster-rendering)).
+
 ## Setting up
 
 You need the app (0.15 or later), Python 3.12, and this repository at the app's version (Siliconed → About shows it). `siliconed` ships inside the app: it is the very engine the app renders with, and it runs without Xcode.
@@ -20,7 +22,7 @@ python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requ
 
 To check your own build instead: `swift build -c release --product siliconed` (Xcode 26), then `.build/release/siliconed` in place of the alias.
 
-Each stage prints its measures, then one verdict line: `✓`, `✗`, or `—` (skipped, and why). The exit code says the same: 0 passed, 1 failed, 2 skipped, 64 a usage error. Goldens go to `./goldens`, for the scripts and the checks alike, unless `--goldens DIR` or `SILICONED_GOLDENS` says otherwise.
+Each stage prints the map it reads (a `map` line), its measures, then one verdict line: `✓`, `✗`, or `—` (skipped, and why). The exit code says the same: 0 passed, 1 failed, 2 skipped, 64 a usage error. Goldens go to `./goldens`, for the scripts and the checks alike, unless `--goldens DIR` or `SILICONED_GOLDENS` says otherwise.
 
 ## 1 · The kernels: five minutes, no weights
 
@@ -55,16 +57,22 @@ oracle-env/bin/python tools/oracle/anima.py all     # downloads 5 GB of referenc
 siliconed check anima                               # every stage at every size: 3 min
 ```
 
-On our MacBook Pro M1 Pro:
+On our MacBook Pro M1 Pro (the measures between the `map` line and the verdict line are left out):
 
 ```
 ✓ anima tokenizer · 1 measure
+map ~/Library/Application Support/Siliconed/store/qwen3-0.6b-encoder.v0.silicon · 1.2 GB · bfloat16 (standard weights)
 ✓ anima text · 9 measures · nearest its threshold: prompt_embeds 1.33e-05 of 5.00e-04
-✓ anima dit 512 · 12 measures · nearest its threshold: model_out per plane 2.13e-06 of 2.51e-06
-✓ anima dit 1024 · 12 measures · nearest its threshold: model_out per plane 2.93e-06 of 4.74e-06
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.v0.silicon · 3.9 GB · bfloat16 (standard weights)
+✓ anima dit 512 · 12 measures · nearest its threshold: model_out per plane 1.93e-06 of 2.51e-06
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.v0.silicon · 3.9 GB · bfloat16 (standard weights)
+✓ anima dit 1024 · 12 measures · nearest its threshold: model_out per plane 3.04e-06 of 4.74e-06
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.v0.silicon · 3.9 GB · bfloat16 (standard weights)
 ✓ anima dit 768x512 · 12 measures · nearest its threshold: temb 4.14e-05 of 5.00e-04
-✓ anima trajectory 512 · 9 measures · nearest its threshold: v_6 1.45e-04 of 5.00e-04
-✓ anima trajectory 1024 · 9 measures · nearest its threshold: v_1 5.01e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.v0.silicon · 3.9 GB · bfloat16 (standard weights)
+✓ anima trajectory 512 · 9 measures · nearest its threshold: v_3 9.79e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.v0.silicon · 3.9 GB · bfloat16 (standard weights)
+✓ anima trajectory 1024 · 9 measures · nearest its threshold: v_7 2.17e-04 of 5.00e-04
 ✓ anima vae 512 · 1 measure · nearest its threshold: image RGB 6.33e-07 of 1.28e-06
 ✓ anima vae 1024 · 1 measure · nearest its threshold: image RGB 3.18e-07 of 1.05e-06
 ✓ anima vae 768x512 · 2 measures · nearest its threshold: image RGB 3.66e-07 of 1.28e-06
@@ -85,7 +93,95 @@ The same two commands, for each model: `tools/oracle/<script> all`, then `silico
 
 On a MacBook Pro M1 Pro, 16 GB, wall time. The download comes on top of the app's own weights. The oracle streams the denoiser block by block in float32 (Krea 2's is 48 GB at that precision), so a 16 GB Mac runs every script; a stage whose peak passes the machine's memory (the 1024² decoders) runs in swap and takes longer.
 
-Two Krea 2 measures pass with little to spare on our Mac: the velocity `v_2` of the 512² trajectory (5.08e-4 for an allowance of 5.14e-4) and `block0_attn_out` of the 1024² denoiser (3.53e-3 for 3.59e-3). The allowance is computed from your reference's own error, so it moves with your CPU's rounding, and these two may fail by a hair on another Mac. The rule is not loosened for them. If they fail on yours, an issue with the output of `siliconed check` helps us find which layer carries the gap.
+The verdict lines of the other three models on our MacBook Pro M1 Pro, with the `map` line each stage prints (Anima's are in the section above; the measures are left out):
+
+<details>
+<summary>Z-Image</summary>
+
+```
+✓ z-image tokenizer · 3 measures
+map ~/Library/Application Support/Siliconed/store/qwen3-4b-encoder.v0.silicon · 7.8 GB · bfloat16 (standard weights)
+✓ z-image text · 3 measures · nearest its threshold: layer34_out 1.45e-05 of 2.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image block 512 · 19 measures · nearest its threshold: layer0_adaln_raw 6.63e-05 of 2.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image block 1024 · 19 measures · nearest its threshold: layer0_adaln_raw 6.63e-05 of 2.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image dit 512 · 11 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image dit 1024 · 11 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image dit 768x512 · 12 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image dit 832x1216 · 12 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image trajectory 512 · 16 measures · nearest its threshold: v_5 7.41e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
+✓ z-image trajectory 1024 · 16 measures · nearest its threshold: v_3 1.65e-04 of 5.00e-04
+✓ z-image vae 768x512 · 2 measures
+```
+
+</details>
+
+<details>
+<summary>Qwen-Image-2.1</summary>
+
+```
+map ~/Library/Application Support/Siliconed/store/qwen3-vl-8b-encoder.v0.silicon · 16.3 GB · bfloat16 (standard weights)
+✓ qwen-image-2.1 text · 11 measures · nearest its threshold: prompt_embeds 2.22e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen3-vl-8b-encoder.v0.silicon · 16.3 GB · bfloat16 (standard weights)
+✓ qwen-image-2.1 text --edit 1 · 16 measures · nearest its threshold: layer0_in 8.42e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen3-vl-8b-encoder.v0.silicon · 16.3 GB · bfloat16 (standard weights)
+✓ qwen-image-2.1 text --edit 2 · 16 measures · nearest its threshold: layer0_in 1.50e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen3-vl-8b-encoder.v0.silicon · 16.3 GB · bfloat16 (standard weights)
+✓ qwen-image-2.1 vision · 22 measures · nearest its threshold: vit_out_1 2.13e-04 of 5.00e-04
+✓ qwen-image-2.1 references 512 · 2 measures
+✓ qwen-image-2.1 references 443 · 2 measures
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.v0.silicon · 14.2 GB · bfloat16 ×296, float32 ×1 (standard weights)
+✓ qwen-image-2.1 dit 512 · 24 measures · nearest its threshold: step norm_out 1.74e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.v0.silicon · 14.2 GB · bfloat16 ×296, float32 ×1 (standard weights)
+✓ qwen-image-2.1 dit-edit1 512 · 24 measures · nearest its threshold: temb 2.11e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.v0.silicon · 14.2 GB · bfloat16 ×296, float32 ×1 (standard weights)
+✓ qwen-image-2.1 dit-edit2 512 · 24 measures · nearest its threshold: temb 2.11e-04 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.v0.silicon · 14.2 GB · bfloat16 ×296, float32 ×1 (standard weights)
+✓ qwen-image-2.1 trajectory 512 · 11 measures · nearest its threshold: v_3 6.50e-06 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.v0.silicon · 14.2 GB · bfloat16 ×296, float32 ×1 (standard weights)
+✓ qwen-image-2.1 trajectory-edit1 512 · 13 measures · nearest its threshold: v_1 2.02e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.v0.silicon · 14.2 GB · bfloat16 ×296, float32 ×1 (standard weights)
+✓ qwen-image-2.1 trajectory-edit2 512 · 14 measures · nearest its threshold: v_1 7.68e-06 of 5.00e-04
+✓ qwen-image-2.1 vae 512 · 2 measures · nearest its threshold: image RGBA 4.51e-07 of 1.18e-06
+✓ qwen-image-2.1 vae-edit1 512 · 3 measures · nearest its threshold: image RGBA 1.00e-06 of 5.00e-04
+✓ qwen-image-2.1 vae-edit2 512 · 2 measures · nearest its threshold: image RGBA 9.64e-07 of 5.00e-04
+✓ qwen-image-2.1 vae-encode 512 · 7 measures · nearest its threshold: picture 1 latent 4.27e-06 of 7.16e-06
+```
+
+</details>
+
+<details>
+<summary>Krea 2</summary>
+
+```
+map ~/Library/Application Support/Siliconed/store/qwen3-vl-4b-encoder.v0.silicon · 7.8 GB · bfloat16 (standard weights)
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.v0.silicon · 26.3 GB · bfloat16 ×256, float32 ×174 (standard weights)
+✓ krea2 text · 7 measures · nearest its threshold: tap 35 2.54e-05 of 5.00e-04
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.v0.silicon · 26.3 GB · bfloat16 ×256, float32 ×174 (standard weights)
+✓ krea2 dit 512 · 11 measures · nearest its threshold: model_out per plane 1.04e-04 of 1.14e-04
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.v0.silicon · 26.3 GB · bfloat16 ×256, float32 ×174 (standard weights)
+✓ krea2 dit 1024 · 11 measures · nearest its threshold: block0_attn_out 3.57e-03 of 3.59e-03
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.v0.silicon · 26.3 GB · bfloat16 ×256, float32 ×174 (standard weights)
+✓ krea2 dit 768x512 · 11 measures · nearest its threshold: block0_out 9.44e-04 of 1.20e-03
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.v0.silicon · 26.3 GB · bfloat16 ×256, float32 ×174 (standard weights)
+✓ krea2 trajectory 512 · 9 measures · nearest its threshold: v_2 5.08e-04 of 5.14e-04
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.v0.silicon · 26.3 GB · bfloat16 ×256, float32 ×174 (standard weights)
+✓ krea2 trajectory 1024 · 9 measures · nearest its threshold: v_1 3.43e-03 of 4.80e-03
+✓ krea2 vae 512 · 1 measure · nearest its threshold: image RGB 5.20e-07 of 1.48e-06
+✓ krea2 vae 1024 · 1 measure · nearest its threshold: image RGB 2.89e-07 of 1.03e-06
+✓ krea2 vae 768x512 · 2 measures · nearest its threshold: image RGB 3.23e-07 of 9.63e-07
+```
+
+</details>
+
+Two Krea 2 measures pass with little to spare on our Mac: the velocity `v_2` of the 512² trajectory (5.08e-4 for an allowance of 5.14e-4) and `block0_attn_out` of the 1024² denoiser (3.57e-3 for 3.59e-3, 0.6 % to spare). The allowance is computed from your reference's own error, so it moves with your CPU's rounding, and these two may fail by a hair on another Mac. The rule is not loosened for them. If they fail on yours, an issue with the output of `siliconed check` helps us find which layer carries the gap.
 
 ## Are your goldens ours?
 
@@ -140,7 +236,7 @@ Qwen-Image-2.1's editing, with one and two reference pictures, is part of its `a
 
 *The dequantization*, value by value: `swift test` reads small pieces of each published file (`Tests/SiliconedTests/Fixtures/quant`, rows cut by HTTP `Range` at the pinned revision, bytes identical to the published ones) and compares the engine's widening with the publisher's own library at the bit: `gguf-py` (llama.cpp's reader, which diffusers' GGUF loader agrees with on every value), ComfyUI's `comfy_kitchen` for the convrot, torchao and SDNQ for the 8-bit float and int8 files. `tools/oracle/quant_fixtures.py` rewrites those fixtures from the published files (`python tools/oracle/quant_fixtures.py [slug ...]`; the manifests hold the sha256 of what it wrote, and a rerun must leave them unchanged).
 
-*The denoiser*, whole: the reference DiT of diffusers, in float32 on the CPU, with the weights the third party published, dequantized by that library (`tools/oracle/quantized.py`), on the Standard's own inputs (same latent, same text states, same sigma). The oracle scripts take `--variant compact|light` for `dit`, `bf16` and, where the Standard has one, `witness`; the check takes it for `dit`, at 512, and reads the map of that version beside the Standard's (`--map` names another). A map of the other version is refused, said: a Light judged against a Compact's golden would be other weights.
+*The denoiser*, whole: the reference DiT of diffusers, in float32 on the CPU, with the weights the third party published, dequantized by that library (`tools/oracle/quantized.py`), on the Standard's own inputs (same latent, same text states, same sigma). The oracle scripts take `--variant compact|light` for `dit` and `bf16`, and, for Z-Image and Krea 2, for `witness` (Krea 2 also for `witness-step --step 0` and `draw`); the variants of Anima and Qwen-Image-2.1 (generation only, no `--edit`) have no fp64 witness and are judged by the plain rule against the reference. The check takes `--variant` for `dit`, at 512, and reads the map of that version beside the Standard's (`--map` names another). A map of the other version is refused, said: a Light judged against a Compact's golden would be other weights.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py dit --size 512 --variant compact     # downloads the 7 GB GGUF once
@@ -152,9 +248,90 @@ siliconed check z-image dit --size 512 --variant compact --neural-engine
 
 The Compact and the Light run on the Neural Engine by default (fp16 products), so `--neural-engine` is the bar that matters for them, judged like the Standard's: against the reference in bf16 on the same dequantized weights, the engine allowed bf16's own error plus 25 %. Those goldens need the Standard's `dit` golden at 512 first (they read its inputs); they are not part of `all` or of `siliconed check <model>`.
 
-Krea 2's variants are judged by clouds like its Standard: on the Light, `model_out per plane` is 1.345e-4 against an allowance of 1.33e-4 in a single draw, and passes when the reference's three one-ulp draws are read (the engine's median 1.28e-4 for 1.36e-4). The draws of a variant are `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (step 0 only: the later latents belong to the Standard's trajectory).
+On our MacBook Pro M1 Pro, `dit --size 512` of each of the eight variants, in fp32 then with `--neural-engine`, passes: 16 runs out of 16. Below, the gap of `model_out` to the reference (for Qwen-Image-2.1, `model_out (full)`) in each run, and the bar the Neural Engine run is judged against.
+
+| Variant | `model_out` in fp32, against the reference | Under the Neural Engine, against the reference | Its bar (bf16's own error + 25 %) |
+|---|---|---|---|
+| Z-Image, Compact | 7.833e-06 | 9.906e-03 | 5.89e-02 |
+| Z-Image, Light | 7.096e-06 | 1.009e-02 | 8.75e-02 |
+| Qwen-Image-2.1, Compact | 4.301e-06 | 4.562e-03 | 1.59e-02 |
+| Qwen-Image-2.1, Light | 4.896e-06 | 4.103e-03 | 1.47e-02 |
+| Anima, Compact | 6.233e-06 | 6.133e-03 | 8.57e-02 |
+| Anima, Light | 7.918e-06 | 6.422e-03 | 4.81e-02 |
+| Krea 2, Compact | 7.070e-05 | 4.861e-03 | 4.24e-02 |
+| Krea 2, Light | 4.383e-05 | 4.741e-03 | 4.91e-02 |
+
+The fp32 column is the plain gap to the reference; Z-Image and Krea 2 are judged on it at the fp64 witness, as their Standards are. The complete lines:
+
+<details>
+<summary>Compact and Light, the 16 runs</summary>
+
+```
+$ siliconed check z-image dit --size 512 --variant compact
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.compact.v0.silicon · 7.2 GB · bfloat16 ×274, int8 ×240, float32 ×7 (8-bit weights)
+✓ z-image dit compact 512 · 11 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
+$ siliconed check z-image dit --size 512 --variant compact --neural-engine
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.compact.v0.silicon · 7.2 GB · bfloat16 ×274, int8 ×240, float32 ×7 (8-bit weights)
+✓ z-image dit compact 512 · 12 measures · nearest its threshold: x_embedder_out 1.03e-03 of 3.21e-03
+$ siliconed check z-image dit --size 512 --variant light
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.light.v0.silicon · 5.0 GB · bfloat16 ×274, q4_k ×112, q5_k ×92, q6_k ×36, float32 ×7 (packed weights)
+✓ z-image dit light 512 · 11 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
+$ siliconed check z-image dit --size 512 --variant light --neural-engine
+map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.light.v0.silicon · 5.0 GB · bfloat16 ×274, q4_k ×112, q5_k ×92, q6_k ×36, float32 ×7 (packed weights)
+✓ z-image dit light 512 · 12 measures · nearest its threshold: x_embedder_out 1.03e-03 of 3.21e-03
+$ siliconed check qwen-image-2.1 dit --variant compact
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.compact.v0.silicon · 7.3 GB · int8 ×224, bfloat16 ×72, float32 ×1 (8-bit weights)
+✓ qwen-image-2.1 dit compact 512 · 24 measures · nearest its threshold: temb 2.11e-04 of 5.00e-04
+$ siliconed check qwen-image-2.1 dit --variant compact --neural-engine
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.compact.v0.silicon · 7.3 GB · int8 ×224, bfloat16 ×72, float32 ×1 (8-bit weights)
+✓ qwen-image-2.1 dit compact 512 · 25 measures · nearest its threshold: temb 2.11e-04 of 5.00e-04
+$ siliconed check qwen-image-2.1 dit --variant light
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.light.v0.silicon · 4.2 GB · q4_k ×195, bfloat16 ×68, q5_k ×28, int8 ×4, float32 ×1, q6_k ×1 (packed weights)
+✓ qwen-image-2.1 dit light 512 · 24 measures · nearest its threshold: temb 2.14e-04 of 5.00e-04
+$ siliconed check qwen-image-2.1 dit --variant light --neural-engine
+map ~/Library/Application Support/Siliconed/store/qwen-image-2.1-turbo-dit.light.v0.silicon · 4.2 GB · q4_k ×195, bfloat16 ×68, q5_k ×28, int8 ×4, float32 ×1, q6_k ×1 (packed weights)
+✓ qwen-image-2.1 dit light 512 · 25 measures · nearest its threshold: temb 2.14e-04 of 5.00e-04
+$ siliconed check anima dit --size 512 --variant compact
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.compact.v0.silicon · 2.1 GB · int8 ×448, bfloat16 ×119 (8-bit weights)
+✓ anima dit compact 512 · 11 measures · nearest its threshold: temb 4.14e-05 of 5.00e-04
+$ siliconed check anima dit --size 512 --variant compact --neural-engine
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.compact.v0.silicon · 2.1 GB · int8 ×448, bfloat16 ×119 (8-bit weights)
+✓ anima dit compact 512 · 12 measures · nearest its threshold: model_out 6.13e-03 of 8.57e-02
+$ siliconed check anima dit --size 512 --variant light
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.light.v0.silicon · 1.3 GB · q4_k ×336, bfloat16 ×119, q6_k ×112 (packed weights)
+✓ anima dit light 512 · 11 measures · nearest its threshold: temb 4.14e-05 of 5.00e-04
+$ siliconed check anima dit --size 512 --variant light --neural-engine
+map ~/Library/Application Support/Siliconed/store/anima-turbo-dit.light.v0.silicon · 1.3 GB · q4_k ×336, bfloat16 ×119, q6_k ×112 (packed weights)
+✓ anima dit light 512 · 12 measures · nearest its threshold: model_out 6.42e-03 of 4.81e-02
+$ siliconed check krea2 dit --size 512 --variant compact
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.compact.v0.silicon · 14.1 GB · int8 ×224, float32 ×174, bfloat16 ×32 (8-bit weights)
+model_out per plane         2.999e-05   1.94e-05       15   1.042e-04    1.19e-04  ✓  oracle at fp64 9.48e-05
+✓ krea2 dit compact 512 · 11 measures · nearest its threshold: block27_out 5.36e-04 of 5.74e-04
+$ siliconed check krea2 dit --size 512 --variant compact --neural-engine
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.compact.v0.silicon · 14.1 GB · int8 ×224, float32 ×174, bfloat16 ×32 (8-bit weights)
+model_out per plane         1.716e-03   1.51e-03        0   1.716e-03    1.67e-02  ✓  oracle at fp64 1.34e-02
+✓ krea2 dit compact 512 · 12 measures · nearest its threshold: img_in_out 1.09e-03 of 3.19e-03
+$ siliconed check krea2 dit --size 512 --variant light
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.light.v0.silicon · 7.4 GB · q4_k ×201, float32 ×168, q5_k ×61 (packed weights)
+model_out per plane         4.064e-05   1.32e-05        9   1.282e-04    1.36e-04  ✓  clouds: engine median of 5 draws, oracle worst of 4
+✓ krea2 dit light 512 · 11 measures · nearest its threshold: block1_out 5.09e-04 of 5.25e-04
+$ siliconed check krea2 dit --size 512 --variant light --neural-engine
+map ~/Library/Application Support/Siliconed/store/krea2-turbo-dit.light.v0.silicon · 7.4 GB · q4_k ×201, float32 ×168, q5_k ×61 (packed weights)
+model_out per plane         1.667e-03   1.56e-03        0   1.667e-03    2.03e-02  ✓  oracle at fp64 1.62e-02
+✓ krea2 dit light 512 · 12 measures · nearest its threshold: img_in_out 1.09e-03 of 4.54e-03
+```
+
+</details>
+
+Krea 2's variants are judged by clouds like its Standard, and **the Light's `model_out per plane` needs them.** Judged in a single draw, that line is 1.345e-4 for an allowance of 1.33e-4: it fails, by about 1 %, and it is the only measure of the eight variants that does. It passes once the clouds are applied to it. The rule already applied them to `model_out`; on 25 October 2026 it was extended to `model_out per plane`, and with the reference's one-ulp draws the engine's median is 1.282e-4 for 1.36e-4 (the line above says: `clouds: engine median of 5 draws, oracle worst of 4`). So that one line is green because of the draws, not without them, and you can see it in the output of `krea2 dit --variant light`. The draws of a variant are `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (step 0 only: the later latents belong to the Standard's trajectory).
 
 LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
+
+## Timings and peak memory
+
+`siliconed check` judges precision and nothing else. Times and peak memory are measured on the app alone: `silicontrol measure` ([REMOTE-CONTROL](REMOTE-CONTROL.md#the-socket-and-the-protocol); `silicontrol help measure` lists the options) renders a series in the app, times each render, samples the app's memory and writes a TSV and its summary. The times and peaks in [ENGINE](ENGINE.md) are taken the same way (renders queued in the app with `silicontrol`), so you can redo them on your Mac with the app alone, without Python or an oracle.
+
+The same seed gives the same pixels (the same md5) from one render to the next on one Mac, with one version of the app and one map of that machine. It does not give them from one Mac to another: the map picks other kernels on another chip, and other kernels sum in another order. What carries from Mac to Mac is the rule above, not the bits.
 
 ## Every stage
 
@@ -189,6 +366,6 @@ The output of `siliconed check list --markdown`. `{size}` is 512, 1024 or a rect
 | `anima trajectory` | the schedule, then the 8 Euler steps: each step's velocity from the oracle's latent at that step | σ within 1e-6; the rule on each guided velocity, floor 5e-4; the free pass is shown with its gain, not judged | `tools/oracle/anima.py trajectory --size {size}` | DiT |
 | `anima vae` | the Qwen-Image decoder on the final latent of the oracle's trajectory, plane by plane | the rule per plane, floor 5e-4, at the fp64 witness (no floor there); on a rectangle, the transposed image must deviate | `tools/oracle/anima.py vae --size {size}; vae-witness --size {size}` | VAE |
 | `krea2 text` | the prompt's identifiers, the 12 Qwen3-VL taps (padding removed, judged against states computed with it), then the fusion and txt_in on the oracle's taps (with --long, a prompt past 512 tokens read whole, as the app admits it: no fusion golden for it) | identifiers bit for bit; the rule, floor 5e-4 | `tools/oracle/krea2.py text [--long]` | text encoder, DiT (the fusion) |
-| `krea2 dit` | one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists | the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 % | `tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness and witness-step --step 0 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)` | DiT |
+| `krea2 dit` | one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists | the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 % | `tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness, witness-step --step 0 and draw --step 0 --jitter 1 2 3 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)` | DiT |
 | `krea2 trajectory` | the schedule, then the 8 Euler steps: each step's velocity from the oracle's latent at that step, at the step's fp64 witness where it exists | σ within 1e-6; the rule on each guided velocity, floor 5e-4, at the step's fp64 witness where it exists, clouds when the oracle has draws; the free pass is shown, not judged | `tools/oracle/krea2.py trajectory --size {size}; witness-step --size {size} --step 0 1 2 3 4 5 6 7` | DiT |
 | `krea2 vae` | the Qwen-Image decoder with Krea's weights on the final latent of the oracle's trajectory, plane by plane | the rule per plane, floor 5e-4, at the fp64 witness (no floor there); on a rectangle, the transposed image must deviate | `tools/oracle/krea2.py vae --size {size}; vae-witness --size {size}` | VAE |
