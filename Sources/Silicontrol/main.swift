@@ -15,6 +15,7 @@
 // 3 the app cannot be reached.
 
 import Foundation
+import Measurement
 import SilicontrolHelp
 
 let environment = ProcessInfo.processInfo.environment
@@ -62,8 +63,14 @@ func connect() -> Int32? {
 /// last one. `nil`: nobody answers.
 @discardableResult
 func send(_ argv: [String], echo: Bool = true) -> [String: Any]? {
+    exchange(argv, echo: echo)?.last
+}
+
+/// `send`, plus the pid of the app that answered (`measure` samples that process) and a hook on each line.
+func exchange(_ argv: [String], echo: Bool, onLine: (([String: Any]) -> Void)? = nil) -> (last: [String: Any]?, peer: pid_t?)? {
     guard let fd = connect() else { return nil }
     defer { close(fd) }
+    let peer = Probes.peerPid(of: fd)
     var request = (try? JSONSerialization.data(withJSONObject: ["argv": argv, "cwd": FileManager.default.currentDirectoryPath])) ?? Data()
     request.append(0x0A)
     guard request.withUnsafeBytes({ write(fd, $0.baseAddress!, $0.count) }) == request.count else { return nil }
@@ -77,6 +84,7 @@ func send(_ argv: [String], echo: Bool = true) -> [String: Any]? {
             if let help = object?["help"] as? String { print(help) } else { print(String(decoding: line, as: UTF8.self)) }
         }
         last = object
+        if let object { onLine?(object) }
     }
     while true {
         let n = read(fd, &buffer, buffer.count)
@@ -89,7 +97,7 @@ func send(_ argv: [String], echo: Bool = true) -> [String: Any]? {
         }
     }
     consume(pending)
-    return last
+    return (last, peer)
 }
 
 /// The `Siliconed.app` this command lives in (`Siliconed.app/Contents/Helpers/silicontrol`, possibly
@@ -147,6 +155,34 @@ if argv.first == "open" {
     exit(0)
 }
 ensureRunning()
+if argv.first == "measure" {
+    // Client-side, like `open`: the series needs this process's clock and the app's pid, which the app
+    // cannot give itself. Its lines (one JSON per render, the verdict last) follow the contract.
+    let options: MeasureOptions
+    do { options = try MeasureOptions.parse(Array(argv.dropFirst())) }
+    catch let failure as MeasureOptions.Failure { fail("usage", failure.message, hint: "silicontrol help measure", exit: 2) }
+    catch { fail("usage", "\(error)", exit: 2) }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyyMMdd-HHmmss"
+    let path = options.tsv ?? "siliconed-measure-\(formatter.string(from: Date()))-\(options.model)-\(options.size).tsv"
+    FileManager.default.createFile(atPath: path, contents: nil)
+    guard let file = FileHandle(forWritingAtPath: path) else { fail("write", "cannot write \(path)", exit: 1) }
+    // Nothing sleeps while the series runs: a Mac that dozes off between two renders measures the doze.
+    let awake = ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated], reason: "silicontrol measure")
+    defer { ProcessInfo.processInfo.endActivity(awake) }
+    do {
+        var verdict = try Runner.run(options, send: { argv, onLine in
+            // The hook is called before `exchange` returns and never kept.
+            withoutActuallyEscaping(onLine) { hook in exchange(argv, echo: false, onLine: hook) } ?? (nil, nil)
+        }, log: { FileHandle.standardError.write(Data(($0 + "\n").utf8)) },
+        emit: { printJSON($0) }, append: { file.write(Data(($0 + "\n").utf8)) })
+        verdict["tsv"] = URL(fileURLWithPath: path).standardizedFileURL.path
+        printJSON(verdict)
+        exit(0)
+    } catch let failure as Failure {
+        fail(failure.code, failure.message, hint: "the rows measured so far are in \(path)", exit: 1)
+    } catch { fail("render", "\(error)", exit: 1) }
+}
 guard let last = send(argv) else {
     fail("app_not_running", "the app closed the connection without an answer (\(socketPath))")
 }
