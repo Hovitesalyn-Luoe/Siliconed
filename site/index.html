@@ -299,8 +299,8 @@
   </div>
   <div class="wrap" style="margin-top:clamp(56px, 8vw, 96px)">
     <div class="text reveal" style="max-width:780px">
-      <p class="kicker">New in 0.14 · the Neural Engine</p>
-      <h2>As fast, or faster.<br><span class="grad">Up to a quarter less energy.</span></h2>
+      <p class="kicker">The Neural Engine</p>
+      <h2>As fast, or faster.<br><span class="grad">16 to 26 % less energy.</span></h2>
       <p>Where the map turns it on, the Neural Engine takes part of the denoiser's matrix products beside
         the GPU, shape by shape, wherever it keeps 90 % of the CPU matrix unit's speed. It computes in
         fp16: each weight column and each activation row is lifted by a power of two into fp16's range,
@@ -310,8 +310,8 @@
     </div>
     <ul class="stats reveal">
       <li><b>−16 to −26 %</b>energy per image, M1 Pro, 1024², Standard</li>
-      <li><b>135–137 s</b>Krea 2, instead of 144.6–144.9 s</li>
-      <li><b>83–84 s</b>Z-Image, instead of 86.8–93.9 s</li>
+      <li><b>135–137 s</b>Krea 2, instead of 144.6–144.9 s (0.14, the library prompt)</li>
+      <li><b>83–84 s</b>Z-Image, instead of 86.8–93.9 s (0.14, the library prompt)</li>
     </ul>
   </div>
 </section>
@@ -371,11 +371,11 @@
   <div class="grid3">
     <div class="card reveal"><h3>Checked against the original</h3><p>Every stage is compared channel by channel with diffusers and transformers in fp32, and rounds where they round. What cannot be checked against the reference does not ship.</p></div>
     <div class="card reveal"><h3>34 GB of model, 16 GB of Mac</h3><p>Weights stream from disk as needed. Never more than ¾ of the Mac's memory minus 2 GB (10 GB on a 16 GB Mac): each render computes what it needs before it starts.</p></div>
-    <div class="card reveal"><h3>Eight bits against eight bits</h3><p>Z-Image Turbo Compact (GGUF Q8_0), 1024², 8 steps, Faster Rendering and the Neural Engine as by default: 81–83 s on an M1 Pro. Draw Things' default 8-bit <code>q8p</code> on the same Mac: 135–144 s. Wall-clock, not identical arithmetic: the samplers and the images differ.</p></div>
+    <div class="card reveal"><h3>Eight bits against eight bits</h3><p>Z-Image Turbo Compact (GGUF Q8_0), 1024², 8 steps, Faster Rendering and the Neural Engine as by default: 81–83 s on an M1 Pro. Draw Things' engine with its default 8-bit <code>q8p</code>, on the same Mac: 135–144 s. Wall-clock, not identical arithmetic: the samplers and the images differ.</p></div>
     <div class="card reveal"><h3>Private by construction</h3><p>Nothing leaves your Mac, it works offline once a model is installed, and the render cache is gone when you quit.</p></div>
     <div class="card reveal"><h3>Built to be driven by an AI</h3><p><code>silicontrol</code> drives the running app from a terminal with JSON output; <code>silicontrol help</code> is all an agent needs.</p></div>
     <div class="card reveal"><h3>Reproducible to the bit</h3><p>Same prompt, seed, settings and version on the same Mac: the same image, byte for byte.</p></div>
-    <div class="card reveal" style="grid-column:1/-1"><h3>Faster Rendering. On by default.</h3><p>From 1024 px on each side, the first steps run on a half-size grid, the rest at full size: a quarter to two fifths off the clock, still all 8 evaluations of the recipe. The trick is in the noise: the small grid gets the averaged picture plus the low band of the noise, and the step brought back to full size clears the fine noise exactly as a full step would, so no grain, no cracks; freckles and book spines survive. Another picture than the full-size one, not a blurrier one. Switch it off and you get the full-size recipe, bit for bit, the one checked against diffusers.</p></div>
+    <div class="card reveal" style="grid-column:1/-1"><h3>Faster Rendering. On by default.</h3><p>From 1024 px on each side, the first steps run on a half-size grid, the rest at full size: a quarter to a third off the clock, still all 8 evaluations of the recipe. The trick is in the noise: the small grid gets the averaged picture plus the low band of the noise, and the step brought back to full size clears the fine noise exactly as a full step would, so no grain, no cracks; freckles and book spines survive. Another picture than the full-size one, not a blurrier one. Switch it off and you get the full-size recipe, bit for bit, the one checked against diffusers.</p></div>
   </div>
 </section>
 
@@ -399,7 +399,7 @@
       <h2>Pick your size.</h2>
       <p class="punch">Standard, Compact or Light.</p>
       <p>The publisher's weights, 8-bit versions, or a 4-to-6-bit transformer. The 8-bit Compact is
-        preselected: as fast on an M1 Pro, half the disk. Every file is pinned to a
+        preselected: as fast or faster on an M1 Pro, half the disk. Every file is pinned to a
         revision and checked by sha256, and downloads resume where they stopped. The next file downloads
         while the previous one is prepared: Qwen-Image-2.1 installs in about 6½ minutes on a fast connection.</p>
     </div>

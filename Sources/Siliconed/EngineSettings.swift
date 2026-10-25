@@ -185,8 +185,8 @@ package struct EngineSettings: Sendable {
     /// every evaluation, misses everything under LRU: each evaluation reads it all again from disk.
     /// Handing the tail's pages back as soon as they are widened leaves the cache to the head, which
     /// then survives from one evaluation to the next. `madvise`/`msync` hints do not do it (the pages
-    /// stay resident, the head goes): the tail is read with `pread` + `F_NOCACHE` into two staging
-    /// buffers (`TailStream`, ~0.7–0.9 GB of anonymous memory during the denoising).
+    /// stay resident, the head goes): the tail is read with `pread` + `F_NOCACHE` into staging
+    /// buffers (`TailStream.unitSlots` of them, ~1 GB of anonymous memory during the denoising).
     ///
     /// 0.5, measured: Z-Image 512² 42.4 → 38.0 s, disk per evaluation 12.33 → 5.43 GB; 0.4
     /// thrashes at 1024² (the head no longer fits beside the activations), 0.6 and 1.0 gain less.

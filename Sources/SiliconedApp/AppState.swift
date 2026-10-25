@@ -836,8 +836,8 @@ final class AppState {
     var formatMaximumSide: Int { card.map { Format.maximumSide(for: $0.family) } ?? Format.maximumSide }
 
     /// **A size typed by hand** (`832x1216`, `1024`): read by `Format.parse`, judged by `Format.check` —
-    /// the engine's own rules (sides ≥ 512, multiples of 16, area ≤ 1024×1536), and the model's (Qwen-Image-2.1
-    /// multiples of 32, Anima 2048 px a side at most). The refusal, translated.
+    /// the engine's own rules (sides ≥ 512, multiples of 16, at most 8192 px a side; no area ceiling, B decides), and the
+    /// model's (Qwen-Image-2.1 multiples of 32, Anima 2048 px a side at most). The refusal, translated.
     func setCustomFormat(_ text: String) -> Problem? {
         guard let (w, h) = Format.parse(text.trimmingCharacters(in: .whitespaces)) else {
             return Problem(EngineError.formatUnreadable(text: text))

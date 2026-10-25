@@ -7,8 +7,7 @@
 ### La Compact par défaut
 
 - **La Compact est désormais présélectionnée, et dite recommandée,** quand vous installez un modèle
-  sur un Mac de plus de 8 Go (la Légère reste présélectionnée sur 8 Go). Sur un M1 Pro, elle rend
-  aussi vite que la Standard, prend moitié moins de place sur le disque, et le Neural Engine y est
+  sur un Mac de plus de 8 Go (la Légère reste présélectionnée sur 8 Go). Sur un M1 Pro, elle rend aussi vite que la Standard, ou plus, prend moitié moins de place sur le disque, et le Neural Engine y est
   allumé par défaut. Un modèle déjà installé garde sa version ; les trois restent à un clic.
 - **La précision complète ne coûte presque rien.** La Standard, les poids bf16 de l’éditeur
   calculés en fp32, prend le temps de la Compact à 4 % près sur Z-Image et Anima, et 6 à 10 % de

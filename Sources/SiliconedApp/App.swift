@@ -382,6 +382,12 @@ final class MainWindow: NSObject, NSWindowDelegate {
     /// undoes), ⌘A marks every image, Esc leaves only the one shown.
     private var keyMonitor: Any?
 
+    /// The modifiers that make a shortcut: Caps Lock, the numeric pad and the function flag are states
+    /// of the keyboard, not of the chord.
+    private static func chord(_ event: NSEvent) -> NSEvent.ModifierFlags {
+        event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+    }
+
     private func watchKeys() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -389,19 +395,19 @@ final class MainWindow: NSObject, NSWindowDelegate {
             // Esc leaves the field being typed in: the keys go back to the strip.
             if w.firstResponder is NSText {
                 // The subjects' completion list, open under the caret, takes Esc itself (`PromptField`).
-                guard event.keyCode == 53, !SubjectCompletion.isOpen, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else { return event }
+                guard event.keyCode == 53, !SubjectCompletion.isOpen, Self.chord(event).isEmpty else { return event }
                 w.makeFirstResponder(nil)
                 return nil
             }
             if app.cropping != nil { return cropKey(event) ? nil : event }
             // ⌘V by its character (AZERTY): an image on the pasteboard goes to the Images box.
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+            if Self.chord(event) == .command,
                event.charactersIgnoringModifiers?.lowercased() == "v" {
                 return app.pasteImage() ? nil : event
             }
             guard !app.history.isEmpty else { return event }
             // C opens the crop, by its character: on an AZERTY keyboard the key code of C is another letter.
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+            if Self.chord(event).isEmpty,
                event.charactersIgnoringModifiers?.lowercased() == "c" {
                 app.beginCropOfShownImage()
                 return nil
@@ -413,7 +419,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     /// **The keys while the crop frame is up**: Return (or Enter) crops, Esc leaves; the arrows, which
     /// would walk the strip, and Space, Delete and Home/End stay out of it. ⌘-keys go on to the menu.
     private func cropKey(_ event: NSEvent) -> Bool {
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        let mods = Self.chord(event)
         guard mods.isEmpty else { return false }
         switch Int(event.keyCode) {
         case 36, 76: app.commitCrop()                                   // Return, Enter
@@ -425,7 +431,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     }
 
     private func key(_ event: NSEvent) -> Bool {
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        let mods = Self.chord(event)
         let shift = mods == .shift
         switch Int(event.keyCode) {
         // The curtain shown, ← → move its line (`Curtain.swift`); ⇧ still marks a run, Esc leaves.

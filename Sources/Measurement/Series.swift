@@ -105,13 +105,13 @@ package struct Row: Sendable, Equatable {
 /// What is the same on every row of a series: when, where, with which build.
 package struct Context: Sendable, Equatable {
     package var date: String, tag: String, app: String
-    package var chip: String, memoryGB: Int, macOS: String
+    package var chip: String, memoryGiB: Int, macOS: String
 }
 
 package enum TSV {
     package static let header = ["date", "tag", "n", "role", "model", "variant", "size", "steps", "seed", "prompt",
                                  "faster_rendering", "neural_engine", "wall_s", "engine_s", "start_GiB", "peak_GiB",
-                                 "swapouts", "disk_read_GB", "md5", "app", "chip", "memory_GB", "macos",
+                                 "swapouts", "disk_read_GB", "md5", "app", "chip", "memory_GiB", "macos",
                                  "power", "thermal"]
 
     private static func gib(_ b: UInt64) -> String { String(format: "%.3f", Double(b) / 1_073_741_824) }
@@ -126,7 +126,7 @@ package enum TSV {
          String(r.seed), clean(r.prompt), flag(r.fasterRendering), flag(r.neuralEngine),
          String(format: "%.2f", r.wallSeconds), r.engineSeconds.map { String(format: "%.2f", $0) } ?? "-",
          gib(r.startFootprint), gib(r.peakSampled), String(r.swapouts),
-         String(format: "%.2f", Double(r.diskRead) / 1e9), r.md5, c.app, c.chip, String(c.memoryGB), c.macOS,
+         String(format: "%.2f", Double(r.diskRead) / 1e9), r.md5, c.app, c.chip, String(c.memoryGiB), c.macOS,
          power, thermal].joined(separator: "\t")
     }
 }

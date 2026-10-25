@@ -13,7 +13,7 @@ import Siliconed
 // **Clouds.** Some boundaries are ill-conditioned in fp32: block 0's text rows amplify a rounding about
 // a thousandfold, and one fp32 draw against one says which summation order the engine took, not how
 // close it is. When the single verdict at the witness fails and the oracle has **draws** of the same
-// inputs — the latent moved by one ulp, `KREA2_JITTER=N`, the exact value moves by ~10⁻⁷ and the witness
+// inputs — the latent moved by one ulp, `krea2.py draw --jitter N`, the exact value moves by ~10⁻⁷ and the witness
 // still judges —, the engine draws four the same way: its median no further from the exact than the
 // oracle's worst draw, + 25 %. Without draws, the single verdict stands.
 
@@ -76,8 +76,8 @@ enum Krea2Stages {
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists",
         sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
-        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness, witness-step --step 0 and draw --step 0 --jitter 1 2 3 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
-        rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
+        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness, witness-step --step 0 and draw --step 0 --jitter 1 2 3 with --variant, at 512 \(Wording.publishers)", weights: ["DiT"],
+        rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; \(Wording.rectangle); \(Wording.halfPrecision)"
     ) { invocation in
         let version = try invocation.quantizedVariant()
         let report = Report(title: "\(model) dit\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")
@@ -155,7 +155,7 @@ enum Krea2Stages {
         }
         let steps = reference.count - 1
         let sigmas = Krea2DiT.sigmas(steps: steps)
-        report.add(Judge.bound("σ", Double(zip(sigmas, reference).map { abs($0 - $1) }.max() ?? 0), 1e-6, unit: "max |Δ|"))
+        report.add(Judge.schedule(sigmas, reference))
         let side = initEntry.shape[1], t = textEntry.shape[0], columns = side * side
         let dit = try Krea2DiT(artifact: try Artifact(path: try invocation.ditMap(ditMap)), latentHeight: side, latentWidth: side,
                                maxText: t)
@@ -218,7 +218,7 @@ enum Krea2Stages {
     }
 }
 
-/// Every value moved by one ulp, up or down by a hash of (seed, index) — the oracle's `KREA2_JITTER`.
+/// Every value moved by one ulp, up or down by a hash of (seed, index) — the oracle's `--jitter`.
 func moveByOneULP(_ x: inout [Float], seed: UInt64) {
     for i in 0..<x.count {
         let h = (UInt64(i) &* 2654435761 &+ seed &* 40503) >> 7

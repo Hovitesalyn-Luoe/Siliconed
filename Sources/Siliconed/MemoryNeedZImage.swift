@@ -17,7 +17,7 @@ import Foundation
 ///     peak = max(phases) + crossing + process base     S = ⌈(H/16)(W/16)⌉₃₂ + ⌈T⌉₃₂, r = Σ ranks
 ///
 /// Ours, each the function its allocator calls: `TextEncoder.arenaBytes`, `TextEncoder.stagingSlots`,
-/// `Artifact.stagingBytes`, `DiT.arenaBytes`, `CacheLoRA.bytes`, `LoRA.downBytes`,
+/// `Artifact.largestRun`, `DiT.arenaBytes`, `CacheLoRA.bytes`, `LoRA.downBytes`,
 /// `HeadSplitAttention.hostBytes`, `Attention.maskBytes`, `Conductor.workspaceBytes`, `GEMM.tierBytes`,
 /// `VAEEncoder.plan`, `VAE.plan`. Outside our hand, from the shapes: MPSGraph's copy of the queries
 /// (`OperatorFootprint.sdpaQueries`), the VAE's SDPA copies (`VAELayout.outside`); the process's base is
@@ -48,9 +48,9 @@ import Foundation
 extension MemoryNeed {
 
     /// **What Z-Image's formula reads beside the request**: its maps' headers — configs and tensor
-    /// tables, a few hundred KB, never a tensor. The staging
-    /// span of each layer is read once, here (`Artifact.stagingSpans`: `stagingBytes` bridges the whole
-    /// tensor table at each call, 2 ms a map in a debug build); a set of layers spans the largest of theirs.
+    /// tables, a few hundred KB, never a tensor. The largest tensor's run of each layer is read once,
+    /// here (`Artifact.largestRun` bridges the whole tensor table at each call, 2 ms a map in a debug
+    /// build); a set of layers holds the largest of theirs.
     ///
     /// `@unchecked Sendable`: the headers are JSON values, read once and never written.
     package struct ZImageMaps: @unchecked Sendable {
@@ -58,11 +58,9 @@ extension MemoryNeed {
         package let ditSize: Int
         package let encoder: [String: Any]
         package let encoderSize: Int
-        /// `Artifact.stagingSpans` of each DiT layer alone, by index.
-        private let ditLayerStaging: [Int?]
         /// `Artifact.largestRun` of each DiT layer alone: what a stream's buffer holds if that layer is streamed.
         private let ditLayerRun: [Int]
-        /// `Artifact.stagingBytes` of the encoder's layers (0 when its config does not parse).
+        /// `Artifact.largestRun` of the encoder's layers (0 when its config does not parse).
         package let encoderLayerStaging: Int
         /// What widening the DiT's largest int8 convrot weight allocates outside every arena
         /// (`Widen.rotationScratchBytes`): an imported Comfy-style convrot DiT; 0 otherwise.
@@ -70,8 +68,6 @@ extension MemoryNeed {
 
         package init(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
             self.dit = dit; self.ditSize = ditSize; self.encoder = encoder; self.encoderSize = encoderSize
-            ditLayerStaging = Artifact.stagingSpans(header: dit, prefixes: (0..<DiT.Config(header: dit).layers).map(DiT.layerPrefix),
-                                                    fileSize: ditSize)
             ditLayerRun = (0..<DiT.Config(header: dit).layers).map {
                 Artifact.largestRun(header: dit, prefixes: [DiT.layerPrefix($0)], fileSize: ditSize)
             }
@@ -81,8 +77,6 @@ extension MemoryNeed {
             ditRotationScratch = Widen.rotationScratchBytes(header: dit)
         }
 
-        /// `Artifact.stagingBytes` of the DiT's `layers`: the largest of each layer's span.
-        package func ditStaging(_ layers: Range<Int>) -> Int { ditLayerStaging[layers].compactMap { $0 }.max() ?? 0 }
         /// What one buffer of the DiT's stream holds over `layers`: the largest tensor's run (`Artifact.largestRun`).
         package func ditUnitStaging(_ layers: Range<Int>) -> Int { ditLayerRun[layers].max() ?? 0 }
 
@@ -172,8 +166,8 @@ extension MemoryNeed {
         // ── denoising ────────────────────────────────────────────────────────────────────────────
         let capPadded = DiT.capPadded(tokens, config: dit)
         let released = request.tail.released(layers: dit.layers)
-        let buffers = released < dit.layers ? request.tail.slots : 0
-        let staging = buffers == 0 ? 0 : TailStream.unitSlots * maps.ditUnitStaging(released..<dit.layers)
+        let streamed = released < dit.layers && request.tail.streamed
+        let staging = !streamed ? 0 : TailStream.unitSlots * maps.ditUnitStaging(released..<dit.layers)
         // The attentions alive at the peak: one per block at its full length (image refiners at the
         // image's tokens, layers at the unified sequence, context refiners at the padded caption) —
         // cut by heads where `HeadSplitAttention.applies`, MPSGraph otherwise.

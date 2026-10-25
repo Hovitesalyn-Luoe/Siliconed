@@ -111,9 +111,21 @@ package enum Judge {
                 kind: .bound(unit: unit, above: above))
     }
 
+    /// The sampler's σ schedule against the reference's: a badly transcribed shift gives a plausible, wrong trajectory.
+    package static func schedule(_ sigmas: [Float], _ reference: UnsafeBufferPointer<Float>) -> Measure {
+        bound("σ", Double(zip(sigmas, reference).map { abs($0 - $1) }.max() ?? 0), 1e-6, unit: "max |Δ|")
+    }
+
     /// A property that holds or not (a slice is page-aligned, a duplicate is refused).
     package static func holds(_ name: String, _ ok: Bool, note: String = "") -> Measure {
         Measure(boundary: name, worst: ok ? 0 : .infinity, median: 0, channel: 0, atWitness: nil, threshold: 0,
                 passed: ok, note: note, kind: .identity)
     }
+}
+
+/// The sentences the DiT stages of the four models share, in `check list` and in the table of VERIFY.md.
+enum Wording {
+    static let rectangle = "on a rectangle, the transposed golden must deviate"
+    static let halfPrecision = "with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
+    static let publishers = "(the Compact's or the Light's published weights, dequantized by their publisher's library)"
 }

@@ -39,8 +39,8 @@ import Foundation
 ///     need never falls when the prompt grows;
 ///   - **the staging blocks of the map's tail exist only with the K/V in memory**
 ///     (`QwenImage21DiT.body`): an edit — or a long generation — streams nothing, whatever the plan's
-///     tail says; a generation takes the plan's slots (`Request.tail`), each the largest layer's run
-///     in the map (`QwenImage21Maps.ditLayerStaging`: 436 MB bf16, about half for an 8-bit map);
+///     tail says; a generation takes the plan's tail (`Request.tail`), in `TailStream.unitSlots` buffers of the
+///     largest tensor's run in the map (`QwenImage21Maps.ditUnitStaging`);
 ///   - **the scratch is not the prefix**: the prefill runs by groups of segments
 ///     (`QwenImage21DiT.layout`), so `normed`, `o`, the MLP chunk scale with the largest group; `x`,
 ///     `keys`, `values` and the RoPE table scale with the whole sequence `P + S`;
@@ -75,7 +75,7 @@ package struct QwenImage21Maps: Sendable {
     package let dit: QwenImage21DiT.Config
     package let encoder: TextEncoder.Config
     package let vision: Qwen3VLVision.Config
-    /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): what a staging block holds.
+    /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): the map's type, read by the tests.
     package let ditLayerStaging: Int
     /// The largest tensor's staging run in the DiT's map (`Artifact.largestRun`): what one buffer of its stream holds.
     package let ditUnitStaging: Int
@@ -309,7 +309,7 @@ package struct QwenImage21Need {
                                                         largestImage: largestImage, rank: rank,
                                                         fullPass: storage == .recompute)),
             Term("K/V arena", p > 0 && storage == .memory ? QwenImage21DiT.cacheArenaBytes(config: dit, prefix: p) : 0),
-            // The map's staging blocks: only with the K/V in memory (`QwenImage21DiT.body`).
+            // The map's stream buffers: only with the K/V in memory (`QwenImage21DiT.body`).
             Term("map staging", storage == .memory && request.tail.fraction > 0
                 ? TailStream.unitSlots * maps.ditUnitStaging : 0),
             Term("DiT rotation scratch", maps.ditRotationScratch),

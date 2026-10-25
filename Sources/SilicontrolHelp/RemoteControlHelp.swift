@@ -289,8 +289,9 @@ package enum RemoteControlHelp {
                               {a|b|c} in it: one job per alternative (ALTERNATIVES below).
           512 | 1024 | WxH    format. 512 = 512x512, 1024 = 1024x1024; WxH = width x height
                               (832x1216 = portrait, the "formats" of « models »). Each side
-                              ≥ 512 and a multiple of 16 (32 for qwen-image-2.1), ≤ 2048 for
-                              anima, area ≤ 1024×1536. Default: 1024x1024.
+                              ≥ 512 and a multiple of 16 (32 for qwen-image-2.1), ≤ 8192
+                              (≤ 2048 for anima); no area limit, the memory decides
+                              ("insufficient_memory"). Default: 1024x1024.
           seed                integer. Absent: drawn at random, returned in "seeds".
 
         OPTIONS
@@ -1030,7 +1031,9 @@ package enum RemoteControlHelp {
                               {a|b|c} dedans : un travail par alternative (ALTERNATIVES plus bas).
           512 | 1024 | WxH    format. 512 = 512x512, 1024 = 1024x1024 ; WxH = largeur x hauteur
                               (832x1216 = portrait, les "formats" de « models »). Chaque côté
-                              ≥ 512 et multiple de 16, surface ≤ 1024×1536. Défaut : 1024x1024.
+                              ≥ 512 et multiple de 16 (32 pour qwen-image-2.1), ≤ 8192
+                              (≤ 2048 pour anima) ; pas de limite de surface, la mémoire décide
+                              ("insufficient_memory"). Défaut : 1024x1024.
           seed                entier. Absente : tirée au hasard, rendue dans "seeds".
 
         OPTIONS

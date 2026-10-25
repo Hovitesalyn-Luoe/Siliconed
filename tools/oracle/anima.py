@@ -61,7 +61,7 @@ import quantized  # noqa: E402
 BASE_REPOSITORY = "circlestone-labs/Anima-Base-v1.0-Diffusers"
 TURBO_REPOSITORY = "circlestone-labs/Anima"
 TURBO_FILE = "split_files/diffusion_models/anima-turbo-v1.1.safetensors"
-PROMPT = "a 30 year old woman posing in a library"      # the bench prompt
+PROMPT = "a 30 year old woman posing in a library"      # the reference prompt
 SEED = 42
 STEPS = 8            # the Turbo card: "CFG 1, 8-12 steps"; the low end
 SHIFT = 3.0          # scheduler_config.json
@@ -190,7 +190,7 @@ def read(stem: str, producer: str) -> dict:
 
 # ------------------------------------------------------------------------------------ stages
 
-#: The T5 tokenizer's edge cases. The bench prompt only touches ASCII: the `Precompiled` normalizer
+#: The T5 tokenizer's edge cases. The reference prompt only touches ASCII: the `Precompiled` normalizer
 #: (nmt_nfkc), the merging of unknowns, a `▁` typed by the user, special tokens in the text and the
 #: truncation at 512 only show up here.
 CASES = [

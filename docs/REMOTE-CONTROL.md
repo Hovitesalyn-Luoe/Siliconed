@@ -126,6 +126,8 @@ command itself, without launching the app.
 
 ## What was measured
 
+On the reference M1 Pro, 16 GB, in October 2026 (app 0.4):
+
 - **Same bits**: the app's image equals a render of the library called directly with the same
   request (512², seed 42, identical decoded bytes). Likewise for a variation of a variation queued by
   `silicontrol vary`: redone from its PNG's recipe, it comes out to the bit.

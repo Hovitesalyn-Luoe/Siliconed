@@ -124,7 +124,7 @@ package enum Probes {
     }
 
     package struct Host: Sendable, Equatable {
-        package var chip: String, memoryGB: Int, macOS: String
+        package var chip: String, memoryGiB: Int, macOS: String
         package static func read() -> Host {
             var bytes: UInt64 = 0
             var size = MemoryLayout<UInt64>.size
@@ -132,7 +132,7 @@ package enum Probes {
             let v = ProcessInfo.processInfo.operatingSystemVersion
             let build = sysctlString("kern.osversion") ?? "?"
             return Host(chip: sysctlString("machdep.cpu.brand_string") ?? sysctlString("hw.model") ?? "?",
-                        memoryGB: Int((Double(bytes) / 1_073_741_824).rounded()),
+                        memoryGiB: Int((Double(bytes) / 1_073_741_824).rounded()),
                         macOS: "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion) (\(build))")
         }
     }

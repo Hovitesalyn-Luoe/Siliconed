@@ -112,7 +112,7 @@ package final class QwenImage21DiT {
     /// **A generation streams its whole map beside the page cache** (`MemoryPlan.ditTail`), not the
     /// half the other DiTs keep: 14.2 GB of map, of which the cache held too little of the head to
     /// pay its sweep — at 0.5, 90–140 k major faults and 0.45–1.75 s of widening per 1024² step,
-    /// 7.2–10.7 GB read; at 1, no fault, 0.41 s, 9.7 GB, the same peak (the two staging buffers
+    /// 7.2–10.7 GB read; at 1, no fault, 0.41 s, 9.7 GB, the same peak (the staging buffers
     /// either way) and the same bits.
     package static let generationTail = 1.0
 
@@ -488,23 +488,21 @@ package final class QwenImage21DiT {
         // (`TailStream`): 14.2 GB swept at every evaluation would otherwise miss every cached page.
         // **Only while the conditions' K/V live in memory**, i.e. a generation: an edit keeps its
         // K/V in a file and runs at the memory ceiling — at the worst case (1024×1536, three
-        // references) the two staging buffers pushed the machine to 48 swapped pages with 19 MB
-        // free, and the rule is zero. There the map keeps sweeping the cache, as before.
-        // **And it is faster so**: a 1-reference edit at 1024² with the tail streamed, as the
-        // budget once allowed, read less (~14 against 19.63 GB per step) yet took 28.2 s a step against
-        // 26.0 — 208.1 against 195.5 s, same bits. A generation's tail is the render's to decide
-        // (`MemoryPlan.ditTail`): **the whole map** (`generationTail`), unless B holds it all; an edit's
-        // stays off on every plan — its map through the cache is what was timed fastest, and
-        // its own K/V reader is already beside the cache.
+        // references) the staging buffers pushed the machine into swap, and the rule is zero. There
+        // the map keeps sweeping the cache, as before.
+        // **And it is faster so**: streamed, an edit read less yet took longer (28.2 s a step against
+        // 26.0 at 1 reference, 1024²), its own K/V reader being already beside the cache. A generation's
+        // tail is the render's to decide (`MemoryPlan.ditTail`): **the whole map** (`generationTail`),
+        // unless B holds it all; an edit's stays off on every plan.
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: QwenImage21DiT.layerPrefix($0)) }
-        var (released, slots) = (config.layers, 0)
+        var (released, streamed) = (config.layers, false)
         if storage == .memory {
-            (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
+            (released, streamed) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
                                                    fraction: QwenImage21DiT.generationTail)
         } else {
             MemoryPlan.noteOnce("map tail none (edit: K/V in a file)")
         }
-        if slots == 0 {
+        if !streamed {
             try artifact.streamTail(blocks: [], slots: 0)
         } else {
             // The uses of every layer, in the engine's order and as many times as it makes them — a prefill

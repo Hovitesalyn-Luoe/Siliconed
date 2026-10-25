@@ -219,8 +219,8 @@ package final class DiT {
         // 1024²) is gone: the 1024×1536 swap it answered was the decoder's, and 1024×1536
         // renders with the tail and its buffers without swap (measured: 3 774 MB, 0 swapout).
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: DiT.layerPrefix($0)) }
-        let (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks)
-        if slots == 0 {
+        let (released, streamed) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks)
+        if !streamed {
             try artifact.streamTail(blocks: [], slots: 0)
         } else {
             try artifact.streamUnits(layers: layerBlocks, from: released, prefix: DiT.layerPrefix, suffixes: DiT.consumptionOrder)

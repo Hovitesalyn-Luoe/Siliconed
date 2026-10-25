@@ -7,8 +7,7 @@ English · [Français](RELEASE-NOTES.fr.md)
 ### Compact by default
 
 - **The Compact is now preselected, and marked recommended,** when you install a model on a Mac with
-  more than 8 GB (the Light stays preselected on 8 GB). On an M1 Pro it renders as fast as the
-  Standard, takes half its disk space, and has the Neural Engine on by default. A model already
+  more than 8 GB (the Light stays preselected on 8 GB). On an M1 Pro it renders as fast as the Standard or faster, takes half its disk space, and has the Neural Engine on by default. A model already
   installed keeps its version; the three stay one click apart.
 - **Full precision costs almost nothing.** The Standard, the publisher's bf16 weights computed in
   fp32, takes the Compact's time within 4 % on Z-Image and Anima, and 6 to 10 % more on Krea 2 and

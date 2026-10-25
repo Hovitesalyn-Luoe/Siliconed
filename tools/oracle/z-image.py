@@ -46,7 +46,7 @@ import quantized  # noqa: E402
 from common import Checkpoint, Recorder, Streamed
 
 REPOSITORY = "Tongyi-MAI/Z-Image-Turbo"
-PROMPT = "a 30 year old woman posing in a library"      # the bench prompt; every stage descends from it
+PROMPT = "a 30 year old woman posing in a library"      # the reference prompt; every stage descends from it
 MAX_SEQUENCE_LENGTH = 512
 DIT_SEED = 0
 TRAJECTORY_SEED = 42

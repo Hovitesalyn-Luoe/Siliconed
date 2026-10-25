@@ -134,6 +134,8 @@ argument) est servie par la commande elle-même, sans lancer l'app.
 
 ## Ce qui a été mesuré
 
+Sur le M1 Pro de référence, 16 Go, en octobre 2026 (app 0.4) :
+
 - **Mêmes bits** : l'image de l'app = un rendu de la bibliothèque appelée directement, même requête
   (512², graine 42, octets décodés identiques). De même pour une variation de variation mise en file
   par `silicontrol vary` : refaite depuis la recette de son PNG, elle sort au bit près.

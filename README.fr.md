@@ -32,11 +32,11 @@ Pour en savoir plus sur l'app : [docs/APP.fr.md](docs/APP.fr.md).
 
 ## Ce qui la distingue
 
-- **Rapide, sans rogner.** Z-Image Turbo en 1024² en 83 s sur un MacBook Pro M1 Pro de 16 Go, avec les 8 évaluations que demande sa recette (par défaut, les trois premières en demi-taille), dans la Compact 8 bits que l'app recommande. En précision complète, les poids bf16 de l'éditeur calculés en fp32 : 82 s. La précision complète ne coûte presque rien. [Tous les chiffres](docs/ENGINE.fr.md#les-chiffres).
+- **Rapide, sans rogner.** Z-Image Turbo en 1024² en 83 s sur un MacBook Pro M1 Pro de 16 Go, avec les 8 évaluations (passages du modèle) que demande sa recette, par défaut les trois premières en demi-taille, dans la Compact que l'app recommande (le modèle en poids 8 bits, moitié moins de disque ; [les trois versions](docs/APP.fr.md#la-gestion-des-modèles)). En précision complète, les poids bf16 de l'éditeur calculés en fp32 : 82 s. La précision complète ne coûte presque rien. [Tous les chiffres](docs/ENGINE.fr.md#les-chiffres).
 - **De gros modèles sur un Mac de 16 Go.** 34 Go de modèle tournent sur un Mac de 16 Go : les poids sont lus sur le disque au moment où ils servent, et Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go. Chaque rendu calcule ce qu'il lui faut avant de commencer ; au-delà du budget, il est refusé d'emblée. [Comment c'est mesuré](docs/ENGINE.fr.md#la-mémoire-et-le-budget).
-- **Vérifié contre les modèles d'origine.** Chaque étage est comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur CPU), et ce qui ne se vérifie pas n'est pas livré. Refaites les contrôles chez vous : [VERIFY.fr.md](docs/VERIFY.fr.md).
+- **Vérifié contre les modèles d'origine.** Chaque étage est comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur CPU), et ce qui ne se vérifie pas n'est pas livré. Refaites les contrôles chez vous : [VERIFY.fr.md](docs/VERIFY.fr.md). La CI passe les étages CPU des noyaux chaque fois que le moteur change ; son GPU est virtuel, les étages GPU se jugent sur votre Mac.
 - **Réglé pour votre Mac.** Avant le premier rendu, en une minute environ et sans aucun modèle, il chronomètre ses noyaux sur votre puce et vérifie chaque résultat contre le résultat exact ; un noyau ne s'allume que s'il a calculé juste et battu le défaut. [Ce qu'il a décidé sur un M1 Pro](docs/ENGINE.fr.md#un-moteur-mesuré-sur-votre-mac).
-- **Mesuré à côté de Draw Things** sur le même Mac, avec la méthode et tous les chiffres : [À côté de Draw Things](docs/ENGINE.fr.md#à-côté-de-draw-things).
+- **Mesuré à côté du moteur de Draw Things** sur le même Mac, avec la méthode et tous les chiffres : [À côté de Draw Things](docs/ENGINE.fr.md#à-côté-de-draw-things).
 
 ## Documentation
 

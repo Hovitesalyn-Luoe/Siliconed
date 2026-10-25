@@ -63,9 +63,16 @@ def read(path: Path) -> dict:
         return {name: fingerprint(f.get_tensor(name)) for name in f.keys()}
 
 
+def save(table: dict) -> None:
+    """One golden per line, in key order: a regenerated golden changes its own line and no other, so a
+    diff of this file reads. Any JSON layout is read back, this one is what is written."""
+    lines = [f" {json.dumps(relative)}: {json.dumps(table[relative], sort_keys=True)}" for relative in sorted(table)]
+    PUBLISHED.write_text("{\n" + ",\n".join(lines) + "\n}\n")
+
+
 def write(directory: Path) -> int:
     table = {relative: read(path) for relative, path in goldens(directory)}
-    PUBLISHED.write_text(json.dumps(table, indent=1, sort_keys=True) + "\n")
+    save(table)
     print(f"{len(table)} goldens → {PUBLISHED.name}")
     return 0
 
@@ -78,7 +85,7 @@ def add(directory: Path, only: list[str]) -> int:
     for relative in added:
         table[relative] = read(dict(goldens(directory))[relative])
         print(f"  + {relative}")
-    PUBLISHED.write_text(json.dumps(table, indent=1, sort_keys=True) + "\n")
+    save(table)
     print(f"{len(added)} goldens added → {PUBLISHED.name} ({len(table)} in all)")
     return 0
 

@@ -12,13 +12,15 @@ The figures here, and the checks, are those of the render at full size, Faster R
 
 ## Setting up
 
-You need the app (0.15 or later), Python 3.12, and this repository at the app's version (Siliconed → About shows it). `siliconed` ships inside the app: it is the very engine the app renders with, and it runs without Xcode.
+You need the app (0.15 or later), Python 3.12, and this repository at the app's version (Siliconed → About Siliconed shows it). `siliconed` ships inside the app: it is the very engine the app renders with, and it runs without Xcode.
 
 ```sh
 alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
 git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Siliconed
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
 ```
+
+The first run of an oracle script downloads the reference weights from the Hugging Face Hub, at pinned revisions (sizes in [section 3](#3--every-model)); `HF_HOME` or `HF_HUB_CACHE` decides where they go. Krea 2's reference, `krea/Krea-2-Turbo`, is gated: accept its licence on the Hub, then `oracle-env/bin/hf auth login`, before `krea2.py`; do the same for any other repository that asks for it. The int8 convrot code that two of the Compact versions need is fetched, once, at a pinned commit and checked against its sha256.
 
 To check your own build instead: `swift build -c release --product siliconed` (Xcode 26), then `.build/release/siliconed` in place of the alias.
 
@@ -202,7 +204,9 @@ A stage's figure is the **relative error per channel**: for each channel (the la
 
 The *witness* is the same computation in float64. Where it exists, it decides: float32 has its own rounding error, and on an ill-conditioned boundary the reference itself can be 4e-3 away from the exact value; the engine may then be no further from the exact value than the reference is, plus 25 %.
 
-Each stage's line in `check list` gives its own rule. An identity (tokens, schedules) is judged bit for bit. A few stages have a tighter floor. A rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
+Each stage's line in `check list` gives its own rule. An identity (tokens, schedules) is judged bit for bit. A few stages have a tighter floor: Z-Image's `text` and `block` hold 2e-4 instead of 5e-4. A rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
+
+One stage is judged by another measure: Z-Image's `vae` takes the decoded image against the reference's, **PSNR ≥ 80 dB**, where the other three models' decoders are judged per latent plane against a float64 witness. It is the one exception to the per-channel rule: the oracle writes no float64 witness for that decoder, only the image, so the stage compares images and also requires the transposed image to deviate.
 
 Krea 2's denoiser has a few boundaries so ill-conditioned that a change of one unit in the last place of the input moves the output by more than the rule allows, the reference included. There, a measure that fails at the witness is judged by *clouds*: the reference and the engine are both run on inputs moved by one ulp, and the engine's median error must stay within 1.25 times the reference's worst. These are the stages whose rule says "clouds when the oracle has draws".
 
@@ -245,6 +249,8 @@ oracle-env/bin/python tools/oracle/z-image.py witness --size 512 --variant compa
 siliconed check z-image dit --size 512 --variant compact
 siliconed check z-image dit --size 512 --variant compact --neural-engine
 ```
+
+The variants' oracle also needs the publishers' libraries: `oracle-env/bin/pip install -r tools/oracle/requirements-quant.txt` first (it adds `gguf`, and `sdnq` and `torchao` for `quant_fixtures.py`, to the base requirements).
 
 The Compact and the Light run on the Neural Engine by default (fp16 products), so `--neural-engine` is the bar that matters for them, judged like the Standard's: against the reference in bf16 on the same dequantized weights, the engine allowed bf16's own error plus 25 %. Those goldens need the Standard's `dit` golden at 512 first (they read its inputs); they are not part of `all` or of `siliconed check <model>`.
 
@@ -323,7 +329,7 @@ model_out per plane         1.667e-03   1.56e-03        0   1.667e-03    2.03e-0
 
 </details>
 
-Krea 2's variants are judged by clouds like its Standard, and **the Light's `model_out per plane` needs them.** Judged in a single draw, that line is 1.345e-4 for an allowance of 1.33e-4: it fails, by about 1 %, and it is the only measure of the eight variants that does. It passes once the clouds are applied to it. The rule already applied them to `model_out`; on 25 October 2026 it was extended to `model_out per plane`, and with the reference's one-ulp draws the engine's median is 1.282e-4 for 1.36e-4 (the line above says: `clouds: engine median of 5 draws, oracle worst of 4`). So that one line is green because of the draws, not without them, and you can see it in the output of `krea2 dit --variant light`. The draws of a variant are `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (step 0 only: the later latents belong to the Standard's trajectory).
+Krea 2's variants are judged by clouds like its Standard, and **the Light's `model_out per plane` needs them.** Judged in a single draw, that line is 1.345e-4 for an allowance of 1.33e-4: it fails, by about 1 %, and it is the only measure of the eight variants that does. It passes once the clouds are applied to it. The rule already applied them to `model_out`; in 0.15 it was extended to `model_out per plane`, and with the reference's one-ulp draws the engine's median is 1.282e-4 for 1.36e-4 (the line above says: `clouds: engine median of 5 draws, oracle worst of 4`). So that one line is green because of the draws, not without them, and you can see it in the output of `krea2 dit --variant light`. The draws of a variant are `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (step 0 only: the later latents belong to the Standard's trajectory).
 
 LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
 

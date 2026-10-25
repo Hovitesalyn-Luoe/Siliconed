@@ -15,7 +15,7 @@ import Synchronization
 /// What the others hold is theirs; the promise is that Siliconed takes at most B.
 ///
 /// **What B covers**: Siliconed's whole process, `phys_footprint` — what it holds when the render
-/// starts (the app's interface and history, the command line's runtime: `MemoryNeed.Request.base`,
+/// starts (the app's interface and history, the process's runtime: `MemoryNeed.Request.base`,
 /// read from the process itself) plus the render's computed need (`MemoryNeed`). Not the page cache
 /// of the maps it reads (clean, file-backed, nobody's footprint: `MemoryPlan`), nor the frameworks'
 /// constants no shape gives (`OperatorFootprint`), which the render's check reports.
@@ -49,7 +49,7 @@ package enum MemoryBudget {
     }
 
     /// **B for this Mac**: the forcing (`SILICONED_MEMORY_BUDGET_GB`) when set, then a simulated RAM
-    /// (`SILICONED_SIMULATED_RAM`, the developer's command line only), otherwise `ceiling(physical:)` of
+    /// (`SILICONED_SIMULATED_RAM`, only where a process opts in: `allowSimulation`), otherwise `ceiling(physical:)` of
     /// its RAM. What the preflight refuses on, the app greys out with, and the plan is chosen in.
     package static func machineCeiling(environment: [String: String]? = nil) -> Int {
         let live = environment == nil
@@ -68,14 +68,14 @@ package enum MemoryBudget {
     /// **The simulated RAM** (`SILICONED_SIMULATED_RAM=32G`): the RAM B is computed from, in place of
     /// this Mac's — to see which plan, or which refusal, a 24, 32, 64 or 128 GB Mac gets for a format, on
     /// a Mac that has 16. **It changes B and nothing else**: the render still runs on the real
-    /// hardware, so a simulated RAM above the real one can plan a render this Mac cannot hold. The
-    /// engine's developer command line asks for it (`allowSimulation`); the app and the library do not
+    /// hardware, so a simulated RAM above the real one can plan a render this Mac cannot hold. A
+    /// measurement process asks for it (`allowSimulation`); the app and the library do not
     /// read it, whatever the environment says — a user's Mac renders in its own B.
     package static let simulatedRAMVariable = "SILICONED_SIMULATED_RAM"
 
     private static let simulationAllowed = Atomic<Bool>(false)
 
-    /// The developer command line's switch: from now on the live environment's simulated RAM counts.
+    /// The measurement processes' switch: from now on the live environment's simulated RAM counts.
     package static func allowSimulation() { simulationAllowed.store(true, ordering: .relaxed) }
 
     /// Whether the live environment simulates a RAM (and this process reads it).
@@ -134,7 +134,7 @@ package enum MemoryBudget {
         return environment
     }
 
-    /// B in one line, for the developer's command line.
+    /// B in one line, for a report line.
     package static func summary(_ ceiling: Int) -> String {
         let how = isForced ? " (forced: \(forcingVariable))" : isSimulated ? " (simulated: \(simulatedRAMVariable))" : ""
         return String(format: "B %.2f GB%@", Double(ceiling) / 1e9, how as NSString)
@@ -147,7 +147,7 @@ package enum MemoryBudget {
 /// beside `EngineSettings.effective`, which is read once per process. Nothing is read from the machine,
 /// and nothing changes once the render runs: the same request on the same Mac takes the same plan.
 ///
-///     request ── the lean plan: whole map streamed (two buffers),   ── need ≤ B, or refused (Preflight)
+///     request ── the lean plan: whole map streamed (three buffers), ── need ≤ B, or refused (Preflight)
 ///                no encoder buffer, the decoders' smallest bands
 ///                  + the text encoder's four buffers                ── kept if the need stays ≤ B
 ///                  + the decoders' standard bands                   ── kept if the need stays ≤ B
@@ -174,29 +174,29 @@ package enum MemoryBudget {
 ///     buffer at all: a 32 GB Mac, an 8-bit map).
 ///   - **Never one buffer**: measured, one serializes the reads behind the computation (Z-Image 512²
 ///     14.4 s a step against 4.1 with two; Qwen 512 20 s against 6), the same bits. The lean plan streams
-///     the whole map with its two: a budget too short for a head is a cache too short for it, and the
+///     the whole map with the stream's buffers (`TailStream.unitSlots`): a budget too short for a head is a cache too short for it, and the
 ///     map through the cache is what swapped (234.7 GB through the compressor in a swapping render,
 ///     13.1 with the whole map streamed).
 ///   - **The check is against the plan's own need** (`Render.need`): a render on a smaller plan is
 ///     judged on that plan, not on the fastest one it did not take. A map left wholly to the cache
-///     peaks below it (its two buffers are charged, not allocated).
+///     peaks below it (its buffers are charged, not allocated).
 ///
 /// Outside a render (a check, a bench) there is no plan: each site keeps the reference values it had
 /// before — the measurement tools stay what they were. `SILICONED_MAP_TAIL` set in the environment is a
-/// forcing of measurement: the DiT then streams that fraction with two buffers, whatever B.
+/// forcing of measurement: the DiT then streams that fraction with its buffers, whatever B.
 package enum MemoryPlan {
 
     /// The DiT's plan for its map, as the need charges it: the share of its layers streamed around the
-    /// page cache, and how many staging buffers of its largest block.
+    /// page cache, and whether it is streamed at all (`TailStream.unitSlots` buffers of its largest tensor).
     package struct Tail: Sendable, Equatable {
         package var fraction: Double
-        package var slots: Int
-        package static let none = Tail(fraction: 0, slots: 0)
-        /// **The lean plan's map: all of it beside the cache, with its two buffers**.
-        package static let lean = Tail(fraction: 1, slots: 2)
+        package var streamed: Bool
+        package static let none = Tail(fraction: 0, streamed: false)
+        /// **The lean plan's map: all of it beside the cache, with the stream's buffers**.
+        package static let lean = Tail(fraction: 1, streamed: true)
         /// The first of `layers` streamed (`layers`: none).
         package func released(layers: Int) -> Int {
-            slots == 0 ? layers : Prefetcher.firstReleasedLayer(of: layers, tail: fraction)
+            streamed ? Prefetcher.firstReleasedLayer(of: layers, tail: fraction) : layers
         }
     }
 
@@ -220,10 +220,10 @@ package enum MemoryPlan {
         package var need: MemoryNeed?
         /// The lean plan's peak: the floor the preflight judged.
         package var floor: Int
-        /// The denoising's need with the map streamed (its two buffers), and with it wholly cached.
+        /// The denoising's need with the map streamed (its buffers), and with it wholly cached.
         package var denoisingStreamed: Int
         package var denoisingCached: Int
-        /// What each site decided, in order, for the report (the developer's command line prints it).
+        /// What each site decided, in order, for the report (the report prints it).
         package var decisions: [String] = []
         /// The lean plan, all of it: no encoder buffer and the smallest bands.
         package var lean: Bool { request.encoderSlots == 0 && request.minimumBands }
@@ -261,27 +261,27 @@ package enum MemoryPlan {
 
     /// **The map's head, from B** — pure: the first layer streamed and the staging buffers.
     /// `spans`: each layer's bytes in the map; `mapBytes`: the whole map; `streamed` / `cached`: the
-    /// denoising's need with the two buffers and without; `fraction`: the model's own split (its cap).
+    /// denoising's need with the buffers and without; `fraction`: the model's own split (its cap).
     ///
     /// The map fits whole beside the denoising's need: nothing streamed, no buffer. Otherwise the
     /// layers from the front whose bytes fit in what B leaves (the map's non-layer tensors, cached
     /// too, deducted first), never more than the model's split keeps.
     package static func released(spans: [Int], mapBytes: Int, ceiling: Int, streamed: Int, cached: Int,
-                                 fraction: Double) -> (released: Int, slots: Int) {
+                                 fraction: Double) -> (released: Int, streamed: Bool) {
         let layers = spans.count
-        guard fraction > 0, layers > 0, mapBytes > ceiling - cached else { return (layers, 0) }
+        guard fraction > 0, layers > 0, mapBytes > ceiling - cached else { return (layers, false) }
         let room = ceiling - streamed - (mapBytes - spans.reduce(0, +))
         var head = 0, held = 0
         while head < layers, held + spans[head] <= room { held += spans[head]; head += 1 }
         let released = min(head, Prefetcher.firstReleasedLayer(of: layers, tail: fraction))
-        return released < layers ? (released, 2) : (layers, 0)
+        return released < layers ? (released, true) : (layers, false)
     }
 
     // ── the verdict, without a render ──────────────────────────────────────────────────────
 
     /// **What a request gets in a given B, decided as the preflight and the plan decide it** — no
     /// computation, no weights beyond the maps' headers: the table the tests print for 16, 24, 32, 64 and
-    /// 128 GB Macs, and the developer command line's `plan`.
+    /// 128 GB Macs, and what the plan report prints.
     package enum Verdict: Sendable, Equatable {
         /// The render goes: the lean plan's `floor` is within B, and `need` is the chosen plan's peak.
         case plan(floor: Int, need: Int, encoderBuffers: Bool, standardBands: Bool)
@@ -350,36 +350,36 @@ package enum MemoryPlan {
 
     /// **The DiT's tail**, where it opens its map (`DiT.forward`, `QwenImage21DiT.pass`): the first
     /// layer streamed and the staging buffers (`released`). The same at every evaluation of a render:
-    /// nothing it depends on moves. Outside a render, the model's split with two buffers; under
-    /// `SILICONED_MAP_TAIL` (a forcing of measurement), that fraction with two buffers, journaled.
+    /// nothing it depends on moves. Outside a render, the model's split, streamed; under
+    /// `SILICONED_MAP_TAIL` (a forcing of measurement), that fraction, streamed, journaled.
     ///
     /// `fraction`: the model's own split, when it has measured one — the setting's (0.5) otherwise. A
     /// `map_tail` set in the profile or the environment still wins.
     package static func ditTail(artifact: Artifact, layerBlocks: [[String]],
-                                fraction preferred: Double? = nil) -> (released: Int, slots: Int) {
+                                fraction preferred: Double? = nil) -> (released: Int, streamed: Bool) {
         let layers = layerBlocks.count
         let spans = layerBlocks.map { artifact.span(of: $0) }
         let block = spans.max() ?? 0
-        func decide(_ plan: (released: Int, slots: Int), _ why: String) -> (released: Int, slots: Int) {
-            let streamed = plan.released < layers ? plan.slots : 0
+        func decide(_ plan: (released: Int, streamed: Bool), _ why: String) -> (released: Int, streamed: Bool) {
+            let buffers = plan.released < layers && plan.streamed ? TailStream.unitSlots : 0
             noteOnce(String(format: "map tail %d of %d layers, %d buffer(s) of %.0f MB%@", layers - plan.released,
-                            layers, streamed, Double(block) / 1e6, why as NSString))
+                            layers, buffers, Double(block) / 1e6, why as NSString))
             return plan
         }
         let settings = EngineSettings.effective
         if settings.provenance["map_tail"] == .environment {
-            return decide((Tail(fraction: settings.mapTail, slots: 2).released(layers: layers), 2),
+            return decide((Tail(fraction: settings.mapTail, streamed: true).released(layers: layers), true),
                           " (forced: SILICONED_MAP_TAIL)")
         }
         let fraction = settings.provenance["map_tail"] == nil ? preferred ?? settings.mapTail : settings.mapTail
         guard let render = current else {
-            return decide(fraction > 0 ? (Tail(fraction: fraction, slots: 2).released(layers: layers), 2) : (layers, 0), "")
+            return decide(fraction > 0 ? (Tail(fraction: fraction, streamed: true).released(layers: layers), true) : (layers, false), "")
         }
         let mapBytes = artifact.tensors.values.reduce(0) { $0 + $1.bytes }
         let plan = released(spans: spans, mapBytes: mapBytes, ceiling: render.ceiling,
                             streamed: render.denoisingStreamed, cached: render.denoisingCached, fraction: fraction)
         let split = Prefetcher.firstReleasedLayer(of: layers, tail: fraction)
-        let why = plan.slots == 0 && fraction > 0 ? " (the whole map in B)"
+        let why = !plan.streamed && fraction > 0 ? " (the whole map in B)"
             : plan.released < split ? " (head: what B leaves beside the denoising)" : ""
         return decide(plan, why)
     }

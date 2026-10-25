@@ -7,7 +7,7 @@ import Siliconed
 //
 // What sets it apart: two tokenizers (Qwen's and T5's) feed Qwen3-0.6B and a conditioner that maps its
 // states onto T5's; the step is `x += (σᵢ₊₁ − σᵢ) · v`, without the negation Z-Image's pipeline applies;
-// the VAE is Qwen-Image's. The goldens are the bench prompt's, seed 42, at 512² and 1024².
+// the VAE is Qwen-Image's. The goldens are the reference prompt's, seed 42, at 512² and 1024².
 
 enum AnimaStages {
     static let all: [Stage] = [tokenizer, text, dit, trajectory, vae]
@@ -75,8 +75,8 @@ enum AnimaStages {
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, and its output per latent plane against the fp64 witness",
         sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
-        oracle: "tools/oracle/anima.py dit --size {size}; witness --size {size} --step 0; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit and bf16 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
-        rule: "the rule, floor 5e-4; model_out per latent plane at the fp64 witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
+        oracle: "tools/oracle/anima.py dit --size {size}; witness --size {size} --step 0; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit and bf16 with --variant, at 512 \(Wording.publishers)", weights: ["DiT"],
+        rule: "the rule, floor 5e-4; model_out per latent plane at the fp64 witness; \(Wording.rectangle); \(Wording.halfPrecision)"
     ) { invocation in
         let version = try invocation.quantizedVariant()
         let report = Report(title: "\(model) dit\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")
@@ -135,7 +135,7 @@ enum AnimaStages {
         let steps = reference.count - 1
         let sigmas = AnimaDiT.sigmas(steps: steps, shift: 3)
         // A badly transcribed shift gives a plausible and wrong trajectory.
-        report.add(Judge.bound("σ", Double(zip(sigmas, reference).map { abs($0 - $1) }.max() ?? 0), 1e-6, unit: "max |Δ|"))
+        report.add(Judge.schedule(sigmas, reference))
         let side = initEntry.shape[1]
         let dit = try AnimaDiT(artifact: try Artifact(path: try invocation.ditMap(ditMap)), latentHeight: side, latentWidth: side,
                                textLength: contextEntry.shape[0])

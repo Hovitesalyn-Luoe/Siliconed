@@ -49,7 +49,7 @@ package struct MemoryNeed: Sendable, Equatable {
         /// rank the arenas reserve, their count says whether a `down` is staged (two LoRAs or more).
         package var loraRanks: [Int] = []
         /// The DiT's map plan (tail fraction and staging buffers).
-        package var tail: MemoryPlan.Tail = .init(fraction: 0.5, slots: 2)
+        package var tail: MemoryPlan.Tail = .init(fraction: 0.5, streamed: true)
         /// The text encoder's staging buffers (`MemoryPlan.encoderSlots`; 0 on the lean plan).
         package var encoderSlots: Int = MemoryPlan.encoderSlots
         /// The decoders' smallest bands (`MemoryPlan.fluxMinimumBand`, `qwenMinimumBand`), as the lean
@@ -82,7 +82,7 @@ package struct MemoryNeed: Sendable, Equatable {
         package var krea2Maps: Krea2Maps? = nil
 
         package init(card: ModelCard, width: Int, height: Int, references: [(width: Int, height: Int)] = [],
-                     promptTokens: Int, loraRanks: [Int] = [], tail: MemoryPlan.Tail = .init(fraction: 0.5, slots: 2)) {
+                     promptTokens: Int, loraRanks: [Int] = [], tail: MemoryPlan.Tail = .init(fraction: 0.5, streamed: true)) {
             self.card = card; self.width = width; self.height = height; self.references = references
             self.promptTokens = promptTokens; self.loraRanks = loraRanks; self.tail = tail
         }

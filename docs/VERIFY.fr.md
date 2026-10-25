@@ -12,13 +12,15 @@ Les chiffres d'ici, et les contrôles, sont ceux du rendu à pleine taille, Rend
 
 ## Mise en place
 
-Il faut l'app (0.15 ou suivante), Python 3.12, et ce dépôt à la version de l'app (Siliconed → À propos l'affiche). `siliconed` est livré dans l'app : c'est le moteur même avec lequel l'app rend, et il tourne sans Xcode.
+Il faut l'app (0.15 ou suivante), Python 3.12, et ce dépôt à la version de l'app (Siliconed → À propos de Siliconed l’affiche). `siliconed` est livré dans l'app : c'est le moteur même avec lequel l'app rend, et il tourne sans Xcode.
 
 ```sh
 alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
 git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Siliconed
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
 ```
+
+La première exécution d'un script d'oracle télécharge les poids de référence depuis le Hugging Face Hub, à des révisions épinglées (les tailles sont en [section 3](#3--tous-les-modèles)) ; `HF_HOME` ou `HF_HUB_CACHE` décide où ils vont. La référence de Krea 2, `krea/Krea-2-Turbo`, est à accès restreint : acceptez sa licence sur le Hub, puis `oracle-env/bin/hf auth login`, avant `krea2.py` ; faites de même pour tout autre dépôt qui le demande. Le code convrot int8 dont deux versions Compactes ont besoin est récupéré une fois, à un commit épinglé, et son sha256 est vérifié.
 
 Pour vérifier plutôt votre propre compilation : `swift build -c release --product siliconed` (Xcode 26), puis `.build/release/siliconed` à la place de l'alias.
 
@@ -202,7 +204,9 @@ Le chiffre d'une étape est l'**écart relatif par canal** : pour chaque canal 
 
 Le *témoin* est le même calcul en float64. Là où il existe, il tranche : le float32 a sa propre erreur d'arrondi, et sur une frontière mal conditionnée la référence elle-même peut être à 4e-3 de la valeur exacte ; le moteur peut alors en être aussi loin que la référence, plus 25 %.
 
-La ligne de chaque étape dans `check list` donne sa règle. Une identité (tokens, plannings) se juge au bit près. Quelques étapes ont un plancher plus serré. Un rectangle se contrôle aussi contre sa transposée, qui doit échouer, pour qu'une hauteur et une largeur inversées ne passent pas.
+La ligne de chaque étape dans `check list` donne sa règle. Une identité (tokens, plannings) se juge au bit près. Quelques étapes ont un plancher plus serré : le `text` et le `block` de Z-Image tiennent 2e-4 au lieu de 5e-4. Un rectangle se contrôle aussi contre sa transposée, qui doit échouer, pour qu'une hauteur et une largeur inversées ne passent pas.
+
+Une étape se juge par une autre mesure : le `vae` de Z-Image prend l'image décodée contre celle de la référence, **PSNR ≥ 80 dB**, là où les décodeurs des trois autres modèles se jugent par plan de latent contre un témoin float64. C'est l'unique exception à la règle par canal : l'oracle n'écrit pas de témoin float64 pour ce décodeur, seulement l'image, si bien que l'étape compare des images et exige aussi que l'image transposée s'en écarte.
 
 Le débruiteur de Krea 2 a quelques frontières si mal conditionnées qu'un changement d'une unité sur le dernier chiffre de l'entrée déplace la sortie de plus que la règle ne permet, référence comprise. Là, une mesure qui échoue au témoin est jugée par *nuages* : la référence et le moteur tournent tous deux sur des entrées décalées d'un ulp, et l'écart médian du moteur doit rester sous 1,25 fois le pire de la référence. Ce sont les étapes dont la règle dit « clouds when the oracle has draws ».
 
@@ -245,6 +249,8 @@ oracle-env/bin/python tools/oracle/z-image.py witness --size 512 --variant compa
 siliconed check z-image dit --size 512 --variant compact
 siliconed check z-image dit --size 512 --variant compact --neural-engine
 ```
+
+L'oracle des variantes demande aussi les bibliothèques des éditeurs : `oracle-env/bin/pip install -r tools/oracle/requirements-quant.txt` d'abord (il ajoute `gguf`, et `sdnq` et `torchao` pour `quant_fixtures.py`, aux dépendances de base).
 
 La Compacte et la Légère calculent par défaut sur le Neural Engine (produits en fp16) : `--neural-engine` est donc la barre qui compte pour elles, jugée comme celle de la Standard : contre la référence en bf16 sur les mêmes poids déquantés, le moteur ayant droit à l'erreur propre du bf16 plus 25 %. Ces goldens demandent d'abord le golden `dit` de la Standard à 512 (ils en lisent les entrées) ; ils ne font partie ni de `all` ni de `siliconed check <modèle>`.
 
@@ -323,7 +329,7 @@ model_out per plane         1.667e-03   1.56e-03        0   1.667e-03    2.03e-0
 
 </details>
 
-Les variantes de Krea 2 se jugent par nuages comme sa Standard, et **le `model_out per plane` de la Légère en a besoin.** Jugée en un seul tirage, cette ligne vaut 1,345e-4 pour une tolérance de 1,33e-4 : elle échoue, d'environ 1 %, et c'est la seule mesure des huit variantes qui échoue. Elle passe une fois les nuages appliqués à cette ligne. La règle les appliquait déjà à `model_out` ; le 25 octobre 2026 elle a été étendue à `model_out per plane`, et avec les tirages de la référence décalés d'un ulp la médiane du moteur vaut 1,282e-4 pour 1,36e-4 (la ligne ci-dessus dit : `clouds: engine median of 5 draws, oracle worst of 4`). Cette ligne-là est donc verte grâce aux tirages, pas sans eux, et la sortie de `krea2 dit --variant light` le montre. Les tirages d'une variante : `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (le pas 0 seulement : les latents suivants sont ceux de la trajectoire de la Standard).
+Les variantes de Krea 2 se jugent par nuages comme sa Standard, et **le `model_out per plane` de la Légère en a besoin.** Jugée en un seul tirage, cette ligne vaut 1,345e-4 pour une tolérance de 1,33e-4 : elle échoue, d'environ 1 %, et c'est la seule mesure des huit variantes qui échoue. Elle passe une fois les nuages appliqués à cette ligne. La règle les appliquait déjà à `model_out` ; dans la 0.15 elle a été étendue à `model_out per plane`, et avec les tirages de la référence décalés d'un ulp la médiane du moteur vaut 1,282e-4 pour 1,36e-4 (la ligne ci-dessus dit : `clouds: engine median of 5 draws, oracle worst of 4`). Cette ligne-là est donc verte grâce aux tirages, pas sans eux, et la sortie de `krea2 dit --variant light` le montre. Les tirages d'une variante : `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (le pas 0 seulement : les latents suivants sont ceux de la trajectoire de la Standard).
 
 Les LoRA ne sont pas couvertes ici : ce sont des fichiers que vous choisissez, pas une part de ce que Siliconed livre.
 

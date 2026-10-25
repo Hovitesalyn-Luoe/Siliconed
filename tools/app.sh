@@ -3,7 +3,7 @@
 # packages them into `Siliconed.app` at the repository root (ignored by git), then opens it:
 #
 #     Contents/MacOS/Siliconed          the app (target `SiliconedApp`)
-#     Contents/Helpers/silicontrol      the remote control (target `Silicontrol`, Foundation only);
+#     Contents/Helpers/silicontrol      the remote control (target `Silicontrol`: Foundation, plus Measurement for IOKit and ImageIO);
 #                                       the app's menu links it into the PATH; `silicontrol help`
 #                                       is the complete reference
 #     Contents/Helpers/siliconed        `siliconed check`: the engine checked against the reference's goldens

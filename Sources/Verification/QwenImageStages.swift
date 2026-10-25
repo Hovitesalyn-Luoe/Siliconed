@@ -214,8 +214,8 @@ enum QwenImageStages {
         model: model, name: "dit",
         proves: "one evaluation three ways — prefill of the conditions, the step from their K/V cache, the full pass under the block-causal mask — plus the layout and the modulation",
         options: ["--edit", "--map", "--neural-engine", "--bf16-activations", "--variant"], variants: edits,
-        oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine or --bf16-activations, bf16 [--edit N]; with --variant compact or light (no --edit), dit and bf16 with --variant (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
-        rule: "layout bit for bit; the rule, floor 5e-4, at the fp64 witness where one exists; cache and full pass ≤ 1e-5 apart; a second step the same bits; with --neural-engine or --bf16-activations, against bf16's own error + 25 %, cache and full pass too"
+        oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine or --bf16-activations, bf16 [--edit N]; with --variant compact or light (no --edit), dit and bf16 with --variant \(Wording.publishers)", weights: ["DiT"],
+        rule: "layout bit for bit; the rule, floor 5e-4, at the fp64 witness where one exists; cache and full pass ≤ 1e-5 apart; a second step the same bits; \(Wording.halfPrecision), cache and full pass too"
     ) { invocation in
         let n = invocation.edit ?? 0
         let tag = n > 0 ? "-edit\(n)" : ""

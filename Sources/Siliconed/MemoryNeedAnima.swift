@@ -17,7 +17,7 @@ import Foundation
 ///     peak = max(phases) + crossing + process base      s = (H/16)(W/16), T ≤ 1 024, L = 1 025, r = Σ ranks
 ///
 /// Ours, each the function its allocator calls: `TextEncoder.arenaBytes`, `TextEncoder.stagingSlots`,
-/// `Artifact.stagingBytes`, `AnimaConditioner.arenaBytes`, `AnimaDiT.arenaBytes`, `LoRA.downBytes`,
+/// `Artifact.largestRun`, `AnimaConditioner.arenaBytes`, `AnimaDiT.arenaBytes`, `LoRA.downBytes`,
 /// `HeadSplitAttention.hostBytes`, `AnimaDiT.tableBytes`,
 /// `Attention.maskBytes`, `Conductor.workspaceBytes`, `GEMM.tierBytes`, `VAEEncoder.plan`, `AnimaVAE.plan`.
 /// Outside our hand, from the shapes: MPSGraph's copy of the queries (`OperatorFootprint.sdpaQueries`),
@@ -64,7 +64,7 @@ extension MemoryNeed {
     package struct AnimaMaps: Sendable {
         package let dit: AnimaDiT.Config
         package let encoder: TextEncoder.Config
-        /// The largest encoder layer's staging run (`Artifact.stagingBytes`): what one of its buffers holds.
+        /// The largest tensor's run in the encoder's layers (`Artifact.largestRun`): what one of its buffers holds.
         package let encoderLayerStaging: Int
         /// What widening the DiT's largest int8 convrot weight allocates outside every arena
         /// (`Widen.rotationScratchBytes`): an imported Comfy-style convrot DiT; 0 otherwise.

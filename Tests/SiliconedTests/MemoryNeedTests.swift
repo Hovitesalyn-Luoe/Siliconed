@@ -228,7 +228,7 @@ final class MemoryNeedTests: XCTestCase {
     func testTheDenoisingIsItsShapeFunctions() throws {
         let maps = Self.zImageMaps()
         let dit = DiT.Config(header: maps.dit)
-        let released = MemoryPlan.Tail(fraction: 0.5, slots: 2).released(layers: dit.layers)
+        let released = MemoryPlan.Tail(fraction: 0.5, streamed: true).released(layers: dit.layers)
         let staging = TailStream.unitSlots * Artifact.largestRun(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
                                                                  fileSize: maps.ditSize)
         let gpuHeads = HeadSplitAttention.partition(heads: dit.heads, fraction: HeadSplitAttention.cpuFraction).gpu.count
@@ -405,8 +405,8 @@ final class MemoryNeedTests: XCTestCase {
     // ── the need costs milliseconds ──────────────────────────────────────────────────────────
 
     /// **What the memory keeps is what the walk returns**: every VAE plan the need reads, at two formats
-    /// (square, portrait) and both bands, equals its walk done again; Z-Image's staging spans, read once per map,
-    /// equal `Artifact.stagingBytes` over every tail. Then a need, once its shapes are known, costs
+    /// (square, portrait) and both bands, equals its walk done again; Z-Image's stream buffers, read once per map,
+    /// equal `Artifact.largestRun` over every tail. Then a need, once its shapes are known, costs
     /// under 5 ms — the preflight's and the app's (it greys out each format it refuses).
     func testTheShapeFunctionsAreKeptAndTheNeedIsCheap() throws {
         let qwen = QwenImage21VAE.Config()
@@ -426,9 +426,6 @@ final class MemoryNeedTests: XCTestCase {
         }
         let maps = Self.zImageMaps(), dit = DiT.Config(header: maps.dit)
         for released in 0...dit.layers {
-            XCTAssertEqual(maps.ditStaging(released..<dit.layers),
-                           Artifact.stagingBytes(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
-                                                 fileSize: maps.ditSize), "tail from \(released)")
             XCTAssertEqual(maps.ditUnitStaging(released..<dit.layers),
                            Artifact.largestRun(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
                                                fileSize: maps.ditSize), "tail from \(released)")

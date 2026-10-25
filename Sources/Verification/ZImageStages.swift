@@ -5,7 +5,7 @@ import Siliconed
 //
 //     tokenizer → text → block → dit → trajectory → vae
 //
-// The goldens are the bench prompt's (`goldens-text.json` holds it), seed 42, written by diffusers and
+// The goldens are the reference prompt's (`goldens-text.json` holds it), seed 42, written by diffusers and
 // transformers in fp32 on the CPU. Each stage starts from the oracle's own inputs, so a deviation is
 // located where it is born rather than inherited from the stage before.
 
@@ -134,8 +134,8 @@ enum ZImageStages {
         model: "z-image", name: "dit",
         proves: "one evaluation of the DiT, latent to velocity: embedders, refiners, 30 blocks, head, unpatchify",
         sizes: ["512", "1024", "768x512", "832x1216"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
-        oracle: "tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, the same three with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
-        rule: "the rule, floor 5e-4; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
+        oracle: "tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, the same three with --variant, at 512 \(Wording.publishers)", weights: ["DiT"],
+        rule: "the rule, floor 5e-4; \(Wording.rectangle); \(Wording.halfPrecision)"
     ) { invocation in
         let version = try invocation.quantizedVariant()
         let report = Report(title: "z-image dit\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")

@@ -11,7 +11,7 @@ import Foundation
 ///     references  (img2img) the `fitted` copy when the size differs                              │ each
 ///                 + the Qwen-Image encoder's two heaps and host copies (`VAEEncoder.plan`)        │ handing
 ///     fusion      Krea2TextFusion arena(12T, r) + its CPU attentions' scores · its GEMM           │ back its
-///     denoising   Krea2DiT arena(S + T, r) + the map's two staging blocks + CacheLoRA(r)          │ memory
+///     denoising   Krea2DiT arena(S + T, r) + the stream's 3 buffers + CacheLoRA(r)           │ memory
 ///                 + the GQA SDPA (queries' copy, and the slices' concatenation past `maxMatrix`)  │
 ///                 + the velocity · its GEMM — or, before the first evaluation, the modulation      │
 ///                 tabulated for every σ (the larger of the two moments)                          │
@@ -22,7 +22,7 @@ import Foundation
 ///     S = 34 + T + 5 encoder rows, T ≤ 512 text rows, s = (H/16)(W/16) image rows, r = Σ ranks
 ///
 /// Ours, each the function its allocator calls: `TextEncoder.arenaBytes`, `TextEncoder.stagingSlots`,
-/// `Artifact.stagingBytes`, `Krea2TextFusion.arenaBytes`, `Krea2DiT.arenaBytes`, `CacheLoRA.bytes`,
+/// `Artifact.largestRun`, `Krea2TextFusion.arenaBytes`, `Krea2DiT.arenaBytes`, `CacheLoRA.bytes`,
 /// `LoRA.downBytes`, `Krea2DiT.tableBytes`, `Krea2DiT.tabulationBytes`, `Attention.maskBytes`,
 /// `Conductor.workspaceBytes`, `GEMM.tierBytes`, `VAEEncoder.plan`, `AnimaVAE.plan`. Outside our hand,
 /// from the shapes: MPSGraph's copy of the queries (`OperatorFootprint.sdpaQueries`) and, past
@@ -32,10 +32,10 @@ import Foundation
 /// What the formula has to know and a port by analogy with Anima or Qwen-Image-2.1 would miss:
 ///
 ///   - **the map is 26 GB in bf16, more than the machine**: it streams beside the page cache, the whole
-///     map, through two staging blocks of its largest layer (`Krea2DiT.generationTail`, Qwen-Image-2.1's
-///     rule; 868 MB each in bf16, about half in 8 bits, a quarter in 4) — the map's type shows there and
+///     map, through `TailStream.unitSlots` buffers of its largest tensor (`Krea2DiT.generationTail`, Qwen-Image-2.1's
+///     rule; the tensor is 868 MB at most in bf16 per layer, about half in 8 bits, a quarter in 4) — the map's type shows there and
 ///     in the encoder's staging, nowhere else. A map B holds whole (a 4-bit one on a larger Mac) is
-///     left to the cache: its two blocks are charged, not allocated;
+///     left to the cache: its buffers are charged, not allocated;
 ///   - **the text is not padded**: the DiT's sequence is `s + T`, the prompt's rows and not 512
 ///     (`Krea2DiT`'s header), so the arena follows the prompt; the encoder sees the template too — 34
 ///     rows before, 5 after (`Krea2Text`), dropped from the 12 taps it hands on;
@@ -68,7 +68,7 @@ extension MemoryNeed {
     package struct Krea2Maps: Sendable {
         package let dit: Krea2DiT.Config
         package let encoder: TextEncoder.Config
-        /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): a staging block.
+        /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): the map's type, read by the tests.
         package let ditLayerStaging: Int
         /// The largest tensor's staging run in the DiT's map (`Artifact.largestRun`): what one of the stream's
         /// buffers holds (`TailStream.unitSlots` of them).
@@ -84,8 +84,7 @@ extension MemoryNeed {
 
         /// From the headers — pure: the tests hand it headers written in memory. `nil` when the
         /// encoder's config does not parse or a map has no tensor table.
-        package init?(dit dit_: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
-            let dit = dit_
+        package init?(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
             guard let encoderConfig = try? TextEncoder.Config(header: encoder) else { return nil }
             let config = Krea2DiT.Config(header: dit)
             let ditStaging = Artifact.stagingBytes(header: dit, prefixes: (0..<config.layers).map(Krea2DiT.layerPrefix),
@@ -94,7 +93,7 @@ extension MemoryNeed {
                                                        fileSize: encoderSize)
             guard ditStaging > 0, encoderStaging > 0 else { return nil }
             self.dit = config; self.encoder = encoderConfig
-            ditUnitStaging = Artifact.largestRun(header: dit_, prefixes: (0..<config.layers).map(Krea2DiT.layerPrefix),
+            ditUnitStaging = Artifact.largestRun(header: dit, prefixes: (0..<config.layers).map(Krea2DiT.layerPrefix),
                                                  fileSize: ditSize)
             ditLayerStaging = ditStaging; encoderLayerStaging = encoderStaging
             timestepWidening = Krea2DiT.timestepWidening(header: dit, config: config)
@@ -191,7 +190,7 @@ extension MemoryNeed {
         // ── the DiT: its arena, the map's staging blocks, the LoRA cache, the velocity; then either the
         //    modulation's tabulation or the SDPA and the GEMM, the larger ─────────────────────────────
         let modules = Krea2DiT.loraModules(config: dit)
-        let streamed = request.tail.fraction > 0 && request.tail.slots > 0
+        let streamed = request.tail.fraction > 0 && request.tail.streamed
         var terms = [
             Term("DiT arena", Krea2DiT.arenaBytes(config: dit, latentHeight: latentHeight, latentWidth: latentWidth,
                                                   maxText: t, rank: rank)),

@@ -683,7 +683,7 @@ extension Artifact {
 
     /// Each block's run alone (`nil`: no tensor, or no tensor table) — the header's table read once for
     /// all of them; `stagingBytes` is their largest.
-    package static func stagingSpans(header: [String: Any], prefixes: [String], fileSize: Int) -> [Int?] {
+    private static func stagingSpans(header: [String: Any], prefixes: [String], fileSize: Int) -> [Int?] {
         guard let table = header["tensors"] as? [String: [String: Any]],
               let page = header["page"] as? Int, page > 0 else { return prefixes.map { _ in nil } }
         let names = (header["order"] as? [String]) ?? table.keys.sorted()

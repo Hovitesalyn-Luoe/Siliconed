@@ -77,9 +77,9 @@ package enum Runner {
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let context = Context(date: formatter.string(from: Date()), tag: o.tag, app: bundle?.version ?? "?",
-                              chip: host.chip, memoryGB: host.memoryGB, macOS: host.macOS)
+                              chip: host.chip, memoryGiB: host.memoryGiB, macOS: host.macOS)
         log("measure: \(o.model) (\(variant)) \(o.size), seed \(o.seed), \(o.renders) renders + load + 2 witnesses, "
-            + "Faster Rendering \(faster ? "on" : "off"), app \(context.app), \(host.chip) \(host.memoryGB) GB, \(Probes.powerSource())")
+            + "Faster Rendering \(faster ? "on" : "off"), app \(context.app), \(host.chip) \(host.memoryGiB) GiB, \(Probes.powerSource())")
         if Probes.powerSource() == "battery" { log("measure: on the battery — plug the adapter in for a time comparable to ours") }
 
         append(TSV.header.joined(separator: "\t"))

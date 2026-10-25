@@ -281,9 +281,9 @@ package final class Krea2DiT {
         // whole. Decided before the first block is requested: requested before its stream exists, a
         // block would be paged in through the cache, then read a second time.
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: Krea2DiT.layerPrefix($0)) }
-        let (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
+        let (released, streamed) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
                                                    fraction: Krea2DiT.generationTail)
-        if slots == 0 {
+        if !streamed {
             try artifact.streamTail(blocks: [], slots: 0)
         } else {
             try artifact.streamUnits(layers: layerBlocks, from: released, prefix: Krea2DiT.layerPrefix,

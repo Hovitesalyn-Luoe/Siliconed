@@ -115,7 +115,7 @@ final class MeasurementTests: XCTestCase {
 
     func testTSVLineHasOneCellPerColumnAndNoTab() {
         var r = row(2, .render, wall: 12.345, prompt: "a\tb\nc")
-        let c = Context(date: "2026-10-25T10:00:00+02:00", tag: "x", app: "0.15", chip: "Apple M1 Pro", memoryGB: 16, macOS: "26.0 (25A1)")
+        let c = Context(date: "2026-10-25T10:00:00+02:00", tag: "x", app: "0.15", chip: "Apple M1 Pro", memoryGiB: 16, macOS: "26.0 (25A1)")
         let cells = TSV.line(r, c, power: "AC", thermal: "nominal").split(separator: "\t", omittingEmptySubsequences: false)
         XCTAssertEqual(cells.count, TSV.header.count)
         XCTAssertEqual(cells[TSV.header.firstIndex(of: "wall_s")!], "12.35")
@@ -202,7 +202,7 @@ final class MeasurementTests: XCTestCase {
         let sampler = Probes.PeakSampler(pid: getpid(), interval: 0.01)
         Thread.sleep(forTimeInterval: 0.05)
         XCTAssertGreaterThanOrEqual(sampler.stop().peak, 1 << 20)
-        XCTAssertGreaterThan(Probes.Host.read().memoryGB, 0)
+        XCTAssertGreaterThan(Probes.Host.read().memoryGiB, 0)
         XCTAssertFalse(Probes.powerSource().isEmpty)
     }
 }

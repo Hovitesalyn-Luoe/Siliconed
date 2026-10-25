@@ -64,7 +64,7 @@ import quantized  # noqa: E402
 from common import Checkpoint, Streamed
 
 REPOSITORY = "krea/Krea-2-Turbo"
-PROMPT = "a 30 year old woman posing in a library"      # the bench prompt
+PROMPT = "a 30 year old woman posing in a library"      # the reference prompt
 SEED = 42
 STEPS = 8            # the card: `--steps 8 --cfg 0.0 --mu 1.15`
 MAX_SEQUENCE_LENGTH = 512

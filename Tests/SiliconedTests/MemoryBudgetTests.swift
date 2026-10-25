@@ -199,7 +199,7 @@ final class MemoryBudgetTests: XCTestCase {
     /// layers of 400 MB and 500 MB of other tensors (a 12.5 GB map, Z-Image's order).
     func testTheHeadIsWhatBLeavesCappedAtTheSplit() {
         let spans = [Int](repeating: 400_000_000, count: 30), map = 12_500_000_000
-        func plan(_ ceiling: Int, _ fraction: Double = 0.5) -> (released: Int, slots: Int) {
+        func plan(_ ceiling: Int, _ fraction: Double = 0.5) -> (released: Int, streamed: Bool) {
             MemoryPlan.released(spans: spans, mapBytes: map, ceiling: ceiling, streamed: 3_000_000_000,
                                 cached: 2_300_000_000, fraction: fraction)
         }
@@ -207,18 +207,18 @@ final class MemoryBudgetTests: XCTestCase {
         XCTAssertEqual(plan(MemoryBudget.ceiling(physical: 16 << 30)).released, 15)
         // Less room, fewer layers: 1.5 GB left beside the denoising and the other tensors hold 3 layers.
         XCTAssertEqual(plan(3_000_000_000 + 500_000_000 + 1_500_000_000).released, 3)
-        // No room: the whole map streamed, its two buffers.
+        // No room: the whole map streamed.
         XCTAssertEqual(plan(3_000_000_000).released, 0)
-        XCTAssertEqual(plan(3_000_000_000).slots, 2)
+        XCTAssertTrue(plan(3_000_000_000).streamed)
         // A model whose split is the whole map (Qwen-Image-2.1's generation): no head.
         XCTAssertEqual(plan(MemoryBudget.ceiling(physical: 16 << 30), 1).released, 0)
         // **The whole map fits beside the denoising's need without buffers: nothing streamed**.
-        XCTAssertTrue(plan(map + 2_300_000_000) == (30, 0))
-        XCTAssertTrue(plan(map + 2_300_000_000, 1) == (30, 0))
-        XCTAssertEqual(plan(map + 2_300_000_000 - 1).slots, 2)
+        XCTAssertTrue(plan(map + 2_300_000_000) == (30, false))
+        XCTAssertTrue(plan(map + 2_300_000_000, 1) == (30, false))
+        XCTAssertTrue(plan(map + 2_300_000_000 - 1).streamed)
         // A `map_tail` of 0: everything through the cache, as before the tail.
-        XCTAssertTrue(plan(3_000_000_000, 0) == (30, 0))
-        XCTAssertEqual(MemoryPlan.Tail.lean, MemoryPlan.Tail(fraction: 1, slots: 2))
+        XCTAssertTrue(plan(3_000_000_000, 0) == (30, false))
+        XCTAssertEqual(MemoryPlan.Tail.lean, MemoryPlan.Tail(fraction: 1, streamed: true))
         XCTAssertEqual(Prefetcher.firstReleasedLayer(of: 30, tail: MemoryPlan.Tail.lean.fraction), 0)
     }
 
