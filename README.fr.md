@@ -9,6 +9,8 @@ Siliconed est une app macOS libre et gratuite pour la **génération d'images à
 ![Licence : Apache 2.0](https://img.shields.io/badge/licence-Apache%202.0-blue)
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20et%20suivants-black)
+[![tests unitaires](https://img.shields.io/github/actions/workflow/status/gwenn-ha-dev/Siliconed/test.yml?branch=main&label=tests%20unitaires)](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/test.yml)
+[![noyaux vérifiés, étapes CPU](https://img.shields.io/github/actions/workflow/status/gwenn-ha-dev/Siliconed/kernels.yml?branch=main&label=noyaux%20v%C3%A9rifi%C3%A9s%2C%20%C3%A9tapes%20CPU)](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/kernels.yml)
 
 ![Une photo ensoleillée de Krea 2 Turbo — une Irlandaise rousse en combinaison shorty qui sort des vagues en riant, sa planche de surf sous le bras, à contre-jour d’un soleil bas — et son édition en bande dessinée western, en cel shading, par Qwen-Image-2.1, sous un rideau qui glisse](docs/images/curtain.gif)
 

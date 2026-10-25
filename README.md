@@ -9,6 +9,8 @@ Siliconed is a free, open-source macOS app for **local text-to-image generation 
 ![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)
 ![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-M1%20and%20later-black)
+[![unit tests](https://img.shields.io/github/actions/workflow/status/gwenn-ha-dev/Siliconed/test.yml?branch=main&label=unit%20tests)](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/test.yml)
+[![kernels checked, CPU stages](https://img.shields.io/github/actions/workflow/status/gwenn-ha-dev/Siliconed/kernels.yml?branch=main&label=kernels%20checked%2C%20CPU%20stages)](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/kernels.yml)
 
 ![A sunny Krea 2 Turbo photo — a laughing red-haired Irish woman in a shorty wetsuit running out of the surf, her surfboard under her arm, backlit by a low sun — and its cel-shaded western comic-book edit by Qwen-Image-2.1, under a sliding curtain](docs/images/curtain.gif)
 
