@@ -271,7 +271,8 @@ def save_preview(image: torch.Tensor, path: Path) -> None:
 
 
 def decoder_in_double() -> None:
-    """Makes the Qwen-Image VAE (`AutoencoderKLQwenImage`, used by Anima and Krea 2) computable in
+    """Makes the Qwen-Image VAE (`AutoencoderKLQwenImage`, used by Anima and Krea 2) and Flux's
+    (`AutoencoderKL`, Z-Image's: only the banded convolutions and attention concern it) computable in
     float64 on a 16 GB machine, for the decoder's witness. Four replacements, each the same arithmetic:
 
       - `QwenImageUpsample` casts to fp32 around a nearest-exact copy: a witness through it would be
@@ -333,7 +334,9 @@ def decoder_in_double() -> None:
     def attention(qq, k, v, *args, **kwargs):
         if qq.dtype != f64:
             return sdpa(qq, k, v, *args, **kwargs)
-        assert not args and not kwargs
+        # diffusers' `AttnProcessor2_0` (Flux's VAE) passes the defaults by name.
+        assert not args and kwargs.get("attn_mask") is None and not kwargs.get("dropout_p", 0.0) \
+            and not kwargs.get("is_causal", False) and kwargs.get("scale") is None
         scale = qq.shape[-1] ** -0.5
         return torch.cat([torch.softmax((qq[..., i: i + 2048, :] @ k.transpose(-1, -2)) * scale, dim=-1) @ v
                           for i in range(0, qq.shape[-2], 2048)], dim=-2)

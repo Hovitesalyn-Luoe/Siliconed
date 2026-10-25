@@ -103,11 +103,11 @@ The verdict lines of the other three models on our MacBook Pro M1 Pro, with the 
 ```
 ✓ z-image tokenizer · 3 measures
 map ~/Library/Application Support/Siliconed/store/qwen3-4b-encoder.v0.silicon · 7.8 GB · bfloat16 (standard weights)
-✓ z-image text · 3 measures · nearest its threshold: layer34_out 1.45e-05 of 2.00e-04
+✓ z-image text · 3 measures · nearest its threshold: layer34_out 1.45e-05 of 5.00e-04
 map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
-✓ z-image block 512 · 19 measures · nearest its threshold: layer0_adaln_raw 6.63e-05 of 2.00e-04
+✓ z-image block 512 · 19 measures · nearest its threshold: layer0_adaln_raw 6.63e-05 of 5.00e-04
 map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
-✓ z-image block 1024 · 19 measures · nearest its threshold: layer0_adaln_raw 6.63e-05 of 2.00e-04
+✓ z-image block 1024 · 19 measures · nearest its threshold: layer0_adaln_raw 6.63e-05 of 5.00e-04
 map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
 ✓ z-image dit 512 · 11 measures · nearest its threshold: t_embedder_out 3.73e-04 of 5.00e-04
 map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
@@ -120,7 +120,7 @@ map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon �
 ✓ z-image trajectory 512 · 16 measures · nearest its threshold: v_5 7.41e-05 of 5.00e-04
 map ~/Library/Application Support/Siliconed/store/z-image-turbo-dit.v1.silicon · 12.3 GB · bfloat16 ×514, float32 ×7 (standard weights)
 ✓ z-image trajectory 1024 · 16 measures · nearest its threshold: v_3 1.65e-04 of 5.00e-04
-✓ z-image vae 768x512 · 2 measures
+✓ z-image vae 768x512 · 2 measures · nearest its threshold: image RGB 2.52e-07 of 8.50e-07
 ```
 
 </details>
@@ -204,9 +204,9 @@ A stage's figure is the **relative error per channel**: for each channel (the la
 
 The *witness* is the same computation in float64. Where it exists, it decides: float32 has its own rounding error, and on an ill-conditioned boundary the reference itself can be 4e-3 away from the exact value; the engine may then be no further from the exact value than the reference is, plus 25 %.
 
-Each stage's line in `check list` gives its own rule. An identity (tokens, schedules) is judged bit for bit. A few stages have a tighter floor: Z-Image's `text` and `block` hold 2e-4 instead of 5e-4. A rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
+Each stage's line in `check list` gives its own rule. An identity (tokens, schedules) is judged bit for bit. Every model's stages hold the same floor, 5e-4. A rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
 
-One stage is judged by another measure: Z-Image's `vae` takes the decoded image against the reference's, **PSNR ≥ 80 dB**, where the other three models' decoders are judged per latent plane against a float64 witness. It is the one exception to the per-channel rule: the oracle writes no float64 witness for that decoder, only the image, so the stage compares images and also requires the transposed image to deviate.
+Every decoder, Z-Image's included, is judged per plane of the image against a float64 witness of the reference's decoder (`vae-witness`).
 
 Krea 2's denoiser has a few boundaries so ill-conditioned that a change of one unit in the last place of the input moves the output by more than the rule allows, the reference included. There, a measure that fails at the witness is judged by *clouds*: the reference and the engine are both run on inputs moved by one ulp, and the engine's median error must stay within 1.25 times the reference's worst. These are the stages whose rule says "clouds when the oracle has draws".
 
@@ -354,11 +354,11 @@ The output of `siliconed check list --markdown`. `{size}` is 512, 1024 or a rect
 | `kernels rope` | every RoPE table of the engine is the reference's, value by value (13 tables, 5 bit for bit) | max \|Δ\| per table within its bound, in units of 2⁻²⁴: 0 where the reference is bit-reproducible, 1 to 64 where torch uses SLEEF's cos, sin, pow | `tools/oracle/kernels.py rope` | — |
 | `kernels resample` | the spectral schedule's nearest-exact decimation and bilinear upsampling are torch's, on a square and a rectangle | decimation bit for bit (and the even decimation, its counter-test, must differ); bilinear within one ulp of the input's scale | `tools/oracle/kernels.py resample` | — |
 | `z-image tokenizer` | the chat template and the tokenizer give transformers' 512 identifiers and mask, padding included, and the app's admission the same real tokens (with --long, past 512: 1024) | bit for bit | `tools/oracle/z-image.py text [--long]` | tokenizer |
-| `z-image text` | the Qwen3-4B encoder gives the reference's hidden states, layer by layer, and its cap_feats (with --long, on a prompt past 512 tokens) | the rule, floor 2e-4 | `tools/oracle/z-image.py text [--long]` | text encoder |
-| `z-image block` | block 0 matches the reference at its 19 internal boundaries: norms, projections, attention, SwiGLU | the rule, floor 2e-4 | `tools/oracle/z-image.py dit --size {size}` | DiT |
+| `z-image text` | the Qwen3-4B encoder gives the reference's hidden states, layer by layer, and its cap_feats (with --long, on a prompt past 512 tokens) | the rule, floor 5e-4 | `tools/oracle/z-image.py text [--long]` | text encoder |
+| `z-image block` | block 0 matches the reference at its 19 internal boundaries: norms, projections, attention, SwiGLU | the rule, floor 5e-4 | `tools/oracle/z-image.py dit --size {size}` | DiT |
 | `z-image dit` | one evaluation of the DiT, latent to velocity: embedders, refiners, 30 blocks, head, unpatchify | the rule, floor 5e-4; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 % | `tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, the same three with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)` | DiT |
 | `z-image trajectory` | the 8-step sampler: each step's velocity and latent, from the reference's own latent at that step | the rule on the guided pass, floor 5e-4; the free pass is shown with its gain, not judged | `tools/oracle/z-image.py trajectory --size {size}` | DiT |
-| `z-image vae` | Flux's decoder on a rectangular latent (the centered crop of the final 1024² latent): what a square cannot see | PSNR ≥ 80 dB against the reference's image, and the transposed image must deviate | `tools/oracle/z-image.py vae --size {size}` | VAE |
+| `z-image vae` | Flux's decoder on a rectangular latent (the centered crop of the final 1024² latent), plane by plane: what a square cannot see | the rule per plane, floor 5e-4, at the fp64 witness (no floor there); on a rectangle, the transposed image must deviate | `tools/oracle/z-image.py vae --size {size}; vae-witness --size {size}` | VAE |
 | `qwen-image-2.1 text` | Qwen3-VL-8B reads the prompt (and with --edit N, the N pictures; with --long, a prompt past 512 tokens): template, identifiers, positions, 36 layers, prompt_embeds | identifiers and masks bit for bit; the rule, floor 5e-4 (with images, the deep layers judged on their text rows) | `tools/oracle/qwen-image-2.1.py text [--edit N]; text --long` | text encoder |
 | `qwen-image-2.1 vision` | the processor (Lanczos, patches, grids), the 3D positions of both edit templates, and the vision tower with its deepstack, image by image | pixels, grids, identifiers and positions bit for bit; the rule, floor 5e-4 | `tools/oracle/qwen-image-2.1.py vision` | text encoder |
 | `qwen-image-2.1 references` | a reference with transparency, prepared as the pipeline does: the VAE's RGBA input and the vision copy over white (at 512, Pillow premultiplies around its Lanczos; at 443 it copies) | bit for bit; the vision copy on its bytes (the Pil and Fast processors differ by 6e-8 in float) | `tools/oracle/qwen-image-2.1.py references [--side 443]` | — |

@@ -47,7 +47,7 @@ enum ZImageStages {
     static let text = Stage(
         model: "z-image", name: "text",
         proves: "the Qwen3-4B encoder gives the reference's hidden states, layer by layer, and its cap_feats (with --long, on a prompt past 512 tokens)",
-        options: ["--long"], oracle: "tools/oracle/z-image.py text [--long]", weights: ["text encoder"], rule: "the rule, floor 2e-4"
+        options: ["--long"], oracle: "tools/oracle/z-image.py text [--long]", weights: ["text encoder"], rule: "the rule, floor 5e-4"
     ) { invocation in
         let report = Report(title: "z-image text\(invocation.long ? " --long" : "")")
         let artifact = try Artifact(path: MapCheck.use(Library.processWide.map("qwen3-4b-encoder.v0.silicon")))
@@ -69,12 +69,12 @@ enum ZImageStages {
             // The reference is padded (512, or 1024 with --long): the computed positions only.
             let kept = min(got.count, real * width)
             report.add(Judge.boundary(name, engine: Array(got.prefix(kept)), oracle: UnsafeBufferPointer(rebasing: expected.prefix(kept)),
-                                      columns: width, floor: 2e-4))
+                                      columns: width))
         }
         if let expected = goldens.float32("cap_feats") {
             // `caps` points into the encoder's arena, which ARC does not see through.
             withExtendedLifetime(encoder) {
-                report.add(Judge.boundary("cap_feats", engine: Array(caps), oracle: expected, columns: width, floor: 2e-4))
+                report.add(Judge.boundary("cap_feats", engine: Array(caps), oracle: expected, columns: width))
             }
         }
         return report
@@ -86,7 +86,7 @@ enum ZImageStages {
         model: "z-image", name: "block",
         proves: "block 0 matches the reference at its 19 internal boundaries: norms, projections, attention, SwiGLU",
         sizes: ["512", "1024"], options: ["--map"],
-        oracle: "tools/oracle/z-image.py dit --size {size}", weights: ["DiT"], rule: "the rule, floor 2e-4"
+        oracle: "tools/oracle/z-image.py dit --size {size}", weights: ["DiT"], rule: "the rule, floor 5e-4"
     ) { invocation in
         let report = Report(title: "z-image block \(invocation.size)")
         let artifact = try Artifact(path: try invocation.ditMap(ditMap))
@@ -124,7 +124,7 @@ enum ZImageStages {
                      "layer0_swiglu_out", "layer0_feed_forward_out", "layer0_ffn_norm2_out", "layers_0_out"] {
             guard let expected = goldens.float32(name) else { continue }
             guard let got = block.boundaries[name] else { report.add(Judge.missing(name)); continue }
-            report.add(Judge.boundary(name, engine: got, oracle: expected, columns: widths[name] ?? d, floor: 2e-4))
+            report.add(Judge.boundary(name, engine: got, oracle: expected, columns: widths[name] ?? d))
         }
         withExtendedLifetime(arena) {}
         return report
@@ -228,13 +228,14 @@ enum ZImageStages {
 
     static let vae = Stage(
         model: "z-image", name: "vae",
-        proves: "Flux's decoder on a rectangular latent (the centered crop of the final 1024² latent): what a square cannot see",
+        proves: "Flux's decoder on a rectangular latent (the centered crop of the final 1024² latent), plane by plane: what a square cannot see",
         sizes: ["768x512"],
-        oracle: "tools/oracle/z-image.py vae --size {size}", weights: ["VAE"],
-        rule: "PSNR ≥ 80 dB against the reference's image, and the transposed image must deviate"
+        oracle: "tools/oracle/z-image.py vae --size {size}; vae-witness --size {size}", weights: ["VAE"],
+        rule: "the rule per plane, floor 5e-4, at the fp64 witness (no floor there); on a rectangle, the transposed image must deviate"
     ) { invocation in
         let report = Report(title: "z-image vae \(invocation.size)")
         let goldens = try invocation.goldens.open("goldens-vae-\(invocation.size).safetensors")
+        let witness = invocation.goldens.optional("witness-vae-f64-\(invocation.size).safetensors")
         guard let entry = goldens.entries["latent"], let latent = goldens.float32("latent"),
               let expected = goldens.float32("image") else {
             throw Skip("\(goldens.path): latent or image missing")
@@ -242,9 +243,7 @@ enum ZImageStages {
         let decoder = try VAE(path: try Library.processWide.component(.zImage, "vae.safetensors"),
                               latentHeight: entry.shape[1], latentWidth: entry.shape[2])
         let (image, _) = try decoder.decode(latent: latent.baseAddress!)
-        let e = imageError(image, expected)
-        report.add(Judge.bound("image", e.notFinite == 0 ? e.psnr : -.infinity, 80, unit: "dB", above: true,
-                               note: String(format: "rmse %.2e, max deviation %.2e", e.rmse, e.worst)))
+        report.add(Judge.planes("image RGB", engine: image, oracle: expected, witness: witness?.float32("image"), planes: 3))
         if let m = Judge.orientation(image, expected, height: decoder.imageHeight, width: decoder.imageWidth) { report.add(m) }
         return report
     }

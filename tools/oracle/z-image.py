@@ -7,6 +7,7 @@
     z-image.py bf16 --size 1024           the same evaluation in bfloat16   -> witness-bf16-dit-<size>
     z-image.py trajectory --size 512      the 8-step sampler and its image  -> goldens-trajectory-<size>
     z-image.py vae --size 768x512         the decoder on a rectangle        -> goldens-vae-<size>
+    z-image.py vae-witness --size 768x512 the same decoding in float64      -> witness-vae-f64-<size>
     z-image.py all                        every stage at every size the check reads (not `bf16`)
     z-image.py dit|bf16|witness --variant compact|light   the same, for the Compact's or the Light's published
                                           DiT, dequantized by its publisher's code (`quantized.py`)
@@ -412,6 +413,32 @@ def vae(goldens: Path, size: str) -> None:
         "source": "goldens-trajectory-1024 latent_8", "crop": [y0, x0, h, w], "height": height, "width": width})
 
 
+def vae_witness(goldens: Path, size: str) -> None:
+    """**The float64 witness of Flux's decoder** on `goldens-vae-<size>`'s latent: the same diffusers module,
+    its weights widened to double (float32 to float64 is exact), its convolutions and its bottleneck attention
+    cut into bands (`common.decoder_in_double`, which leaves each output's sum untouched). `siliconed check
+    z-image vae` judges the engine per plane at it: no further from it than the fp32 oracle, plus 25 %.
+    Stored in fp32, far below anything judged. Process-wide patches: call it in a process that does nothing else."""
+    from diffusers import AutoencoderKL
+    _, _, name = common.parse_size(size)
+    common.decoder_in_double()
+    decoded = common.read_golden(goldens, f"goldens-vae-{name}", f"z-image.py vae --size {name}")
+    decoder = AutoencoderKL.from_pretrained(str(common.snapshot(REPOSITORY, ["vae"]) / "vae"),
+                                            torch_dtype=torch.float32).eval().double()
+    latent = decoded["latent"].double()[None]
+    with torch.no_grad():
+        image = decoder.decode(latent / decoder.config.scaling_factor + decoder.config.shift_factor,
+                               return_dict=False)[0][0]
+    worst, median, plane = common.per_plane(decoded["image"], image)
+    rmse = (decoded["image"].double() - image).pow(2).mean().sqrt()
+    psnr = float(20 * torch.log10(2 / rmse))
+    print(f"  decoder {name}: oracle fp32 vs fp64 - worst plane {worst:.3e} (plane {plane}), "
+          f"median {median:.3e}, PSNR {psnr:.2f} dB")
+    common.write_golden(goldens, f"witness-vae-f64-{name}", {"image": image.float()}, {
+        "inputs": [f"goldens-vae-{name}"], "dtype": "float64", "device": "cpu",
+        "oracle_fp32_vs_witness": {"worst_plane": worst, "median_plane": median, "plane": plane, "psnr_db": psnr}})
+
+
 # ======================================================================================== all
 
 def everything(goldens: Path, prompt: str, sizes: list[str]) -> None:
@@ -433,12 +460,15 @@ def everything(goldens: Path, prompt: str, sizes: list[str]) -> None:
         if not torch.equal(golden.to(torch.float32), caps):
             raise SystemExit(f"goldens-dit-{size} was written from another conditioning than goldens-text")
         print(f"dit {size}: in_caps == cap_feats, bit for bit")
+    if "1024" in sizes:
+        # Last, in its own process: the float64 decoder patches the reference's classes for good.
+        common.run_stages(__file__, goldens, [["vae-witness", "--size", "768x512"]])
 
 
 def main() -> None:
     common.unbuffered()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("stage", choices=["text", "dit", "witness", "trajectory", "bf16", "vae", "all"])
+    p.add_argument("stage", choices=["text", "dit", "witness", "trajectory", "bf16", "vae", "vae-witness", "all"])
     p.add_argument("--size", nargs="+", default=None,
                    help="512, 1024 or WIDTHxHEIGHT (default: 512; vae: 768x512; all: 512 1024)")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
@@ -450,7 +480,7 @@ def main() -> None:
     goldens = common.goldens_directory(args.goldens)
     if args.variant and args.stage not in ("dit", "bf16", "witness"):
         p.error("--variant goes with dit, bf16 or witness")
-    sizes = args.size or {"vae": ["768x512"], "all": ["512", "1024", "768x512", "832x1216"]}.get(args.stage, ["512"])
+    sizes = args.size or {"vae": ["768x512"], "vae-witness": ["768x512"], "all": ["512", "1024", "768x512", "832x1216"]}.get(args.stage, ["512"])
     if args.stage == "text" and args.long:
         text(goldens, common.LONG_PROMPT, common.LONG_SEQUENCE_LENGTH, "goldens-text-long")
     elif args.stage == "text":
@@ -462,7 +492,8 @@ def main() -> None:
             if args.variant:
                 {"dit": dit, "witness": witness, "bf16": bf16}[args.stage](goldens, size, args.variant)
             else:
-                {"dit": dit, "witness": witness, "bf16": bf16, "trajectory": trajectory, "vae": vae}[args.stage](goldens, size)
+                {"dit": dit, "witness": witness, "bf16": bf16, "trajectory": trajectory, "vae": vae,
+                 "vae-witness": vae_witness}[args.stage](goldens, size)
 
 
 if __name__ == "__main__":
