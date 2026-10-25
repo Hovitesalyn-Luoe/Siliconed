@@ -4,6 +4,8 @@
     krea2.py text [--long]                     template, tokenizer, Qwen3-VL; the 12 taps    -> goldens-krea2-text[-long]
     krea2.py dit --size 512 [1024 768x512]     one DiT evaluation at the first sigma         -> goldens-krea2-dit-<size>
     krea2.py bf16 --size 512 [1024 768x512]    the same evaluation in bfloat16               -> witness-bf16-krea2-dit-<size>
+    krea2.py dit|bf16|witness|witness-step --size 512 --variant compact|light   the same, for the Compact's (Comfy-Org int8 convrot) or the
+                                               Light's (GGUF Q4_K_M) published DiT -> goldens-krea2-dit-<variant>-<size>
     krea2.py trajectory --size 512 [1024]      the 8-step Euler loop                         -> goldens-krea2-trajectory-<size>
     krea2.py vae --size 512 [1024 768x512]     the decoder on the final latent               -> goldens-krea2-vae-<size>
     krea2.py witness --size 512                time, img_in, blocks 0-1 in float64           -> witness-krea2-f64-<size>
@@ -57,6 +59,7 @@ from safetensors.torch import save_file
 
 sys.dont_write_bytecode = True      # the repository carries no caches
 import common  # noqa: E402
+import quantized  # noqa: E402
 from common import Checkpoint, Streamed
 
 REPOSITORY = "krea/Krea-2-Turbo"
@@ -72,11 +75,26 @@ OUT: Path
 _SNAP: Path | None = None
 
 
+VARIANT: str | None = None      # --variant: the Compact's or the Light's published DiT, for the stages that take it
+
+
+def dit_checkpoint():
+    """The DiT's weights: the Standard's shards, or the variant's published file dequantized (`quantized.py`)."""
+    return quantized.Variant("krea2", VARIANT) if VARIANT else Checkpoint(snap() / "transformer", DIT_INDEX)
+
+
+CONFIG_ONLY = False     # --variant: the weights come from the variant's file, the repository gives configurations
+
+
 def snap() -> Path:
     global _SNAP
     if _SNAP is None:
-        _SNAP = common.snapshot(REPOSITORY, ["text_encoder", "tokenizer", "transformer", "scheduler", "vae"],
-                                files=["model_index.json"])
+        if CONFIG_ONLY:
+            _SNAP = common.snapshot(REPOSITORY, ["tokenizer", "scheduler"],
+                                    files=["model_index.json", "transformer/config.json"])
+        else:
+            _SNAP = common.snapshot(REPOSITORY, ["text_encoder", "tokenizer", "transformer", "scheduler", "vae"],
+                                    files=["model_index.json"])
     return _SNAP
 
 
@@ -191,13 +209,16 @@ def stage_text(prompt: str = PROMPT, length: int = MAX_SEQUENCE_LENGTH, stem: st
 
 # ------------------------------------------------------------------ the DiT
 
-def load_transformer(dtype: torch.dtype = torch.float32):
+def load_transformer(dtype: torch.dtype = torch.float32, variant: str | None = None):
+    """The DiT, its blocks streamed. With a `variant`, from the Compact's or the Light's published file,
+    dequantized by its publisher's code (`quantized.Variant`, the two tensors Krea hid in its GGUF left out)."""
     from diffusers import Krea2Transformer2DModel
     config = Krea2Transformer2DModel.load_config(snap() / "transformer")
     with torch.device("meta"):
         model = Krea2Transformer2DModel.from_config(config)
     model.eval()
-    checkpoint = Checkpoint(snap() / "transformer", DIT_INDEX)
+    checkpoint = quantized.Variant("krea2", variant) if variant else Checkpoint(snap() / "transformer", DIT_INDEX)
+    model.published = checkpoint
     module_keys = set(model.state_dict())
     if set(checkpoint.keys) != module_keys:
         missing, extra = sorted(module_keys - set(checkpoint.keys)), sorted(set(checkpoint.keys) - module_keys)
@@ -280,14 +301,33 @@ def stage_dit(size: str):
     write(f"goldens-krea2-dit-{name}", payload, {"sigma": float(scheduler.sigmas[0])})
 
 
-def stage_bf16(size: str):
+def stage_dit_variant(size: str, variant: str):
+    """`dit` on the Compact's or the Light's published weights, from the Standard's golden inputs (same latent,
+    same text, same timestep): writes `goldens-krea2-dit-<variant>-<size>`."""
+    height, width, name = common.parse_size(size)
+    standard = read(f"goldens-krea2-dit-{name}", f"krea2.py dit --size {name}")
+    embeds, mask = text_inputs()
+    model = load_transformer(variant=variant)
+    pipe = make_pipeline(transformer=model)
+    packed = pipe._pack_latents(standard["latent_in"][None], 1, 16, height // 8, width // 8)
+    positions = pipe.prepare_position_ids(embeds.shape[1], height // 16, width // 16, torch.device("cpu"))
+    taps = probe_dit(model, mask)
+    out = model(hidden_states=packed, encoder_hidden_states=embeds, timestep=standard["timestep"],
+                position_ids=positions, encoder_attention_mask=mask, return_dict=False)[0]
+    payload = {"latent_in": standard["latent_in"], "timestep": standard["timestep"],
+               "model_out": unpack(pipe, out, height, width), "model_out_packed": out[0], **taps}
+    write(quantized.stem(f"goldens-krea2-dit-{name}", variant), payload,
+          {"inputs": f"goldens-krea2-dit-{name}", "weights": model.published.describe()})
+
+
+def stage_bf16(size: str, variant: str | None = None):
     """`dit` with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)` runs it: weights,
     latent, text and timestep in bf16. The inputs are the dit golden's own, so only the arithmetic differs;
     the boundaries are widened to float32 (exact) under the golden's keys, minus its inputs."""
     height, width, name = common.parse_size(size)
     golden = read(f"goldens-krea2-dit-{name}", f"krea2.py dit --size {name}")
     embeds, mask = text_inputs()
-    model = load_transformer(torch.bfloat16)
+    model = load_transformer(torch.bfloat16, variant)
     pipe = make_pipeline(transformer=model)
     positions = pipe.prepare_position_ids(embeds.shape[1], height // 16, width // 16, torch.device("cpu"))
     packed = pipe._pack_latents(golden["latent_in"][None], 1, 16, height // 8, width // 8)
@@ -298,7 +338,9 @@ def stage_bf16(size: str):
                 return_dict=False)[0].float()
     payload = {"model_out": unpack(pipe, out, height, width), "model_out_packed": out[0],
                **{k: v.float() for k, v in taps.items()}}
-    write(f"witness-bf16-krea2-dit-{name}", payload, {"dtype": "bfloat16", "inputs": f"goldens-krea2-dit-{name}"})
+    write(quantized.stem(f"witness-bf16-krea2-dit-{name}", variant), payload,
+          {"dtype": "bfloat16", "inputs": f"goldens-krea2-dit-{name}",
+           **({"weights": model.published.describe()} if variant else {})})
 
 
 def stage_trajectory(size: str):
@@ -400,7 +442,7 @@ def evaluate64(latent, timestep, text, height: int, width: int):
     config = k2.Krea2Transformer2DModel.load_config(snap() / "transformer")
     with torch.device("meta"):
         model = k2.Krea2Transformer2DModel.from_config(config)
-    checkpoint = Checkpoint(snap() / "transformer", DIT_INDEX)
+    checkpoint = dit_checkpoint()
     top = [k for k in checkpoint.keys if k.startswith(("time_embed.", "time_mod_proj.", "img_in.", "final_layer."))]
     model.load_state_dict({k: checkpoint.tensor(k, f64) for k in top}, strict=False, assign=True)
     model.eval()
@@ -430,7 +472,7 @@ def step_inputs(resolution: int, step: int):
     reference receives it (`t = sigma * 1000` in fp32, then `t / 1000` in fp32), the fp32 output of `txt_in`
     (valid rows): what the engine's pass receives."""
     trajectory = read(f"goldens-krea2-trajectory-{resolution}", f"krea2.py trajectory --size {resolution}")
-    dit = read(f"goldens-krea2-dit-{resolution}", f"krea2.py dit --size {resolution}")
+    dit = read(quantized.stem(f"goldens-krea2-dit-{resolution}", VARIANT), f"krea2.py dit --size {resolution}")
     latent = trajectory["latent_init" if step == 0 else f"latent_{step}"]
     timestep = ((trajectory["sigmas"][step] * 1000).float() / 1000).reshape(1)
     return latent, timestep, dit["txt_in_out"]
@@ -442,9 +484,11 @@ def stage_witness_step(size: str, step: int):
     if not size.isdigit():
         raise SystemExit(f"witness-step --size {size}: squares only, the starting latents are the trajectory's")
     resolution = int(size)
+    if VARIANT and step != 0:
+        raise SystemExit("witness-step --variant: step 0 only (the later latents belong to the Standard's trajectory)")
     latent, timestep, text = step_inputs(resolution, step)
     velocity, probes = evaluate64(latent, timestep, text, resolution, resolution)
-    path = OUT / f"witness-krea2-f64-{resolution}-step{step}.safetensors"
+    path = OUT / f"{quantized.stem(f'witness-krea2-f64-{resolution}', VARIANT)}-step{step}.safetensors"
     save_file({"velocity": velocity, "model_out": velocity.clone(), **probes}, str(path))
     print(f"-> {path}")
 
@@ -493,11 +537,11 @@ def stage_witness(size: str):
     output: fp32, valid rows, no padding), then time, `img_in` and the first two blocks in double."""
     height, width, name = common.parse_size(size)
     k2, f64 = patch64()
-    dit = read(f"goldens-krea2-dit-{name}", f"krea2.py dit --size {name}")
+    dit = read(quantized.stem(f"goldens-krea2-dit-{name}", VARIANT), f"krea2.py dit --size {name}")
     config = k2.Krea2Transformer2DModel.load_config(snap() / "transformer")
     with torch.device("meta"):
         model = k2.Krea2Transformer2DModel.from_config(config)
-    checkpoint = Checkpoint(snap() / "transformer", DIT_INDEX)
+    checkpoint = dit_checkpoint()
     wanted = [k for k in checkpoint.keys if k.startswith(("time_embed.", "time_mod_proj.", "img_in.",
                                                            "transformer_blocks.0.", "transformer_blocks.1."))]
     model.load_state_dict({k: checkpoint.tensor(k, torch.float32).double() for k in wanted}, strict=False, assign=True)
@@ -531,7 +575,7 @@ def stage_witness(size: str):
     taps["block1_out"] = x[0].float().clone()
     payload = {"temb": temb[0, 0].float(), "temb_mod": temb_mod[0, 0].float(), "img_in_out": img[0].float(), **taps}
     # The outputs are stored in fp32 (the golden tensor format), computed in double.
-    path = OUT / f"witness-krea2-f64-{name}.safetensors"
+    path = OUT / f"{quantized.stem(f'witness-krea2-f64-{name}', VARIANT)}.safetensors"
     save_file({k: v.contiguous() for k, v in payload.items()}, str(path))
     print(f"-> {path} ({len(payload)} tensors)")
 
@@ -599,8 +643,14 @@ def main() -> None:
                    help="all only: the steps whose whole evaluation is taken in float64 (default: all eight)")
     p.add_argument("--draws", type=int, default=0, help="all only: jitters 1..N of every step's draw (default 0: none)")
     p.add_argument("--long", action="store_true", help="text only: the long prompt, past 512 tokens -> goldens-krea2-text-long")
+    p.add_argument("--variant", choices=quantized.VARIANTS,
+                   help="dit and bf16: the Compact's or the Light's published DiT instead of the Standard's")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
+    if args.variant and args.stage not in ("dit", "bf16", "witness", "witness-step"):
+        p.error("--variant goes with dit, bf16, witness or witness-step")
+    global CONFIG_ONLY, VARIANT
+    CONFIG_ONLY, VARIANT = bool(args.variant), args.variant
     OUT = common.goldens_directory(args.goldens) / "krea2"
     OUT.mkdir(parents=True, exist_ok=True)
     if args.stage == "all":
@@ -620,6 +670,8 @@ def main() -> None:
             stage_witness_step(size, args.step[0])
         elif args.stage == "draw":
             stage_draw(size, args.step[0], args.jitter[0])
+        elif args.variant and args.stage in ("dit", "bf16"):
+            {"dit": stage_dit_variant, "bf16": stage_bf16}[args.stage](size, args.variant)
         else:
             {"dit": stage_dit, "bf16": stage_bf16, "trajectory": stage_trajectory, "vae": stage_vae, "witness": stage_witness,
              "vae-witness": stage_vae_witness}[args.stage](size)

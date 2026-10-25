@@ -8,9 +8,16 @@
     z-image.py trajectory --size 512      the 8-step sampler and its image  -> goldens-trajectory-<size>
     z-image.py vae --size 768x512         the decoder on a rectangle        -> goldens-vae-<size>
     z-image.py all                        every stage at every size the check reads (not `bf16`)
+    z-image.py dit|bf16|witness --variant compact|light   the same, for the Compact's or the Light's published
+                                          DiT, dequantized by its publisher's code (`quantized.py`)
 
 `bf16` is the bar of a half-precision path (the ANE's fp16 products); `all` leaves it out
 because it is costly and only that path reads it.
+
+With `--variant`, `dit` reads the inputs of the Standard's `goldens-dit-<size>` (same latent, same conditioning, same
+sigma) and runs the same reference DiT with the variant's published weights, dequantized to float32; it writes
+`goldens-dit-<variant>-<size>`. `bf16` and `witness` take the variant the same way. `siliconed check z-image dit
+--variant X` judges the engine on the variant's map against them.
 
 `text --long` reads `common.LONG_PROMPT` (past 512 tokens) with the sequence length raised to match; no
 other stage reads it.
@@ -35,6 +42,7 @@ import torch
 
 sys.dont_write_bytecode = True      # the repository carries no caches
 import common  # noqa: E402
+import quantized  # noqa: E402
 from common import Checkpoint, Recorder, Streamed
 
 REPOSITORY = "Tongyi-MAI/Z-Image-Turbo"
@@ -136,10 +144,12 @@ def conditioning(goldens: Path) -> torch.Tensor:
 
 # ======================================================================================== dit
 
-def build_dit(root: Path, dtype: torch.dtype = torch.float32):
+def build_dit(root: Path, dtype: torch.dtype = torch.float32, variant: str | None = None):
     """The reference `ZImageTransformer2DModel`, on `meta`, with the blocks streamed.
 
-    The 11.6 M parameters outside the blocks (embedders, final layer) stay resident."""
+    The 11.6 M parameters outside the blocks (embedders, final layer) stay resident. With a `variant`, the
+    weights are the Compact's or the Light's published file, dequantized by its publisher's code
+    (`quantized.Variant`); only `transformer/config.json` is read from `root`."""
     from diffusers import ZImageTransformer2DModel
     directory = root / "transformer"
     config = {k: v for k, v in json.loads((directory / "config.json").read_text()).items()
@@ -147,13 +157,20 @@ def build_dit(root: Path, dtype: torch.dtype = torch.float32):
     with torch.device("meta"):
         model = ZImageTransformer2DModel.from_config(config)
     model.eval()
-    checkpoint = Checkpoint(directory, "diffusion_pytorch_model.safetensors.index.json")
+    checkpoint = (quantized.Variant("z-image", variant) if variant
+                  else Checkpoint(directory, "diffusion_pytorch_model.safetensors.index.json"))
     resident = {k: checkpoint.tensor(k, dtype) for k in checkpoint.keys if not k.startswith(ROUTED_PREFIXES)}
     model.load_state_dict(resident, strict=False, assign=True)
     for group in ("noise_refiner", "context_refiner", "layers"):
         for i, block in enumerate(getattr(model, group)):
             Streamed(block, f"{group}.{i}.", checkpoint, dtype)
+    model.published = checkpoint
     return model, config
+
+
+def configuration() -> Path:
+    """The published `transformer/config.json` alone: a variant's weights come from another repository."""
+    return common.snapshot(REPOSITORY, [], files=["transformer/config.json"])
 
 
 def probe_dit(model, rec: Recorder) -> None:
@@ -202,39 +219,47 @@ def probe_dit(model, rec: Recorder) -> None:
     rec.output(model.all_final_layer[PATCH_KEY], "final_layer_out")
 
 
-def dit(goldens: Path, size: str) -> None:
+def dit(goldens: Path, size: str, variant: str | None = None) -> None:
     height, width, name = common.parse_size(size)
-    root = common.snapshot(REPOSITORY, ["transformer"])
-    model, config = build_dit(root)
+    root = configuration() if variant else common.snapshot(REPOSITORY, ["transformer"])
+    model, config = build_dit(root, variant=variant)
     rec = Recorder()
     probe_dit(model, rec)
 
-    torch.manual_seed(DIT_SEED)
-    latent = torch.randn(16, 1, height // 8, width // 8, dtype=torch.float32)
-    # The real conditioning, not a `randn`: a Qwen3 hidden state has neither its scale nor its outliers.
-    caps = conditioning(goldens)
-    sigma = torch.tensor([SIGMA], dtype=torch.float32)
+    if variant:
+        # The Standard's inputs, bit for bit: the variant differs by its weights alone.
+        standard = common.read_golden(goldens, f"goldens-dit-{name}", f"z-image.py dit --size {name}")
+        latent, caps, sigma = (standard[k] for k in ("in_latent", "in_caps", "in_sigma"))
+    else:
+        torch.manual_seed(DIT_SEED)
+        latent = torch.randn(16, 1, height // 8, width // 8, dtype=torch.float32)
+        # The real conditioning, not a `randn`: a Qwen3 hidden state has neither its scale nor its outliers.
+        caps = conditioning(goldens)
+        sigma = torch.tensor([SIGMA], dtype=torch.float32)
     rec.tensors["in_latent"], rec.tensors["in_caps"], rec.tensors["in_sigma"] = latent.clone(), caps.clone(), sigma.clone()
 
     out = model(x=[latent], t=sigma, cap_feats=[caps], return_dict=False)
     rec.keep("model_out", out[0] if isinstance(out, (tuple, list)) else out)
 
-    common.write_golden(goldens, f"goldens-dit-{name}", rec.tensors, {
+    common.write_golden(goldens, quantized.stem(f"goldens-dit-{name}", variant), rec.tensors, {
         "resolution": name, "height": height, "width": width, "seed": DIT_SEED, "sigma": float(sigma),
-        "cap_len": int(caps.shape[0]), "dtype": "float32", "device": "cpu", "config": config},
+        "cap_len": int(caps.shape[0]), "dtype": "float32", "device": "cpu", "config": config,
+        **({"weights": model.published.describe(), "inputs": f"goldens-dit-{name}"} if variant else {})},
         summary_extra=True)
 
 
-def bf16(goldens: Path, size: str) -> None:
+def bf16(goldens: Path, size: str, variant: str | None = None) -> None:
     """The same evaluation as `dit` with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)`
     runs it: weights, latent, text and timestep all bf16. The inputs are the dit golden's own, so the
     only difference with it is the arithmetic; its boundaries are widened to float32 (exact) and keep
     the dit golden's keys. A half-precision engine path is judged against this, not against the float32
-    golden. Writes `witness-bf16-dit-<size>`."""
+    golden. Writes `witness-bf16-dit-<size>`; with a `variant`, the variant's weights rounded to bf16 once
+    (`quantized.py`) and `witness-bf16-dit-<variant>-<size>`."""
     _, _, name = common.parse_size(size)
     golden = common.read_golden(goldens, f"goldens-dit-{name}", f"z-image.py dit --size {name}")
     half = torch.bfloat16
-    model, config = build_dit(common.snapshot(REPOSITORY, ["transformer"]), half)
+    model, config = build_dit(configuration() if variant else common.snapshot(REPOSITORY, ["transformer"]), half,
+                              variant)
     rec = Recorder()
     probe_dit(model, rec)
     latent, caps, sigma = (golden[k].to(half) for k in ("in_latent", "in_caps", "in_sigma"))
@@ -242,9 +267,9 @@ def bf16(goldens: Path, size: str) -> None:
         t.to(torch.float32) for t in (latent, caps, sigma))
     out = model(x=[latent], t=sigma, cap_feats=[caps], return_dict=False)
     rec.keep("model_out", out[0] if isinstance(out, (tuple, list)) else out)
-    common.write_golden(goldens, f"witness-bf16-dit-{name}", rec.tensors, {
+    common.write_golden(goldens, quantized.stem(f"witness-bf16-dit-{name}", variant), rec.tensors, {
         "resolution": name, "dtype": "bfloat16", "device": "cpu", "inputs": f"goldens-dit-{name}",
-        "config": config}, summary_extra=True)
+        "config": config, **({"weights": model.published.describe()} if variant else {})}, summary_extra=True)
 
 
 # ===================================================================================== witness
@@ -260,18 +285,20 @@ def channel_error(got: torch.Tensor, exact: torch.Tensor) -> tuple[float, float]
     return float(ratio[-1]), float(ratio[len(ratio) // 2])
 
 
-def witness(goldens: Path, size: str) -> None:
+def witness(goldens: Path, size: str, variant: str | None = None) -> None:
     """The same evaluation in float64: the exact value against which the float32 oracle and the
     engine are both judged. Where a result sits at the threshold, the engine passes if it is no
     further from this witness than the oracle is, plus 25 %.
 
     The inputs are the dit golden's own, read as they are; only the weights are widened (bf16 to
-    float64 is exact). Writes `witness-dit-f64-<size>`."""
+    float64 is exact). Writes `witness-dit-f64-<size>`; with a `variant`, the dequantized weights (float32 to
+    float64 is exact too), judged against the variant's own float32 golden, `witness-dit-f64-<variant>-<size>`."""
     _, _, name = common.parse_size(size)
-    golden = common.read_golden(goldens, f"goldens-dit-{name}", f"z-image.py dit --size {name}")
+    golden = common.read_golden(goldens, quantized.stem(f"goldens-dit-{name}", variant),
+                                f"z-image.py dit --size {name}" + (f" --variant {variant}" if variant else ""))
     latent, caps, sigma = golden["in_latent"], golden["in_caps"], golden["in_sigma"]
     f64 = torch.float64
-    model, _ = build_dit(common.snapshot(REPOSITORY, ["transformer"]), f64)
+    model, _ = build_dit(configuration() if variant else common.snapshot(REPOSITORY, ["transformer"]), f64, variant)
     # Tables built at construction (RoPE...) follow the model's dtype where they are floating point.
     for buffer_name, buffer in list(model.named_buffers()):
         if buffer.is_floating_point() and buffer.device.type != "meta":
@@ -282,7 +309,7 @@ def witness(goldens: Path, size: str) -> None:
     worst, median = channel_error(oracle.squeeze(1), exact.squeeze(1))
     print(f"fp32 oracle against the fp64 witness: worst {worst:.3e}  median {median:.3e}")
     print(f"the engine passes if it is within {1.25 * worst:.3e} of the witness (oracle + 25 %)")
-    path = goldens / f"witness-dit-f64-{name}.safetensors"
+    path = goldens / f"{quantized.stem(f'witness-dit-f64-{name}', variant)}.safetensors"
     from safetensors.torch import save_file
     save_file({"in_latent": latent.contiguous(), "in_caps": caps.contiguous(), "in_sigma": sigma.contiguous(),
                "model_out": exact.to(torch.float32).contiguous(), "oracle_model_out": oracle.contiguous()},
@@ -416,9 +443,13 @@ def main() -> None:
                    help="512, 1024 or WIDTHxHEIGHT (default: 512; vae: 768x512; all: 512 1024)")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     p.add_argument("--prompt", default=PROMPT, help="text and all only; the checks read the prompt from the golden")
+    p.add_argument("--variant", choices=quantized.VARIANTS,
+                   help="dit, bf16 and witness: the Compact's or the Light's published DiT instead of the Standard's")
     p.add_argument("--long", action="store_true", help="text only: the long prompt, past 512 tokens -> goldens-text-long")
     args = p.parse_args()
     goldens = common.goldens_directory(args.goldens)
+    if args.variant and args.stage not in ("dit", "bf16", "witness"):
+        p.error("--variant goes with dit, bf16 or witness")
     sizes = args.size or {"vae": ["768x512"], "all": ["512", "1024", "768x512", "832x1216"]}.get(args.stage, ["512"])
     if args.stage == "text" and args.long:
         text(goldens, common.LONG_PROMPT, common.LONG_SEQUENCE_LENGTH, "goldens-text-long")
@@ -428,7 +459,10 @@ def main() -> None:
         everything(goldens, args.prompt, sizes)
     else:
         for size in sizes:
-            {"dit": dit, "witness": witness, "bf16": bf16, "trajectory": trajectory, "vae": vae}[args.stage](goldens, size)
+            if args.variant:
+                {"dit": dit, "witness": witness, "bf16": bf16}[args.stage](goldens, size, args.variant)
+            else:
+                {"dit": dit, "witness": witness, "bf16": bf16, "trajectory": trajectory, "vae": vae}[args.stage](goldens, size)
 
 
 if __name__ == "__main__":

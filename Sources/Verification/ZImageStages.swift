@@ -133,14 +133,15 @@ enum ZImageStages {
     static let dit = Stage(
         model: "z-image", name: "dit",
         proves: "one evaluation of the DiT, latent to velocity: embedders, refiners, 30 blocks, head, unpatchify",
-        sizes: ["512", "1024", "768x512", "832x1216"], options: ["--map", "--neural-engine", "--bf16-activations"],
-        oracle: "tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine or --bf16-activations, bf16 --size {size}", weights: ["DiT"],
+        sizes: ["512", "1024", "768x512", "832x1216"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
+        oracle: "tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, the same three with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
         rule: "the rule, floor 5e-4; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
     ) { invocation in
-        let report = Report(title: "z-image dit \(invocation.size)")
-        let file = "goldens-dit-\(invocation.size).safetensors"
+        let version = try invocation.quantizedVariant()
+        let report = Report(title: "z-image dit\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")
+        let file = variantStem("goldens-dit-\(invocation.size)", version) + ".safetensors"
         let goldens = try invocation.goldens.open(file)
-        let witness = invocation.goldens.optional("witness-dit-f64-\(invocation.size).safetensors")
+        let witness = invocation.goldens.optional(variantStem("witness-dit-f64-\(invocation.size)", version) + ".safetensors")
         guard let latentEntry = goldens.entries["in_latent"], let latent = goldens.float32("in_latent"),
               let capsEntry = goldens.entries["in_caps"], let caps = goldens.float32("in_caps"),
               let sigma = goldens.float32("in_sigma") else {
@@ -148,8 +149,8 @@ enum ZImageStages {
         }
         // `in_latent` is `[16, 1, h, w]`.
         let (height, width) = (latentEntry.shape[2], latentEntry.shape[3])
-        let dit = try DiT(artifact: try Artifact(path: try invocation.ditMap(ditMap)), latentHeight: height, latentWidth: width,
-                          capLength: capsEntry.shape[0])
+        let dit = try DiT(artifact: try Artifact(path: try invocation.ditMap(ditMap, family: .zImage, version: version)),
+                          latentHeight: height, latentWidth: width, capLength: capsEntry.shape[0])
         dit.recordBoundaries = true
         let started = Date()
         let out = try dit.forward(latent: latent.baseAddress!, caps: caps.baseAddress!, sigma: sigma[0])
@@ -157,7 +158,7 @@ enum ZImageStages {
 
         var produced = dit.boundaries
         produced["model_out"] = out
-        let half = try invocation.halfReference(file, script: "tools/oracle/z-image.py bf16 --size \(invocation.size)")
+        let half = try invocation.halfReference(file, script: "tools/oracle/z-image.py bf16 --size \(invocation.size)\(version.map { " --variant " + $0.rawValue } ?? "")")
         let widths: [String: Int] = ["t_embedder_out": dit.config.adalnDim, "block_freqs_cis": 2,
                                      "final_layer_out": dit.config.patch * dit.config.patch * dit.config.channels,
                                      "model_out": height * width]

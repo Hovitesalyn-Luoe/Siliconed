@@ -75,12 +75,13 @@ enum Krea2Stages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists",
-        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations"],
-        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}", weights: ["DiT"],
+        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
+        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness and witness-step --step 0 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
         rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
     ) { invocation in
-        let report = Report(title: "\(model) dit \(invocation.size)")
-        let stem = "krea2/goldens-krea2-dit-\(invocation.size)"
+        let version = try invocation.quantizedVariant()
+        let report = Report(title: "\(model) dit\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")
+        let stem = variantStem("krea2/goldens-krea2-dit-\(invocation.size)", version)
         let goldens = try invocation.goldens.open(stem + ".safetensors")
         guard let latentEntry = goldens.entries["latent_in"], let latent = goldens.float32("latent_in"),
               let text = goldens.float32("txt_in_out"), let textEntry = goldens.entries["txt_in_out"],
@@ -88,8 +89,9 @@ enum Krea2Stages {
             throw Skip("\(goldens.path): the evaluation's inputs are missing")
         }
         let (height, width, t) = (latentEntry.shape[1], latentEntry.shape[2], textEntry.shape[0])
-        let artifact = try Artifact(path: try invocation.ditMap(ditMap))
+        let artifact = try Artifact(path: try invocation.ditMap(ditMap, family: .krea2, version: version))
         // `witness-krea2-f64-R` stops after block 1; `-step0` is the whole evaluation in double.
+        // A version's witnesses are the oracle's own, written from its weights (`witness-krea2-f64-<variant>-R`).
         let witnessStem = stem.replacingOccurrences(of: "goldens-krea2-dit-", with: "witness-krea2-f64-")
         let witnesses = [witnessStem, witnessStem + "-step0"].compactMap { invocation.goldens.optional($0 + ".safetensors") }
         let exact = { (name: String) in witnesses.lazy.compactMap { $0.float32(name) }.first }
@@ -100,7 +102,7 @@ enum Krea2Stages {
         let out = try dit.forward(latent: latent.baseAddress!, text: text.baseAddress!, textRows: t, sigma: sigma[0])
         if invocation.profile { printTimings(dit.timings, seconds: Date().timeIntervalSince(started)) }
         let recorded = dit.boundaries.merging(["model_out": out]) { $1 }
-        let half = try invocation.halfReference(stem + ".safetensors", script: "tools/oracle/krea2.py bf16 --size \(invocation.size)")
+        let half = try invocation.halfReference(stem + ".safetensors", script: "tools/oracle/krea2.py bf16 --size \(invocation.size)\(version.map { " --variant " + $0.rawValue } ?? "")")
         // The oracle's draws of these inputs: `draw-krea2-R-step0-jitterN`.
         let draws = stem.replacingOccurrences(of: "goldens-krea2-dit-", with: "draw-krea2-") + "-step0"
         var clouds = Clouds(draws: (1...8).compactMap { invocation.goldens.optional(draws + "-jitter\($0).safetensors") }) { seed in

@@ -74,27 +74,29 @@ enum AnimaStages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, and its output per latent plane against the fp64 witness",
-        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations"],
-        oracle: "tools/oracle/anima.py dit --size {size}; witness --size {size} --step 0; with --neural-engine or --bf16-activations, bf16 --size {size}", weights: ["DiT"],
+        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
+        oracle: "tools/oracle/anima.py dit --size {size}; witness --size {size} --step 0; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit and bf16 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
         rule: "the rule, floor 5e-4; model_out per latent plane at the fp64 witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
     ) { invocation in
-        let report = Report(title: "\(model) dit \(invocation.size)")
-        let file = "anima/goldens-anima-dit-\(invocation.size).safetensors"
+        let version = try invocation.quantizedVariant()
+        let report = Report(title: "\(model) dit\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")
+        let file = variantStem("anima/goldens-anima-dit-\(invocation.size)", version) + ".safetensors"
         let goldens = try invocation.goldens.open(file)
-        let witness = invocation.goldens.optional("anima/witness-anima-f64-\(invocation.size)-step0.safetensors")
+        // The Standard's fp64 witness is the Standard's weights': a version has none unless the oracle wrote its own.
+        let witness = version == nil ? invocation.goldens.optional("anima/witness-anima-f64-\(invocation.size)-step0.safetensors") : nil
         guard let latentEntry = goldens.entries["latent_in"], let latent = goldens.float32("latent_in"),
               let context = goldens.float32("prompt_embeds"), let contextEntry = goldens.entries["prompt_embeds"],
               let sigma = goldens.float32("timestep") else {
             throw Skip("\(goldens.path): the evaluation's inputs are missing")
         }
         let (height, width) = (latentEntry.shape[1], latentEntry.shape[2])
-        let dit = try AnimaDiT(artifact: try Artifact(path: try invocation.ditMap(ditMap)), latentHeight: height, latentWidth: width,
-                               textLength: contextEntry.shape[0])
+        let dit = try AnimaDiT(artifact: try Artifact(path: try invocation.ditMap(ditMap, family: .anima, version: version)),
+                               latentHeight: height, latentWidth: width, textLength: contextEntry.shape[0])
         dit.recordBoundaries = true
         let started = Date()
         _ = try dit.forward(latent: latent.baseAddress!, context: context.baseAddress!, sigma: sigma[0])
         if invocation.profile { printTimings(dit.timings, seconds: Date().timeIntervalSince(started)) }
-        let half = try invocation.halfReference(file, script: "tools/oracle/anima.py bf16 --size \(invocation.size)")
+        let half = try invocation.halfReference(file, script: "tools/oracle/anima.py bf16 --size \(invocation.size)\(version.map { " --variant " + $0.rawValue } ?? "")")
         let d = dit.config.dim
         let widths = ["temb": 3 * d, "embedded_timestep": d, "model_out": height * width]
         // Per channel against the oracle: the witness's worst POSITION is a noisy statistic here (an

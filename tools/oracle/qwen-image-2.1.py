@@ -7,6 +7,8 @@
     qwen-image-2.1.py references [--side S] a picture with transparency, prepared          -> goldens-qwen21-preprocess-alpha-S
     qwen-image-2.1.py dit [--edit N]        one DiT evaluation, three ways                 -> goldens-qwen21-dit[-editN]-512
     qwen-image-2.1.py bf16 [--edit N]       that evaluation in bfloat16                    -> witness-bf16-qwen21-dit[-editN]-512
+    qwen-image-2.1.py dit|bf16 --variant compact|light   generation on the Compact's (Comfy-Org int8 convrot) or the
+                                            Light's (GGUF Q4_K_M) published DiT -> goldens-qwen21-dit-<variant>-512
     qwen-image-2.1.py witness               that evaluation in float64                     -> witness-qwen21-f64-512
     qwen-image-2.1.py trajectory [--edit N] the 8-step sampler                             -> goldens-qwen21-trajectory[-editN]-512
     qwen-image-2.1.py vae [--edit N]        the decoder on the trajectory's final latent   -> goldens-qwen21-vae[-editN]-512
@@ -102,6 +104,7 @@ from safetensors.torch import load_file, save_file
 sys.dont_write_bytecode = True      # the repository carries no caches
 import common  # noqa: E402
 from common import Checkpoint, Streamed
+import quantized  # noqa: E402
 
 REPOSITORY = "Qwen/Qwen-Image-2.1-Turbo"
 PROMPT = "a 30 year old woman posing in a library"
@@ -126,12 +129,18 @@ INPUTS: Path
 _SNAP: Path | None = None
 
 
+CONFIG_ONLY = False
+
+
 def snap() -> Path:
     """Everything comes from the Turbo's publication: DiT, encoder, `processor/`, scheduler, `model_index.json`, VAE."""
     global _SNAP
     if _SNAP is None:
-        _SNAP = common.snapshot(REPOSITORY, ["transformer", "text_encoder", "processor", "scheduler", "vae"],
-                                files=["model_index.json"])
+        if CONFIG_ONLY:     # --variant: the weights come from the variant's file, the repository gives the configuration
+            _SNAP = common.snapshot(REPOSITORY, [], files=["transformer/config.json"])
+        else:
+            _SNAP = common.snapshot(REPOSITORY, ["transformer", "text_encoder", "processor", "scheduler", "vae"],
+                                    files=["model_index.json"])
     return _SNAP
 
 
@@ -516,7 +525,7 @@ def stage_references(side: int):
 
 # ------------------------------------------------------------------ the DiT
 
-def load_transformer(dtype=torch.float32):
+def load_transformer(dtype=torch.float32, variant: str | None = None):
     """`QwenImage21Transformer2DModel` on `meta`: embedders, the shared modulation and the output resident,
     the 32 blocks streamed. `pos_embed.freqs` (a plain list) and `time_proj.freqs` (a non-persistent buffer)
     are built at construction: on `meta`, so they are redone on the CPU."""
@@ -525,7 +534,9 @@ def load_transformer(dtype=torch.float32):
     with torch.device("meta"):
         model = te.QwenImage21Transformer2DModel.from_config(config)
     model.eval()
-    checkpoint = Checkpoint(snap() / "transformer", "diffusion_pytorch_model.safetensors.index.json")
+    checkpoint = (quantized.Variant("qwen-image-2.1", variant) if variant
+                  else Checkpoint(snap() / "transformer", "diffusion_pytorch_model.safetensors.index.json"))
+    model.published = checkpoint
     check_keys(model, checkpoint)
     resident = {k: checkpoint.tensor(k, dtype) for k in checkpoint.keys if not k.startswith("transformer_blocks.")}
     model.load_state_dict(resident, strict=False, assign=True)
@@ -636,7 +647,33 @@ def stage_dit(n: int = 0):
     print(f"  {time.time() - t0:.0f} s")
 
 
-def stage_bf16(n: int = 0):
+def stage_dit_variant(variant: str):
+    """Generation's `dit` on the Compact's or the Light's published weights, from the Standard's golden inputs
+    (same latent, same text, same timestep): the prefill of the whole joint sequence, whose probes are what
+    the check judges at its three ways (prefill, step from the cache, full pass: the Standard's golden holds
+    the same rows). Writes `goldens-qwen21-dit-<variant>-512`."""
+    t0 = time.time()
+    name = f"goldens-qwen21-dit-{RESOLUTION}"
+    golden = read(name, "qwen-image-2.1.py dit")
+    text = read(text_golden(0), "qwen-image-2.1.py text")
+    info = json.loads((OUT / f"{name}.json").read_text())
+    model, _ = load_transformer(torch.float32, variant)
+    taps, _ = dit_taps(model)
+    out = model(hidden_states=golden["hidden_states"][None], encoder_hidden_states=text["prompt_embeds"][None],
+                timestep=golden["timestep"], img_shapes=[[tuple(s) for s in info["img_shapes"]]],
+                img_mask=golden["img_mask"][None].bool(), return_dict=False)[0][0]
+    target = info["target"]
+    payload = {"hidden_states": golden["hidden_states"], "timestep": golden["timestep"], "img_mask": golden["img_mask"],
+               "model_out_full": out, "model_out": out[-target:].clone(), **taps}
+    info = {k: info[k] for k in ("prompt", "references", "output_resolution", "img_shapes", "prefix", "target",
+                                 "sigma", "segments", "temb_rows")}
+    write(quantized.stem(name, variant), payload,
+          {**info, "inputs": name, "weights": model.published.describe(),
+           "note": "prefill only: the cached step and the full pass are judged against these rows"})
+    print(f"  {time.time() - t0:.0f} s")
+
+
+def stage_bf16(n: int = 0, variant: str | None = None):
     """`dit [--edit N]` (prefill only) with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)`
     and `__call__` run it: weights as published, `hidden_states` and `prompt_embeds` in bf16, `timestep` in the
     latents' dtype; the module keeps its own float32 islands (sinusoid `freqs`, RoPE, the RMSNorm variance,
@@ -650,7 +687,7 @@ def stage_bf16(n: int = 0):
     golden = read(name, "qwen-image-2.1.py dit" + (f" --edit {n}" if n else ""))
     text = read(text_golden(n), "qwen-image-2.1.py text" + (f" --edit {n}" if n else ""))
     info = json.loads((OUT / f"{name}.json").read_text())
-    model, _ = load_transformer(half)
+    model, _ = load_transformer(half, variant)
     taps, _ = dit_taps(model)
     out = model(hidden_states=golden["hidden_states"][None].to(half),
                 encoder_hidden_states=text["prompt_embeds"][None].to(half),
@@ -660,7 +697,8 @@ def stage_bf16(n: int = 0):
             "layer0_out", "layer1_out", "layer_last_out")
     payload = {"model_out": out[-info["target"]:].float(), **{k: taps[k].float() for k in kept}}
     report = {"bf16_vs_fp32_model_out": gap("bf16 vs fp32, model_out", payload["model_out"], golden["model_out"])}
-    write(f"witness-bf16-qwen21-dit{tag}-{RESOLUTION}", payload, {"dtype": "bfloat16", "inputs": name, **report})
+    write(quantized.stem(f"witness-bf16-qwen21-dit{tag}-{RESOLUTION}", variant), payload,
+          {"dtype": "bfloat16", "inputs": name, **report, **({"weights": model.published.describe()} if variant else {})})
     print(f"  {time.time() - t0:.0f} s")
 
 
@@ -933,8 +971,14 @@ def main() -> None:
                    help="editing with N pictures (text, dit, bf16, trajectory, vae); 0 is generation")
     p.add_argument("--long", action="store_true", help="text only, generation: the long prompt, past 512 tokens")
     p.add_argument("--side", type=int, default=512, help="references only: the prepared side (512, 443)")
+    p.add_argument("--variant", choices=quantized.VARIANTS,
+                   help="dit and bf16 (generation): the Compact's or the Light's published DiT instead of the Standard's")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
+    if args.variant and (args.stage not in ("dit", "bf16") or args.edit):
+        p.error("--variant goes with dit or bf16, generation (no --edit)")
+    global CONFIG_ONLY
+    CONFIG_ONLY = bool(args.variant)
     goldens = common.goldens_directory(args.goldens)
     OUT, INPUTS = goldens / "qwen21", common.provide_inputs(goldens)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -951,9 +995,9 @@ def main() -> None:
     elif args.stage == "references":
         stage_references(args.side)
     elif args.stage == "dit":
-        stage_dit(n)
+        stage_dit_variant(args.variant) if args.variant else stage_dit(n)
     elif args.stage == "bf16":
-        stage_bf16(n)
+        stage_bf16(n, args.variant)
     elif args.stage == "witness":
         stage_witness()
     elif args.stage == "trajectory":

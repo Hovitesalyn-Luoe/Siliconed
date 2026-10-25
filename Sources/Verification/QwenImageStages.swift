@@ -213,18 +213,20 @@ enum QwenImageStages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation three ways — prefill of the conditions, the step from their K/V cache, the full pass under the block-causal mask — plus the layout and the modulation",
-        options: ["--edit", "--map", "--neural-engine", "--bf16-activations"], variants: edits,
-        oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine or --bf16-activations, bf16 [--edit N]", weights: ["DiT"],
+        options: ["--edit", "--map", "--neural-engine", "--bf16-activations", "--variant"], variants: edits,
+        oracle: "tools/oracle/qwen-image-2.1.py dit [--edit N]; witness; with --neural-engine or --bf16-activations, bf16 [--edit N]; with --variant compact or light (no --edit), dit and bf16 with --variant (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
         rule: "layout bit for bit; the rule, floor 5e-4, at the fp64 witness where one exists; cache and full pass ≤ 1e-5 apart; a second step the same bits; with --neural-engine or --bf16-activations, against bf16's own error + 25 %, cache and full pass too"
     ) { invocation in
         let n = invocation.edit ?? 0
         let tag = n > 0 ? "-edit\(n)" : ""
-        let report = Report(title: "\(model) dit\(tag) \(invocation.size)")
-        let file = "qwen21/goldens-qwen21-dit\(tag)-\(invocation.size)"
+        let version = try invocation.quantizedVariant()
+        if version != nil, n > 0 { throw UsageError("--variant judges the generation (no --edit): the oracle writes no editing golden for a version") }
+        let report = Report(title: "\(model) dit\(tag)\(version.map { " " + $0.rawValue } ?? "") \(invocation.size)")
+        let file = variantStem("qwen21/goldens-qwen21-dit\(tag)-\(invocation.size)", version)
         let goldens = try invocation.goldens.open(file + ".safetensors")
         let text = try invocation.goldens.open((n > 0 ? "qwen21/goldens-qwen21-text-image-\(n)" : "qwen21/goldens-qwen21-text") + ".safetensors")
         // The fp64 witness of the evaluation without references.
-        let witnessFile = n > 0 ? nil : invocation.goldens.optional("qwen21/witness-qwen21-f64-\(invocation.size).safetensors")
+        let witnessFile = n > 0 || version != nil ? nil : invocation.goldens.optional("qwen21/witness-qwen21-f64-\(invocation.size).safetensors")
         let witness = { (name: String) -> UnsafeBufferPointer<Float>? in witnessFile?.float32(name) }
         let info = try invocation.goldens.manifest(file)
         guard let shapes = info["img_shapes"] as? [[Int]], let mask = goldens.int32("img_mask"),
@@ -232,7 +234,7 @@ enum QwenImageStages {
               let embeds = text.float32("prompt_embeds") else {
             throw Skip("\(goldens.path): the evaluation's inputs are missing")
         }
-        let artifact = try Artifact(path: try invocation.ditMap(Library.processWide.ditMap(.qwenImage21)))
+        let artifact = try Artifact(path: try invocation.ditMap(Library.processWide.ditMap(.qwenImage21), family: .qwenImage21, version: version))
         let grids = shapes.map { QwenImage21Sequence.Grid(height: $0[1], width: $0[2]) }
         let sequence = try QwenImage21Sequence(slots: mask.map { $0 != 0 }, images: grids)
         let (p, count) = (sequence.prefix, sequence.count)
@@ -271,7 +273,7 @@ enum QwenImageStages {
         let dit = try QwenImage21DiT(artifact: artifact, sequence: sequence, lora: nil, fullPass: true)
         dit.recordBoundaries = true
         let d = config.dim
-        let half = try invocation.halfReference(file + ".safetensors", script: "tools/oracle/qwen-image-2.1.py bf16")
+        let half = try invocation.halfReference(file + ".safetensors", script: "tools/oracle/qwen-image-2.1.py bf16\(version.map { " --variant " + $0.rawValue } ?? "")")
         let probe = try dit.probeModulation(sigma: sigma)
         report.add(goldens, "temb", probe.temb, witness: witness("temb"), columns: d)
         report.add(goldens, "modulation", probe.modulation, witness: witness("modulation"), columns: 4 * d)

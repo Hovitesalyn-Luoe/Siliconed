@@ -5,6 +5,8 @@
     anima.py text [--long]                  both tokenizers, Qwen3-0.6B, the conditioner -> goldens-anima-text[-long]
     anima.py dit --size 512 [1024 768x512]  one DiT evaluation at the first sigma       -> goldens-anima-dit-<size>
     anima.py bf16 --size 1024               the same evaluation in bfloat16             -> witness-bf16-anima-dit-<size>
+    anima.py dit|bf16 --size 512 --variant compact|light   the same, for the Compact's or the Light's published DiT
+                                            (GGUF), dequantized by gguf-py -> goldens-anima-dit-<variant>-<size>
     anima.py trajectory --size 512 [1024]   the 8-step Euler loop                       -> goldens-anima-trajectory-<size>
     anima.py vae --size 512 [1024 768x512]  the decoder on the final latent             -> goldens-anima-vae-<size>
     anima.py witness --size 512 --step 0    one guided evaluation in float64            -> witness-anima-f64-<size>-step<n>
@@ -54,6 +56,7 @@ from safetensors.torch import load_file, save_file
 
 sys.dont_write_bytecode = True      # the repository carries no caches
 import common  # noqa: E402
+import quantized  # noqa: E402
 
 BASE_REPOSITORY = "circlestone-labs/Anima-Base-v1.0-Diffusers"
 TURBO_REPOSITORY = "circlestone-labs/Anima"
@@ -141,13 +144,24 @@ def turbo_state_dicts() -> tuple[dict, dict]:
     return dit, adapter
 
 
-def load_transformer():
-    """The fp32 DiT."""
+def load_transformer(variant: str | None = None):
+    """The fp32 DiT. With a `variant`, the weights are the Compact's or the Light's published GGUF, dequantized
+    by gguf-py (`quantized.Variant`); only `transformer/config.json` is read from the base repository, and the
+    text adapter the file also holds is left out."""
     from diffusers import CosmosTransformer3DModel
-    config = CosmosTransformer3DModel.load_config(base() / "transformer")
+    if variant:
+        root = common.snapshot(BASE_REPOSITORY, [], files=["transformer/config.json"])
+        config = CosmosTransformer3DModel.load_config(root / "transformer")
+    else:
+        config = CosmosTransformer3DModel.load_config(base() / "transformer")
     with torch.device("meta"):
         model = CosmosTransformer3DModel.from_config(config)
-    dit, _ = turbo_state_dicts()
+    if variant:
+        published = quantized.Variant("anima", variant)
+        dit = {k: published.tensor(k, torch.float32) for k in published.keys}
+        model.published = published
+    else:
+        dit, _ = turbo_state_dicts()
     model.load_state_dict(dit, strict=True, assign=True)
     # `rope` has no weights: its possible buffers remain to be materialized on the CPU.
     model = model.to(torch.float32)
@@ -285,6 +299,23 @@ def probe_dit(model) -> dict:
     return taps
 
 
+def stage_dit_variant(size: str, variant: str):
+    """`dit` on the Compact's or the Light's published weights: the Standard's golden inputs (same latent, same
+    text, same timestep), the same probes. Writes `goldens-anima-dit-<variant>-<size>`."""
+    height, width, name = common.parse_size(size)
+    standard = read(f"goldens-anima-dit-{name}", f"anima.py dit --size {name}")
+    model = load_transformer(variant)
+    taps = probe_dit(model)
+    timestep = standard["timestep"]
+    out = model(hidden_states=standard["latent_in"][None, :, None], timestep=timestep,
+                encoder_hidden_states=standard["prompt_embeds"][None], padding_mask=torch.zeros(1, 1, height, width),
+                return_dict=False)[0]
+    payload = {"latent_in": standard["latent_in"], "timestep": timestep, "prompt_embeds": standard["prompt_embeds"],
+               "model_out": out[0, :, 0], **taps}
+    write(quantized.stem(f"goldens-anima-dit-{name}", variant), payload,
+          {"inputs": f"goldens-anima-dit-{name}", "weights": model.published.describe()})
+
+
 def stage_dit(size: str):
     height, width, name = common.parse_size(size)
     embeds = read("goldens-anima-text", "anima.py text")["prompt_embeds"][None]
@@ -304,7 +335,7 @@ def stage_dit(size: str):
     write(f"goldens-anima-dit-{name}", payload, {"sigma": float(scheduler.sigmas[0])})
 
 
-def stage_bf16(size: str):
+def stage_bf16(size: str, variant: str | None = None):
     """`dit` with diffusers in bfloat16, as `from_pretrained(torch_dtype=torch.bfloat16)` runs it: weights,
     latent, text and timestep in bf16 (the published weights are bf16, so the cast is exact). The inputs are
     the dit golden's own; the boundaries are widened to float32 (exact) under the golden's keys, minus its
@@ -312,14 +343,15 @@ def stage_bf16(size: str):
     height, width, name = common.parse_size(size)
     golden = read(f"goldens-anima-dit-{name}", f"anima.py dit --size {name}")
     half = torch.bfloat16
-    model = load_transformer().to(half)
+    model = load_transformer(variant).to(half)
     taps = probe_dit(model)
     out = model(hidden_states=golden["latent_in"][:, None][None].to(half), timestep=golden["timestep"].to(half),
                 encoder_hidden_states=golden["prompt_embeds"][None].to(half),
                 padding_mask=torch.zeros(1, 1, height, width, dtype=half), return_dict=False)[0]
     taps["model_out"] = out[0, :, 0]
-    write(f"witness-bf16-anima-dit-{name}", {k: v.float() for k, v in taps.items()},
-          {"dtype": "bfloat16", "inputs": f"goldens-anima-dit-{name}"})
+    write(quantized.stem(f"witness-bf16-anima-dit-{name}", variant), {k: v.float() for k, v in taps.items()},
+          {"dtype": "bfloat16", "inputs": f"goldens-anima-dit-{name}",
+           **({"weights": model.published.describe()} if variant else {})})
 
 
 def stage_trajectory(size: str):
@@ -513,8 +545,12 @@ def main() -> None:
                    help="512, 1024 or WIDTHxHEIGHT (dit, vae: a rectangle too; default 512, all: every size)")
     p.add_argument("--step", type=int, default=0, help="witness only: the step of the trajectory (default 0, the one the check reads)")
     p.add_argument("--long", action="store_true", help="text only: the long prompt, past 512 tokens -> goldens-anima-text-long")
+    p.add_argument("--variant", choices=quantized.VARIANTS,
+                   help="dit and bf16: the Compact's or the Light's published DiT instead of the Standard's")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
+    if args.variant and args.stage not in ("dit", "bf16"):
+        p.error("--variant goes with dit or bf16")
     OUT = common.goldens_directory(args.goldens) / "anima"
     OUT.mkdir(parents=True, exist_ok=True)
     if args.stage == "all":
@@ -525,7 +561,9 @@ def main() -> None:
         stage_text(common.LONG_PROMPT, common.LONG_SEQUENCE_LENGTH, "goldens-anima-text-long") if args.long else stage_text()
     else:
         for size in args.size or ["512"]:
-            if args.stage == "witness":
+            if args.variant:
+                {"dit": stage_dit_variant, "bf16": stage_bf16}[args.stage](size, args.variant)
+            elif args.stage == "witness":
                 stage_witness(size, args.step)
             else:
                 {"dit": stage_dit, "bf16": stage_bf16, "trajectory": stage_trajectory, "vae": stage_vae,
