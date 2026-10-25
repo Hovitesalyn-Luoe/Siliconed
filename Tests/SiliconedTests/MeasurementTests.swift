@@ -19,6 +19,71 @@ final class MeasurementTests: XCTestCase {
         XCTAssertEqual(o.extra, ["--steps", "6", "--no-ane"])
     }
 
+    func testFasterRenderingOption() throws {
+        XCTAssertNil(try MeasureOptions.parse([]).fasterRendering)
+        XCTAssertEqual(try MeasureOptions.parse(["--faster-rendering", "off"]).fasterRendering, false)
+        XCTAssertEqual(try MeasureOptions.parse(["--faster-rendering", "on", "--renders", "1"]).fasterRendering, true)
+        for argv in [["--faster-rendering"], ["--faster-rendering", "maybe"], ["--faster-rendering", "true"]] {
+            XCTAssertThrowsError(try MeasureOptions.parse(argv), "\(argv)")
+        }
+    }
+
+    /// The series puts the setting where it was asked and gives the user's value back — also when a
+    /// render fails —, writes it in every TSV line, and touches nothing when the value is already right.
+    func testRunnerSetsAndRestoresFasterRendering() throws {
+        for failing in [false, true] {
+            var faster = true, sets: [String] = [], added = 0
+            let send: Runner.Send = { argv, onLine in
+                switch argv[0] {
+                case "status": return (["ok": true, "running": NSNull(), "queue": [], "faster_rendering": faster], getpid())
+                case "models": return (["ok": true, "models": [["id": "fake", "ready": true, "variant": "standard"]]], getpid())
+                case "set":
+                    sets.append(argv[1] + "=" + argv[2])
+                    faster = argv[2] == "on"
+                    return (["ok": true], getpid())
+                default:
+                    added += 1
+                    if failing, added == 3 { return (["ok": false, "error": "render", "message": "boom"], getpid()) }
+                    XCTAssertFalse(faster, "the render runs under the series' value")
+                    let dir = URL(fileURLWithPath: argv[argv.firstIndex(of: "--out")! + 1], isDirectory: true)
+                    let path = dir.appendingPathComponent("f-\(added).png")
+                    self.writePNG(path) { x, y in (UInt8(x), UInt8(y), 7) }
+                    onLine(["type": "image", "seconds": 0.5, "steps": 8, "path": path.path])
+                    return (["ok": true], getpid())
+                }
+            }
+            let o = try MeasureOptions.parse(["--model", "fake", "--renders", "1", "--settle", "0", "--faster-rendering", "off"])
+            var lines: [String] = []
+            if failing {
+                XCTAssertThrowsError(try Runner.run(o, send: send, log: { _ in }, emit: { _ in }, append: { lines.append($0) }))
+            } else {
+                _ = try Runner.run(o, send: send, log: { _ in }, emit: { _ in }, append: { lines.append($0) })
+            }
+            XCTAssertEqual(sets, ["faster-rendering=off", "faster-rendering=on"], "failing: \(failing)")
+            XCTAssertTrue(faster)
+            let column = TSV.header.firstIndex(of: "faster_rendering")!
+            for line in lines.dropFirst() { XCTAssertEqual(line.split(separator: "\t", omittingEmptySubsequences: false)[column], "off") }
+        }
+        // Already at the value asked: no `set` at all.
+        var sets = 0
+        let quiet: Runner.Send = { argv, onLine in
+            if argv[0] == "set" { sets += 1 }
+            if argv[0] == "status" { return (["ok": true, "running": NSNull(), "queue": [], "faster_rendering": false], getpid()) }
+            if argv[0] == "models" { return (["ok": true, "models": [["id": "fake", "ready": true]]], getpid()) }
+            return (["ok": false, "error": "render"], getpid())
+        }
+        let o = try MeasureOptions.parse(["--model", "fake", "--settle", "0", "--faster-rendering", "off"])
+        XCTAssertThrowsError(try Runner.run(o, send: quiet, log: { _ in }, emit: { _ in }, append: { _ in }))
+        XCTAssertEqual(sets, 0)
+        // An app that does not report the setting cannot be asked to change it.
+        let old: Runner.Send = { argv, _ in
+            argv[0] == "status" ? (["ok": true, "running": NSNull(), "queue": []], getpid()) : (["ok": true], getpid())
+        }
+        XCTAssertThrowsError(try Runner.run(o, send: old, log: { _ in }, emit: { _ in }, append: { _ in })) {
+            XCTAssertEqual(($0 as? Failure)?.code, "unsupported")
+        }
+    }
+
     func testOptionsRefuseWhatBreaksTheMeasure() {
         for argv in [["--size", "256"], ["--size", "1000x1024"], ["--renders", "0"], ["--seed", "x"], ["--bogus"], ["--model"],
                      ["--", "--batch", "2"], ["--", "--out", "x"], ["--", "--wait"]] {

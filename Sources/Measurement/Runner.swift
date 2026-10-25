@@ -16,6 +16,14 @@ package enum Runner {
 
     private static func now() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
 
+    private static func setFaster(_ on: Bool, send: Send) throws {
+        let (answer, _) = send(["set", "faster-rendering", on ? "on" : "off"]) { _ in }
+        guard answer?["ok"] as? Bool == true else {
+            throw Failure(code: answer?["error"] as? String ?? "app_not_running",
+                          message: answer?["message"] as? String ?? "the app does not answer")
+        }
+    }
+
     package static func run(_ o: MeasureOptions, send: Send, log: (String) -> Void,
                             emit: ([String: Any]) -> Void, append: (String) -> Void) throws -> [String: Any] {
         // The queue must be idle: a render queued by someone else shares the machine with ours.
@@ -31,6 +39,27 @@ package enum Runner {
             return peer
         }
         var pid = try idle()
+        // Faster Rendering is the app's setting, changed and given back through its own `set`: the app
+        // writes the preference and the switch follows. Read from `status`, not from the preferences file,
+        // which an app that has not synchronized yet would give stale.
+        let (first, _) = send(["status"]) { _ in }
+        let original = first?["faster_rendering"] as? Bool
+        var changed = false
+        if let wanted = o.fasterRendering {
+            guard let original else {
+                throw Failure(code: "unsupported", message: "this app does not report Faster Rendering: --faster-rendering needs the same build as silicontrol")
+            }
+            if wanted != original { try setFaster(wanted, send: send); changed = true }
+        }
+        // Whatever ends the series, the user's value comes back; a refusal there (someone queued a job
+        // meanwhile) is told, not hidden.
+        defer {
+            if changed, let original {
+                do { try setFaster(original, send: send) }
+                catch let failure as Failure { log("measure: Faster Rendering could not be put back to \(original ? "on" : "off"): \(failure.message)") }
+                catch {}
+            }
+        }
         let (models, _) = send(["models"]) { _ in }
         guard let list = models?["models"] as? [[String: Any]], let entry = list.first(where: { $0["id"] as? String == o.model }) else {
             throw Failure(code: "model", message: "\(o.model) is not a model the app shows (silicontrol models)")
@@ -43,7 +72,7 @@ package enum Runner {
         let neural = neuralOverride ?? entry["neural_engine"] as? Bool
         let host = Probes.Host.read()
         let bundle = Probes.bundle(of: pid)
-        let faster = bundle.flatMap { Probes.preference("fasterRendering", of: $0.identifier) } ?? true
+        let faster = o.fasterRendering ?? original ?? bundle.flatMap { Probes.preference("fasterRendering", of: $0.identifier) } ?? true
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -27,7 +27,7 @@ package enum RemoteControlHelp {
 
     /// The topics in reading order (`help all` follows it).
     static let order = ["contract", "open", "models", "install", "add", "grid", "edit", "wait", "status", "follow",
-                        "cancel", "clear", "history", "save", "vary", "enlarge", "subjects", "diagnose", "measure", "errors", "recipes"]
+                        "cancel", "clear", "set", "history", "save", "vary", "enlarge", "subjects", "diagnose", "measure", "errors", "recipes"]
     static let aliases = ["examples": "recipes"]
 
     /// French when the user puts it before English. Not `Bundle.main.preferredLocalizations`: the app's
@@ -111,6 +111,7 @@ package enum RemoteControlHelp {
       follow                                   live events until the queue is empty
       cancel [t3 …]                            stops the running render, or removes jobs
       clear                                    empties the queue and stops the running render
+      set faster-rendering on|off              the Settings switch, as a click (queue empty)
       history [N]                              the session's images (most recent first)
       save i7 [i8 …] DEST                      writes images (.png/.jpg file, or folder)
       vary i7 subtle|strong [--batch N]        variations of an image (same settings, same seed)
@@ -492,8 +493,9 @@ package enum RemoteControlHelp {
                                     "license": "Qwen Research (non-commercial)", "license_urls": […], "model": …}, …],
            "installing": {"title": "Installing Z-Image Turbo", "last": "forging the DiT → …"} | null,
            "queue_remaining_s": 66.5, "remaining_complete": true,
-           "history_images": 12, "library": "/Users/…/Siliconed"}
+           "history_images": 12, "library": "/Users/…/Siliconed", "faster_rendering": true}
 
+        faster_rendering   : the Settings switch (help set).
         stage              : text, image (encoding a reference), denoising, decoding.
         steps_total        : the model's evaluations, not the requested steps (a sketch: those it stops after).
         remaining_s        : null until the app has a measurement for this render.
@@ -542,6 +544,20 @@ package enum RemoteControlHelp {
         Empties the queue AND stops the running render — like « Stop everything » in the app.
 
         Answer: {"ok": true, "stopped": "t3" | null, "removed": ["t4", "t5"]}
+        """,
+
+        "set": """
+        silicontrol set faster-rendering on|off
+
+        Flips the Settings switch « Faster Rendering » exactly as a click does: the preference is
+        written, the switch in the window follows, the next plan reads it. On (the default), from
+        1024 px on the first evaluations run on a grid of half the size: faster, another image than
+        at full size. Off: full size, the same bits as before the setting existed.
+        Only with nothing running or waiting (a job planned under one value and finished under the
+        other would mix two recipes): else "busy". « status » tells the current value.
+
+        Answer: {"ok": true, "faster_rendering": false, "previous": true}
+        FAILURES: usage, busy.
         """,
 
         "history": """
@@ -656,13 +672,15 @@ package enum RemoteControlHelp {
 
         "measure": """
         silicontrol measure [--model ID] [--size 512|1024|WxH] [--renders N] [--seed S] [--prompt TEXT]…
-                            [--tsv FILE] [--out DIR] [--settle SECONDS] [--tag TEXT] [-- add options]
+                            [--tsv FILE] [--out DIR] [--settle SECONDS] [--tag TEXT] [--faster-rendering on|off] [-- add options]
 
         Repeats our timings and peaks on your Mac, with this app alone: a series of renders, each timed
         from the request to the PNG, the app's peak memory sampled while it renders, the pixels hashed.
         Defaults: z-image, 1024x1024, 3 renders, seed 42, "a 30 year old woman posing in a library",
-        15 s of rest first. The app's settings are the app's: Faster Rendering (Settings) is read and
-        written in the TSV, not changed — a number published "with it off" needs it off in the window.
+        15 s of rest first. Faster Rendering (Settings) is written in the TSV for each render;
+        --faster-rendering on|off sets it for the series (« set faster-rendering », as a click) and
+        gives the value from before back at the end, even when the series fails. Without it the app's
+        value is kept: a number published "with it off" is --faster-rendering off.
 
         The series: the queue must be idle (else "busy"); a load render (the weights come in; its time
         is reported apart); a witness; the N renders; a witness again. The witness is the default prompt
@@ -692,7 +710,8 @@ package enum RemoteControlHelp {
         For a comparison to mean something: the adapter plugged in, no other job on the Mac, the app
         freshly opened for a memory figure (a peak read after other models ran includes what they left).
 
-        FAILURES: usage, busy (a render or an installation is running), model (unknown or not installed),
+        FAILURES: usage, busy (a render or an installation is running), unsupported (--faster-rendering on an app
+        that does not report it), model (unknown or not installed),
         render (the render failed: its "error" and message), write. The rows measured before a failure stay in the TSV.
         """,
 
@@ -707,7 +726,7 @@ package enum RemoteControlHelp {
                                more than 64 combinations                   → help add (ALTERNATIVES)
           model                unknown or not installed model
                                                                            → "hint" lists the ready ones; models
-          busy                 (install, diagnose) a render, an installation or the diagnostic is
+          busy                 (install, diagnose, set) a render, an installation or the diagnostic is
                                running; (add, grid, vary) an installation is running;
                                (any) more than 8 connections still sending their command
                                                                            → wait, then retry
@@ -736,6 +755,7 @@ package enum RemoteControlHelp {
                                on no axis, more than 64 cells              → help grid
           queue_full           64 jobs waiting, or no room for every alternative or cell
                                                                            → wait, then retry
+          unsupported          (measure) --faster-rendering on an app older than silicontrol → same build
           unknown_job          this t… (or g…) does not exist in this session → status
           unknown_image        this i… is not in the history                → history
           write                folder or file cannot be written             → check the path
@@ -829,6 +849,7 @@ package enum RemoteControlHelp {
       follow                                   les évènements en direct jusqu'à file vide
       cancel [t3 …]                            arrête le rendu en cours, ou retire des travaux
       clear                                    vide la file et arrête le rendu en cours
+      set faster-rendering on|off              l'interrupteur des Réglages, comme un clic (file vide)
       history [N]                              les images de la session (la plus récente d'abord)
       save i7 [i8 …] DEST                      écrit des images (fichier .png/.jpg, ou dossier)
       vary i7 subtle|strong [--batch N]        variations d'une image (mêmes réglages, même graine)
@@ -1214,8 +1235,9 @@ package enum RemoteControlHelp {
                                     "license": "Qwen Research (non-commercial)", "license_urls": […], "model": …}, …],
            "installing": {"title": "Installing Z-Image Turbo", "last": "forging the DiT → …"} | null,
            "queue_remaining_s": 66.5, "remaining_complete": true,
-           "history_images": 12, "library": "/Users/…/Siliconed"}
+           "history_images": 12, "library": "/Users/…/Siliconed", "faster_rendering": true}
 
+        faster_rendering   : l'interrupteur des Réglages (help set).
         stage              : text, image (encodage d'une référence), denoising, decoding.
         steps_total        : les évaluations du modèle, pas les pas demandés (une esquisse : celles après lesquelles elle s'arrête).
         remaining_s        : null tant que l'app n'a pas de mesure pour ce rendu.
@@ -1266,6 +1288,21 @@ package enum RemoteControlHelp {
         Vide la file ET arrête le rendu en cours — comme « Tout arrêter » dans l'app.
 
         Réponse : {"ok": true, "stopped": "t3" | null, "removed": ["t4", "t5"]}
+        """,
+
+        "set": """
+        silicontrol set faster-rendering on|off
+
+        Bascule l'interrupteur « Faster Rendering » des Réglages exactement comme un clic : la
+        préférence est écrite, l'interrupteur de la fenêtre suit, le prochain plan la lit. Allumé
+        (par défaut), dès 1024 px les premières évaluations se font sur une grille de demi-taille :
+        plus vite, une autre image qu'en pleine taille. Éteint : pleine taille, les mêmes bits
+        qu'avant ce réglage. Seulement quand rien ne tourne ni n'attend (un travail planifié sous une
+        valeur et fini sous l'autre mélangerait deux recettes) : sinon « busy ». « status » donne la
+        valeur actuelle.
+
+        Réponse : {"ok": true, "faster_rendering": false, "previous": true}
+        ÉCHECS : usage, busy.
         """,
 
         "history": """
@@ -1383,13 +1420,15 @@ package enum RemoteControlHelp {
 
         "measure": """
         silicontrol measure [--model ID] [--size 512|1024|WxH] [--renders N] [--seed S] [--prompt TEXTE]…
-                            [--tsv FICHIER] [--out DOSSIER] [--settle SECONDES] [--tag TEXTE] [-- options de add]
+                            [--tsv FICHIER] [--out DOSSIER] [--settle SECONDES] [--tag TEXTE] [--faster-rendering on|off] [-- options de add]
 
         Refait nos temps et nos pics chez vous, avec cette seule app : une série de rendus, chacun chronométré
         de la demande au PNG, le pic mémoire de l'app échantillonné pendant qu'elle rend, les pixels hachés.
         Défauts : z-image, 1024x1024, 3 rendus, graine 42, « a 30 year old woman posing in a library »,
-        15 s de repos d'abord. Les réglages de l'app restent ceux de l'app : Faster Rendering (Réglages) est lu
-        et écrit dans le TSV, jamais changé — un chiffre publié « éteint » demande de l'éteindre dans la fenêtre.
+        15 s de repos d'abord. Faster Rendering (Réglages) est écrit dans le TSV à chaque rendu ;
+        --faster-rendering on|off le pose pour la série (« set faster-rendering », comme un clic) et
+        rend la valeur d'avant à la fin, même si la série échoue. Sans lui, la valeur de l'app reste :
+        un chiffre publié « éteint » est --faster-rendering off.
 
         La série : la file doit être libre (sinon « busy ») ; un rendu de chargement (les poids entrent ; son temps
         est donné à part) ; un témoin ; les N rendus ; un témoin encore. Le témoin est le prompt par défaut à la
@@ -1420,7 +1459,8 @@ package enum RemoteControlHelp {
         Pour qu'une comparaison veuille dire quelque chose : le secteur branché, aucun autre travail sur le Mac,
         l'app fraîchement ouverte pour un chiffre de mémoire (un pic lu après d'autres modèles inclut ce qu'ils ont laissé).
 
-        ÉCHECS : usage, busy (un rendu ou une installation tourne), model (inconnu ou pas installé),
+        ÉCHECS : usage, busy (un rendu ou une installation tourne), unsupported (--faster-rendering avec une
+        app qui ne le déclare pas), model (inconnu ou pas installé),
         render (le rendu a échoué : son « error » et son message), write. Les lignes déjà mesurées restent dans le TSV.
         """,
 
@@ -1435,7 +1475,7 @@ package enum RemoteControlHelp {
                                imbriqués, plus de 64 combinaisons          → help add (ALTERNATIVES)
           model                modèle inconnu ou pas installé
                                                                            → "hint" liste les prêts ; models
-          busy                 (install, diagnose) un rendu, une installation ou le diagnostic
+          busy                 (install, diagnose, set) un rendu, une installation ou le diagnostic
                                tourne ; (add, grid, vary) une installation tourne ;
                                (toutes) plus de 8 connexions qui envoient encore leur commande
                                                                            → attendre, puis réessayer
@@ -1464,6 +1504,7 @@ package enum RemoteControlHelp {
                                aucun axe, plus de 64 cases                 → help grid
           queue_full           64 travaux en attente, ou pas de place pour toutes les alternatives ou cases
                                                                            → wait, puis réessayer
+          unsupported          (measure) --faster-rendering avec une app plus ancienne que silicontrol → même build
           unknown_job          ce t… (ou g…) n'existe pas dans cette session → status
           unknown_image        ce i… n'est pas dans l'historique            → history
           write                dossier ou fichier impossible à écrire       → vérifier le chemin

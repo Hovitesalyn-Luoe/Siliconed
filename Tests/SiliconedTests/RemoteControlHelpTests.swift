@@ -57,4 +57,17 @@ final class RemoteControlHelpTests: XCTestCase {
             XCTAssertTrue(pages.overview.contains("install ID [--standard|--compact|--light]"))
         }
     }
+
+    /// **The Faster Rendering setting is documented**, in both languages: its command, its answer, its
+    /// refusal, the series' option and `status`'s key.
+    func testFasterRenderingIsDocumented() {
+        for pages in [RemoteControlHelp.english, RemoteControlHelp.french] {
+            XCTAssertTrue(pages.overview.contains("set faster-rendering on|off"))
+            XCTAssertTrue(pages.pages["set"]?.contains("\"previous\"") == true)
+            XCTAssertTrue(pages.pages["set"]?.contains("busy") == true)
+            XCTAssertTrue(pages.pages["measure"]?.contains("--faster-rendering on|off") == true)
+            XCTAssertTrue(pages.pages["status"]?.contains("\"faster_rendering\"") == true)
+            XCTAssertNotNil(RemoteControlHelp.answer(["set", "--help"], pages)?["help"] as? String)
+        }
+    }
 }

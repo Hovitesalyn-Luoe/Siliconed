@@ -65,6 +65,14 @@ queue — refused while a render runs —, answered with the new image once it i
 Apple's model is downloaded by macOS only with `--download` (else `download_required`);
 `silicontrol help enlarge` has the rest.
 
+**Faster Rendering is the Settings switch's too.** `silicontrol set faster-rendering on|off` writes
+`AppState.fasterRendering` (the preference, `Spectral.halfSizeStart`) and the window's switch follows,
+as a click; `status` reports it (`"faster_rendering"`). Refused (`busy`) unless nothing runs or waits:
+the engine reads it at every plan, and a job planned under one value and finished under the other
+would mix two recipes. It is a setting of the app, so it persists like the switch does; `silicontrol
+measure --faster-rendering on|off` sets it for a series, writes it in the TSV and gives the value from
+before back at the end, even when the series fails. Off is full size, the same bits as before the setting existed.
+
 ## The command
 
 `silicontrol` ships inside the app, at `Siliconed.app/Contents/Helpers/silicontrol` (target `Silicontrol`,

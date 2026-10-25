@@ -89,6 +89,7 @@ final class RemoteControl {
             case "follow": follow(c)
             case "cancel": finish(c, try cancel(arguments))
             case "clear": finish(c, clear())
+            case "set": finish(c, try set(arguments))
             case "history": finish(c, try history(arguments))
             case "save": finish(c, try save(arguments, cwd: cwd))
             case "vary": finish(c, try vary(arguments))
@@ -195,7 +196,8 @@ final class RemoteControl {
 
     private func state() -> [String: Any] {
         var o: [String: Any] = ["ok": true, "library": app.library.root.path,
-                                "history_images": app.history.count]
+                                "history_images": app.history.count,
+                                "faster_rendering": app.fasterRendering]
         if let t = app.currentJob {
             var e = json(t)
             e["stage"] = app.stage.map(Self.stageName) ?? NSNull()
@@ -1184,6 +1186,25 @@ final class RemoteControl {
         let removedNames = (app.file + app.awaitingLicense).map(\.name)
         app.stopAll()
         return ["ok": true, "stopped": stopped ?? NSNull(), "removed": removedNames]
+    }
+
+    // ── set ──
+
+    /// **`set faster-rendering on|off`: the Settings switch, from the terminal** — `AppState.fasterRendering`,
+    /// so the preference is written and the window's switch follows, exactly as a click. Only with the queue
+    /// empty: the engine reads it at every plan, and a job started under one value and planned under the
+    /// other would mix two recipes in one series. Setting the value it already has is not a change.
+    private func set(_ arguments: [String]) throws -> [String: Any] {
+        guard arguments.count == 2, arguments[0] == "faster-rendering", ["on", "off"].contains(arguments[1]) else {
+            throw Refusal("usage", "set faster-rendering on|off")
+        }
+        guard !app.busy, app.forgeInProgress == nil, !app.diagnosticRunning, app.awaitingLicense.isEmpty else {
+            throw Refusal("busy", String(localized: "a render, an installation or the diagnostic is running"),
+                          help: "silicontrol wait, then retry")
+        }
+        let previous = app.fasterRendering
+        app.fasterRendering = arguments[1] == "on"
+        return ["ok": true, "faster_rendering": app.fasterRendering, "previous": previous]
     }
 
     // ── history, save ──

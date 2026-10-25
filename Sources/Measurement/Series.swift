@@ -16,6 +16,8 @@ package struct MeasureOptions: Equatable, Sendable {
     package var out: String?
     package var settle = 15
     package var tag = ""
+    /// `--faster-rendering on|off`: the setting for the series, put back at its end; `nil`, the app's as it is.
+    package var fasterRendering: Bool?
     /// Passed to `add` as given, after `--`: `--steps`, `--ane`, `--no-ane`, `--lora`…
     package var extra: [String] = []
 
@@ -54,6 +56,12 @@ package struct MeasureOptions: Equatable, Sendable {
             case "--tsv": o.tsv = try value(a)
             case "--out": o.out = try value(a)
             case "--tag": o.tag = try value(a)
+            case "--faster-rendering":
+                switch try value(a) {
+                case "on": o.fasterRendering = true
+                case "off": o.fasterRendering = false
+                default: throw Failure(message: "--faster-rendering: on or off")
+                }
             case "--":
                 o.extra = Array(argv[(i + 1)...])
                 i = argv.count

@@ -72,6 +72,14 @@ sans prompt, hors de la file — refusé pendant un rendu —, avec la nouvelle 
 fois dans l'historique. Le modèle d'Apple n'est téléchargé par macOS qu'avec `--download` (sinon
 `download_required`) ; le reste est dans `silicontrol help enlarge`.
 
+**Faster Rendering est aussi celui de l'interrupteur des Réglages.** `silicontrol set faster-rendering on|off`
+écrit `AppState.fasterRendering` (la préférence, `Spectral.halfSizeStart`) et l'interrupteur de la fenêtre
+suit, comme un clic ; `status` le donne (`"faster_rendering"`). Refusé (`busy`) sauf si rien ne tourne ni
+n'attend : le moteur le lit à chaque plan, et un travail planifié sous une valeur et fini sous l'autre
+mélangerait deux recettes. C'est un réglage de l'app, il persiste comme l'interrupteur ; `silicontrol
+measure --faster-rendering on|off` le pose pour une série, l'inscrit dans le TSV et rend la valeur
+d'avant à la fin, même si la série échoue. Éteint, c'est la pleine taille, les mêmes bits qu'avant ce réglage.
+
 ## La commande
 
 `silicontrol` est livrée dans l'app, `Siliconed.app/Contents/Helpers/silicontrol` (cible `Silicontrol`,
