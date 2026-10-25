@@ -1281,36 +1281,36 @@
         }
       }
     },
-    "%@ × %@ is larger than the largest size, 1024 × 1536." : {
+    "%@ × %@ is larger than the engine addresses, whatever the memory: %@ megapixels at most." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ × %@ ist größer als das größte Format, 1024 × 1536."
+            "value" : "%@ × %@ ist größer, als die Engine adressieren kann, unabhängig vom Speicher: höchstens %@ Megapixel."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ × %2$@ is larger than the largest size, 1024 × 1536."
+            "value" : "%1$@ × %2$@ is larger than the engine addresses, whatever the memory: %3$@ megapixels at most."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ × %@ supera el tamaño máximo, 1024 × 1536."
+            "value" : "%@ × %@ supera lo que el motor puede direccionar, sea cual sea la memoria: %@ megapíxeles como máximo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ × %@ dépasse la plus grande taille, 1024 × 1536."
+            "value" : "%@ × %@ dépasse ce que le moteur sait adresser, quelle que soit la mémoire : %@ mégapixels au plus."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ × %@ supera la dimensione massima, 1024 × 1536."
+            "value" : "%@ × %@ supera ciò che il motore sa indirizzare, qualunque sia la memoria: al massimo %@ megapixel."
           }
         }
       }
@@ -21117,6 +21117,40 @@
         }
       }
     },
+    "This image is larger than macOS enlarges: %@ px a side at most" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild ist größer, als macOS vergrößert: höchstens %@ px pro Seite"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "This image is larger than macOS enlarges: %@ px a side at most"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta imagen es más grande de lo que macOS amplía: %@ px por lado como máximo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est plus grande que ce que macOS agrandit : %@ px de côté au plus"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa immagine è più grande di ciò che macOS ingrandisce: al massimo %@ px per lato"
+          }
+        }
+      }
+    },
     "This image is already enlarged" : {
       "localizations" : {
         "de" : {
@@ -22855,36 +22889,36 @@
         }
       }
     },
-    "Width × height: each side from 512 to %@ and a multiple of %@, 1024 × 1536 at most." : {
+    "Width × height: each side from 512 to %@ and a multiple of %@." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Breite × Höhe: jede Seite zwischen 512 und %@ und ein Vielfaches von %@, höchstens 1024 × 1536."
+            "value" : "Breite × Höhe: jede Seite zwischen 512 und %@ und ein Vielfaches von %@."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Width × height: each side from 512 to %1$@ and a multiple of %2$@, 1024 × 1536 at most."
+            "value" : "Width × height: each side from 512 to %1$@ and a multiple of %2$@."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ancho × alto: cada lado de 512 a %@ y múltiplo de %@, 1024 × 1536 como máximo."
+            "value" : "Ancho × alto: cada lado de 512 a %@ y múltiplo de %@."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Largeur × hauteur : chaque côté de 512 à %@ et multiple de %@, 1024 × 1536 au plus."
+            "value" : "Largeur × hauteur : chaque côté de 512 à %@ et multiple de %@."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Larghezza × altezza: ogni lato da 512 a %@ e multiplo di %@, al massimo 1024 × 1536."
+            "value" : "Larghezza × altezza: ogni lato da 512 a %@ e multiplo di %@."
           }
         }
       }

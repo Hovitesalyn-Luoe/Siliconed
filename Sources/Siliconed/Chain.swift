@@ -451,11 +451,11 @@ package extension DenoisingModule {
         let scale = min(1, (Double(1024 * 1024) / Double(referenceWidth * referenceHeight)).squareRoot())
         var (w, h) = (max(Format.minimumSide, Int(Double(referenceWidth) * scale) / m * m),
                       max(Format.minimumSide, Int(Double(referenceHeight) * scale) / m * m))
-        // Raising the short side to the floor can push a long strip past the area cap (10:1 gave
+        // Raising the short side to the floor can push a long strip past the edit's area (10:1 gave
         // 3232×512): the long side gives way, as in Qwen-Image-2.1's rule.
-        if w * h > Format.maxSurface {
-            if w >= h { w = Format.maxSurface / h / Format.multiple * Format.multiple }
-            else { h = Format.maxSurface / w / Format.multiple * Format.multiple }
+        if w * h > Format.editSurface {
+            if w >= h { w = Format.editSurface / h / Format.multiple * Format.multiple }
+            else { h = Format.editSurface / w / Format.multiple * Format.multiple }
         }
         return (w, h)
     }

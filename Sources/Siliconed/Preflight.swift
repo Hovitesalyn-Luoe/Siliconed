@@ -5,10 +5,12 @@ import Synchronization
 //
 //     1. the model is installed          its maps and published files are all there (`ModelCard.missing`)
 //     2. its license is accepted         `<root>/accepted-licenses.json`, written by the app
-//     3. the format                      side ≥ 512, multiple of 16, area ≤ 1024×1536, and the family's own
-//                                        rules: Qwen-Image-2.1 ×32, Anima ≤ 2048 px a side (`Format.check(…, family:)`)
+//     3. the format                      side ≥ 512, multiple of 16, and the family's own rules:
+//                                        Qwen-Image-2.1 ×32, Anima ≤ 2048 px a side (`Format.check(…, family:)`);
+//                                        no area ceiling: the memory (4) decides
 //     4. the memory                      the request's computed floor ≤ B, this Mac's budget (`MemoryBudget`);
-//                                        a floor that cannot be computed is refused too
+//                                        a floor that cannot be computed is refused too, and a format whose
+//                                        widest tensor the engine cannot index (`MemoryNeed.limit`)
 //     5. no other render                 `RenderLock.machine`, one for the machine, held for the whole render
 //
 // The first that fails throws its `EngineError`. 1, 2 and 5 need the model's library: a
@@ -94,8 +96,12 @@ extension ModelCard {
     /// be computed is a refusal** (`memoryNeedUnknown`: maps missing, or a header that does not parse),
     /// never a need of 0 that every B would hold.
     package func checkMemory(_ request: MemoryNeed.Request, ceiling: Int = MemoryBudget.machineCeiling()) throws(EngineError) {
-        guard let needed = memoryNeed(request) else { throw .memoryNeedUnknown(model: id) }
-        guard needed <= ceiling else { throw .insufficientMemory(needed: needed, budget: ceiling) }
+        guard let need = MemoryNeed.of(request.lean) else { throw .memoryNeedUnknown(model: id) }
+        // The engine's own limit comes before B: no Mac's RAM raises it (`MemoryNeed.limit`).
+        if let area = need.addressableArea(width: request.width, height: request.height) {
+            throw .formatRefused(width: request.width, height: request.height, reason: .tooLarge, bound: area)
+        }
+        guard need.peak <= ceiling else { throw .insufficientMemory(needed: need.peak, budget: ceiling) }
     }
 
     /// **The memory a render of this model needs at `width × height`**, in bytes: its floor — the peak

@@ -249,6 +249,23 @@ enum KernelStages {
             report.add(Judge.bound("matrix kernel", values.allSatisfy(\.isFinite)
                                    ? channelError(values, referenceBuffer, columns: width).worst : .infinity, 1e-5, unit: "per channel"))
         }
+        // The head cut past `maxMatrix`: the GPU heads' queries in slices (a third of their matrix), the CPU
+        // heads untouched — against the same cut in one SDPA (last: it rewrites `reference`). What a render over 1024×1600 on Z-Image runs.
+        do {
+            memset(got, 0xFF, count * 4)
+            let cpuFraction = HeadSplitAttention.cpuFraction
+            let gpuHeads = HeadSplitAttention.partition(heads: heads, fraction: cpuFraction).gpu.count
+            let limit = max(1, gpuHeads * sequence * sequence * 4 / 3)
+            let whole = try HeadSplitAttention(device: device, queue: queue, heads: heads, sequence: sequence, headDim: headDim)
+            _ = whole.run(q: qb, k: kb, v: vb, into: rb, q: q, k: k, v: v, out: reference)
+            let sliced = try HeadSplitAttention(device: device, queue: queue, heads: heads, sequence: sequence, headDim: headDim,
+                                                matrixLimit: limit)
+            _ = sliced.run(q: qb, k: kb, v: vb, into: ob, q: q, k: k, v: v, out: got)
+            let values = gotArray()
+            report.add(Judge.bound("head cut, \(Attention.groupedSlices(heads: gpuHeads, rows: sequence, keys: sequence, limit: limit)) query slices",
+                                   values.allSatisfy(\.isFinite) ? channelError(values, referenceBuffer, columns: width).worst : .infinity,
+                                   1e-6, unit: "per channel"))
+        }
         withExtendedLifetime(arena) {}
         return report
     }

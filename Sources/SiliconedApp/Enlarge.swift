@@ -159,8 +159,10 @@ extension AppState {
     func enlargeRefusal(_ entry: Entry) -> String? {
         if !SuperResolution.available { return String(localized: "Enlarging needs macOS 26 or later") }
         if entry.grid != nil || entry.sketch != nil { return String(localized: "A grid is not enlarged") }
-        if entry.enlarged != nil || max(entry.width, entry.height) > SuperResolution.maximumSide {
-            return String(localized: "This image is already enlarged")
+        if entry.enlarged != nil { return String(localized: "This image is already enlarged") }
+        // A render past 1920 px (the sizes B now allows) is no enlargement: it is beyond macOS's input.
+        if max(entry.width, entry.height) > SuperResolution.maximumSide {
+            return String(localized: "This image is larger than macOS enlarges: \(String(SuperResolution.maximumSide)) px a side at most")
         }
         if enlarging != nil { return String(localized: "An image is being enlarged") }
         if busy { return String(localized: "Enlarging waits for the queue to finish") }

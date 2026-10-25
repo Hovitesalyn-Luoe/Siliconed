@@ -130,10 +130,11 @@ final class RequestTests: XCTestCase {
         XCTAssertEqual(Request("p", previews: true).previews, true)
     }
 
-    /// B7: an absurd format raises `tooLarge` instead of overflowing at the multiplication.
+    /// B7: an absurd format raises `sideTooLong` instead of overflowing at the multiplication — each
+    /// side is bounded before anything is multiplied.
     func testAnAbsurdFormatDoesNotOverflow() {
         XCTAssertThrowsError(try Format.check(width: 99_999_999_984, height: 99_999_999_984)) {
-            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 99_999_999_984, height: 99_999_999_984, reason: .tooLarge, bound: Format.maxSurface))
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 99_999_999_984, height: 99_999_999_984, reason: .sideTooLong, bound: Format.maximumSide))
         }
         XCTAssertThrowsError(try Format.check(width: 512, height: 16_000))
     }

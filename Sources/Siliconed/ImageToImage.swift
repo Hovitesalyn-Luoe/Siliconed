@@ -27,11 +27,11 @@ extension ImageRGB {
         }
     }
 
-    /// **The largest side a decode keeps by default: 3072 px**, the longest side an accepted
-    /// format can have (`Format.maxSurface / Format.minimumSide`, 1536·1024/512). Beyond
-    /// that, the pixels would only be reduced by `fitted` — a 48 Mpx photo decoded at full size
-    /// would weigh 576 MB of floats.
-    package static let maximumDecodedSide = Format.maxSurface / Format.minimumSide
+    /// **The largest side a decode keeps by default**: the longest side an accepted format can have
+    /// (`Format.maximumSide`). Beyond that, the pixels would only be reduced by `fitted` — a 48 Mpx
+    /// photo decoded at full size would weigh 576 MB of floats. What a start image or a reference
+    /// holds is counted in the render's need at the size it is handed in (`MemoryNeed.Request.references`).
+    package static let maximumDecodedSide = Format.maximumSide
 
     /// **An image of any size, read by ImageIO** — PNG, JPEG, HEIC, TIFF… — returned as
     /// `[3, h, w]` in `[-1, 1]` (`2x − 1`, like `VaeImageProcessor.normalize`).

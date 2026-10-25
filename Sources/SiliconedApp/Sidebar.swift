@@ -64,7 +64,7 @@ struct CustomSize: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 // The chosen model's rules: never a step it would refuse (Qwen-Image-2.1 32, Anima 2048 px).
-                Text("Width × height: each side from 512 to \(String(app.formatMaximumSide)) and a multiple of \(String(app.formatMultiple)), 1024 × 1536 at most.")
+                Text("Width × height: each side from 512 to \(String(app.formatMaximumSide)) and a multiple of \(String(app.formatMultiple)).")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

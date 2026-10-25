@@ -1,10 +1,12 @@
 import Foundation
 
-// **The formats a render accepts** (`Format`): the per-side floor, the multiple of 16, the area
-// ceiling, and what a family adds — a coarser multiple, a shorter longest side. The request that
+// **The formats a render accepts** (`Format`): the per-side floor, the multiple of 16, the longest
+// side, and what a family adds — a coarser multiple, a shorter longest side. There is no area ceiling:
+// what a format costs is computed (`MemoryNeed`) and judged against B (`MemoryBudget`). The request that
 // carries them is in `Request.swift`.
 
-/// **The formats a render accepts — three rules, each with its reason.**
+/// **The formats a render accepts — three rules, each with its reason, and none of them a memory
+/// ceiling.**
 ///
 /// 1. **Each side ≥ 512 px** (latent ≥ 64). This is the repository's floor
 ///    (`Spectral.minimumSide`), read **per side** and not per area: 832×1216 has the area of
@@ -12,7 +14,15 @@ import Foundation
 ///    floor applies to *every* evaluation — hence the spectral schedule's rule, which goes down
 ///    only if both half-sizes stay at the floor (`Spectral.divisible`).
 /// 2. **Each side a multiple of 16**: the VAE divides by 8, the DiTs' patch by 2.
-/// 3. **Area at most `maxSurface`** — measured, not deduced. See its note.
+/// 3. **Each side at most `maximumSide(for:)`**: what a position table or a 32-bit index can address,
+///    not what memory can hold. It is the guard against an absurd request (`99 999 999 984²` would
+///    overflow the product), and nothing more.
+///
+/// **The area is not bounded here.** It used to be (1024×1536, "the last format measured"); a Mac
+/// with 32, 64 or 128 GB renders what its B holds (`MemoryBudget.ceiling`), and the preflight
+/// decides it from the formula (`ModelCard.checkMemory`) before the first computation: the
+/// request's lean plan against B, or `insufficientMemory`, which says what the render needs. A format
+/// the formula cannot price on this engine's own limits (`MemoryNeed.limit`) is refused there too.
 ///
 /// **A family may ask more** (`check(width:height:family:)`, what the preflight applies), each read
 /// in its reference:
@@ -26,21 +36,20 @@ package enum Format {
     /// The smallest side, in pixels: `Spectral.minimumSide` latent cells of 8 px.
     package static let minimumSide = Spectral.minimumSide * 8
     package static let multiple = 16
-    /// **The area ceiling, in pixels: that of 1024×1536, measured.**
-    ///
-    /// The 16 GB criterion had only been measured at 1024², and an app lets users type 2048×2048.
-    /// A measurement rendered the three models at 832×1216 and 1216×832 (the area of 1024² within 3.5 %):
-    /// peak of 4.8 GB (Z-Image), 5.3 GB (Anima), 5.2 GB (Krea 2). Then at 1024×1536, ×1.5:
-    /// Z-Image and Anima passed, but **Krea 2 died** in its first SDPA — 48 heads over 6,156
-    /// tokens, a 7.3 GB matrix that `MPSGraph` split itself by committing into our buffer. Since
-    /// then Krea 2's SDPA splits its own queries beyond `Attention.maxMatrix`, and the three
-    /// models fit at 1024×1536 — measured peaks (`/usr/bin/time -l`, footprint): **Krea 2
-    /// 7.8 GB** (439 s), **Z-Image 7.5 GB** (with PopArt, 174 s), **Anima 7.6 GB** (91 s), all at
-    /// decoding. Beyond that, nothing is measured: the ceiling is the last format that was.
-    package static let maxSurface = 1024 * 1536
 
-    /// The longest side the area ceiling leaves above the floor: 1536·1024 / 512 = 3072 px.
-    package static let maximumSide = maxSurface / minimumSide
+    /// **The longest side any model draws, in pixels: 8 192** — Z-Image's RoPE table holds 512 positions
+    /// on each spatial axis (`DiT.Config.publishedAxesLens`), one per 16 px, and clamps past them without
+    /// a word. Qwen-Image-2.1 and Krea 2 compute their positions by formula and have no table of their
+    /// own; they take the same guard, beyond which the VAEs' 32-bit element indexes (`MemoryNeed.limit`)
+    /// would refuse the format in any case.
+    package static let maximumSide = (DiT.Config.publishedAxesLens[1] * 2) * LatentSpace.flux.factor
+
+    /// **The area an edit's output is kept under, in pixels (1024×1536)** — not a memory bound. An edit
+    /// takes the first reference's proportions at about 1 megapixel (the reference pipeline's own
+    /// `calculate_dimensions`); raising a long strip's short side to the floor can push its area past
+    /// that, and its long side then gives way down to this area. The figure is the one the edit
+    /// formats were measured and judged at; B still decides whether the Mac renders them.
+    package static let editSurface = 1024 * 1536
 
     /// **The multiple each side of `family` must be**: 32 for Qwen-Image-2.1 (VAE ×16, patch ×2), 16
     /// otherwise.
@@ -49,7 +58,7 @@ package enum Format {
     }
 
     /// **The longest side `family` renders**, in pixels: Anima's RoPE table (128 positions × patch 2 ×
-    /// VAE 8 = 2048), `maximumSide` otherwise.
+    /// VAE 8 = 2048), `maximumSide` otherwise (Z-Image's table gives it).
     package static func maximumSide(for family: Family) -> Int {
         switch family {
         case .anima:
@@ -77,10 +86,7 @@ package enum Format {
         guard width % multiple == 0, height % multiple == 0 else {
             throw .formatRefused(width: width, height: height, reason: .notMultiple, bound: multiple)
         }
-        // Each side bounded BEFORE the product: `99999999984 × 99999999984` would overflow.
-        guard width <= maximumSide, height <= maximumSide, width * height <= maxSurface else {
-            throw .formatRefused(width: width, height: height, reason: .tooLarge, bound: maxSurface)
-        }
+        // Each side bounded BEFORE anything is multiplied.
         guard width <= side, height <= side else {
             throw .formatRefused(width: width, height: height, reason: .sideTooLong, bound: side)
         }

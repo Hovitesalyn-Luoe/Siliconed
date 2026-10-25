@@ -27,6 +27,9 @@ package final class DiT {
         package let eps, theta, timeScale: Float
         package let axesDims, axesLens: [Int]
         package let seqMultiple = 32
+        /// The published RoPE table: 1 536 segment indexes, 512 positions on each spatial axis
+        /// (one per 16 px: `Format.maximumSide`).
+        package static let publishedAxesLens = [1536, 512, 512]
 
         package init(header: [String: Any]) {
             let c = header["config"] as? [String: Any] ?? [:]
@@ -43,7 +46,7 @@ package final class DiT {
             theta = Float(c["rope_theta"] as? Double ?? 256)
             timeScale = Float(c["t_scale"] as? Double ?? 1000)
             axesDims = (c["axes_dims"] as? [Int]) ?? [32, 48, 48]
-            axesLens = (c["axes_lens"] as? [Int]) ?? [1536, 512, 512]
+            axesLens = (c["axes_lens"] as? [Int]) ?? Config.publishedAxesLens
         }
     }
 

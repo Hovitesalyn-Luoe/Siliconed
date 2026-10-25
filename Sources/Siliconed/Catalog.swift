@@ -79,10 +79,9 @@ package struct ModelCard: Sendable, Identifiable, Hashable {
     /// The square first, then portraits and landscapes, from stockiest to most elongated.
     package let formats: [RecommendedFormat]
 
-    /// **Draw Things' formats, under the measured ceiling** (`Format.maxSurface`, 1024×1536):
-    /// 1024², 896×1152, 832×1216, 768×1344 and their transposes, plus 512² for quick
-    /// iteration. 1024×1536 is accepted but not recommended (double the time of a 1024² on
-    /// Krea 2); 640×1536 is left aside: never measured.
+    /// **Draw Things' formats**: 1024², 896×1152, 832×1216, 768×1344 and their transposes, plus
+    /// 512² for quick iteration. Larger ones are accepted wherever B holds them (`Format`) but not
+    /// recommended: the cost grows faster than the area (attention is quadratic in the tokens).
     package static let recommendedFormats: [RecommendedFormat] = [
         RecommendedFormat(1024, 1024),
         RecommendedFormat(896, 1152), RecommendedFormat(832, 1216), RecommendedFormat(768, 1344),

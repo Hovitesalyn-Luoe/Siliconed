@@ -197,8 +197,9 @@ final class RobustnessTests: XCTestCase {
         let big = try ImageRGB(cgImage: image(width: 300, height: 120), maxSide: 100)
         XCTAssertEqual([big.width, big.height], [100, 40])
         XCTAssertEqual(ImageRGB.decodedSize(width: 20_000, height: 20_000).width, ImageRGB.maximumDecodedSide)
-        XCTAssertEqual(ImageRGB.decodedSize(width: 30_000, height: 7).height, 1, "never below one pixel")
+        XCTAssertEqual(ImageRGB.decodedSize(width: 100_000, height: 7).height, 1, "never below one pixel")
         XCTAssertTrue(ImageRGB.decodedSize(width: 3072, height: 2000) == (3072, 2000))
+        XCTAssertTrue(ImageRGB.decodedSize(width: 8192, height: 5000) == (8192, 5000), "the longest side a format has")
     }
 
     /// Within the bound, the same bits as before the bound existed (a copy at `.none`).
@@ -229,13 +230,13 @@ final class RobustnessTests: XCTestCase {
     }
 
     /// Messages: the bound of a strength is said as it is (0 excluded), and a strength just inside
-    /// it does not print as the bound; the largest format comes from `Format.maxSurface`.
+    /// it does not print as the bound; the engine's largest area is said in megapixels.
     func testMessagesSayWhatTheBoundsAre() {
         let tiny = EngineError.strengthOutOfRange(strength: 0.001).errorDescription!
         XCTAssertTrue(tiny.contains("0.001") && tiny.contains("above 0"), tiny)
         XCTAssertTrue(EngineError.strengthTooLow(strength: 0.1, steps: 8, floor: 0.125).errorDescription!.contains("0.1 "))
-        let large = EngineError.formatRefused(width: 2048, height: 2048, reason: .tooLarge, bound: Format.maxSurface).errorDescription!
-        XCTAssertTrue(large.contains(String(format: "%.2f", Double(Format.maxSurface) / 1e6)), large)
+        let large = EngineError.formatRefused(width: 3072, height: 3072, reason: .tooLarge, bound: 8_388_607).errorDescription!
+        XCTAssertTrue(large.contains("8.39 Mpx") && large.contains("9.44 Mpx"), large)
         for e in EngineError.samples {
             let text = [e.errorDescription, e.recoverySuggestion].compactMap { $0 }.joined()
             for symbol in ["Library.cards()", "ModelCard.formats", "Model.named", "loras(for:)", "huggingface-cli", "is resumed"] {

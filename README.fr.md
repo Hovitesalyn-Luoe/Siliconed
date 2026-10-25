@@ -393,10 +393,14 @@ Huit bits contre huit bits, le 23/10/2026 : la Compact de Siliconed (le GGUF Q8
 0 page swappée ; Z-Image à 1024×1536, pic 3,8 Go, 0 page swappée (son VAE décode en bandes, aux
 mêmes bits).
 
-Chaque côté doit être d'au moins 512 et multiple de 16, pour une surface d'au plus 1024×1536. Sous
-512² les modèles sont hors de leur domaine. Qwen-Image-2.1 veut des multiples de 32 (son VAE divise
-par 16), et Anima au plus 2048 px de côté (les positions que sa référence calcule) ; l'un et l'autre
-sont refusés avant tout calcul.
+Chaque côté doit être d'au moins 512 et multiple de 16 ; la surface n'a pas de plafond. Ce qu'un
+format coûte se calcule sur les formes du modèle avant le premier calcul et se juge contre le budget
+mémoire du Mac (les ¾ de sa RAM moins 2 Gio) : un Mac qui ne peut pas le tenir le refuse, et dit
+lequel le peut. Les formats au-delà de 1024×1536 sont chiffrés par les mêmes formules, pas encore
+mesurés de bout en bout. Sous 512² les modèles sont hors de leur domaine. Qwen-Image-2.1 veut des
+multiples de 32 (son VAE divise par 16), et Anima au plus 2048 px de côté (les positions que sa
+référence calcule) ; l'un et l'autre sont refusés avant tout calcul, de même que tout côté
+au-delà de 8192 px.
 
 ## Face aux autres outils
 

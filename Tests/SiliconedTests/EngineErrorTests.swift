@@ -152,8 +152,9 @@ final class EngineErrorTests: XCTestCase {
         XCTAssertThrowsError(try preflight(.zImage, 1000, 1000)) {
             XCTAssertEqual($0 as? EngineError, .formatRefused(width: 1000, height: 1000, reason: .notMultiple, bound: 16))
         }
-        XCTAssertThrowsError(try preflight(.zImage, 2048, 2048)) {
-            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 2048, height: 2048, reason: .tooLarge, bound: Format.maxSurface))
+        // No area ceiling: 2048² passes the format rules (B judges it, below); a side past the table does not.
+        XCTAssertThrowsError(try preflight(.zImage, 8224, 512)) {
+            XCTAssertEqual($0 as? EngineError, .formatRefused(width: 8224, height: 512, reason: .sideTooLong, bound: Format.maximumSide))
         }
         // The family's own rules, at the preflight: Qwen-Image-2.1's 32 (848×1216 used to die after the
         // encoder), Anima's 2048 px a side (its reference's RoPE table) — whatever B.

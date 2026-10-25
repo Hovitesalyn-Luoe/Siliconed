@@ -38,7 +38,7 @@ Sur notre MacBook Pro M1 Pro :
 ✓ kernels arena · 6 measures
 ✓ kernels elementwise · 7 measures
 ✓ kernels gelu · 1 measure
-✓ kernels sdpa S=4128 · 16 measures
+✓ kernels sdpa S=4128 · 17 measures
 ✓ kernels gemm-split · 9 measures
 ✓ kernels rope · 13 measures
 ✓ kernels resample · 6 measures

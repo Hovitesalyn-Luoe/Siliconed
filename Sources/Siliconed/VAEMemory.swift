@@ -75,6 +75,9 @@ package struct VAELayout: Sendable, Equatable {
 
     package init() {}
 
+    /// The largest single slot, in bytes (whole pages): the widest register of the walk.
+    package var largestSlot: Int { slots.map(\.bytes).max() ?? 0 }
+
     /// Everything: both heaps and the host copies.
     package var bytes: Int { registers + workspace + host }
 

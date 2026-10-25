@@ -372,10 +372,13 @@ are measured at the product's worst case, on a 16 GB Mac with nothing else runni
 1024×1536 with 3 references, 0 swap-out; Z-Image at 1024×1536, 3.8 GB peak, 0 swap-out (its VAE
 decodes in bands, to the same bits).
 
-Each side must be at least 512 and a multiple of 16, with a surface of at most 1024×1536. Below
-512² the models are outside their domain. Qwen-Image-2.1 needs multiples of 32 (its VAE divides by 16),
-and Anima at most 2048 px on a side (the positions its reference computes); both are refused before any
-computation.
+Each side must be at least 512 and a multiple of 16; the surface has no ceiling. What a format
+costs is computed from the model's shapes before the first computation and judged against the Mac's
+memory budget (¾ of its RAM minus 2 GiB): a Mac that cannot hold it is refused, and told which one can.
+Formats past 1024×1536 are priced by the same formulas, not yet measured end to end. Below 512² the
+models are outside their domain. Qwen-Image-2.1 needs multiples of 32 (its VAE divides by 16), and Anima
+at most 2048 px on a side (the positions its reference computes); both are refused before any computation,
+and so is any side past 8192 px.
 
 ## How it compares
 

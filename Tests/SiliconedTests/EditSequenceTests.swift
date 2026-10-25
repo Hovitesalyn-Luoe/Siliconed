@@ -39,14 +39,14 @@ final class EditSequenceTests: XCTestCase {
 
     /// **Qwen-Image-2.1's rule** (`editFormat`, the module's, which the developer's command line, the
     /// app and `silicontrol add --ref` all call): each side ≥ 512, a multiple of 32, the area under
-    /// `Format.maxSurface` — so `Format.check` always passes — and image 1’s orientation never flipped (a near-square may come out square).
+    /// `Format.editSurface` — so `Format.check` always passes — and image 1’s orientation never flipped (a near-square may come out square).
     func testQwenEditFormatIsAlwaysRenderable() {
         let d = qwen.chain.denoising
         for (w, h) in sizes {
             let f = d.editFormat(referenceWidth: w, referenceHeight: h)
             XCTAssertGreaterThanOrEqual(min(f.width, f.height), Format.minimumSide, "\(w)×\(h) → \(f)")
             XCTAssertEqual(f.width % 32, 0, "\(w)×\(h) → \(f)"); XCTAssertEqual(f.height % 32, 0, "\(w)×\(h) → \(f)")
-            XCTAssertLessThanOrEqual(f.width * f.height, Format.maxSurface, "\(w)×\(h) → \(f)")
+            XCTAssertLessThanOrEqual(f.width * f.height, Format.editSurface, "\(w)×\(h) → \(f)")
             XCTAssertNoThrow(try Format.check(width: f.width, height: f.height), "\(w)×\(h) → \(f)")
             if f.width != f.height { XCTAssertEqual(f.width > f.height, w > h, "\(w)×\(h) → \(f): orientation flipped") }
         }
@@ -57,7 +57,7 @@ final class EditSequenceTests: XCTestCase {
     }
 
     /// **The protocol's default** (a denoiser that does not edit): the reference's own size floored
-    /// to a multiple of 16, each side raised to 512, the long side shrunk under `Format.maxSurface`.
+    /// to a multiple of 16, each side raised to 512, the long side shrunk under `Format.editSurface`.
     func testTheDefaultEditFormatIsAlwaysRenderable() {
         let d = ZImageDenoisingModule(map: "")
         for (w, h) in sizes {
@@ -83,8 +83,8 @@ final class EditSequenceTests: XCTestCase {
             let w0 = (Double(resolution * resolution) * ratio).squareRoot(), h0 = w0 / ratio
             func side(_ v: Double) -> Int { max(Format.minimumSide, Int((v / 32).rounded(.toNearestOrEven)) * 32) }
             var w = side(w0), h = side(h0)
-            if w * h > Format.maxSurface {
-                if w >= h { w = Format.maxSurface / h / 32 * 32 } else { h = Format.maxSurface / w / 32 * 32 }
+            if w * h > Format.editSurface {
+                if w >= h { w = Format.editSurface / h / 32 * 32 } else { h = Format.editSurface / w / 32 * 32 }
             }
             return (w, h)
         }

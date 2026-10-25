@@ -154,7 +154,7 @@ package enum QwenImage21Pipeline {
 
     /// **The product's output size** for an edit without an explicit size: the first reference's
     /// aspect ratio at ~R² (`calculate_dimensions`, sides at 32), then the product's bounds — each side
-    /// ≥ `Format.minimumSide` (raised keeping the ratio), the area ≤ `Format.maxSurface` (the long
+    /// ≥ `Format.minimumSide` (raised keeping the ratio), the area ≤ `Format.editSurface` (the long
     /// side cut). Always a multiple of 32, as the pipeline floors it.
     package static func outputSize(referenceWidth: Int, referenceHeight: Int,
                                    resolution: Int = outputResolution) -> (width: Int, height: Int) {
@@ -163,8 +163,8 @@ package enum QwenImage21Pipeline {
         let floor = (Format.minimumSide + 31) / 32 * 32
         if w < floor { w = floor; h = max(floor, Int((Double(w) / ratio / 32).rounded()) * 32) }
         if h < floor { h = floor; w = max(floor, Int((Double(h) * ratio / 32).rounded()) * 32) }
-        if w * h > Format.maxSurface {
-            if w >= h { w = Format.maxSurface / h / 32 * 32 } else { h = Format.maxSurface / w / 32 * 32 }
+        if w * h > Format.editSurface {
+            if w >= h { w = Format.editSurface / h / 32 * 32 } else { h = Format.editSurface / w / 32 * 32 }
         }
         return (w, h)
     }

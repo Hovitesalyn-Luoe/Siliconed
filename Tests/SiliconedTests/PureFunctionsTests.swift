@@ -181,17 +181,15 @@ final class PureFunctionsTests: XCTestCase {
         XCTAssertNoThrow(try Format.check(width: 528, height: 1008))
     }
 
-    /// An app's usual formats pass, 1024² included; beyond the measured ceiling, refusal.
-    func testFormatSurfaceCeiling() {
+    /// An app's usual formats pass, 1024² included — and so do the larger ones: the area has no ceiling
+    /// (B decides, `FormatTableTests`), only the sides are bounded.
+    func testFormatHasNoSurfaceCeiling() {
         for (l, h) in [(1024, 1024), (832, 1216), (1216, 832), (768, 1344), (1344, 768),
                        (896, 1152), (1152, 896), (1024, 1536), (1536, 1024)] {
             XCTAssertNoThrow(try Format.check(width: l, height: h), "\(l)×\(h)")
         }
-        // 1024×1536 is the measured ceiling; 16 px more are enough to exceed it.
-        for (l, h) in [(2048, 2048), (1040, 1536), (1536, 1040), (1264, 1264), (1024, 1552)] {
-            XCTAssertThrowsError(try Format.check(width: l, height: h)) {
-                XCTAssertEqual($0 as? EngineError, .formatRefused(width: l, height: h, reason: .tooLarge, bound: Format.maxSurface))
-            }
+        for (l, h) in [(2048, 2048), (1040, 1536), (1536, 1040), (1264, 1264), (1024, 1552), (2048, 3072)] {
+            XCTAssertNoThrow(try Format.check(width: l, height: h), "\(l)×\(h)")
         }
     }
 

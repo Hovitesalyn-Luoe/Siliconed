@@ -155,9 +155,12 @@ package final class HeadSplitAttention {
     ///   other values serve the `sdpa` check's sweep.
     /// - Parameter keys: the rows of `k`/`v`, `nil` for `sequence`.
     /// - Parameter kvHeads: the `k`/`v` heads under GQA, `nil` for `heads`.
+    /// - Parameter matrixLimit: the bound the GPU heads' query slices keep under, `Attention.maxMatrix` —
+    ///   lower only in the `sdpa` check, which slices a graph that fits whole to compare the two.
     package init(device: MTLDevice, queue: MTLCommandQueue, heads: Int, sequence: Int, headDim: Int,
                  keys: Int? = nil, kvHeads: Int? = nil, cpuFraction: Double = HeadSplitAttention.cpuFraction,
-                 threads: Int = EngineSettings.effective.machine.performanceCores) throws {
+                 threads: Int = EngineSettings.effective.machine.performanceCores,
+                 matrixLimit: Int = Attention.maxMatrix) throws {
         let kvHeads = kvHeads ?? heads
         precondition(heads % kvHeads == 0, "\(heads) heads over \(kvHeads) k/v heads")
         let group = heads / kvHeads
@@ -195,8 +198,30 @@ package final class HeadSplitAttention {
         }
         let back: MPSGraphTensor
         if group == 1 {
-            let attended = graph.scaledDotProductAttention(query: gpuPart(q), key: gpuPart(k), value: gpuPart(v),
-                                                           mask: nil, scale: 1 / Float(headDim).squareRoot(), name: "sdpa")
+            // **Past `Attention.maxMatrix` the queries go in slices**, as `Attention`'s own graphs do: the
+            // GPU's heads over a long sequence would otherwise be one SDPA whose matrix MPSGraph splits by
+            // itself (Z-Image from about 1024×1660: 18 heads × 6,800²; at 2048²: 19.6 GB). Each output row
+            // reads its own query row and every key, so the slices reassociate nothing; at or below the
+            // bound there is one slice, the graph of a single SDPA, bits included.
+            let slices = Attention.groupedSlices(heads: gpu.count, rows: sequence, keys: keys, limit: matrixLimit)
+            let (qh, kh, vh) = (gpuPart(q), gpuPart(k), gpuPart(v))
+            let scale = 1 / Float(headDim).squareRoot()
+            let attended: MPSGraphTensor
+            if slices == 1 {
+                attended = graph.scaledDotProductAttention(query: qh, key: kh, value: vh, mask: nil, scale: scale, name: "sdpa")
+            } else {
+                let length = (sequence + slices - 1) / slices
+                var pieces: [MPSGraphTensor] = []
+                var begin = 0
+                while begin < sequence {
+                    let l = min(length, sequence - begin)
+                    pieces.append(graph.scaledDotProductAttention(
+                        query: graph.sliceTensor(qh, dimension: 2, start: begin, length: l, name: nil),
+                        key: kh, value: vh, mask: nil, scale: scale, name: nil))
+                    begin += l
+                }
+                attended = graph.concatTensors(pieces, dimension: 2, name: nil)
+            }
             back = graph.transposeTensor(attended, dimension: 1, withDimension: 2, name: nil)
         } else {
             // As `Attention`'s GQA graph, on the GPU's groups: `q` [1, Gk, g, S, Dh], `k`/`v` [1, Gk, 1, K, Dh]
@@ -209,7 +234,7 @@ package final class HeadSplitAttention {
             }
             let qg = graph.reshape(gpuPart(q), shape: [1, n(kvGPU), n(group), n(sequence), n(headDim)], name: nil)
             let (kh, vh) = (kvPart(k), kvPart(v))
-            let slices = Attention.groupedSlices(heads: gpu.count, rows: sequence, keys: keys)
+            let slices = Attention.groupedSlices(heads: gpu.count, rows: sequence, keys: keys, limit: matrixLimit)
             let length = (sequence + slices - 1) / max(1, slices)
             var pieces: [MPSGraphTensor] = []
             var begin = 0

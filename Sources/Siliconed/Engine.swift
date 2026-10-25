@@ -448,9 +448,9 @@ package enum Spectral {
     /// A consequence to know: **no usual portrait or landscape format has a spectral schedule.**
     /// 832×1216 has the area of 1024², but its half-size would be 416×608 — one side under the
     /// floor, hence `k = 0`, and every evaluation at full size. The spectral schedule applies only
-    /// from 1024 px **on each side**: under the area ceiling (`Format.maxSurface`, 1024×1536), that
-    /// leaves 1024², 1024×1536, its transpose (half grid `h ≠ w`) and the sizes between them whose
-    /// latent sides divide (1088², 1152², 1024×1280…) — none of them a usual format.
+    /// from 1024 px **on each side**: that leaves 1024², 1024×1536, its transpose (half grid `h ≠ w`),
+    /// the sizes between and above them whose latent sides divide (1088², 1152², 1024×1280, 2048²…)
+    /// — none of them a usual portrait or landscape format.
     ///
     /// `floor`: the per-side floor **in this latent's cells** (`floor(factor:)`).
     static func divisible(height: Int, width: Int, by d: Int, floor: Int = minimumSide) -> Bool {

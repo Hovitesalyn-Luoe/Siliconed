@@ -48,16 +48,61 @@ package enum MemoryBudget {
         return soldSizes.first { $0 >= raw } ?? raw
     }
 
-    /// **B for this Mac**: the forcing (`SILICONED_MEMORY_BUDGET_GB`) when set, otherwise
-    /// `ceiling(physical:)` of its RAM. What the preflight refuses on, the app greys out with, and the
-    /// plan is chosen in.
+    /// **B for this Mac**: the forcing (`SILICONED_MEMORY_BUDGET_GB`) when set, then a simulated RAM
+    /// (`SILICONED_SIMULATED_RAM`, the developer's command line only), otherwise `ceiling(physical:)` of
+    /// its RAM. What the preflight refuses on, the app greys out with, and the plan is chosen in.
     package static func machineCeiling(environment: [String: String]? = nil) -> Int {
-        let environment = environment ?? liveEnvironment([forcingVariable])
-        return forcedCeiling(environment) ?? ceiling(physical: Int(ProcessInfo.processInfo.physicalMemory))
+        let live = environment == nil
+        let environment = environment ?? liveEnvironment([forcingVariable, simulatedRAMVariable])
+        if let forced = forcedCeiling(environment) { return forced }
+        // The live environment is read for a simulation only where it was asked for (`allowSimulation`).
+        if (!live || simulationAllowed.load(ordering: .relaxed)), let ram = simulatedRAM(environment) {
+            return ceiling(physical: ram)
+        }
+        return ceiling(physical: Int(ProcessInfo.processInfo.physicalMemory))
     }
 
     /// Whether `SILICONED_MEMORY_BUDGET_GB` replaces this Mac's B.
     package static var isForced: Bool { forcedCeiling(liveEnvironment([forcingVariable])) != nil }
+
+    /// **The simulated RAM** (`SILICONED_SIMULATED_RAM=32G`): the RAM B is computed from, in place of
+    /// this Mac's — to see which plan, or which refusal, a 24, 32, 64 or 128 GB Mac gets for a format, on
+    /// a Mac that has 16. **It changes B and nothing else**: the render still runs on the real
+    /// hardware, so a simulated RAM above the real one can plan a render this Mac cannot hold. The
+    /// engine's developer command line asks for it (`allowSimulation`); the app and the library do not
+    /// read it, whatever the environment says — a user's Mac renders in its own B.
+    package static let simulatedRAMVariable = "SILICONED_SIMULATED_RAM"
+
+    private static let simulationAllowed = Atomic<Bool>(false)
+
+    /// The developer command line's switch: from now on the live environment's simulated RAM counts.
+    package static func allowSimulation() { simulationAllowed.store(true, ordering: .relaxed) }
+
+    /// Whether the live environment simulates a RAM (and this process reads it).
+    package static var isSimulated: Bool {
+        simulationAllowed.load(ordering: .relaxed) && !isForced
+            && simulatedRAM(liveEnvironment([simulatedRAMVariable])) != nil
+    }
+
+    /// **A RAM as typed**, in bytes: `32G`, `32GB`, `32GiB`, `32` (GiB all: a "32 GB" Mac holds 32 GiB),
+    /// from 1 to 1024. Anything else is refused with a warning and B stays this Mac's.
+    package static func parseRAM(_ text: String) -> Int? {
+        var t = text.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: ",", with: ".")
+        for suffix in ["gib", "gb", "g"] where t.hasSuffix(suffix) { t = String(t.dropLast(suffix.count)); break }
+        guard let value = Double(t.trimmingCharacters(in: .whitespaces)), value.isFinite, value >= 1, value <= maximumForcedGiB
+        else { return nil }
+        return Int(value * 1_073_741_824)
+    }
+
+    /// The simulated RAM of `environment`, in bytes, if it sets one that reads.
+    package static func simulatedRAM(_ environment: [String: String]) -> Int? {
+        guard let text = environment[simulatedRAMVariable] else { return nil }
+        guard let bytes = parseRAM(text) else {
+            Warnings.emit("\(simulatedRAMVariable)=\(text) ignored: a RAM is a number of GiB from 1 to \(Int(maximumForcedGiB)), like 32G")
+            return nil
+        }
+        return bytes
+    }
 
     private static let gib = 1 << 30
 
@@ -91,7 +136,8 @@ package enum MemoryBudget {
 
     /// B in one line, for the developer's command line.
     package static func summary(_ ceiling: Int) -> String {
-        String(format: "B %.2f GB%@", Double(ceiling) / 1e9, (isForced ? " (forced: \(forcingVariable))" : "") as NSString)
+        let how = isForced ? " (forced: \(forcingVariable))" : isSimulated ? " (simulated: \(simulatedRAMVariable))" : ""
+        return String(format: "B %.2f GB%@", Double(ceiling) / 1e9, how as NSString)
     }
 }
 
@@ -229,6 +275,45 @@ package enum MemoryPlan {
         while head < layers, held + spans[head] <= room { held += spans[head]; head += 1 }
         let released = min(head, Prefetcher.firstReleasedLayer(of: layers, tail: fraction))
         return released < layers ? (released, 2) : (layers, 0)
+    }
+
+    // ── the verdict, without a render ──────────────────────────────────────────────────────
+
+    /// **What a request gets in a given B, decided as the preflight and the plan decide it** — no
+    /// computation, no weights beyond the maps' headers: the table the tests print for 16, 24, 32, 64 and
+    /// 128 GB Macs, and the developer command line's `plan`.
+    package enum Verdict: Sendable, Equatable {
+        /// The render goes: the lean plan's `floor` is within B, and `need` is the chosen plan's peak.
+        case plan(floor: Int, need: Int, encoderBuffers: Bool, standardBands: Bool)
+        /// B is too small: `needed` is the floor, `mac` the smallest Mac sold whose B holds it.
+        case refused(needed: Int, mac: Int)
+        /// No Mac's RAM holds it (`MemoryNeed.limit`); `area` is the largest area the family addresses.
+        case unaddressable(area: Int)
+        /// The maps' headers cannot be read: refused (`EngineError.memoryNeedUnknown`).
+        case unknown
+
+        /// One word for a table: `ok` plus what the plan gives up, `needs 64 GB`, `unaddressable`.
+        package var label: String {
+            switch self {
+            case let .plan(_, _, encoderBuffers, standardBands):
+                return "ok" + (encoderBuffers && standardBands ? "" : " (lean" + (encoderBuffers ? "" : ", no encoder buffers")
+                               + (standardBands ? "" : ", small bands") + ")")
+            case let .refused(_, mac): return "needs \(mac) GB"
+            case .unaddressable: return "unaddressable"
+            case .unknown: return "unknown"
+            }
+        }
+    }
+
+    /// **The verdict of `request` in `ceiling`**: the engine's limit, then the lean plan's floor against B,
+    /// then the plan `choose` takes. Pure on the request's maps.
+    package static func verdict(_ request: MemoryNeed.Request, ceiling: Int) -> Verdict {
+        guard let floor = MemoryNeed.of(request.lean) else { return .unknown }
+        if let area = floor.addressableArea(width: request.width, height: request.height) { return .unaddressable(area: area) }
+        guard floor.peak <= ceiling else { return .refused(needed: floor.peak, mac: MemoryBudget.macNeeded(for: floor.peak)) }
+        let plan = choose(request, ceiling: ceiling)
+        return .plan(floor: floor.peak, need: plan.need?.peak ?? floor.peak,
+                     encoderBuffers: plan.request.encoderSlots > 0, standardBands: !plan.request.minimumBands)
     }
 
     // ── the render in progress ─────────────────────────────────────────────────────────────

@@ -98,10 +98,10 @@ final class QwenImage21PipelineTests: XCTestCase {
         // 1216×832 (the test photo) at ~1024²: 1248×832, the oracle's own condition size at 1024.
         XCTAssertTrue(QwenImage21Pipeline.outputSize(referenceWidth: 1216, referenceHeight: 832) == (1248, 832))
         XCTAssertTrue(QwenImage21Pipeline.outputSize(referenceWidth: 1024, referenceHeight: 1024) == (1024, 1024))
-        // An extreme panorama: the short side raised to 512, the area kept under 1024×1536.
+        // An extreme panorama: the short side raised to 512, the area kept under the edit's 1024×1536.
         let wide = QwenImage21Pipeline.outputSize(referenceWidth: 8000, referenceHeight: 1000)
         XCTAssertGreaterThanOrEqual(wide.height, Format.minimumSide)
-        XCTAssertLessThanOrEqual(wide.width * wide.height, Format.maxSurface)
+        XCTAssertLessThanOrEqual(wide.width * wide.height, Format.editSurface)
         XCTAssertEqual(wide.width % 32, 0); XCTAssertEqual(wide.height % 32, 0)
         for (w, h) in [(300, 4000), (4000, 3000), (640, 480), (1, 1000)] {
             let s = QwenImage21Pipeline.outputSize(referenceWidth: w, referenceHeight: h)

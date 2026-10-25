@@ -15,7 +15,7 @@ final class FormatFamilyTests: XCTestCase {
                 XCTAssertEqual($0 as? EngineError, .formatRefused(width: w, height: h, reason: .notMultiple, bound: 32))
             }
         }
-        for (w, h) in [(512, 512), (1024, 1024), (832, 1216), (1024, 1536), (544, 1600)] where w * h <= Format.maxSurface {
+        for (w, h) in [(512, 512), (1024, 1024), (832, 1216), (1024, 1536), (544, 1600), (2048, 2048), (2048, 3072)] {
             XCTAssertNoThrow(try Format.check(width: w, height: h, family: .qwenImage21), "\(w)×\(h)")
         }
     }
@@ -45,6 +45,23 @@ final class FormatFamilyTests: XCTestCase {
         for family in [Family.zImage, .krea2, .qwenImage21] {
             XCTAssertEqual(Format.maximumSide(for: family), Format.maximumSide)
         }
+    }
+
+    /// **No area ceiling**: 2048², 2048×3072 and 3072×2048 pass the format rules of every family but
+    /// Anima's side bound — B decides the rest (`FormatTableTests`). The longest side is Z-Image's RoPE
+    /// table (512 positions of 16 px), and an absurd side is refused before anything is multiplied.
+    func testNoAreaCeilingOnlySideBounds() {
+        XCTAssertEqual(Format.maximumSide, 8192)
+        XCTAssertEqual(Format.maximumSide, DiT.Config.publishedAxesLens[1] * 16)
+        for family in [Family.zImage, .krea2, .qwenImage21] {
+            for (w, h) in [(2048, 2048), (2048, 3072), (3072, 2048), (4096, 4096), (8192, 8192)] {
+                XCTAssertNoThrow(try Format.check(width: w, height: h, family: family), "\(family) \(w)×\(h)")
+            }
+            XCTAssertThrowsError(try Format.check(width: 8224, height: 512, family: family)) {
+                XCTAssertEqual($0 as? EngineError, .formatRefused(width: 8224, height: 512, reason: .sideTooLong, bound: 8192))
+            }
+        }
+        XCTAssertNoThrow(try Format.check(width: 2048, height: 2048, family: .anima))
     }
 
     /// The map's header says the same as the constant the preflight uses (the forged Anima map's).

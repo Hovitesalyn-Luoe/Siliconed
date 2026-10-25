@@ -134,8 +134,11 @@ package struct MemoryNeed: Sendable, Equatable {
         package var name: String
         package var bytes: Int
         package var outside: Bool
-        package init(_ name: String, _ bytes: Int, outside: Bool = false) {
-            self.name = name; self.bytes = bytes; self.outside = outside
+        /// The largest single buffer the term holds, in bytes (0: not a limit's concern) — a VAE's
+        /// largest register. MPSGraph and our kernels index it in 32 bits (`MemoryNeed.limit`).
+        package var largest: Int
+        package init(_ name: String, _ bytes: Int, outside: Bool = false, largest: Int = 0) {
+            self.name = name; self.bytes = bytes; self.outside = outside; self.largest = largest
         }
     }
 
@@ -159,6 +162,29 @@ package struct MemoryNeed: Sendable, Equatable {
     package var crossing: Int
     /// The process's footprint when the render starts (`Request.base`).
     package var base: Int
+
+    /// **The largest single buffer any phase holds**, in bytes — a VAE's widest register, which at a large
+    /// format is the one tensor whose element count nears the limit of the 32-bit indexes (`limit`).
+    package var largestBuffer: Int { phases.flatMap(\.terms).map(\.largest).max() ?? 0 }
+
+    /// **The engine's own limit on one buffer: `Int32.max` elements.** The VAEs' tensors are indexed in
+    /// 32 bits — MPSGraph's shapes, and our kernels' `uint` offsets (`VAEKernels`) —, and a register past
+    /// 2³¹ − 1 floats is not tried: a format whose widest register passes it is refused
+    /// (`EngineError.formatRefused`, `.tooLarge`) rather than left to fail in a pass. Conservative: the
+    /// kernels alone would hold 2³² (not measured above 2³¹ − 1 on any Mac yet). The Flux decoder's widest register
+    /// is 256 channels at the image's resolution, so 8.39 Mpx at most (2048×4096 and 3072² are refused,
+    /// 2048×3072 is not).
+    package static let limit = Int(Int32.max)
+
+    /// **The largest area, in pixels, this format's tensors let the engine address** — `nil` when its
+    /// widest buffer is within `limit`. The widest register grows with the pixels, so the area at which
+    /// it reaches the limit is the format's own count of elements per pixel, divided out.
+    package func addressableArea(width: Int, height: Int) -> Int? {
+        let elements = largestBuffer / MemoryLayout<Float>.size
+        guard elements > MemoryNeed.limit else { return nil }
+        let pixels = max(1, width * height)
+        return MemoryNeed.limit / max(1, (elements + pixels - 1) / pixels)
+    }
 
     /// **The peak**: the largest phase plus what crosses them, plus the base.
     package var peak: Int { (phases.map(\.bytes).max() ?? 0) + crossing + base }
@@ -188,16 +214,23 @@ package struct MemoryNeed: Sendable, Equatable {
     /// heads' queries) or in one MPSGraph SDPA (its queries' copy, and its causal mask in our pages).
     package static func attention(_ name: String, heads: Int, rows: Int, keys: Int, headDim: Int, causal: Bool,
                                   split: Bool, threads: Int, group: Int = 1) -> [Term] {
+        // The GPU's heads: all of them in one MPSGraph SDPA, or what the head split leaves it.
+        let gpu = split ? HeadSplitAttention.partition(heads: heads, fraction: HeadSplitAttention.cpuFraction, group: group).gpu.count
+            : heads
+        // Past `Attention.maxMatrix` the unmasked graph runs in query slices, which MPSGraph concatenates:
+        // one more copy of the GPU heads' output (`Attention.init`, `HeadSplitAttention.init`). A causal
+        // graph is never sliced (its mask is built whole).
+        let sliced = !causal && Attention.groupedSlices(heads: gpu, rows: rows, keys: keys) > 1
+        let concatenation = sliced ? [Term("\(name) SDPA concatenation", rows * gpu * headDim * 4, outside: true)] : []
         if split {
-            let gpu = HeadSplitAttention.partition(heads: heads, fraction: HeadSplitAttention.cpuFraction, group: group).gpu.count
             return [Term("\(name) head split", HeadSplitAttention.hostBytes(heads: heads, sequence: rows, keys: keys,
                                                                            headDim: headDim, group: group, threads: threads)),
                     Term("\(name) SDPA queries", OperatorFootprint.sdpaQueries(rows: rows, heads: gpu, headDim: headDim),
-                         outside: true)]
+                         outside: true)] + concatenation
         }
         return [Term("\(name) SDPA queries", OperatorFootprint.sdpaQueries(rows: rows, heads: heads, headDim: headDim),
                      outside: true)]
-            + (causal ? [Term("\(name) causal mask", Attention.maskBytes(sequence: rows, keys: keys))] : [])
+            + (causal ? [Term("\(name) causal mask", Attention.maskBytes(sequence: rows, keys: keys))] : []) + concatenation
     }
 
     /// **One model's `GEMM` over a phase**: its padding tiers (`GEMM.tierBytes`: what a height of 8 to
@@ -248,7 +281,7 @@ package struct MemoryNeed: Sendable, Equatable {
     /// **A VAE's two heaps and its host copies** (`VAELayout.bytes`), and what its graphs still
     /// allocate beside them: MPSGraph's SDPA, the one pass left whole (`VAELayout.outside`).
     package static func vae(_ name: String, _ layout: VAELayout) -> [Term] {
-        [Term("\(name) registers", layout.registers), Term("\(name) workspace", layout.workspace),
+        [Term("\(name) registers", layout.registers, largest: layout.largestSlot), Term("\(name) workspace", layout.workspace),
          Term("\(name) host", layout.host), Term("\(name) SDPA outside", layout.outside, outside: true)]
     }
 

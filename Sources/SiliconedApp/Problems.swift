@@ -116,7 +116,7 @@ struct Problem: Equatable, Sendable {
             case .sideTooLong:
                 return String(localized: "\(String(w)) × \(String(h)): this model draws \(String(bound)) px at most on a side.")
             case .tooLarge:
-                return String(localized: "\(String(w)) × \(String(h)) is larger than the largest size, 1024 × 1536.")
+                return String(localized: "\(String(w)) × \(String(h)) is larger than the engine addresses, whatever the memory: \(String(bound / 1_000_000)) megapixels at most.")
             }
         case .formatUnreadable(let t):                               // format_unreadable
             return String(localized: "“\(t)” isn't a size: write it as width × height, like 832x1216.")

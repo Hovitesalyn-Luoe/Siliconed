@@ -199,15 +199,8 @@ extension MemoryNeed {
         ]
         // Under the head split, MPSGraph sees the GPU's groups only: its queries' copy and its slices are theirs.
         let split = Krea2DiT.headSplit(sequence: n)
-        let gpuHeads = split ? HeadSplitAttention.partition(heads: dit.heads, fraction: HeadSplitAttention.cpuFraction,
-                                                            group: dit.heads / dit.kvHeads).gpu.count : dit.heads
-        let slices = Attention.groupedSlices(heads: gpuHeads, rows: n, keys: n)
-        let running = (split
-            ? MemoryNeed.attention("DiT", heads: dit.heads, rows: n, keys: n, headDim: dit.headDim, causal: false,
-                                   split: true, threads: request.threads, group: dit.heads / dit.kvHeads)
-            : [Term("DiT SDPA queries", OperatorFootprint.sdpaQueries(rows: n, heads: dit.heads, headDim: dit.headDim),
-                    outside: true)])
-            + [Term("DiT SDPA concatenation", slices > 1 ? n * gpuHeads * dit.headDim * f : 0, outside: true)]
+        let running = MemoryNeed.attention("DiT", heads: dit.heads, rows: n, keys: n, headDim: dit.headDim, causal: false,
+                                           split: split, threads: request.threads, group: dit.heads / dit.kvHeads)
             // The image's rows are exact; the sequence's follow the prompt's bound.
             + gemm("DiT", products: [(s, dit.channels, d), (s, d, dit.channels)],
                    bounded: [(n, d, d), (n, d, kv), (n, d, hidden), (n, hidden, d)], rank: rank, ane: request.neuralEngine)

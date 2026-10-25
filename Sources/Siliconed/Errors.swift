@@ -150,7 +150,8 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
         case notMultiple = "not_multiple"
         /// A side longer than the model computes (`Format.maximumSide(for:)`; Anima: its RoPE table).
         case sideTooLong = "side_too_long"
-        /// An area beyond `Format.maxSurface` (1024×1536, the last format measured).
+        /// An area whose widest tensor the engine cannot index (`MemoryNeed.limit`); `bound`: the
+        /// largest area, in pixels, that the family's decoder addresses.
         case tooLarge = "too_large"
     }
 
@@ -317,8 +318,8 @@ package enum EngineError: Error, Equatable, Sendable, LocalizedError, CustomStri
             case .notMultiple: return "\(width)×\(height): each side must be a multiple of \(bound)."
             case .sideTooLong: return "\(width)×\(height): this model draws \(bound) px at most on a side."
             case .tooLarge:
-                return "\(width)×\(height) (\(megapixels(width * height))) is larger than the largest format: "
-                    + "\(megapixels(bound)) at most."
+                return "\(width)×\(height) (\(megapixels(width * height))) is larger than the engine addresses: "
+                    + "\(megapixels(bound)) at most, whatever the memory."
             }
         case .formatUnreadable(let text): return "\(text) is not a format."
         case let .promptSyntax(position, reason):
