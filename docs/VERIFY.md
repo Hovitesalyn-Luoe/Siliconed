@@ -152,6 +152,8 @@ siliconed check z-image dit --size 512 --variant compact --neural-engine
 
 The Compact and the Light run on the Neural Engine by default (fp16 products), so `--neural-engine` is the bar that matters for them, judged like the Standard's: against the reference in bf16 on the same dequantized weights, the engine allowed bf16's own error plus 25 %. Those goldens need the Standard's `dit` golden at 512 first (they read its inputs); they are not part of `all` or of `siliconed check <model>`.
 
+Krea 2's variants are judged by clouds like its Standard: on the Light, `model_out per plane` is 1.345e-4 against an allowance of 1.33e-4 in a single draw, and passes when the reference's three one-ulp draws are read (the engine's median 1.28e-4 for 1.36e-4). The draws of a variant are `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (step 0 only: the later latents belong to the Standard's trajectory).
+
 LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
 
 ## Every stage

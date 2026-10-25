@@ -11,6 +11,7 @@
     krea2.py witness --size 512                time, img_in, blocks 0-1 in float64           -> witness-krea2-f64-<size>
     krea2.py witness-step --size 512 --step 1  a WHOLE evaluation in float64, at step i      -> witness-krea2-f64-<size>-step<i>
     krea2.py draw --size 512 --step 1 --jitter N   another fp32 draw of step i               -> draw-krea2-<size>-step<i>-jitterN
+                                               (--variant compact|light: step 0 only        -> draw-krea2-<variant>-<size>-step0-jitterN)
     krea2.py vae-witness --size 512            the decoder in float64                        -> witness-krea2-vae-f64-<size>
     krea2.py all [--size 512 1024 768x512] [--draws N]   all of the above (see below), dependencies in order
 
@@ -508,10 +509,12 @@ def stage_draw(size: str, step: int, jitter: int):
     ulp under `--jitter N`. Its `model_out` against `witness-step`'s is the oracle's error on that draw: several
     draws say whether the single one of `dit` was typical. The check reads them as the oracle's cloud."""
     resolution = int(size)
+    if VARIANT and step != 0:
+        raise SystemExit("draw --variant: step 0 only (the later latents belong to the Standard's trajectory)")
     latent, timestep, text = step_inputs(resolution, step)
     if jitter:
         latent = moved_by_one_ulp(latent, jitter)
-    model = load_transformer()
+    model = load_transformer(variant=VARIANT)
     pipe = make_pipeline(transformer=model)
     packed = pipe._pack_latents(latent[None], 1, 16, resolution // 8, resolution // 8)
     text = text[None]
@@ -527,7 +530,7 @@ def stage_draw(size: str, step: int, jitter: int):
             payload[f"block{i}_out"] = x[0].clone()
         print(f"  block {i}", end="\r", flush=True)
     payload["model_out"] = unpack(pipe, model.final_layer(x[:, t:], temb), resolution)
-    path = OUT / f"draw-krea2-{resolution}-step{step}{f'-jitter{jitter}' if jitter else ''}.safetensors"
+    path = OUT / f"{quantized.stem(f'draw-krea2-{resolution}', VARIANT)}-step{step}{f'-jitter{jitter}' if jitter else ''}.safetensors"
     save_file({k: v.contiguous() for k, v in payload.items()}, str(path))
     print(f"-> {path}")
 
@@ -647,8 +650,8 @@ def main() -> None:
                    help="dit and bf16: the Compact's or the Light's published DiT instead of the Standard's")
     p.add_argument("--goldens", help="output folder (default: $SILICONED_GOLDENS, else ./goldens)")
     args = p.parse_args()
-    if args.variant and args.stage not in ("dit", "bf16", "witness", "witness-step"):
-        p.error("--variant goes with dit, bf16, witness or witness-step")
+    if args.variant and args.stage not in ("dit", "bf16", "witness", "witness-step", "draw"):
+        p.error("--variant goes with dit, bf16, witness, witness-step or draw")
     global CONFIG_ONLY, VARIANT
     CONFIG_ONLY, VARIANT = bool(args.variant), args.variant
     OUT = common.goldens_directory(args.goldens) / "krea2"
@@ -663,6 +666,7 @@ def main() -> None:
     if args.stage in ("witness-step", "draw") and len(args.step) * len(jitters) > 1:
         common.run_stages(__file__, common.goldens_directory(args.goldens),
                           [[args.stage, "--size", s, "--step", str(i)] + (["--jitter", str(j)] if args.stage == "draw" else [])
+                          + (["--variant", args.variant] if args.variant else [])
                            for s in sizes for i in args.step for j in jitters])
         return
     for size in sizes:
