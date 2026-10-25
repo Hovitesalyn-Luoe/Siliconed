@@ -318,8 +318,15 @@ package final class Krea2DiT {
             if layer == config.layers - 1 {
                 prefetcher.request(prefetcher.namesOfBlock(prefix: "final_layer."))
             }
-            try tembMod.withUnsafeBufferPointer {
-                try block(layer, rows: n, tembMod: $0.baseAddress!)
+            // **An autorelease pool per layer** (as Qwen-Image-2.1's): the head split's graph run wraps our
+            // buffers in autoreleased `MPSGraphTensorData`, and MPS keeps a command buffer, `MPSNDArray`s and
+            // their descriptors per call. Without a pool they lived to the render's end (~0.7 MB per
+            // evaluation of a 1024² render, the denoising peaking above its need); `euler`'s pool per
+            // evaluation would still hold a whole pass's worth.
+            try autoreleasepool {
+                try tembMod.withUnsafeBufferPointer {
+                    try block(layer, rows: n, tembMod: $0.baseAddress!)
+                }
             }
             // A streamed layer gives its staging block back.
             if layer >= released { artifact.dropFromCache(layerBlocks[layer]) }

@@ -419,7 +419,9 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0, context: Con
                                      channels: latent.space.channels, height: lowHeight, width: lowWidth)
                 }
             }
-            let low = try small.withUnsafeBufferPointer { try half.speed($0.baseAddress!, toldSigma) }
+            let low = try autoreleasepool {
+                try small.withUnsafeBufferPointer { try half.speed($0.baseAddress!, toldSigma) }
+            }
             for j in 0..<lowCount { estimate[j] = small[j] - sigma * low[j] }
             estimate.withUnsafeBufferPointer { e in
                 Resample.lanczosDouble(e.baseAddress!, into: &upsampled, channels: latent.space.channels,
@@ -428,7 +430,11 @@ func euler(_ latent: inout Latent, sigmas: [Float], start: Int = 0, context: Con
             let inverse = 1 / sigma
             v = (0..<count).map { (latent.values[$0] - upsampled[$0]) * inverse }
         } else {
-            v = try latent.values.withUnsafeBufferPointer { try speed($0.baseAddress!, toldSigma) }
+            // A pool per evaluation: what MPS autoreleases inside the DiT (graph runs' arrays, command
+            // buffers) is freed every step, not at the render's end, whatever the family.
+            v = try autoreleasepool {
+                try latent.values.withUnsafeBufferPointer { try speed($0.baseAddress!, toldSigma) }
+            }
         }
         if let walk {
             latent.values.withUnsafeMutableBufferPointer { x in
