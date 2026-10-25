@@ -54,7 +54,7 @@ to History ».
 **Variations are the menu's.** `silicontrol vary i7 subtle|strong [--batch N]` and an image's
 « Variations » menu (the button under the image, its context menu) both call `AppState.vary`: as
 many ordinary jobs as the rack's « Images » (1 by default; `--batch` overrides it), with exactly that image's settings and seed, each adding one variation seed drawn at random
-(`Request.variations`) at the family's strength (`Variation.Amount`), never a
+(`Request.variations`, `Sources/Siliconed/Variation.swift`) at the family's strength (`Variation.Amount`), never a
 number the command passes. A variation of a variation appends to the chain, so it varies *that*
 image. Refused on a grid's sheet, a sketch, or a model that is not ready (`model`). Each image's
 `variation` lists its variation seeds in order; `silicontrol help vary` has the answer.
@@ -77,7 +77,7 @@ before back at the end, even when the series fails. Off is full size, the same b
 
 `silicontrol` ships inside the app, at `Siliconed.app/Contents/Helpers/silicontrol` (target `Silicontrol`,
 `Sources/Silicontrol/main.swift`). Settings → Command Line ("Install…") links it into
-`/usr/local/bin`. It is a pipe: Foundation only, it does not link the engine. If the app is not
+`/usr/local/bin`. It is a pipe: Foundation and the system's frameworks only, it does not link the engine. If the app is not
 running, any command but the help launches it and waits for its socket (30 s at most); `silicontrol open`
 does only that. The help (`help`, `help <topic>`, `<command> --help`, no argument) is answered by the
 command itself, without launching the app.
@@ -97,8 +97,10 @@ command itself, without launching the app.
   often `"hint"` on failure). Without the client:
   `printf '{"argv":["status"]}\n' | nc -U ~/Library/Application\ Support/Siliconed/silicontrol.sock`.
 - **All parsing is in the app** (`Sources/SiliconedApp/RemoteControl.swift`): `argv` is the command
-  line as typed and the client is only a pipe. Only `open` and the help are handled client-side,
-  because they have to work when the app is closed. Relative paths resolve against `cwd`. The images of an edit
+  line as typed and the client is only a pipe. Only `open`, the help and `measure` are
+  handled client-side: the first two have to work when the app is closed; `measure` is a series of
+  renders that the client drives itself, each an `add --wait` on the socket, timed, while it samples
+  the app's memory (`Sources/Measurement`). Relative paths resolve against `cwd`. The images of an edit
   (`--ref`, repeatable, in order: the first is image 1, the one edited) travel the same way, as
   paths or history names (`i7`), never as pixels: the app reads them itself.
 - **Help has one source**, the module `SilicontrolHelp` (`Sources/SilicontrolHelp/RemoteControlHelp.swift`,

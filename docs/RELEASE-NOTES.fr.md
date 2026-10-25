@@ -63,8 +63,8 @@
 
 ### Corrigé
 
-- **Une LoRA entraînée avec un rang différent par couche affichait « rang 0 »** dans la fenêtre
-  Modèles et dans l’infobulle du rack ; elle affiche maintenant son étendue, « rangs 2–57 » pour
+- **Une LoRA entraînée avec un rang différent par couche affichait « rang 0 »** dans la fenêtre
+  Modèles et dans l’infobulle du rack ; elle affiche maintenant son étendue, « rangs 2–57 » pour
   inCase sur Anima.
 
 ## 0.13
@@ -203,7 +203,7 @@
   publiés ; des produits bf16 sur les unités tensorielles du GPU (macOS 26, Metal 4). Chaque sortie
   est vérifiée contre le résultat exact, calculé en double précision.
 - **Ce qu’elle décide** : un noyau ne s’allume que s’il a calculé juste et bat le défaut d’au moins
-  5 %, ou de la dérive que la mesure elle-même a vue si elle est plus grande, aux tailles d’une image
+  5 %, ou de la dérive que la mesure elle-même a vue si elle est plus grande, aux tailles d’une image
   512² comme d’une image 1024². La co-exécution GPU + AMX, allumée d’après le nom de la puce jusqu’à
   la 0.11, est désormais éteinte partout sauf si la mesure la trouve plus rapide, et la part de
   chaque unité se calcule d’après la forme de chaque produit au lieu d’une part figée. Sur le M1 Pro
@@ -346,7 +346,7 @@ Les temps sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
 ## 0.10.1
 
 - **Les images d’Anima créditent Anima sur Civitai.** Déposez un rendu d’Anima sur Civitai, il renvoie
-  à la page du modèle, comme le faisaient déjà ceux de Z-Image et de Qwen-Image-2.1 : le PNG nomme
+  à la page du modèle, comme le faisaient déjà ceux de Z-Image et de Qwen-Image-2.1 : le PNG nomme
   Anima Turbo v1.1 (la page de circlestone_labs elle-même), dont le fichier est à l’octet près celui
   que l’app installe. Compact et Légère créditent la même page.
 
@@ -399,29 +399,29 @@ Les temps sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
 
 ## 0.9
 
-### « Signaler ma configuration » mesure maintenant la puce
+### « Signaler ma configuration » mesure maintenant la puce
 
 - **Le diagnostic ne rend plus de modèle.** En une quinzaine de secondes, sans aucun modèle, il
-  cartographie ce que calcule la puce de votre Mac : les produits de matrices des blocs des modèles sur
+  cartographie ce que calcule la puce de votre Mac : les produits de matrices des blocs des modèles sur
   le GPU, sur l’unité matricielle du CPU et sur les deux à la fois, les produits en fp16 et en bf16,
   l’attention par les trois noyaux du moteur, l’élargissement des poids sur le CPU et sur le GPU —
   chaque résultat vérifié contre le résultat exact, calculé en double précision. Le rapport JSON dit
   ce que la puce calcule, et si elle le calcule juste.
-- **Corrigé : avec l’installation Compact, le diagnostic disait toujours « diffère de la
-  référence ».** Il comparait la sortie des poids 8 bits à la référence en pleine précision : les poids
+- **Corrigé : avec l’installation Compact, le diagnostic disait toujours « diffère de la
+  référence ».** Il comparait la sortie des poids 8 bits à la référence en pleine précision : les poids
   différaient, pas la puce.
 
 ### Le moteur suit la cartographie
 
-- **Une fois qu’elle a tourné, Siliconed utilise ce qu’elle a mesuré, dès le lancement suivant :** le
-  GPU et l’unité matricielle du CPU ensemble sur les grands produits, et dans quelle proportion ; les
-  têtes de l’attention partagées entre le GPU et le CPU ; le noyau d’attention maison — chacun
+- **Une fois qu’elle a tourné, Siliconed utilise ce qu’elle a mesuré, dès le lancement suivant :** le
+  GPU et l’unité matricielle du CPU ensemble sur les grands produits, et dans quelle proportion ; les
+  têtes de l’attention partagées entre le GPU et le CPU ; le noyau d’attention maison — chacun
   seulement s’il est plus rapide sur ce Mac, au-delà du bruit de la mesure elle-même, et seulement
   s’il a calculé juste. Tant que vous ne la lancez pas, rien ne change. La feuille dit ce que ce Mac
   utilise, et si c’est maintenant ou au prochain lancement.
 - Après une mise à jour de macOS ou de Siliconed, la cartographie est mise de côté jusqu’à ce que vous
   la relanciez.
-- Avec une cartographie, la même graine peut donner des bits légèrement différents de ceux sans ; le
+- Avec une cartographie, la même graine peut donner des bits légèrement différents de ceux sans ; le
   même Mac avec la même cartographie redonne les mêmes bits.
 
 ## 0.8.2
@@ -435,7 +435,7 @@ Les temps sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
   détails plus fins.
 - **Z-Image Turbo 1024² prend maintenant 113–119 s** (118–120 s en Légère), 512² ~34 s. Les
   temps publiés jusqu’à la 0.8.1 (82–85 s à 1024²) valaient pour le calendrier raccourci ; les chiffres
-  de Siliconed dans le README sont remesurés ; sa comparaison avec Draw Things oppose désormais
+  de Siliconed dans le README sont remesurés ; sa comparaison avec Draw Things oppose désormais
   8 évaluations à 8, ceux de Draw Things étant ceux mesurés le 13/10/2026.
 - Une image Z-Image faite avec la 0.8.1 ou avant ne ressort plus au bit ; à version égale et sur le
   même Mac, les mêmes bits restent garantis. Qwen-Image-2.1 ne change pas.
@@ -453,11 +453,11 @@ Les temps sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
 ### Des métadonnées PNG que Civitai lit
 
 - **Déposez une image sur Civitai, ses réglages s’affichent.** À côté de ses propres clés, chaque PNG
-  porte désormais le texte que Civitai lit : le prompt avec une balise `<lora:nom:poids>` par LoRA,
+  porte désormais le texte que Civitai lit : le prompt avec une balise `<lora:nom:poids>` par LoRA,
   puis les pas, le solveur, la graine, la taille et le modèle. Les rendus de Z-Image Turbo et de
   Qwen-Image-2.1 créditent leur page Civitai sans rien saisir.
 - **Les LoRA sont créditées aussi**, par le sha256 du fichier tel qu’il a été publié, gardé à
-  l’import. Une LoRA importée avec une version antérieure est nommée sans être créditée : la
+  l’import. Une LoRA importée avec une version antérieure est nommée sans être créditée : la
   réimporter suffit.
 
 ## 0.8
@@ -504,7 +504,7 @@ les cas qu’il manquait.
   l’app elle-même sont comptés, et un rendu dont le besoin ne se calcule pas est refusé plutôt que
   lancé à l’aveugle.
 - **Grisé d’avance.** Un format ou un modèle au-delà du budget de ce Mac est grisé avant le clic,
-  avec le Mac qu’il demanderait : « demande un Mac de 24 Go ».
+  avec le Mac qu’il demanderait : « demande un Mac de 24 Go ».
 - **Les lots de Qwen-Image-2.1** ne gardent plus deux copies du modèle à la fois.
 - Mêmes images, au bit près. Mesuré sur le M1 Pro : Z-Image Turbo en 1024² en 81 s,
   Qwen-Image-2.1 en 1024² en 116 s ; la plus grande édition (1024×1536, trois images) culmine à
@@ -520,7 +520,7 @@ les cas qu’il manquait.
 - **Images ou Sujets.** La boîte au-dessus du prompt tient soit les images d’une édition (1 à 3),
   soit vos sujets (autant que vous voulez, le prompt en citant 3 au plus) — l’un ou l’autre, jamais
   les deux.
-- **Le nom n’atteint jamais le modèle.** « @alice » devient « la personne de l’image 1 » : un nom lu
+- **Le nom n’atteint jamais le modèle.** « @alice » devient « la personne de l’image 1 » : un nom lu
   comme du contenu donnait Alice au pays des merveilles.
 
 Les temps et la mémoire sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
@@ -547,7 +547,7 @@ Les temps et la mémoire sont mesurés sur un MacBook Pro M1 Pro de 16 Go.
 
 ### Sujets nommés (Expérimental)
 
-- **Comparer avec le sujet.** « @ana en western comic » garde le cadrage de la photo, comme une
+- **Comparer avec le sujet.** « @ana en western comic » garde le cadrage de la photo, comme une
   édition : le rideau sous l’image compare maintenant le résultat avec son image 1, qu’elle vienne de
   la boîte Images ou d’un sujet (son cadre, tel qu’il a été envoyé).
 
@@ -574,8 +574,8 @@ Temps et mémoire mesurés sur un MacBook Pro M1 Pro de 16 Go.
   Comfy-Org, la Légère le Turbo GGUF Q4_K_M d'unsloth ; l'encodeur de texte 8 bits de la Compact
   ne change pas. Sur le disque : 31,2 Go en Standard, 17,3 Go en Compact, 14,2 Go en Légère
   (33,2, 19,4 et 16,2 Go avant : la LoRA turbo n'est plus stockée).
-- **Une installation existante est reconnue.** La fenêtre Modèles propose de « Finir
-  l’installation… » : l'ancien transformer et les petits fichiers sont effacés, ceux du Turbo
+- **Une installation existante est reconnue.** La fenêtre Modèles propose de « Finir
+  l’installation… » : l'ancien transformer et les petits fichiers sont effacés, ceux du Turbo
   sont téléchargés dans la même version (Standard, Compact ou Légère). L'encodeur de texte est
   gardé : celui du Turbo est celui du modèle de base, au bit près, il ne se retélécharge donc pas.
   Les fine-tunes de Qwen-Image-2.1 importés pour le modèle de base ne peuvent plus rendre et sont
@@ -611,10 +611,10 @@ Sur le Mac de référence :
 - **Plus rapide, et plus légère en mémoire.** La préparation d'un modèle téléchargé prend maintenant
   quelques secondes au lieu de plusieurs minutes, et le fichier suivant se télécharge pendant que le
   précédent se prépare. Sur une connexion rapide (85 Mo/s), Qwen-Image-2.1 s'installe en ~6 min 30 en
-  Standard (~8 min en 0.4), ~3 min 30 en Compact (~5 min 30) et ~3 min en Légère (~4 min) : c'est
+  Standard (~8 min en 0.4), ~3 min 30 en Compact (~5 min 30) et ~3 min en Légère (~4 min) : c'est
   désormais le réseau qui fixe la durée. Le modèle installé est le même, à l'octet près.
 - **Pas de swap pendant l'installation.** Le pic de mémoire passe de 4,6 Go à 2,2–2,5 Go, et les
-  fichiers fraîchement téléchargés ne poussent plus le reste du Mac hors de la mémoire : une
+  fichiers fraîchement téléchargés ne poussent plus le reste du Mac hors de la mémoire : une
   installation qui pouvait swapper sur un Mac chargé ne le fait plus.
 
 ### Lots
