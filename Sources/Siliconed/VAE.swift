@@ -4,9 +4,45 @@ import MetalPerformanceShadersGraph
 import Foundation
 
 /// The Flux VAE decoder, in fp32: `MPSGraph` passes of one kernel each, plus a few copy kernels of ours (`VAEKernels`).
+/// It is Z-Image Turbo's decoder (`FluxDecodingModule`); Anima and Krea 2 decode with `AnimaVAE`
+/// and Qwen-Image-2.1 with `QwenImage21VAE`, which are not this network. `AutoencoderKL.decoder` in
+/// diffusers (`vae.py`: `Decoder`, `UNetMidBlock2D`, `UpDecoderBlock2D`).
 ///
 ///     latent [16, h, w] ─ ÷0.3611 then +0.1159 ─ conv_in ─ mid(resnet, attention, resnet)
 ///       ─ up×4 (3 resnets, ×2 except the last) ─ GroupNorm ─ SiLU ─ conv_out ─ image [3, 8h, 8w]
+///
+/// Channels 512 → 512 → 512 → 256 → 128 (`levels`); the ×2 sits between two levels, so the first
+/// resnet of a level that narrows (512 → 256, 256 → 128) carries a 1×1 `conv_shortcut`.
+///
+/// **One resnet** — eps 1e-6, 32 groups, no time embedding:
+///
+///     h = conv₁(SiLU(GN₁(x)))        x ← (x, or conv_shortcut(x) if the channels change) + conv₂(SiLU(GN₂(h)))
+///
+/// **The bottleneck attention** — one head of width C = 512 over the h·w pixels, scale 1/√512:
+///
+///     t = GN(x) as tokens [h·w, C]      x += W_o( softmax(Wq t · (Wk t)ᵀ / √C) · Wv t ) + b
+///
+/// What a port by analogy would miss (reference: diffusers 0.41 `vae.py`, `resnet.py`, `unet_2d_blocks.py`,
+/// and `pipeline_z_image.py` for the latent):
+///
+///   - **the latent's scale and shift are the pipeline's, not the VAE's**: `latents / scaling_factor +
+///     shift_factor`, two scalars (`pipeline_z_image.py`, before `vae.decode`), applied here as the
+///     first graph of `decodeBanded`. The Qwen-Image family denormalizes per channel instead;
+///   - **`post_quant_conv` is optional** in `AutoencoderKL._decode` (`use_post_quant_conv`); this decoder
+///     never reads one — `decodeBanded` goes from the denormalization straight to `conv_in`;
+///   - **eps is 1e-6 in every `GroupNorm`**, the resnets' and the attention's (`resnet_eps`), not
+///     torch's default 1e-5 (`groupNormalize`);
+///   - **the attention is a single head of width `C`, not `C/64` heads**: `attention_head_dim` is
+///     the block's channel count, so `heads = in_channels // attention_head_dim = 1` and the scale is
+///     `dim_head^-0.5 = 512^-0.5` (`scaledDotProduct`, explicit `scale`); its `GroupNorm` runs on the
+///     input before q, k, v, and the residual is the un-normalized input (`attention`);
+///   - **the mid block is resnet, attention, resnet** (`UNetMidBlock2D.forward`), and each up block holds
+///     `layers_per_block + 1 = 3` resnets, then its upsampler — so the ×2 comes AFTER the third resnet of a
+///     level, which is where `decodeBanded` puts it (`upsample` of `up_blocks.(level−1)` before the next level's resnets);
+///   - **the upsampler duplicates first, then convolves** (`Upsample2D.forward`: nearest ×2, then the 3×3
+///     `conv`), the convolution running at the doubled resolution (`upsample`);
+///   - **the resnet's shortcut reads the raw input**, before the norm (`ResnetBlock2D.forward`:
+///     `input_tensor` is kept, `conv_shortcut(input_tensor)`), and is added to the second convolution's output (`resnet`, `normConv`).
 ///
 /// The weights are published in **bf16**: reading them as fp32 would give finite and wrong numbers.
 /// The VAE weighs 84 M parameters, so it has no forge: we read the published file directly.
