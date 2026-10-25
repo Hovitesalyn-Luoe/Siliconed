@@ -10,16 +10,25 @@ final class AttentionScalingTests: XCTestCase {
     func testTheSoftmaxPassIsExpToFloatPrecisionAndSumsTheRow() {
         // Arguments in [−87.3, 0] as a row after the maximum gives them, and the sizes that leave a tail of 0…7.
         for count in [1, 7, 8, 9, 63, 4096, 4101] {
-            var row = (0..<count).map { Float(sin(Double($0) * 0.37) * 40 + 3 * cos(Double($0) * 1.9)) }
+            var row: [Float] = (0..<count).map { (i: Int) -> Float in
+                let x = Double(i)
+                let wave: Double = sin(x * 0.37) * 40
+                let ripple: Double = 3 * cos(x * 1.9)
+                return Float(wave + ripple)
+            }
             let maximum = row.max()!, scale = Float(1 / 128.0.squareRoot())
-            let expected = row.map { exp(Double(scale) * (Double($0) - Double(maximum))) }
+            let expected: [Double] = row.map { (v: Float) -> Double in
+                let shifted: Double = Double(v) - Double(maximum)
+                return exp(Double(scale) * shifted)
+            }
             let sum = row.withUnsafeMutableBufferPointer {
                 HeadSplitAttention.exponentiate($0.baseAddress!, count: count, scale: scale, maximum: maximum)
             }
             var worst = 0.0
             for (got, want) in zip(row, expected) where want > 1e-30 { worst = max(worst, abs(Double(got) / want - 1)) }
             XCTAssertLessThan(worst, 5e-7, "count \(count)")
-            XCTAssertEqual(Double(sum), expected.reduce(0, +), accuracy: 3e-6 * expected.reduce(0, +))
+            let total: Double = expected.reduce(0, +)
+            XCTAssertEqual(Double(sum), total, accuracy: 3e-6 * total)
         }
         // Far under the maximum: held at exp(−87.3), never a subnormal, a NaN or a negative.
         var far: [Float] = [0, -1000, -1e6, -87.4, -86]
