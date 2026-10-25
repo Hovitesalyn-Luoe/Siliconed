@@ -23,7 +23,7 @@ enum QwenImageStages {
 
     static func encoder() throws -> (Artifact, Tokenizer) {
         let library = Library.processWide
-        return (try Artifact(path: library.map(library.encoderMap(.qwenImage21))),
+        return (try Artifact(path: MapCheck.use(library.map(library.encoderMap(.qwenImage21)))),
                 try Tokenizer(directory: try library.component(.qwenImage21, "processor")))
     }
 
@@ -401,7 +401,7 @@ enum QwenImageStages {
                 offset += rh * rw
             }
         }
-        var sampler = QwenImage21Sampler(artifact: try Artifact(path: invocation.map ?? denoiser.map), lora: nil)
+        var sampler = QwenImage21Sampler(artifact: try Artifact(path: MapCheck.use(invocation.map ?? denoiser.map)), lora: nil)
         sampler.freezeCut = true
         for i in 0..<(sigmas.count - 1) {
             var latent = i == 0 ? noise.values : planar(trajectory.float32("latent_\(i)")!)

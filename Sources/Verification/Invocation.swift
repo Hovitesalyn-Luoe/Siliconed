@@ -80,11 +80,12 @@ package struct Invocation: Sendable {
     /// The options parsed above; any other accepted option lands in `extras`.
     private static let known: Set<String> = ["--size", "--goldens", "--edit", "--map"]
 
-    /// The DiT map: `--map`, else the installed one named `standard`; missing, the stage is skipped.
-    package func ditMap(_ standard: String) throws -> String {
+    /// The DiT map: `--map`, else the installed one named `standard`; missing or of another variant than the golden's, the stage is skipped.
+    /// `golden`: the variant the stage's golden was made for; another one is skipped (`MapCheck`).
+    package func ditMap(_ standard: String, golden: MapVariant = .standard) throws -> String {
         let path = map ?? Library.processWide.map(standard)
         guard FileManager.default.fileExists(atPath: path) else { throw Skip("map missing: \(path) — siliconed install") }
-        return path
+        return try MapCheck.use(path, golden: golden)
     }
 
     /// The bf16 reference beside `file` when the engine runs a half-precision path. Under `--neural-engine`
