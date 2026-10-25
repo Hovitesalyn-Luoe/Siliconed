@@ -182,13 +182,20 @@ extension AppState {
         delete(history)
     }
 
-    /// Save: PNG by default (it carries the prompt, the seed, the model), JPEG optionally.
+    /// Save: in the format last used (PNG the first time — it carries the prompt, the seed, the model),
+    /// JPEG or HEIC from the panel's pop-up. JPEG and HEIC carry no metadata: they are plain pictures.
     func save(_ entry: Entry) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png, .jpeg]
-        panel.nameFieldStringValue = exportName(entry) + ".png"
+        let base = exportName(entry)
+        panel.allowedContentTypes = [exportFormat.type]
+        panel.nameFieldStringValue = base + "." + exportFormat.fileExtension
         panel.canCreateDirectories = true
+        let (accessory, kind) = Self.formatAccessory(selected: exportFormat, note: true)
+        FormatFollower.attach(panel, to: kind)
+        accessory.setAccessibilityLabel(String(localized: "Format:"))
+        panel.accessoryView = accessory
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        exportFormat = ExportFormat(extension: url.pathExtension) ?? exportFormat
         do {
             try write(entry, to: url)
             flash(String(localized: "Saved: \(url.lastPathComponent)"))
@@ -197,8 +204,28 @@ extension AppState {
         }
     }
 
+    /// The panel's « Format: » pop-up, set on `selected`; with `note`, the line that says what each keeps.
+    static func formatAccessory(selected: ExportFormat, note: Bool) -> (NSView, NSPopUpButton) {
+        let kind = NSPopUpButton(frame: .zero, pullsDown: false)
+        kind.addItems(withTitles: ExportFormat.allCases.map(\.label))
+        kind.selectItem(at: ExportFormat.allCases.firstIndex(of: selected) ?? 0)
+        let label = NSTextField(labelWithString: String(localized: "Format:"))
+        let row = NSStackView(views: [label, kind])
+        guard note else { row.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16); return (row, kind) }
+        let caption = NSTextField(wrappingLabelWithString: String(localized: "PNG keeps the prompt, seed and model. JPEG and HEIC are plain pictures, with no metadata."))
+        caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        caption.textColor = .secondaryLabelColor
+        caption.preferredMaxLayoutWidth = 300
+        let column = NSStackView(views: [row, caption])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 6
+        column.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        return (column, kind)
+    }
+
     /// **Export**: one image is « Save As »; several go into a chosen folder, each under its own name
-    /// (`exportName`), as PNG or JPEG — `true` once written.
+    /// (`exportName`), as PNG, JPEG or HEIC — `true` once written.
     @discardableResult
     func export(_ entries: [Entry]) -> Bool {
         guard !entries.isEmpty else { return false }
@@ -212,15 +239,12 @@ extension AppState {
         panel.canCreateDirectories = true
         panel.prompt = String(localized: "Export")
         panel.message = String(localized: "Export \(entries.count) images to a folder. Each keeps its prompt, seed and model in its metadata.")
-        let kind = NSPopUpButton(frame: .zero, pullsDown: false)
-        kind.addItems(withTitles: ["PNG", "JPEG"])
-        let label = NSTextField(labelWithString: String(localized: "Format:"))
-        let accessory = NSStackView(views: [label, kind])
-        accessory.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        let (accessory, kind) = Self.formatAccessory(selected: exportFormat, note: true)
         panel.accessoryView = accessory
         panel.isAccessoryViewDisclosed = true
         guard panel.runModal() == .OK, let folder = panel.url else { return false }
-        let ext = kind.indexOfSelectedItem == 1 ? "jpg" : "png"
+        exportFormat = ExportFormat.allCases[max(kind.indexOfSelectedItem, 0)]
+        let ext = exportFormat.fileExtension
         do {
             for e in entries { try write(e, to: Self.freeURL(in: folder, base: exportName(e), ext: ext)) }
         } catch {
@@ -266,17 +290,23 @@ extension AppState {
         return url
     }
 
-    /// Writes an image as its extension says (JPEG at 0.9, or the PNG with its metadata), and counts it
-    /// as saved.
+    /// Writes an image as its extension says (JPEG at 0.9 and HEIC at 0.85, both plain pictures; or the
+    /// PNG with its metadata), and counts it as saved.
     func write(_ entry: Entry, to url: URL) throws {
-        if ["jpg", "jpeg"].contains(url.pathExtension.lowercased()) {
+        switch ExportFormat(extension: url.pathExtension) ?? .png {
+        case .png:
+            try PNG.write(entry.png, to: url.path)
+        case .jpeg:
             guard let cg = entry.image(),
                   let jpeg = NSBitmapImageRep(cgImage: cg).representation(using: .jpeg, properties: [.compressionFactor: 0.9]) else {
                 throw EngineError.imageWriteFailed(file: url.path)
             }
             try jpeg.write(to: url, options: .atomic)
-        } else {
-            try PNG.write(entry.png, to: url.path)
+        case .heic:
+            guard let cg = entry.image(), let heic = ExportFormat.heic(cg, quality: 0.85) else {
+                throw EngineError.imageWriteFailed(file: url.path)
+            }
+            try heic.write(to: url, options: .atomic)
         }
         saved.insert(entry.id)
     }
@@ -349,5 +379,59 @@ extension AppState {
             guard !Task.isCancelled else { return }
             toast = nil
         }
+    }
+}
+
+/// **The three files an image leaves as.** PNG carries the generation metadata (`PNG.data`); JPEG and
+/// HEIC are written without any, on purpose: a picture to post or to send says nothing of how it was made.
+enum ExportFormat: String, CaseIterable {
+    case png, jpeg, heic
+
+    var label: String { self == .jpeg ? "JPEG" : rawValue.uppercased() }
+    var fileExtension: String { self == .jpeg ? "jpg" : rawValue }
+    var type: UTType { self == .png ? .png : self == .jpeg ? .jpeg : .heic }
+
+    init?(extension ext: String) {
+        switch ext.lowercased() {
+        case "png": self = .png
+        case "jpg", "jpeg": self = .jpeg
+        case "heic", "heif": self = .heic
+        default: return nil
+        }
+    }
+
+    /// The image as HEIC, tagged sRGB, with no metadata — `nil` if this Mac cannot encode it.
+    static func heic(_ image: CGImage, quality: Double) -> Data? {
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, UTType.heic.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? output as Data : nil
+    }
+}
+
+/// **Keeps a save panel's file name and type with its « Format: » pop-up**: choosing HEIC renames
+/// `name.png` to `name.heic` and lets the panel accept only that.
+@MainActor
+final class FormatFollower: NSObject {
+    private weak var panel: NSSavePanel?
+
+    /// The pop-up holds its follower: both live as long as the panel's accessory.
+    static func attach(_ panel: NSSavePanel, to popup: NSPopUpButton) {
+        let follower = FormatFollower()
+        follower.panel = panel
+        popup.target = follower
+        popup.action = #selector(changed(_:))
+        objc_setAssociatedObject(popup, &key, follower, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private static nonisolated(unsafe) var key = 0
+
+    @objc private func changed(_ popup: NSPopUpButton) {
+        guard let panel else { return }
+        let format = ExportFormat.allCases[max(popup.indexOfSelectedItem, 0)]
+        panel.allowedContentTypes = [format.type]
+        panel.nameFieldStringValue = (panel.nameFieldStringValue as NSString).deletingPathExtension + "." + format.fileExtension
     }
 }

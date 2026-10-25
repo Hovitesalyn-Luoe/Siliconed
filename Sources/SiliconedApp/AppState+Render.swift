@@ -520,6 +520,7 @@ extension AppState {
     /// no installation running.
     func canVary(_ entry: Entry) -> Bool {
         installBlocker == nil && entry.grid == nil && entry.sketch == nil && entry.enlarged == nil
+            && entry.cropped == nil
             && readySet.contains(entry.settings.identifier)
     }
 

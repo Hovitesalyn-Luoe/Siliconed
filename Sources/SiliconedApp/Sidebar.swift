@@ -111,6 +111,19 @@ struct ReferenceThumbnail: View {
                         .background(Circle().fill(number == 1 ? Color.accentColor : Color.black.opacity(0.6)))
                         .padding(4)
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    if hover, app.cropRefusal(width: reference.width, height: reference.height) == nil {
+                        Button { app.beginCrop(reference) } label: {
+                            Image(systemName: "crop").font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 18, height: 18)
+                                .background(Circle().fill(Color.black.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(4)
+                        .help("Crop this image (the frame keeps at least \(String(Format.minimumSide)) px a side)")
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if hover {
                         Button { app.removeReference(reference.id) } label: {
@@ -144,6 +157,8 @@ struct ReferenceThumbnail: View {
             }
             if !last { Button("Move Right") { app.moveReference(reference.id, by: 1) } }
             Divider()
+            Button("Crop…") { app.beginCrop(reference) }
+                .disabled(app.cropRefusal(width: reference.width, height: reference.height) != nil)
             Button("Replace…") { app.replaceReference(reference.id) }
             Button("Remove", role: .destructive) { app.removeReference(reference.id) }
         }

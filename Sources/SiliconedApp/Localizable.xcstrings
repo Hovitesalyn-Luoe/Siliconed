@@ -1191,6 +1191,40 @@
         }
       }
     },
+    "%@ · %@×%@ · seed %@ · cropped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@×%3$@ · Seed %4$@ · zugeschnitten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@×%3$@ · seed %4$@ · cropped"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@×%3$@ · semilla %4$@ · recortada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@×%3$@ · graine %4$@ · recadrée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@×%3$@ · seme %4$@ · ritagliata"
+          }
+        }
+      }
+    },
     "%@ · %@×%@ · seed %@ · variation · %@" : {
       "localizations" : {
         "de" : {
@@ -3211,6 +3245,34 @@
         }
       }
     },
+    "A grid is not cropped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Raster wird nicht zugeschnitten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una cuadrícula no se recorta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une grille ne se recadre pas"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una griglia non si ritaglia"
+          }
+        }
+      }
+    },
     "A grid is not enlarged" : {
       "localizations" : {
         "de" : {
@@ -3515,6 +3577,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un rendering è in corso: la diagnostica potrà partire quando la coda sarà vuota."
+          }
+        }
+      }
+    },
+    "A sketch is not cropped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Skizze wird nicht zugeschnitten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un boceto no se recorta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une esquisse ne se recadre pas"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uno schizzo non si ritaglia"
           }
         }
       }
@@ -6829,6 +6919,202 @@
         }
       }
     },
+    "Crop" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuschneiden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ritaglia"
+          }
+        }
+      }
+    },
+    "Crop frame" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuschneiderahmen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marco de recorte"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cadre de recadrage"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cornice di ritaglio"
+          }
+        }
+      }
+    },
+    "Crop the image (↩)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild zuschneiden (↩)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar la imagen (↩)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer l’image (↩)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ritaglia l’immagine (↩)"
+          }
+        }
+      }
+    },
+    "Crop this image (the frame keeps at least %@ px a side)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild zuschneiden (der Rahmen behält mindestens %@ px pro Seite)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar esta imagen (el marco conserva al menos %@ px por lado)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer cette image (le cadre garde au moins %@ px par côté)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ritaglia questa immagine (la cornice mantiene almeno %@ px per lato)"
+          }
+        }
+      }
+    },
+    "Crop: a new image, the original stays (C)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuschneiden: ein neues Bild, das Original bleibt (C)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar: una imagen nueva, el original se conserva (C)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer : une nouvelle image, l’original reste (C)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ritaglia: una nuova immagine, l’originale resta (C)"
+          }
+        }
+      }
+    },
+    "Cropping needs %@ px or more on each side" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zum Zuschneiden braucht ein Bild auf jeder Seite mindestens %@ px"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar necesita %@ px o más por cada lado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer demande %@ px ou plus de chaque côté"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per ritagliare servono almeno %@ px per lato"
+          }
+        }
+      }
+    },
+    "Crop…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuschneiden …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recortar…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recadrer…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ritaglia…"
+          }
+        }
+      }
+    },
     "Current Render" : {
       "localizations" : {
         "de" : {
@@ -9047,6 +9333,34 @@
         }
       }
     },
+    "Free" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frei"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Libre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Libre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Libero"
+          }
+        }
+      }
+    },
     "From Hugging Face" : {
       "localizations" : {
         "de" : {
@@ -9638,6 +9952,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Immagine"
+          }
+        }
+      }
+    },
+    "Image %lld cropped to %lld × %lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild %1$lld auf %2$lld × %3$lld zugeschnitten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Image %1$lld cropped to %2$lld × %3$lld"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imagen %1$lld recortada a %2$lld × %3$lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image %1$lld recadrée à %2$lld × %3$lld"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Immagine %1$lld ritagliata a %2$lld × %3$lld"
           }
         }
       }
@@ -10926,6 +11274,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lascia il numero di passi predefinito del modello."
+          }
+        }
+      }
+    },
+    "Leave without cropping (Esc)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlassen, ohne zuzuschneiden (Esc)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salir sin recortar (Esc)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter sans recadrer (Échap)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esci senza ritagliare (Esc)"
           }
         }
       }
@@ -12332,6 +12708,34 @@
         }
       }
     },
+    "Move a side of the frame first" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bewege zuerst eine Seite des Rahmens"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mueve primero un lado del marco"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacez d’abord un côté du cadre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta prima un lato della cornice"
+          }
+        }
+      }
+    },
     "Moving the library to %@" : {
       "localizations" : {
         "de" : {
@@ -12608,6 +13012,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Intensità LoRA negative"
+          }
+        }
+      }
+    },
+    "Never under %@ px on a side" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie unter %@ px pro Seite"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nunca por debajo de %@ px por lado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jamais sous %@ px d’un côté"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mai sotto %@ px per lato"
           }
         }
       }
@@ -13938,6 +14370,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Originale"
+          }
+        }
+      }
+    },
+    "PNG keeps the prompt, seed and model. JPEG and HEIC are plain pictures, with no metadata." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PNG behält Prompt, Seed und Modell. JPEG und HEIC sind einfache Bilder ohne Metadaten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El PNG conserva el prompt, la semilla y el modelo. El JPEG y el HEIC son imágenes simples, sin metadatos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le PNG garde le prompt, la graine et le modèle. Le JPEG et le HEIC sont des images simples, sans métadonnées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il PNG conserva il prompt, il seme e il modello. JPEG e HEIC sono immagini semplici, senza metadati."
           }
         }
       }
@@ -18763,6 +19223,34 @@
         }
       }
     },
+    "The frame's proportions — the ones the size picker offers, the image's own, or free" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Proportionen des Rahmens: die der Größenauswahl, die des Bildes oder frei"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las proporciones del marco: las que ofrece el selector de tamaño, las de la imagen o libres"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les proportions du cadre : celles que propose le sélecteur de taille, celles de l’image, ou libres"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le proporzioni della cornice: quelle del selettore di dimensione, quelle dell’immagine o libere"
+          }
+        }
+      }
+    },
     "The garment alone — not who wears it." : {
       "localizations" : {
         "de" : {
@@ -21089,6 +21577,34 @@
         }
       }
     },
+    "This image could not be cropped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild konnte nicht zugeschnitten werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo recortar esta imagen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image n’a pas pu être recadrée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile ritagliare questa immagine"
+          }
+        }
+      }
+    },
     "This image could not be enlarged" : {
       "localizations" : {
         "de" : {
@@ -21113,6 +21629,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Impossibile ingrandire questa immagine"
+          }
+        }
+      }
+    },
+    "This image is already at the smallest size, %@ px" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild hat bereits die kleinste Größe, %@ px"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta imagen ya tiene el tamaño mínimo, %@ px"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est déjà à la plus petite taille, %@ px"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa immagine ha già la dimensione minima, %@ px"
+          }
+        }
+      }
+    },
+    "This image is already enlarged" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild ist bereits vergrößert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta imagen ya está ampliada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est déjà agrandie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa immagine è già ingrandita"
           }
         }
       }
@@ -21147,34 +21719,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Questa immagine è più grande di ciò che macOS ingrandisce: al massimo %@ px per lato"
-          }
-        }
-      }
-    },
-    "This image is already enlarged" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieses Bild ist bereits vergrößert"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esta imagen ya está ampliada"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette image est déjà agrandie"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questa immagine è già ingrandita"
           }
         }
       }
@@ -21843,6 +22387,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Riprova; se il problema persiste, segnalalo (Aiuto ▸ Misura questo Mac…, poi Apri la segnalazione)."
+          }
+        }
+      }
+    },
+    "Turn the frame: portrait or landscape" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rahmen drehen: Hoch- oder Querformat"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar el marco: vertical u horizontal"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tourner le cadre : portrait ou paysage"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ruota la cornice: verticale o orizzontale"
           }
         }
       }

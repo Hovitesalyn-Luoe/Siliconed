@@ -159,6 +159,9 @@ struct Entry: Identifiable {
     /// The image it was enlarged from, as its PNG — what the curtain lays under it, even once that
     /// image has left the history.
     var enlargedFrom: Data? = nil
+    /// **A crop** (`CropEditor.swift`): the pixels of the image it was cut from. Its settings stay the render's,
+    /// like an enlargement's; it was not rendered, so it has no time.
+    var cropped: Crop.Box? = nil
 
     var seconds: Double { timings.total }
     var name: String { "i\(ordinal)" }
@@ -177,6 +180,9 @@ struct Entry: Identifiable {
     }
 
     var legend: String {
+        if cropped != nil {
+            return String(localized: "\(settings.modelName) · \(String(width))×\(String(height)) · seed \(String(seed)) · cropped")
+        }
         if let g = grid?.grid {
             let f = settings.format
             return String(localized: "Grid \(String(g.columns))×\(String(g.rows)) · \(settings.modelName) · \(String(f.width))×\(String(f.height)) · \(Figures.duration(seconds))")

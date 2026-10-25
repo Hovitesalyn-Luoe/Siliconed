@@ -114,6 +114,11 @@ final class AppState {
             Spectral.halfSizeStart = fasterRendering
         }
     }
+    private static let exportFormatKey = "exportFormat"
+    /// **The file format the last export used** (PNG, JPEG or HEIC): the next Save and Export open on it.
+    var exportFormat = ExportFormat(rawValue: UserDefaults.standard.string(forKey: AppState.exportFormatKey) ?? "") ?? .png {
+        didSet { UserDefaults.standard.set(exportFormat.rawValue, forKey: Self.exportFormatKey) }
+    }
     private static let neuralEngineKey = "neuralEngine"
     /// **The Neural Engine, per model and version** (the rack's fp32 tag, `Request.neuralEngine`): what the
     /// user chose; absent, the version's default (`Variant.neuralEngineByDefault`).
@@ -298,7 +303,7 @@ final class AppState {
             guard selection != oldValue else { return }
             loadSelectedImage()
             // An image chosen (or a finished render followed): the canvas shows it, not the grid.
-            if selection != nil { showsExploration = false }
+            if selection != nil { showsExploration = false; cropping = nil }
         }
     }
     /// **The images marked in the strip**, beyond the one shown: ⌘-click adds or removes one, ⇧-click
@@ -412,6 +417,8 @@ final class AppState {
     var enlarging: Entry.ID?
     var enlargeDownload: Double?
     var enlargeSpeed: Double?
+    /// **The crop being made** (`CropEditor.swift`): the frame over an image of the history or an edit's reference.
+    var cropping: CropSession?
     /// The session's finished jobs, their outcome, their images (even removed from the history
     /// since) and the engine's warnings during their render: `wait t3` afterwards still returns the answer.
     private(set) var completed: [Int: (job: Job, issue: Issue, images: [Int], warnings: [String])] = [:]

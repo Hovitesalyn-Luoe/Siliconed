@@ -125,6 +125,9 @@ private struct AppCommands: Commands {
         CommandMenu("Image") {
             Button("Full Screen") { if app.selectedImage != nil { app.fullScreen = true } }
                 .keyboardShortcut("f")
+            // « C » itself is read by its character in `MainWindow.key`, when nothing is being typed.
+            Button("Crop…") { app.beginCropOfShownImage() }
+                .disabled(app.selectedEntry == nil || app.cropping != nil)
             // ← → Home End Space ⌫ ⌘A work without ⌘ when the prompt is not being typed in
             // (`MainWindow.key`); the menu keeps forms that work from anywhere.
             Button("Previous Image") { app.chooseAdjacent(-1) }
@@ -390,14 +393,35 @@ final class MainWindow: NSObject, NSWindowDelegate {
                 w.makeFirstResponder(nil)
                 return nil
             }
+            if app.cropping != nil { return cropKey(event) ? nil : event }
             // ⌘V by its character (AZERTY): an image on the pasteboard goes to the Images box.
             if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                event.charactersIgnoringModifiers?.lowercased() == "v" {
                 return app.pasteImage() ? nil : event
             }
             guard !app.history.isEmpty else { return event }
+            // C opens the crop, by its character: on an AZERTY keyboard the key code of C is another letter.
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+               event.charactersIgnoringModifiers?.lowercased() == "c" {
+                app.beginCropOfShownImage()
+                return nil
+            }
             return key(event) ? nil : event
         }
+    }
+
+    /// **The keys while the crop frame is up**: Return (or Enter) crops, Esc leaves; the arrows, which
+    /// would walk the strip, and Space, Delete and Home/End stay out of it. ⌘-keys go on to the menu.
+    private func cropKey(_ event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        guard mods.isEmpty else { return false }
+        switch Int(event.keyCode) {
+        case 36, 76: app.commitCrop()                                   // Return, Enter
+        case 53: app.cancelCrop()                                       // Esc
+        case 123, 124, 125, 126, 115, 119, 49, 51, 117: break            // ← → ↓ ↑ Home End Space ⌫ ⌦
+        default: return event.charactersIgnoringModifiers?.lowercased() == "c"
+        }
+        return true
     }
 
     private func key(_ event: NSEvent) -> Bool {

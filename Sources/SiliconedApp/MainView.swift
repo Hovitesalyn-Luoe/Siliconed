@@ -162,7 +162,9 @@ private struct SceneView: View {
 
     var body: some View {
         ZStack {
-            if let job = app.currentJob, app.followsRender || app.history.isEmpty {
+            if let crop = app.cropping {
+                CropEditor(app: app, session: crop)
+            } else if let job = app.currentJob, app.followsRender || app.history.isEmpty {
                 inProgress(job)
             } else if app.showsOriginal, let original = app.original, let selected = app.selectedImage,
                       let entry = app.selectedEntry {
@@ -334,6 +336,9 @@ private struct SceneView: View {
                         .help("Variations: cousins of this image, same scene, slightly different — as many as the rack's Images")
                 }
                 EnlargeButton(app: app, entry: e)
+                Button { app.beginCrop(e) } label: { Image(systemName: "crop") }
+                    .disabled(app.cropRefusal(e) != nil)
+                    .help(app.cropRefusal(e) ?? String(localized: "Crop: a new image, the original stays (C)"))
                 if app.canCompareOriginal(e) {
                     Button { app.comparesOriginal.toggle() } label: {
                         Image(systemName: "square.lefthalf.filled")
@@ -995,6 +1000,10 @@ private struct MenuEntry: View {
             if entry.grid == nil, entry.sketch == nil {
                 Button("Enlarge ×4") { app.enlarge(entry) }
                     .disabled(app.enlargeRefusal(entry) != nil)
+            }
+            if entry.grid == nil, entry.sketch == nil {
+                Button("Crop…") { app.beginCrop(entry) }
+                    .disabled(app.cropRefusal(entry) != nil)
             }
             Button(entry.grid == nil ? "Reuse These Settings" : "Reuse This Grid") { app.restoreSettings(entry) }
             if entry.grid == nil { EditButtons(app: app, entry: entry) }
