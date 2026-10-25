@@ -1338,7 +1338,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ × %@ dépasse ce que le moteur sait adresser, quelle que soit la mémoire : %@ mégapixels au plus."
+            "value" : "%@ × %@ dépasse ce que le moteur sait adresser, quelle que soit la mémoire : %@ mégapixels au plus."
           }
         },
         "it" : {
@@ -21712,7 +21712,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette image est plus grande que ce que macOS agrandit : %@ px de côté au plus"
+            "value" : "Cette image est plus grande que ce que macOS agrandit : %@ px de côté au plus"
           }
         },
         "it" : {
