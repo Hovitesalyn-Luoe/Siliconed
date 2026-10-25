@@ -76,7 +76,7 @@ enum Krea2Stages {
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists",
         sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations", "--variant"],
-        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness and witness-step --step 0 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
+        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}; with --variant compact or light, dit, bf16, witness, witness-step --step 0 and draw --step 0 --jitter 1 2 3 with --variant, at 512 (the Compact's or the Light's published weights, dequantized by their publisher's library)", weights: ["DiT"],
         rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
     ) { invocation in
         let version = try invocation.quantizedVariant()
@@ -126,8 +126,9 @@ enum Krea2Stages {
         }
         if let expected = goldens.float32("model_out") {
             if let witness = exact("model_out") {
-                report.add(Judge.planes("model_out per plane", engine: out, oracle: expected, witness: witness,
-                                        reference: half?.values("model_out"), planes: 16))
+                let m = Judge.planes("model_out per plane", engine: out, oracle: expected, witness: witness,
+                                     reference: half?.values("model_out"), planes: 16)
+                report.add(try clouds.arbitrate(m, exact: witness, columns: height * width, as: "model_out", planes: 16))
             }
             if let m = Judge.orientation(out, expected, height: height, width: width) { report.add(m) }
         }
@@ -239,18 +240,23 @@ struct Clouds {
     }
 
     /// `m` itself, or its verdict by clouds. `name`: the boundary's name in the draws, `m`'s by default.
-    mutating func arbitrate(_ m: Measure, exact: UnsafeBufferPointer<Float>?, columns: Int, as name: String? = nil) throws -> Measure {
+    /// `planes`: the measure is per plane of a latent (`Judge.planes`), not per channel of `columns`.
+    mutating func arbitrate(_ m: Measure, exact: UnsafeBufferPointer<Float>?, columns: Int, as name: String? = nil,
+                            planes: Int? = nil) throws -> Measure {
         guard !m.passed, let exact, let atWitness = m.atWitness else { return m }
         let name = name ?? m.boundary
+        let worst = { (v: [Float], exact: UnsafeBufferPointer<Float>) -> Double in
+            planes.map { errorPerPlane(v, exact, planes: $0).worst } ?? channelError(v, exact, columns: columns).worst
+        }
         let oracle = draws.compactMap { d -> Double? in
             guard let v = d.float32(name), v.count == exact.count else { return nil }
-            return channelError(Array(v), exact, columns: columns).worst
+            return worst(Array(v), exact)
         }
         guard oracle.count >= 2 else { return m.with(note: "no oracle draws to arbitrate") }
         if engine.isEmpty { engine = try (1...4).map { try engineDraw(UInt64($0)) } }
         let engineCloud = [atWitness.engine] + engine.compactMap { b -> Double? in
             guard let v = b[name], v.count == exact.count else { return nil }
-            return channelError(v, exact, columns: columns).worst
+            return worst(v, exact)
         }
         let oracleCloud = [atWitness.reference] + oracle
         let median = engineCloud.sorted()[engineCloud.count / 2], threshold = 1.25 * (oracleCloud.max() ?? 0)

@@ -7,6 +7,8 @@ goldens compares them with it:
 
     python tools/oracle/fingerprints.py compare [--goldens DIR]     what differs from ours, and by how much
     python tools/oracle/fingerprints.py write   [--goldens DIR]     the maintainer, after regenerating
+    python tools/oracle/fingerprints.py add --only TEXT [TEXT …]    the maintainer: only the goldens not yet
+                                                                    published whose path holds one of the TEXTs
 
 Integers (token identifiers, masks, positions) must match exactly: they are compared by a hash of
 their bytes. Floats are compared by their statistics, with a tolerance, never bit for bit: PyTorch
@@ -68,6 +70,19 @@ def write(directory: Path) -> int:
     return 0
 
 
+def add(directory: Path, only: list[str]) -> int:
+    """New goldens (a path with one of `only`) join the published table; the others are left as they are."""
+    table = json.loads(PUBLISHED.read_text())
+    added = [relative for relative, path in goldens(directory)
+             if relative not in table and any(text in relative for text in only)]
+    for relative in added:
+        table[relative] = read(dict(goldens(directory))[relative])
+        print(f"  + {relative}")
+    PUBLISHED.write_text(json.dumps(table, indent=1, sort_keys=True) + "\n")
+    print(f"{len(added)} goldens added → {PUBLISHED.name} ({len(table)} in all)")
+    return 0
+
+
 def relative_gap(ours: float, theirs: float) -> float:
     scale = max(abs(ours), abs(theirs))
     return 0.0 if scale == 0 else abs(ours - theirs) / scale
@@ -115,11 +130,14 @@ def compare(directory: Path, tolerance: float) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("action", choices=["compare", "write"])
+    parser.add_argument("action", choices=["compare", "write", "add"])
+    parser.add_argument("--only", nargs="+", action="extend", default=[], help="add: the texts a new golden's path must hold one of")
     parser.add_argument("--goldens", help="the goldens folder (default: $SILICONED_GOLDENS, else ./goldens)")
     parser.add_argument("--tolerance", type=float, default=TOLERANCE)
     arguments = parser.parse_args()
     directory = goldens_directory(arguments.goldens)
+    if arguments.action == "add":
+        return add(directory, arguments.only) if arguments.only else parser.error("add needs --only")
     return write(directory) if arguments.action == "write" else compare(directory, arguments.tolerance)
 
 

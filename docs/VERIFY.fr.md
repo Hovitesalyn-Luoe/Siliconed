@@ -152,6 +152,8 @@ siliconed check z-image dit --size 512 --variant compact --neural-engine
 
 La Compacte et la Légère calculent par défaut sur le Neural Engine (produits en fp16) : `--neural-engine` est donc la barre qui compte pour elles, jugée comme celle de la Standard : contre la référence en bf16 sur les mêmes poids déquantés, le moteur ayant droit à l'erreur propre du bf16 plus 25 %. Ces goldens demandent d'abord le golden `dit` de la Standard à 512 (ils en lisent les entrées) ; ils ne font partie ni de `all` ni de `siliconed check <modèle>`.
 
+Les variantes de Krea 2 se jugent par nuages comme sa Standard : sur la Légère, `model_out per plane` vaut 1,345e-4 pour une tolérance de 1,33e-4 en un seul tirage, et passe quand on lit les trois tirages de la référence décalés d'un ulp (médiane du moteur 1,28e-4 pour 1,36e-4). Les tirages d'une variante : `krea2.py draw --size 512 --step 0 --jitter 1 2 3 --variant compact|light` (le pas 0 seulement : les latents suivants sont ceux de la trajectoire de la Standard).
+
 Les LoRA ne sont pas couvertes ici : ce sont des fichiers que vous choisissez, pas une part de ce que Siliconed livre.
 
 ## Toutes les étapes
