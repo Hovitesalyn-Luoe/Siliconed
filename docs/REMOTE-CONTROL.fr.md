@@ -66,25 +66,25 @@ image. Refusé sur la planche d'une grille, une esquisse, ou un modèle qui n'es
 Le `variation` de chaque image donne ses graines de variation dans l'ordre ; la réponse est dans
 `silicontrol help vary`.
 
-**L'agrandissement aussi est celui du menu.** `silicontrol enlarge i7 [--download]` et « Agrandir ×4 »
+**L'agrandissement aussi est celui du menu.** `silicontrol enlarge i7 [--download]` et « Agrandir ×4 »
 appellent tous deux `AppState.enlarged` : la super-résolution de macOS (VideoToolbox, macOS 26),
 sans prompt, hors de la file — refusé pendant un rendu —, avec la nouvelle image en réponse une
 fois dans l'historique. Le modèle d'Apple n'est téléchargé par macOS qu'avec `--download` (sinon
-`download_required`) ; le reste est dans `silicontrol help enlarge`.
+`download_required`) ; le reste est dans `silicontrol help enlarge`.
 
-**Faster Rendering est aussi celui de l'interrupteur des Réglages.** `silicontrol set faster-rendering on|off`
+**Le rendu plus rapide est aussi celui de l'interrupteur des Réglages.** `silicontrol set faster-rendering on|off`
 écrit `AppState.fasterRendering` (la préférence, `Spectral.halfSizeStart`) et l'interrupteur de la fenêtre
-suit, comme un clic ; `status` le donne (`"faster_rendering"`). Refusé (`busy`) sauf si rien ne tourne ni
-n'attend : le moteur le lit à chaque plan, et un travail planifié sous une valeur et fini sous l'autre
-mélangerait deux recettes. C'est un réglage de l'app, il persiste comme l'interrupteur ; `silicontrol
+suit, comme un clic ; `status` le donne (`"faster_rendering"`). Refusé (`busy`) sauf si rien ne tourne ni
+n'attend : le moteur le lit à chaque plan, et un travail planifié sous une valeur et fini sous l'autre
+mélangerait deux recettes. C'est un réglage de l'app, il persiste comme l'interrupteur ; `silicontrol
 measure --faster-rendering on|off` le pose pour une série, l'inscrit dans le TSV et rend la valeur
 d'avant à la fin, même si la série échoue. Éteint, c'est la pleine taille, les mêmes bits qu'avant ce réglage.
 
 ## La commande
 
 `silicontrol` est livrée dans l'app, `Siliconed.app/Contents/Helpers/silicontrol` (cible `Silicontrol`,
-`Sources/Silicontrol/main.swift`). Réglages → Ligne de commande (« Installer… ») la lie
-dans `/usr/local/bin`. Ce n'est qu'un tuyau : Foundation seule, elle ne lie pas le moteur. Si
+`Sources/Silicontrol/main.swift`). Réglages → Ligne de commande (« Installer… ») la lie
+dans `/usr/local/bin`. Ce n'est qu'un tuyau : Foundation et les frameworks du système seulement, elle ne lie pas le moteur. Si
 l'app n'est pas lancée, toute commande sauf l'aide la lance et attend sa prise (30 s au plus) ;
 `silicontrol open` ne fait que cela. L'aide (`help`, `help <sujet>`, `<commande> --help`, aucun
 argument) est servie par la commande elle-même, sans lancer l'app.
@@ -104,8 +104,10 @@ argument) est servie par la commande elle-même, sans lancer l'app.
   souvent `"hint"` en cas d'échec). Sans le client :
   `printf '{"argv":["status"]}\n' | nc -U ~/Library/Application\ Support/Siliconed/silicontrol.sock`.
 - **Toute l'analyse est dans l'app** (`Sources/SiliconedApp/RemoteControl.swift`) : `argv` est la
-  ligne de commande telle quelle et le client n'est qu'un tuyau. Seuls `open` et l'aide sont
-  traités côté client, car ils doivent marcher app fermée. Les chemins relatifs se résolvent contre `cwd`. Les
+  ligne de commande telle quelle et le client n'est qu'un tuyau. Seuls `open`, l'aide et `measure` sont
+  traités côté client : les deux premiers doivent marcher app fermée ; `measure` est une série de
+  rendus que le client pilote lui-même, chacun un `add --wait` sur la prise, chronométré, pendant
+  qu'il échantillonne la mémoire de l'app (`Sources/Measurement`). Les chemins relatifs se résolvent contre `cwd`. Les
   images d'une édition (`--ref`, répétable, dans l'ordre : le premier est l'image 1, celle qu'on
   édite) voyagent de même, en chemins ou en noms d'historique (`i7`), jamais en pixels : l'app les
   lit elle-même.
@@ -120,9 +122,8 @@ argument) est servie par la commande elle-même, sans lancer l'app.
 - **Codes de sortie** du client : `0` la dernière ligne dit `"ok": true` ; `1` elle dit
   `"ok": false` ; `2` erreur d'usage ; `3` l'app est injoignable (pas lancée et non lançable, ou
   ne répond pas).
-- **Les signaux.** L'`AppState` émet `Signal` (`started`, `stage`, `step`, `image`, `sheet` quand la
-  dernière case d'une grille a fini, `finished` avec
-  son `Issue`) à qui s'abonne ; `wait` et `follow` s'abonnent le temps de leur connexion et se
+- **Les signaux.** L'`AppState` émet `Signal` (`started`, `stage`, `step`, `image`, `finished` avec
+  son `Issue`, `sheet` quand la dernière case d'une grille a fini) à qui s'abonne ; `wait` et `follow` s'abonnent le temps de leur connexion et se
   désabonnent au premier envoi qui échoue (client parti).
 - **SIGPIPE est ignoré** (`signal(SIGPIPE, SIG_IGN)`, plus `SO_NOSIGPIPE` sur chaque socket
   client), pour qu'un client qui raccroche ne puisse pas tuer l'app : mesuré, un client qui se

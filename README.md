@@ -41,10 +41,10 @@ More about the app: [docs/APP.md](docs/APP.md).
 ## Documentation
 
 - [docs/APP.md](docs/APP.md): the app in detail: creating, editing, exploring, managing models, privacy.
-- [docs/ENGINE.md](docs/ENGINE.md): the engine: measuring the Mac, the Neural Engine, memory, numbers, Faster Rendering, Draw Things, the community diagnostic, verification, building from source.
-- [VERIFY.md](docs/VERIFY.md): checking the results against the reference on your Mac.
+- [docs/ENGINE.md](docs/ENGINE.md): the engine: measuring the Mac, the Neural Engine, numbers, Faster Rendering, Draw Things, memory, the community diagnostic, verification, building from source.
+- [docs/VERIFY.md](docs/VERIFY.md): checking the results against the reference on your Mac.
 - [docs/REMOTE-CONTROL.md](docs/REMOTE-CONTROL.md): `silicontrol`, protocol and internals.
-- [RELEASE-NOTES.md](docs/RELEASE-NOTES.md): what changed in each version.
+- [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md): what changed in each version.
 - Issues: [diagnostic report, bug, idea](https://github.com/gwenn-ha-dev/Siliconed/issues/new/choose).
 
 ## Credits
