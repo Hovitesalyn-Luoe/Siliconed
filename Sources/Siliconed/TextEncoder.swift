@@ -6,6 +6,45 @@ import Metal
 /// Qwen-Image-2.1's Qwen3-VL-8B through `Qwen3VLEncoder`). The notes below are
 /// Z-Image's; what each family adds is in its own file. The tokenizer is in `Tokenizer.swift`.
 ///
+/// Who runs it, and where it stops (`Modules.swift`, `Krea2Engine.swift`, `Qwen3VL.swift`):
+///
+///   - Z-Image: Qwen3-4B, 35 of 36 layers, output taken as is (`encode`);
+///   - Anima: Qwen3-0.6B, the layers its map holds and the final RMSNorm, because the map declares `final_norm`;
+///   - Krea 2: the input of 12 chosen layers, stacked (`encodeTaps`), the template's first rows dropped;
+///   - Qwen-Image-2.1: Qwen3-VL's 36 language layers, with the three hooks below.
+///
+///     ids ─ embed_tokens (rows read from the map) ─ [embeddingsHook] ──┐
+///                                                                      ▼
+///     layers 0…last: x ─ attention ─ + ─ MLP ─ + ─ [layerOutputHook] ─▶ x   (tap: the input of each layer)
+///                                                                      ▼
+///     (final RMSNorm, only if the map carries it) ─ first `realTokens` rows
+///
+/// **One layer** — pre-norm, no bias, `heads · headDim` is not `hidden`:
+///
+///     n = RMS(x)·w₁                        q = RMS_head(Wq n)   k = RMS_head(Wk n)   v = Wv n
+///     x += Wo( SDPA_causal(RoPE(q), RoPE(k), v) )          K and V repeated `heads/kvHeads` times
+///     x += Wdown( SiLU(Wgate n') ⊙ Wup n' )                n' = RMS(x)·w₂
+///
+/// What else a port by analogy would miss (reference: `modeling_qwen3.py`, transformers 5.19):
+///
+///   - **QK-Norm is per head and on q and k only** (`Qwen3Attention.forward`, the `q_norm(...view(hidden_shape))`
+///     lines): `v` is not normalized, the norm weight has `headDim` values (`encode`, `normHeads`);
+///   - **the RMSNorm multiplies by its weight as stored** (`Qwen3RMSNorm.forward`: `weight * x̂`, no
+///     `1 + w` as in the Gemma family or the Qwen-Image-2.1 `txt_in`), variance mean over the last
+///     axis (`Ops.rmsNorm`);
+///   - **`headDim` is the config's, not `hidden / heads`** (`Qwen3Attention.__init__`): Qwen3-4B has
+///     32 × 128 = 4096 ≠ 2560 (`Config.attentionWidth`), so `o_proj` goes back from `heads · headDim`;
+///   - **GQA repeats each k/v head `groupSize` times consecutively** (`repeat_kv`: expand on a new axis after
+///     the kv head, then reshape): query head `h` reads kv head `h / groupSize` (`expandKV`);
+///   - **the scale is `headDim^-0.5`**, taken from `head_dim` (`self.scaling`; `Attention.init`);
+///   - **θ lives under `rope_parameters["rope_theta"]`** in transformers 5, at the root in 4
+///     (`compute_default_rope_parameters`; `Config.init`);
+///   - **the final `norm` is applied by `Qwen3Model.forward` after the last layer**: any
+///     output taken from the layer stack stops before it, and the map has to say whether it carries it
+///     (`encode`, `final_norm`);
+///   - the checkpoints use no attention bias and no sliding window (`attention_bias = False`,
+///     `use_sliding_window = False` by default): none is ported, the layer has no bias slot.
+///
 /// ## Three things not to rediscover
 ///
 /// **There are only 35 layers out of 36.** `hidden_states[-2]` was compared against the golden tensors rather than

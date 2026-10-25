@@ -3,7 +3,46 @@ import Foundation
 import Metal
 
 /// **Qwen3-VL's vision tower** (`Qwen3VLVisionModel`), one image at a time, in fp32. Graph and
-/// pitfalls: the header of `Qwen3VL.swift`.
+/// pitfalls: the header of `Qwen3VL.swift`. Only `Qwen3VLEncoder` runs it, for Qwen-Image-2.1's
+/// condition images; its output replaces the `<|image_pad|>` rows of the language model's input
+/// (the merger) and is added to the output of that model's first three layers (the deepstack).
+///
+///     pixel_values [N, 1536] ─ patch_embed (Linear) ─ + Σ₄ w·pos_embed[tap] ─ x [N, 1152]
+///       27 blocks ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+///         after blocks 8, 16, 24 (output of the block): x ─ deepstack merger k ─ [N/4, 4096]   │
+///       final x ─ merger (LayerNorm 1152 first) ─ [N/4, 4096] ──────────────────────────────────┘
+///
+/// **A merger** — `Qwen3VLVisionPatchMerger`; the 4 patches of a 2×2 block are consecutive rows, so
+/// the shuffle is a `view`:
+///
+///     final:      y = W₂ · GELU( W₁ · view₄( LN₁₁₅₂(x) ) )              W₁: 4608 → 4608, W₂: 4608 → 4096
+///     deepstack:  y = W₂ · GELU( W₁ · LN₄₆₀₈( view₄(x) ) )
+///
+/// What a port by analogy would miss, read in `modeling_qwen3_vl.py` (transformers 5.19) and
+/// `vision_utils.py`:
+///
+///   - **the deepstack mergers read the OUTPUT of blocks 8, 16, 24 and leave `x` untouched**: the tower
+///     goes on from the same state, and the final merger reads block 26's output
+///     (`Qwen3VLVisionModel.forward`; `encode`, the `deepstack.firstIndex` branch);
+///   - **the QKV projection is `reshape(N, 3, heads, 72)`**: each row is `[q | k | v]`, each of them
+///     heads-major (`Qwen3VLVisionAttention.forward`; `encode`, the `packed` split);
+///   - **the attention is bidirectional and scaled by `72^-0.5`**, over one image's `N` patches
+///     (`cu_seqlens` cuts per image; `is_causal = False`; `encode` runs `Attention(causal: false)`);
+///   - **the RoPE is `cat(h, w, h, w)` over the head, rotated by `rotate_half`** — angle for dim `d` and
+///     `d + 36` equal — from `inv_freq` over `head_dim / 2 = 36` (`compute_axial_rope_parameters`,
+///     `recomposition_frequencies`); the table is `writeRope`, the forge's q/k permutation makes the
+///     interleaved `Ops.rope` equal to `rotate_half`;
+///   - **the row/column of a patch follow the 2×2 merge-block order** of `pixel_values`, not raster
+///     (`get_vision_position_ids`; `Qwen3VLImages.patchPositions`), and so do the four interpolation taps
+///     of its learned position (`get_vision_interpolation_indices_and_weights`; `Qwen3VLImages.positionTaps`);
+///   - **the position table is resampled by `src = i · (side − 1) / max(size − 1, 1)`** (`align_corners`),
+///     weights `max(1 − |src − tap|, 0)`, border-clamped taps, the four weighted rows SUMMED then added
+///     to the patch embedding (`_interpolation_axis_taps_weights`; `encode`, the `rowsOfTable` loop);
+///   - **every LayerNorm is eps 1e-6 with a bias, every Linear has one** (`Qwen3VLVisionBlock`,
+///     `Qwen3VLVisionMLP`: `bias=True`) — unlike the language model, which has none (`linear`, `layerNorm`);
+///   - **the activation is `gelu_pytorch_tanh` in the blocks and the exact `nn.GELU()` in the mergers**
+///     (`Qwen3VLVisionMLP.act_fn`; `Qwen3VLVisionPatchMerger.act_fn`): `Config.init` refuses a
+///     tower that declares another, `merger` uses `AnimaOps.gelu`.
 ///
 /// The weights are read from the encoder's map (`visual.*`, 1.15 GB of bf16 before the language
 /// model) block by block into one reserve, like the language model's — the tower is a tenth of
