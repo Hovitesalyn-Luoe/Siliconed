@@ -2,6 +2,58 @@ English · [Français](RELEASE-NOTES.fr.md)
 
 # Siliconed — release notes
 
+## 0.15
+
+### Compact by default
+
+- **The Compact is now preselected, and marked recommended,** when you install a model on a Mac with
+  more than 8 GB (the Light stays preselected on 8 GB). On an M1 Pro it renders as fast as the
+  Standard, takes half its disk space, and has the Neural Engine on by default. A model already
+  installed keeps its version; the three stay one click apart.
+- **Full precision costs almost nothing.** The Standard, the publisher's bf16 weights computed in
+  fp32, takes the Compact's time within 4 % on Z-Image and Anima, and 6 to 10 % more on Krea 2 and
+  Qwen-Image-2.1, whose weights do not fit in memory at full precision and are read again from disk
+  at each step. Every figure: [Numbers](ENGINE.md#numbers).
+
+### Larger images, lower peaks
+
+- **No area ceiling any more: this Mac's memory budget decides.** The size picker offers 1536² and
+  2048², greyed with the Mac they need where the budget refuses them. Anima Turbo renders 2048² on a
+  16 GB Mac, peaking at 5.4 GB.
+- **Lower peaks, the same pixels**: weights are now read from disk a few tensors at a time instead
+  of a layer at a time — 0.8 to 1.4 GB less for Krea 2, 1.1 GB for Z-Image, 0.5 GB for
+  Qwen-Image-2.1.
+- **Fixed: Krea 2's memory crept up during the denoising** (objects freed only at the end of the
+  render).
+
+### Check our numbers yourself
+
+- **`siliconed check <model>`** compares every stage of a model with the reference implementation,
+  on your Mac, against goldens you write with the scripts of `tools/oracle/` and whose fingerprints
+  we publish. `--neural-engine` judges the Neural Engine's arithmetic, `--variant compact|light`
+  the Compact and the Light against the reference run on the third party's published weights. The
+  command ships inside the app (`Contents/Helpers`): it checks the very engine the app renders
+  with, without Xcode. How, and what it costs: [VERIFY.md](VERIFY.md).
+- **`silicontrol measure`** repeats our timings and peaks with the app alone: a series of renders
+  between two witnesses, the app's sampled peak memory, swap-outs, disk reads and each image's
+  checksum, as a TSV. `silicontrol set faster-rendering on|off` switches Faster Rendering like
+  Settings does.
+
+### Crop and save
+
+- **Crop** a rendered image or an edit reference: C to enter, corner and side handles, rule of thirds
+  while dragging, Return to accept, Escape to cancel; never under 512 px a side. The crop is a new
+  history entry; the original stays.
+- **Save as PNG, JPEG or HEIC**; the last format is remembered. JPEG and HEIC carry no metadata.
+
+### Engine
+
+- **Large formats split their attention** between the GPU and the CPU at the share this Mac's
+  measure finds fastest, the CPU heads' softmax in one NEON pass.
+- **A bf16-activation path** for the denoiser's products, chosen per Mac by its measure, judged
+  against diffusers in bf16; off on the M1 Pro, where it does not win.
+- **This Mac is measured again** before the first render after the update, about a minute.
+
 ## 0.14
 
 ### The Neural Engine

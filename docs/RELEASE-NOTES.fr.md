@@ -2,6 +2,59 @@
 
 # Siliconed — notes de version
 
+## 0.15
+
+### La Compact par défaut
+
+- **La Compact est désormais présélectionnée, et dite recommandée,** quand vous installez un modèle
+  sur un Mac de plus de 8 Go (la Légère reste présélectionnée sur 8 Go). Sur un M1 Pro, elle rend
+  aussi vite que la Standard, prend moitié moins de place sur le disque, et le Neural Engine y est
+  allumé par défaut. Un modèle déjà installé garde sa version ; les trois restent à un clic.
+- **La précision complète ne coûte presque rien.** La Standard, les poids bf16 de l’éditeur
+  calculés en fp32, prend le temps de la Compact à 4 % près sur Z-Image et Anima, et 6 à 10 % de
+  plus sur Krea 2 et Qwen-Image-2.1, dont les poids ne tiennent pas en mémoire en pleine précision
+  et sont relus sur le disque à chaque pas. Tous les chiffres : [Les chiffres](ENGINE.fr.md#les-chiffres).
+
+### Des images plus grandes, des pics plus bas
+
+- **Plus de plafond d’aire : le budget mémoire de ce Mac décide.** Le sélecteur de format propose
+  1536² et 2048², grisés avec le Mac qu’il leur faut là où le budget les refuse. Anima Turbo rend
+  du 2048² sur un Mac de 16 Go, avec un pic de 5,4 Go.
+- **Des pics plus bas, les mêmes pixels** : les poids sont lus sur le disque quelques tenseurs à la
+  fois, et non plus une couche à la fois — 0,8 à 1,4 Go de moins pour Krea 2, 1,1 Go pour Z-Image,
+  0,5 Go pour Qwen-Image-2.1.
+- **Corrigé : la mémoire de Krea 2 montait pendant le débruitage** (des objets libérés seulement à
+  la fin du rendu).
+
+### Vérifiez nos nombres chez vous
+
+- **`siliconed check <modèle>`** compare chaque étape d’un modèle à l’implémentation de référence,
+  sur votre Mac, contre des goldens que vous écrivez avec les scripts de `tools/oracle/` et dont nous
+  publions les empreintes. `--neural-engine` juge l’arithmétique du Neural Engine, `--variant
+  compact|light` la Compact et la Légère contre la référence exécutée sur les poids publiés par le
+  tiers. La commande est livrée dans l’app (`Contents/Helpers`) : elle vérifie le moteur même avec
+  lequel l’app rend, sans Xcode. Comment, et ce que ça coûte : [VERIFY.fr.md](VERIFY.fr.md).
+- **`silicontrol measure`** refait nos temps et nos pics avec la seule app : une série de rendus
+  entre deux témoins, le pic mémoire échantillonné de l’app, les swap-outs, les lectures disque et
+  l’empreinte de chaque image, en TSV. `silicontrol set faster-rendering on|off` bascule le rendu
+  plus rapide comme les Réglages.
+
+### Recadrer et enregistrer
+
+- **Recadrer** une image rendue ou une référence d’édition : C pour entrer, poignées aux coins et
+  aux côtés, règle des tiers pendant le geste, Retour pour accepter, Échap pour annuler ; jamais
+  sous 512 px de côté. Le recadrage est une nouvelle entrée de l’historique ; l’original reste.
+- **Enregistrer en PNG, JPEG ou HEIC** ; le dernier format est retenu. JPEG et HEIC ne portent
+  aucune métadonnée.
+
+### Le moteur
+
+- **Les grands formats partagent leur attention** entre le GPU et le CPU à la part que la mesure de
+  ce Mac trouve la plus rapide, le softmax des têtes du CPU en une passe NEON.
+- **Un chemin à activations bf16** pour les produits du débruiteur, choisi par Mac par sa mesure,
+  jugé contre diffusers en bf16 ; éteint sur le M1 Pro, où il ne gagne pas.
+- **Ce Mac est mesuré à nouveau** avant le premier rendu après la mise à jour, environ une minute.
+
 ## 0.14
 
 ### Le Neural Engine

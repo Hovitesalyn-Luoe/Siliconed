@@ -201,7 +201,7 @@
       <path d="M 40 830 L 560 830 A 310 310 0 0 0 560 210 A 310 310 0 0 0 250 520"/>
     </g>
   </svg>
-  <p class="eyebrow h-fade">v0.14 · free · open source · Apple silicon</p>
+  <p class="eyebrow h-fade">v0.15 · free · open source · Apple silicon</p>
   <h1 class="h-fade d1"><span class="grad">Your Mac, mapped.</span><span class="sub">Every kernel chosen for <em>this</em> chip.</span></h1>
   <p class="lead h-fade d2">Siliconed measures your Mac, then runs four image models on the kernels that won there:
     GPU, CPU matrix unit, Neural Engine. Full fp32, checked against the reference, inside a fixed memory
@@ -231,9 +231,9 @@
       <p>Standard, Compact or Light, from open copies proven identical to Krea's files. No account, no
         sign-in. Krea 2 Community license: commercial use under $1M of annual revenue, a content filter when deployed.</p>
       <ul class="stats">
-        <li><b>145.6 s</b>1024² on an M1 Pro, Faster Rendering</li>
-        <li><b>216.9 s</b>1024×1536, Faster Rendering</li>
-        <li><b>1.44·10⁻⁴</b>from the fp32 reference</li>
+        <li><b>135.8 s</b>1024² on an M1 Pro, Compact</li>
+        <li><b>147.8 s</b>the same, in full precision</li>
+        <li><b>2.6·10⁻⁴</b>from the fp32 reference</li>
       </ul>
     </div>
     <figure class="shot reveal">
@@ -256,7 +256,7 @@
       <tr><td><a href="https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo">Qwen-Image-2.1 Turbo</a></td><td>text-to-image, editing by instruction with 1 to 3 images, LoRA</td><td>Qwen Research (non-commercial)</td></tr>
       <tr><td><a href="https://huggingface.co/circlestone-labs/Anima">Anima Turbo</a></td><td>text-to-image (illustration, painting, anime), LoRA</td><td>CircleStone Labs Non-Commercial (the images may be used commercially)</td></tr>
     </table></div>
-    <p class="times">1024², 8 steps, seed 42, Standard weights, on an M1 Pro with 16 GB, app 0.12, Faster Rendering on (the default): Krea 2 Turbo 145.6 s, Z-Image Turbo 84.5 s, Qwen-Image-2.1 Turbo 103.7 s, Anima Turbo 32.7 s. Every step at full size: 221.1 s, 117.7 s, 142.7 s, 44.4 s. Light weights, Faster Rendering on: 153.8 s, 90–91 s, 111.0 s, 35.4 s. An edit with one reference: 211 s (0.10).</p>
+    <p class="times">1024², 8 steps, seed 42, on an M1 Pro with 16 GB, app 0.15, Faster Rendering on (the default). Compact, the default: Krea 2 Turbo 135.8 s, Z-Image Turbo 83.1 s, Qwen-Image-2.1 Turbo 100.2 s, Anima Turbo 33.1 s. Standard, the publisher's bf16 in fp32: 147.8 s, 82.4 s, 110.4 s, 34.3 s. Light: 145.0 s, 87.5 s, 103.7 s, 34.7 s. Every step at full size (Standard, 0.12): 221.1 s, 117.7 s, 142.7 s, 44.4 s. An edit with one reference: 211 s (0.10).</p>
   </div>
 </section>
 
@@ -398,7 +398,8 @@
       <p class="kicker">Install</p>
       <h2>Pick your size.</h2>
       <p class="punch">Standard, Compact or Light.</p>
-      <p>The publisher's weights, 8-bit versions, or a 4-to-6-bit transformer. Every file is pinned to a
+      <p>The publisher's weights, 8-bit versions, or a 4-to-6-bit transformer. The 8-bit Compact is
+        preselected: as fast on an M1 Pro, half the disk. Every file is pinned to a
         revision and checked by sha256, and downloads resume where they stopped. The next file downloads
         while the previous one is prepared: Qwen-Image-2.1 installs in about 6½ minutes on a fast connection.</p>
     </div>

@@ -41,19 +41,24 @@ Times: renders queued in the app with `silicontrol`, each in a newly launched ap
 
 ## Numbers
 
-Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. Seed 42, 8 steps.
+Reference machine: MacBook Pro M1 Pro (8 cores, 14 GPU cores), 16 GB. App 0.15, 25/10/2026, seed 42, 8 steps, Faster Rendering on (the default), the prompt “Photo of a young Irish woman with wavy auburn hair and freckles, in a shorty wetsuit, holding her surfboard on a wild beach in the west of Ireland, Atlantic waves behind her, 35 mm photograph.”
 
 | | Krea 2 Turbo | Z-Image Turbo | Qwen-Image-2.1 Turbo | Anima Turbo |
 |---|---|---|---|---|
-| 1024², Standard, Faster Rendering (default) | **145.6 s** | **84.5 s** | **103.7 s** | **32.7 s** |
-| 1024², Standard, every evaluation at full size | 221.1 s | 117.7 s | 142.7 s | 44.4 s |
-| 1024×1536, Standard, Faster Rendering / full size | 216.9 s / 355.3 s | 131.0 s / 190 s | 161.7 s / 232 s | 52.5 s / 75.6 s |
+| 1024², Compact (8 bits, the default), Neural Engine on | **135.8 s** | **83.1 s** | **100.2 s** | **33.1 s** |
+| 1024², Standard (the publisher's bf16, computed in fp32) | 147.8 s | 82.4 s | 110.4 s | 34.3 s |
+| 1024², Light (4 to 6 bits), Neural Engine on | 145.0 s | 87.5 s | 103.7 s | 34.7 s |
+| 1024×1536, Compact / Standard | 207.7 s / 223.1 s | 130.2 s / 133.1 s | 161.1 s / 170.9 s | 53.6 s / 53.7 s |
+| the first image of a new prompt (its text encoding included), 1024², Compact / Standard | 136.7 s / 150.2 s | 84.2 s / 84.9 s | 105.7 s / 118.4 s | 33.8 s / 33.9 s |
+| peak memory of the app, 1024² · 1024×1536, Compact / Standard | 2.1 · 2.7 / 2.1 · 2.6 GiB | 1.9 · 2.8 / 1.9 · 2.8 GiB | 1.5 · 1.7 / 1.5 · 1.7 GiB | 1.3 · 2.0 / 1.3 · 2.0 GiB |
+| read from disk per image, 1024², Compact / Standard | 98 / 195 GB | 0 / 44 GB | 0.2 / 135 GB | 0 / 0 GB |
+| 1024², Standard, every evaluation at full size (0.12) | 221.1 s | 117.7 s | 142.7 s | 44.4 s |
 | other, Standard | | | an edit with 1 image 211 s, with 2 images 297 s | 512² 12.1 s |
-| 1024², Light (4 to 6 bits), Faster Rendering (default) | 153.8 s | 89.7–91.1 s | 111.0 s | 35.4 s |
-| peak memory, Standard / Light | 3.07 GB (1024×1536: 3.51 GB), the engine alone / 1.55 GB | see [Next to Draw Things](#next-to-draw-things) | 1.8–2.7 GB / 1.5 GB | 1.4 GB (the engine alone) / 1.4 GB |
 | deviation of the denoiser's output (`model_out`, worst channel) from the fp32 reference · from the fp64 exact (the reference's own) | 2.6·10⁻⁴ · 3.3·10⁻⁴ (3.1·10⁻⁴), 1024² | 9.8·10⁻⁶ · 1.2·10⁻⁵ (1.3·10⁻⁵), 1024² | 3.1·10⁻⁶ · 2.6·10⁻⁶ (2.5·10⁻⁶), 512² | 1.4·10⁻⁵ · per latent plane 2.9·10⁻⁶ (3.8·10⁻⁶), 1024² |
 
-Each time is a render queued in the app with `silicontrol`, timed from the queue to the PNG, with this Mac's map in use; `silicontrol measure` repeats such a series on your Mac, witnesses included ([REMOTE-CONTROL.md](REMOTE-CONTROL.md)). With Faster Rendering: 19/10/2026, app 0.12, the setting at its default; a Z-Image 1024² render with it off, as a control, took 112.0 s in the same series. Light, and Z-Image's Standard peak: 19/10/2026 in the evening, app 0.12, the setting at its default, each render in a freshly opened app, 0 swap-out; Z-Image's first and last Light renders, as controls, took 91.1 and 90.5 s. Every evaluation at full size, 1024²: 18/10/2026, app 0.12, 0 swap-out; a last Z-Image render at the end of that series, as a control, took 123.6 s (the machine drifts by a few percent from one render to the next); Krea 2's 1024×1536: the same series. The other times: Qwen-Image-2.1 on 15/10/2026 with 0.10, Z-Image on 14/10/2026 with 0.8.2. Peak memory is the app's `phys_footprint`, sampled every 100 ms. Anima Turbo's other times and its peak are those of the engine alone, without the app, render cache off (14–15/10/2026); Krea 2 Turbo's Standard peaks too (17/10/2026). The deviations are what `siliconed check <model> dit --size <side>` printed on the same Mac on 24/10/2026, against goldens written by `tools/oracle/`; on yours they differ in the last digits ([VERIFY.md](VERIFY.md), [Verification](#verification)).
+**Full precision costs almost nothing.** The Standard computes the publisher's bf16 weights in fp32, the precision the reference is checked in; the Compact reads 8-bit weights published by third parties and computes in fp32 too. On Z-Image and Anima the Standard takes the Compact's time within 4 %. On Krea 2 and Qwen-Image-2.1 it takes 6 to 10 % more: at full precision their weights do not stay in a 16 GB Mac's memory and are read again from disk at each step, 195 GB and 135 GB per image at 1024². That is also why every peak stays under 3 GiB: weights mapped from disk are not counted in `phys_footprint`, since the system can drop them at any moment. What the Standard does cost is disk space, twice the Compact's, and energy, the Neural Engine being off on it by default ([The Neural Engine](#the-neural-engine)).
+
+Each line is a `silicontrol measure` series in a freshly opened app, the series anyone can repeat ([REMOTE-CONTROL.md](REMOTE-CONTROL.md)): a load render, a witness (the library prompt, “a 30 year old woman posing in a library”), two renders of the prompt above, a witness again. A time is the second render's, from the request to the PNG, the prompt already encoded; the first image of a new prompt adds its text encoding. The two witnesses of each series stayed within 1.4 % of each other, 0 swap-out, and each image came out identical, to the bit, from one render to the next. Peak memory is the app's `phys_footprint`, sampled every 100 ms. Every evaluation at full size: 18/10/2026, app 0.12, 0 swap-out. The other times: Qwen-Image-2.1 on 15/10/2026 with 0.10, Anima Turbo's 512² with the engine alone (14–15/10/2026). The deviations are what `siliconed check <model> dit --size <side>` printed on the same Mac on 24/10/2026, against goldens written by `tools/oracle/`; on yours they differ in the last digits ([VERIFY.md](VERIFY.md), [Verification](#verification)).
 
 Until 0.8.1, Z-Image Turbo ran 7 of the 8 DiT evaluations its recipe calls for; the times published then (82–85 s at 1024²) were for 7. Fixed in 0.8.2: 8 full-size evaluations. Faster Rendering is not that shortcut: it keeps all 8 evaluations.
 
