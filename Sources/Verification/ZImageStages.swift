@@ -133,9 +133,9 @@ enum ZImageStages {
     static let dit = Stage(
         model: "z-image", name: "dit",
         proves: "one evaluation of the DiT, latent to velocity: embedders, refiners, 30 blocks, head, unpatchify",
-        sizes: ["512", "1024", "768x512", "832x1216"], options: ["--map", "--neural-engine"],
-        oracle: "tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine, bf16 --size {size}", weights: ["DiT"],
-        rule: "the rule, floor 5e-4; on a rectangle, the transposed golden must deviate; with --neural-engine, against bf16's own error + 25 %"
+        sizes: ["512", "1024", "768x512", "832x1216"], options: ["--map", "--neural-engine", "--bf16-activations"],
+        oracle: "tools/oracle/z-image.py dit --size {size}; witness --size {size}; with --neural-engine or --bf16-activations, bf16 --size {size}", weights: ["DiT"],
+        rule: "the rule, floor 5e-4; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
     ) { invocation in
         let report = Report(title: "z-image dit \(invocation.size)")
         let file = "goldens-dit-\(invocation.size).safetensors"
@@ -173,6 +173,7 @@ enum ZImageStages {
             report.add(m)
         }
         if invocation.neuralEngine { try NeuralEngineRun.account(report) }
+        if invocation.bf16Activations { try BF16ActivationRun.account(report) }
         return report
     }
 

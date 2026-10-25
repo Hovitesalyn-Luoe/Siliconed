@@ -117,6 +117,20 @@ package struct EngineSettings: Sendable {
     /// rate and its fill costs as much again. A branch the map turns on where it measures it faster
     /// (schema 9), apart from `gemm_int8`: on the M1 Pro the one wins and the other loses.
     package var gemmQ8 = false
+    /// **The DiT's products take their activation rounded to bf16** (`BFloatKernels`: `matmul2d`
+    /// `bfloat × bfloat → float` on the published bf16 weights, `bfloat × int8_t` on the 8-bit ones; sums and
+    /// outputs fp32). The weights are read as published, as `gemm_tensor`, and **the operand of a product is
+    /// all that is rounded**: norms, softmax, the residual stream and the modulation stay fp32. P20 allows
+    /// bf16 between two operations. Off by default: a Mac without a bf16 matrix unit loses by it (the M1 Pro,
+    /// ×0.5); the map turns it on where it measures it faster, and `siliconed check … --bf16-activations`
+    /// judges it against diffusers in bf16.
+    package var gemmBF16Activations = false
+    /// Below this height a product keeps its fp32 activation: the modulation and the embedders (a handful
+    /// of rows) gain nothing, and are the operands the error would be most amplified through.
+    package var bf16ActivationMinimumRows = 256
+    /// The published 8-bit weights (`gemm_int8`, `gemm_q8`) take the rounded activation too (`matmul2d`
+    /// `bfloat × int8_t`). Off, and **decided by no map**: it measures the bf16 weights only. Forced by a check.
+    package var bf16ActivationEightBit = false
     /// **The Neural Engine beside the GPU on the widened products** (`NeuralEngine`: the last rows in fp16,
     /// the weight's columns lifted by powers of two, a non-finite sent back to the GPU). Off by default, as
     /// every compute branch: the map turns it on where the pair beats the GPU alone and the ANE's rows hold
@@ -376,6 +390,9 @@ package struct EngineSettings: Sendable {
         read("SILICONED_GEMM_TENSOR", "gemm_tensor")
         read("SILICONED_GEMM_INT8", "gemm_int8")
         read("SILICONED_GEMM_Q8", "gemm_q8")
+        read("SILICONED_GEMM_BF16_ACT", "gemm_bf16_act")
+        read("SILICONED_BF16_ACT_MIN", "bf16_act_min")
+        read("SILICONED_BF16_ACT_8BIT", "bf16_act_8bit")
         read("SILICONED_GEMM_ANE", "gemm_ane")
         read("SILICONED_ANE_FRACTION", "ane_fraction")
         read("SILICONED_ANE_MIN", "ane_min")
@@ -469,6 +486,9 @@ package struct EngineSettings: Sendable {
         flag("gemm_tensor", &gemmTensor)
         flag("gemm_int8", &gemmInt8)
         flag("gemm_q8", &gemmQ8)
+        flag("gemm_bf16_act", &gemmBF16Activations)
+        integer("bf16_act_min", &bf16ActivationMinimumRows)
+        flag("bf16_act_8bit", &bf16ActivationEightBit)
         flag("gemm_ane", &gemmANE)
         real("ane_fraction", &aneFraction)
         aneFraction = min(max(aneFraction, 0), 1)
@@ -525,6 +545,8 @@ package struct EngineSettings: Sendable {
             ("gemm_tensor", "\(gemmTensor)"),
             ("gemm_int8", "\(gemmInt8)"),
             ("gemm_q8", "\(gemmQ8)"),
+            ("gemm_bf16_act", "\(gemmBF16Activations)"), ("bf16_act_min", "\(bf16ActivationMinimumRows)"),
+            ("bf16_act_8bit", "\(bf16ActivationEightBit)"),
             ("gemm_ane", "\(gemmANE)"),
             ("ane_fraction", String(format: "%.3f", aneFraction)), ("ane_min", "\(aneMinimumRows)"),
             ("ane_shares", aneShares.isEmpty ? "none" : "\(aneShares.points.count) points"),
@@ -546,6 +568,8 @@ package struct EngineSettings: Sendable {
             "coupe_figee": frozenCut,
             "flash": flash, "head_split": headSplit,
             "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
+            "gemm_bf16_act": gemmBF16Activations, "bf16_act_min": bf16ActivationMinimumRows,
+            "bf16_act_8bit": bf16ActivationEightBit,
             "gemm_ane": gemmANE, "ane_fraction": aneFraction, "ane_min": aneMinimumRows, "ane_shares": aneShares.description,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,
             "parallel": parallel, "map_tail": mapTail,

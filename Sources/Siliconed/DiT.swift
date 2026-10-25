@@ -154,7 +154,7 @@ package final class DiT {
         reserved = ["scratch", "loraMid"]
         products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: ownSizes["scratch"]!,
                                   transposed: artifact.linearWeightsTransposed, lora: cacheLoRA, mid: mid,
-                                  midFloats: ownSizes["loraMid"] ?? 0)
+                                  midFloats: ownSizes["loraMid"] ?? 0, roundsActivations: true)
         let config = self.config   // a local: the closure below must not capture a half-built `self`
         // **One arena for the three sets of blocks**: the image refiners, the caption refiners and the layers
         // run one after the other and each writes its scratch whole before reading it, so they share the

@@ -195,7 +195,7 @@ package final class Krea2DiT {
         }
         products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: config.dim * config.hidden,
                                   transposed: true, lora: cacheLoRA, mid: r > 0 ? slot("loraMid") : nil,
-                                  midFloats: maxRows * r)
+                                  midFloats: maxRows * r, roundsActivations: true)
     }
 
     /// The arena this DiT mapped — what the tests compare with `arenaBytes`.

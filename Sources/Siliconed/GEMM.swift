@@ -158,6 +158,11 @@ package final class GEMM {
     /// What `tensor` takes: bf16 weights (`gemm_tensor`), published int8 ones (`gemm_int8`), GGUF Q8_0
     /// ones (`gemm_q8`).
     package let tensorBF16, tensorInt8, tensorQ8: Bool
+    /// The products may take their activation rounded to bf16 (`gemm_bf16_act`, `BFloatKernels`): the
+    /// library compiled. Which products do is `WeightProducts`'s to say.
+    package let bf16Activations: Bool
+    /// Products that went through the bf16 activation path in this process: a check says what ran.
+    package static let roundedProducts = Mutex<Int>(0)
 
     /// - Parameter freezeCut: the GPU/AMX cut is not servo-controlled. This is the reproducible mode:
     ///   `T` stays the profile's, so `cut` is a pure function and two renders of the same
@@ -171,6 +176,7 @@ package final class GEMM {
                  tensorWeights: Bool = EngineSettings.effective.gemmTensor,
                  int8Weights: Bool = EngineSettings.effective.gemmInt8,
                  q8Weights: Bool = EngineSettings.effective.gemmQ8,
+                 bf16Activations: Bool = EngineSettings.effective.gemmBF16Activations,
                  neuralEngine: Bool = EngineSettings.effective.gemmANE,
                  neuralEngineShare: Double = EngineSettings.effective.aneFraction) throws {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
@@ -181,9 +187,10 @@ package final class GEMM {
         if coexecution {
             conductor = Conductor(queue: queue, driven: !freezeCut)
         }
-        if tensorWeights || int8Weights || q8Weights {
-            tensor = TensorGEMM(device: device, queue: queue)
+        if tensorWeights || int8Weights || q8Weights || bf16Activations {
+            tensor = TensorGEMM(device: device, queue: queue, roundingActivations: bf16Activations)
         }
+        self.bf16Activations = tensor?.roundsActivations == true
         tensorBF16 = tensor != nil && tensorWeights
         tensorInt8 = tensor != nil && int8Weights
         tensorQ8 = tensor?.readsBlocks == true && q8Weights
@@ -303,6 +310,18 @@ package final class GEMM {
         let elapsed = tensor!.linear(a: a, w: wb, c: c, m: m, k: k, n: n, weightIsTransposed: weightIsTransposed)
         let key = "\(m)×\(k)×\(n)\(weightIsTransposed ? "ᵀ" : "")⊗"
         record(key, elapsed)
+        return elapsed
+    }
+
+    /// **The same on an activation rounded to bf16** (`bf16Activations`, which the caller checked): `A`
+    /// rounded by chunks of `rounding.rows` rows into the reserve's tail, `wb` the staged weight.
+    package func linear(a: MTLBuffer, rounding: TensorGEMM.Rounding, bf16 wb: MTLBuffer, c: MTLBuffer, m: Int, k: Int,
+                        n: Int, weightIsTransposed: Bool = false) -> Double {
+        let elapsed = tensor!.linear(a: a, rounding: rounding, w: wb, c: c, m: m, k: k, n: n,
+                                     weightIsTransposed: weightIsTransposed)
+        let key = "\(m)×\(k)×\(n)\(weightIsTransposed ? "ᵀ" : "")◐"
+        record(key, elapsed)
+        Self.roundedProducts.withLock { $0 += 1 }
         return elapsed
     }
 

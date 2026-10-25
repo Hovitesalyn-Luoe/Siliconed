@@ -201,7 +201,7 @@ package final class AnimaDiT {
         products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: config.dim * config.hidden,
                                   transposed: transposed,
                                   lora: r > 0 ? ExpandedLoRA(lora: lora!, down: loraDown!, up: loraUp!) : nil,
-                                  mid: loraMid, midFloats: max(imageTokens, textLength) * r)
+                                  mid: loraMid, midFloats: max(imageTokens, textLength) * r, roundsActivations: true)
     }
 
     /// The bytes this DiT's arena maps — what the tests compare with `AnimaDiT.arenaBytes`.

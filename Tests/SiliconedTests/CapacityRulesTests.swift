@@ -18,6 +18,8 @@ final class CapacityRulesTests: XCTestCase {
         /// `TensorGEMM` on the bf16 weights, [size][product]; `nil`: no Metal 4.
         var tensor: [[Double]]? = nil
         var tensorError = 6e-7
+        /// `TensorGEMM` on an activation rounded to bf16, [size][product], the rounding's pass in its time.
+        var bf16Act: [[Double]]? = nil
         /// The CPU's bf16 widening and bf16 copy, G values/s (the M1 Pro's: 21.3 and ~40).
         var widen = 21.3, copy = 40.0
         /// The int8 products, [size][product]: alone, beside the AMX by columns; `nil`: no Metal 4.
@@ -48,6 +50,7 @@ final class CapacityRulesTests: XCTestCase {
                     products.append(.init(model: block.model, product: name, m: m, k: k, n: n, gpu: ok(g),
                                           amx: ok(a, r.amxError), gpuShare: g / (g + a), coexecution: ok(r.both[h][i]),
                                           coexecutionGPURows: nil, tensor: r.tensor.map { ok($0[h][i], r.tensorError) },
+                                          bf16Act: r.bf16Act.map { ok($0[h][i], r.tensorError) },
                                           int8: r.int8.map { ok($0[h][i]) }, int8Coexecution: r.int8Both.map { ok($0[h][i]) },
                                           q8: r.q8.map { ok($0[h][i]) }, q8Coexecution: r.q8Both.map { ok($0[h][i]) },
                                           ane: r.ane.map { .init(rate: $0[h][i], error: r.aneError, threshold: r.aneThreshold) },
@@ -141,6 +144,79 @@ final class CapacityRulesTests: XCTestCase {
         XCTAssertEqual(settings["gemm_tensor"] as? Bool, true)
         XCTAssertEqual(settings["amx"] as? Bool, false, "the bf16 path has no AMX")
         XCTAssertNil(settings["amx_fraction"])
+    }
+
+    /// **The M5 Pro's map of 20/10/2026** (GPU 16 cores): MPS fp32 5.8–6.0, `matmul2d` on the bf16 weights with the
+    /// fp32 activation 6.0–6.3 (no gain), `bfloat × bfloat → float` 15.28 TFLOP/s, ×0.97 for the rounding's pass.
+    private var m5Pro: Rates {
+        var r = m1Pro
+        r.gpu = [[5.983, 5.802, 5.9, 5.8], [5.9, 5.8, 5.9, 5.76]]
+        r.amx = [[1.817, 1.63, 1.8, 1.7], [1.8, 1.7, 1.8, 1.19]]
+        r.both = [[5.947, 5.28, 5.9, 5.3], [6.5, 6.0, 6.4, 5.5]]
+        r.drift = (1.0, 1.0)
+        r.tensor = [[6.322, 6.002, 6.3, 6.0], [6.3, 6.0, 6.3, 6.0]]
+        r.widen = 39.8; r.copy = 59.93
+        return r
+    }
+
+    /// **The activation rounded to bf16, decided by the map and not by the chip's name**: the M5 Pro's
+    /// bf16 × bf16 rate turns it on, at more than twice the fp32 path, where `gemm_tensor` (the same weight, an
+    /// fp32 activation: 6.0–6.3) is within a few per cent of it.
+    func testM5ProTakesTheRoundedActivation() {
+        var r = m5Pro
+        r.bf16Act = r.gpu.map { $0.map { _ in 15.28 * 0.97 } }
+        let d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.bf16Act!.passed)
+        XCTAssertTrue(d.bf16Act!.on)
+        XCTAssertGreaterThan(d.bf16Act!.gains.min()!, 2.0)
+        XCTAssertEqual(d.settings["gemm_bf16_act"] as? Bool, true)
+    }
+
+    /// **The M1 Pro**: `matmul2d` bf16 × bf16 at 1.83 TFLOP/s before the rounding's pass, against
+    /// MPS + AMX at 3.5–4.5 — off, whatever the margin.
+    func testM1ProKeepsTheFp32Activation() {
+        var r = m1Pro
+        r.bf16Act = [[1.7, 1.7, 1.7, 1.7], [1.8, 1.8, 1.8, 1.8]]
+        let d = Diagnostic.decide(report(r))
+        XCTAssertTrue(d.bf16Act!.passed)
+        XCTAssertFalse(d.bf16Act!.on)
+        XCTAssertLessThan(d.bf16Act!.gain, 1)
+        XCTAssertEqual(d.settings["gemm_bf16_act"] as? Bool, false)
+    }
+
+    /// A map without the measure (before schema 11, or no Metal 4): no decision, the branch off; and a measure
+    /// that fails its check is no candidate however fast.
+    func testTheRoundedActivationNeedsItsMeasureAndItsCheck() {
+        var r = m5Pro
+        var d = Diagnostic.decide(report(r))
+        XCTAssertNil(d.bf16Act)
+        XCTAssertEqual(d.settings["gemm_bf16_act"] as? Bool, false)
+        r.bf16Act = r.gpu.map { $0.map { _ in 14.8 } }
+        r.tensorError = 3e-5                                    // over the fp32 threshold: a fault, not a rounding
+        d = Diagnostic.decide(report(r))
+        XCTAssertFalse(d.bf16Act!.passed)
+        XCTAssertFalse(d.bf16Act!.on)
+    }
+
+    /// **Where the rounded rows lie**: after the weight's pages, in the reserve's tail, a multiple of 64 rows.
+    func testTheRoundingPlanFitsTheReserve() throws {
+        // Z-Image's w1 in a reserve of dim · hidden floats: the bf16 weight takes the first half.
+        let (k, n) = (3840, 10240)
+        let plan = try XCTUnwrap(WeightProducts.roundingPlan(k: k, n: n, capacity: k * n))
+        XCTAssertEqual(plan.offset % 16384, 0)
+        XCTAssertGreaterThanOrEqual(plan.offset, 2 * k * n)
+        XCTAssertEqual(plan.rows % 64, 0)
+        XCTAssertLessThanOrEqual(plan.offset + plan.rows * k * 2, k * n * 4)
+        XCTAssertGreaterThanOrEqual(plan.rows, 64)
+        // A reserve with no room beyond the weight, or an odd k: the fp32 operand.
+        XCTAssertNil(WeightProducts.roundingPlan(k: k, n: n, capacity: k * n / 2 + 1000))
+        XCTAssertNil(WeightProducts.roundingPlan(k: 3841, n: n, capacity: 3841 * n))
+        // The 8-bit plan: rotated rows (fp32) then rounded rows (bf16), both inside the reserve.
+        let eight = try XCTUnwrap(WeightProducts.int8Plan(k: 4096, n: 4096, capacity: 4096 * 4096, perColumn: true, group: 256,
+                                                          amxColumns: 0, rounded: true))
+        XCTAssertGreaterThan(eight.roundedOffset, eight.rotatedOffset)
+        XCTAssertLessThanOrEqual(eight.roundedOffset + eight.chunk * 4096 * 2, 4096 * 4096 * 4)
+        XCTAssertLessThanOrEqual(eight.rotatedOffset + eight.chunk * 4096 * 4, eight.roundedOffset)
     }
 
     /// **The preparation counts**: at the GPU's own rate, the bf16 path wins by the widening it skips —

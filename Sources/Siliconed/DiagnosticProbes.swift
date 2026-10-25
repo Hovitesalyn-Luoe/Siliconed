@@ -263,7 +263,7 @@ extension Diagnostic {
     // ── the fp32 products ───────────────────────────────────────────────────────────────────
 
     static func measureProducts(_ o: Operands, _ bench: Bench) throws -> [Product] {
-        let alone = try GEMM(freezeCut: true, coexecution: false, tensorWeights: true)
+        let alone = try GEMM(freezeCut: true, coexecution: false, tensorWeights: true, bf16Activations: true)
         let both = try GEMM(freezeCut: true, coexecution: true, tensorWeights: false, int8Weights: true, q8Weights: true)
         let neural = try GEMM(freezeCut: true, coexecution: false, tensorWeights: false, neuralEngine: true, neuralEngineShare: 0.5)
         neural.neuralEngine?.shares = .none
@@ -348,6 +348,28 @@ extension Diagnostic {
                                      weightIsTransposed: true)
                 }.0
             }
+            // ── gemm_bf16_act: the activation rounded to bf16 just before the product ── The weight staged in the
+            // head of `b`, the rounded rows in its tail, as a model's reserve holds them (`WeightProducts.roundingPlan`);
+            // judged against the exact product of the rounded activation: it checks the accumulation and the
+            // kernel, not what the rounding costs (the check's, against diffusers in bf16). `b` restored from `bf16`.
+            var bf16Act: Measure?
+            if alone.bf16Activations, let plan = WeightProducts.roundingPlan(k: s.k, n: s.n, capacity: s.k * s.n) {
+                try bench.check()
+                let a = o.a.floats()
+                var roundedRows = [Float](repeating: 0, count: rows.count * s.k)
+                for (i, row) in rows.enumerated() {
+                    for j in 0..<s.k { roundedRows[i * s.k + j] = Half.bf16.round(a[row * s.k + j]) }
+                }
+                let truth = roundedRows.withUnsafeBufferPointer {
+                    exactRows(Array(0..<rows.count), a: $0.baseAddress!, b: o.b.floats(), k: s.k, n: s.n)
+                }
+                Widen.copyBfloat16(source: o.bf16.base, destination: o.b.base, count: s.k * s.n)
+                bf16Act = measure(against: truth) {
+                    _ = alone.linear(a: aloneBuffers.0, rounding: (aloneBuffers.1, plan.offset, plan.rows), bf16: aloneBuffers.1,
+                                     c: aloneBuffers.2, m: s.m, k: s.k, n: s.n, weightIsTransposed: true)
+                }.0
+                Widen.bfloat16ToFloat32(source: o.bf16.base, destination: o.b.base, count: s.k * s.n)
+            }
             // ── gemm_int8 and gemm_q8: the published 8-bit weight read as it is, alone, then beside the AMX on
             // its columns ── `WeightProducts.int8Product`, the engine's own call, the weight staged in `b` as in
             // a model's reserve of `k · n` floats; `b` restored from `bf16` after.
@@ -399,7 +421,7 @@ extension Diagnostic {
                 (q8, q8Coexecution, q8GPUColumns) = try eightBit(group: nil, block: q8Block, truth: truth)
             }
             products.append(Product(model: s.model, product: s.product, m: s.m, k: s.k, n: s.n, gpu: gpu, amx: amx,
-                                    gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows, tensor: tensor,
+                                    gpuShare: share, coexecution: coexecution, coexecutionGPURows: gpuRows, tensor: tensor, bf16Act: bf16Act,
                                     int8: int8, int8Coexecution: int8Coexecution, int8GPUColumns: int8GPUColumns,
                                     q8: q8, q8Coexecution: q8Coexecution, q8GPUColumns: q8GPUColumns,
                                     ane: ane, aneGPUShare: aneShare))
