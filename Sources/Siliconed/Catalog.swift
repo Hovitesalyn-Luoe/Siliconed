@@ -80,10 +80,12 @@ package struct ModelCard: Sendable, Identifiable, Hashable {
     package let formats: [RecommendedFormat]
 
     /// **Draw Things' formats**: 1024², 896×1152, 832×1216, 768×1344 and their transposes, plus
-    /// 512² for quick iteration. Larger ones are accepted wherever B holds them (`Format`) but not
-    /// recommended: the cost grows faster than the area (attention is quadratic in the tokens).
+    /// 512² for quick iteration, and the large squares 1536² and 2048² for the Macs whose B holds
+    /// them (the picker greys what this Mac's B refuses). Any other size is typed, and B decides
+    /// (`Format`). A large square costs more than its area: attention is quadratic in the tokens, so
+    /// 2048² is about 8 times 1024², not 4.
     package static let recommendedFormats: [RecommendedFormat] = [
-        RecommendedFormat(1024, 1024),
+        RecommendedFormat(1024, 1024), RecommendedFormat(1536, 1536), RecommendedFormat(2048, 2048),
         RecommendedFormat(896, 1152), RecommendedFormat(832, 1216), RecommendedFormat(768, 1344),
         RecommendedFormat(1152, 896), RecommendedFormat(1216, 832), RecommendedFormat(1344, 768),
         RecommendedFormat(512, 512),
