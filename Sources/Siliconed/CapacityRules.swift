@@ -74,7 +74,8 @@ import Foundation
 ///     (`Block`), Qwen-Image-2.1's target only has the split. So flash goes on only if it also beats the
 ///     split where the split goes on — otherwise Z-Image would trade a faster path for a slower one;
 ///   - **what the map does not decide stays at its default**, by rule, not by omission:
-///       · the head split's `cpuFraction` (0.4): the map measures the split only at 0.4;
+///       · the head split's `head_split_fraction` (0.4) moves only where the map's cut call (each part timed)
+///         predicts another share faster by more than the margin (`HeadSplitAttention.balance`);
 ///       · fp16 / bf16 *activations*: P20 (never under the published weights nor under bf16, sums in
 ///         fp32) stands — the half-precision figures answer a fleet question, they choose
 ///         nothing (`gemm_tensor` rounds nothing: its activations stay fp32);
@@ -112,6 +113,9 @@ extension Diagnostic {
         package var flash: Decision
         /// The SDPA's heads cut between the GPU and the CPU from S = 1024 on (`head_split`).
         package var headSplit: Decision
+        /// The share of heads the CPU takes (`head_split_fraction`) when the cut is on and the report's figures
+        /// say another share than 0.4 beats it by more than the margin; `nil` otherwise (and before schema 11).
+        package var headSplitFraction: Double?
         /// The DiT's products on the bf16 weights (`gemm_tensor`, `TensorGEMM`); `nil` in a decision
         /// stored by a report of schema 5.
         package var tensor: Decision?
@@ -129,7 +133,8 @@ extension Diagnostic {
 
         package init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
                     tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil,
-                    ane: Decision? = nil, aneFraction: Double? = nil, aneShares: String? = nil) {
+                    ane: Decision? = nil, aneFraction: Double? = nil, aneShares: String? = nil,
+                    headSplitFraction: Double? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
             self.amxShares = amxShares
@@ -137,9 +142,10 @@ extension Diagnostic {
             self.q8 = q8; self.ane = ane
             self.aneFraction = aneFraction.map { Diagnostic.significant($0, 3) }
             self.aneShares = aneShares
+            self.headSplitFraction = headSplitFraction.map { Diagnostic.significant($0, 3) }
         }
 
-        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8, ane, aneFraction, aneShares }
+        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8, ane, aneFraction, aneShares, headSplitFraction }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
@@ -150,6 +156,7 @@ extension Diagnostic {
             try c.encode(q8, forKey: .q8)
             try c.encodeIfPresent(ane, forKey: .ane); try c.encodeIfPresent(aneFraction, forKey: .aneFraction)
             try c.encodeIfPresent(aneShares, forKey: .aneShares)
+            try c.encodeIfPresent(headSplitFraction, forKey: .headSplitFraction)
         }
 
         /// The settings they write, under `EngineSettings`' keys (those of `store/profil.json`).
@@ -159,6 +166,7 @@ extension Diagnostic {
             var values: [String: Any] = ["amx": amx.on && !tensorOn, "flash": flash.on, "head_split": headSplit.on,
                                          "gemm_tensor": tensorOn, "gemm_int8": int8?.on == true,
                                          "gemm_q8": q8?.on == true, "gemm_ane": aneOn]
+            if headSplit.on, let headSplitFraction { values["head_split_fraction"] = headSplitFraction }
             if aneOn, let aneFraction { values["ane_fraction"] = aneFraction }
             if aneOn, let aneShares { values["ane_shares"] = aneShares }
             if amx.on, !tensorOn, let amxFraction { values["amx_fraction"] = amxFraction }
@@ -314,6 +322,17 @@ extension Diagnostic {
         let splitPassed = !attention.isEmpty && graphPassed && attention.allSatisfy { $0.headSplit?.pass == true }
         let split = decision(passed: splitPassed, gains: gains(attention, size: \.sequence, flops: attentionFlops,
                                                                reference: \.graph, candidate: \.headSplit))
+        // The share of heads: from the largest size's cut call (both parts timed) and its graph alone.
+        var headSplitFraction: Double?
+        if split.on, let size = heights.last {
+            let these = attention.filter { $0.sequence == size }
+            let items = these.compactMap { a -> HeadSplitAttention.Balance? in
+                guard let graph = a.graph, graph.rate > 0, let parts = a.splitParts else { return nil }
+                return .init(heads: a.heads, graphSeconds: attentionFlops(a) / (graph.rate * 1e12), cpuHeads: parts.cpuHeads,
+                             gpuSeconds: parts.gpuSeconds, cpuSeconds: parts.cpuSeconds)
+            }
+            if items.count == these.count { headSplitFraction = HeadSplitAttention.balance(items, margin: margin) }
+        }
         var flash = decision(passed: flashPassed, gains: gains(attention, size: \.sequence, flops: attentionFlops,
                                                                reference: \.graph, candidate: \.flash))
         // Z-Image takes flash before the split: flash only where it is also the faster of the two.
@@ -326,7 +345,7 @@ extension Diagnostic {
         let aneShares = aneGrid?.description
         return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor,
                          amxShares: shares, int8: int8, q8: q8, ane: products.contains { $0.ane != nil } ? ane : nil,
-                         aneFraction: aneFraction, aneShares: aneShares)
+                         aneFraction: aneFraction, aneShares: aneShares, headSplitFraction: headSplitFraction)
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).

@@ -90,7 +90,7 @@ package enum Diagnostic {
     /// `q8Coexecution`, `q8GPUColumns`), the `q8_0` and `q8_0 copy` widenings; the decisions add `q8`.
     /// **10** (22/10/2026): the Neural Engine beside the GPU (`products[].ane`, `aneGPUShare`, and `aneCuts` on
     /// the cuts' grid); the decisions add `ane`, `aneFraction` and `aneShares`.
-    package static let schema = 10
+    package static let schema = 11
     package static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
@@ -293,19 +293,34 @@ package enum Diagnostic {
         package var flash: Measure?
         /// The heads cut between the GPU and the CPU (`HeadSplitAttention`, its `cpuFraction`).
         package var headSplit: Measure?
+        /// What the head split's own run took, each part: the figures `HeadSplitAttention.balance` derives the
+        /// share of heads from; `nil` before schema 11 or without a split.
+        package var splitParts: SplitParts?
 
-        package init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
-                    headSplit: Measure?) {
-            self.model = model; self.heads = heads; self.headDim = headDim; self.sequence = sequence
-            self.graph = graph; self.flash = flash; self.headSplit = headSplit
+        /// **The two halves of one cut call**: `cpuHeads` heads on the CPU for `cpuSeconds`, the rest on the
+        /// GPU for `gpuSeconds` (each part's wall time, as `HeadSplitAttention.run` returns them).
+        package struct SplitParts: Codable, Sendable, Equatable {
+            package var cpuHeads: Int
+            package var gpuSeconds, cpuSeconds: Double
+            package init(cpuHeads: Int, gpuSeconds: Double, cpuSeconds: Double) {
+                self.cpuHeads = cpuHeads
+                self.gpuSeconds = Diagnostic.significant(gpuSeconds, 4); self.cpuSeconds = Diagnostic.significant(cpuSeconds, 4)
+            }
         }
 
-        private enum CodingKeys: String, CodingKey { case model, heads, headDim, sequence, graph, flash, headSplit }
+        package init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
+                    headSplit: Measure?, splitParts: SplitParts? = nil) {
+            self.model = model; self.heads = heads; self.headDim = headDim; self.sequence = sequence
+            self.graph = graph; self.flash = flash; self.headSplit = headSplit; self.splitParts = splitParts
+        }
+
+        private enum CodingKeys: String, CodingKey { case model, heads, headDim, sequence, graph, flash, headSplit, splitParts }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(model, forKey: .model); try c.encode(heads, forKey: .heads)
             try c.encode(headDim, forKey: .headDim); try c.encode(sequence, forKey: .sequence)
             try c.encode(graph, forKey: .graph); try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
+            try c.encodeIfPresent(splitParts, forKey: .splitParts)
         }
     }
 

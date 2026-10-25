@@ -103,6 +103,11 @@ package struct EngineSettings: Sendable {
     /// 14/10/2026: 2.33–2.44 against 1.57–1.63 TFLOP/s), hence on by default; a chip whose GPU leaves
     /// the CPU far behind would reverse it.
     package var headSplit = true
+    /// **The share of heads the CPU takes** under the cut (`head_split_fraction`): 0.4 as swept on the M1 Pro
+    /// (Z-Image 12 of 30, Anima 6 of 16, Qwen 13 of 32, Krea 2 5 of 12 groups), the map's where its figures say
+    /// another share beats it by more than the margin (`HeadSplitAttention.balance`). Frozen, not servoed: a share
+    /// decides which engine computes a head, hence the bits.
+    package var headSplitFraction = HeadSplitAttention.referenceFraction
     /// **The DiT's products read the bf16 weights unwidened** (`TensorGEMM`: Metal 4's `matmul2d`,
     /// fp32 activations × bf16 weights → fp32), the AMX off. Off by default: slower than MPS on this
     /// machine (2.36 against 3.46 TFLOP/s); the map turns it on where it measures it faster.
@@ -373,6 +378,7 @@ package struct EngineSettings: Sendable {
         read("SILICONED_REPRODUCIBLE", "coupe_figee")
         read("SILICONED_FLASH", "flash")
         read("SILICONED_HEAD_SPLIT", "head_split")
+        read("SILICONED_HEAD_SPLIT_FRACTION", "head_split_fraction")
         read("SILICONED_GEMM_TENSOR", "gemm_tensor")
         read("SILICONED_GEMM_INT8", "gemm_int8")
         read("SILICONED_GEMM_Q8", "gemm_q8")
@@ -466,6 +472,8 @@ package struct EngineSettings: Sendable {
         flag("coupe_figee", &frozenCut)
         flag("flash", &flash)
         flag("head_split", &headSplit)
+        real("head_split_fraction", &headSplitFraction)
+        headSplitFraction = min(max(headSplitFraction, 0.05), 0.8)
         flag("gemm_tensor", &gemmTensor)
         flag("gemm_int8", &gemmInt8)
         flag("gemm_q8", &gemmQ8)
@@ -522,6 +530,7 @@ package struct EngineSettings: Sendable {
             ("coupe_figee", "\(frozenCut)"),
             ("flash", "\(flash)"),
             ("head_split", "\(headSplit)"),
+            ("head_split_fraction", String(format: "%.3f", headSplitFraction)),
             ("gemm_tensor", "\(gemmTensor)"),
             ("gemm_int8", "\(gemmInt8)"),
             ("gemm_q8", "\(gemmQ8)"),
@@ -544,7 +553,7 @@ package struct EngineSettings: Sendable {
             "amx": amx, "amx_quantum": amxQuantum,
             "amx_min": amxMinimumRows, "amx_fraction": amxFraction, "amx_shares": amxShares.description,
             "coupe_figee": frozenCut,
-            "flash": flash, "head_split": headSplit,
+            "flash": flash, "head_split": headSplit, "head_split_fraction": headSplitFraction,
             "gemm_tensor": gemmTensor, "gemm_int8": gemmInt8, "gemm_q8": gemmQ8,
             "gemm_ane": gemmANE, "ane_fraction": aneFraction, "ane_min": aneMinimumRows, "ane_shares": aneShares.description,
             "spectral": spectral, "vae_bloc_requetes": vaeRequestBlock,

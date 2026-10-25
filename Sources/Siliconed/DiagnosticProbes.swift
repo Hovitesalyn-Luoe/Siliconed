@@ -776,12 +776,25 @@ extension Diagnostic {
                 let flash = (try? FlashMatrix(device: bench.device, queue: bench.queue, heads: h, sequence: sequence,
                                               headDim: d)).map { kernel in measure { kernel.run(q: qb, k: kb, v: vb, into: ob) } }
                 try bench.check()
+                // At the reference share, not at whatever the settings say: the map must measure the same cut
+                // whatever it decided last time.
+                var parts: AttentionCapacity.SplitParts?
                 let split = (try? HeadSplitAttention(device: bench.device, queue: bench.queue, heads: h, sequence: sequence,
-                                                     headDim: d)).map { cut in
-                    measure { _ = cut.run(q: qb, k: kb, v: vb, into: ob, q: q.floats(), k: k.floats(), v: v.floats(), out: o) }
+                                                     headDim: d, cpuFraction: HeadSplitAttention.referenceFraction)).map { cut in
+                    var best = (gpu: Double.infinity, cpu: Double.infinity, wall: Double.infinity)
+                    let measured = measure {
+                        let t = DispatchTime.now().uptimeNanoseconds
+                        let r = cut.run(q: qb, k: kb, v: vb, into: ob, q: q.floats(), k: k.floats(), v: v.floats(), out: o)
+                        let wall = Double(DispatchTime.now().uptimeNanoseconds - t) * 1e-9
+                        if wall < best.wall { best = (r.gpu, r.cpu, wall) }
+                    }
+                    if best.wall.isFinite, cut.cpuHeads > 0 {
+                        parts = .init(cpuHeads: cut.cpuHeads, gpuSeconds: best.gpu, cpuSeconds: best.cpu)
+                    }
+                    return measured
                 }
                 results.append(AttentionCapacity(model: block.model, heads: h, headDim: d, sequence: sequence,
-                                                 graph: graph, flash: flash, headSplit: split))
+                                                 graph: graph, flash: flash, headSplit: split, splitParts: parts))
             }
         }
         return results
