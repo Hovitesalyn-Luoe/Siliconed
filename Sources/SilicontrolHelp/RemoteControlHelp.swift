@@ -27,7 +27,7 @@ package enum RemoteControlHelp {
 
     /// The topics in reading order (`help all` follows it).
     static let order = ["contract", "open", "models", "install", "add", "grid", "edit", "wait", "status", "follow",
-                        "cancel", "clear", "history", "save", "vary", "enlarge", "subjects", "diagnose", "errors", "recipes"]
+                        "cancel", "clear", "history", "save", "vary", "enlarge", "subjects", "diagnose", "measure", "errors", "recipes"]
     static let aliases = ["examples": "recipes"]
 
     /// French when the user puts it before English. Not `Bundle.main.preferredLocalizations`: the app's
@@ -101,6 +101,7 @@ package enum RemoteControlHelp {
       models                                   installed models, formats, LoRAs, default steps
       install ID [--standard|--compact|--light] shows a model's license and size in the app, to accept there
       diagnose [--issue]                       measures this Mac (≈ 1 min, no model) → the report's JSON
+      measure [options] [-- add options]       times and peak memory of a series of renders → a TSV and its summary
       add [options] "<prompt>" [format] [seed] puts a request in the queue → its job (t3)
       grid --x AXIS [--y AXIS] [options] "<prompt>" …
                                                an XY grid: one job per cell, then a sheet → its grid (g2)
@@ -653,6 +654,48 @@ package enum RemoteControlHelp {
         No mask, no inpainting: the prompt alone says what changes.
         """,
 
+        "measure": """
+        silicontrol measure [--model ID] [--size 512|1024|WxH] [--renders N] [--seed S] [--prompt TEXT]…
+                            [--tsv FILE] [--out DIR] [--settle SECONDS] [--tag TEXT] [-- add options]
+
+        Repeats our timings and peaks on your Mac, with this app alone: a series of renders, each timed
+        from the request to the PNG, the app's peak memory sampled while it renders, the pixels hashed.
+        Defaults: z-image, 1024x1024, 3 renders, seed 42, "a 30 year old woman posing in a library",
+        15 s of rest first. The app's settings are the app's: Faster Rendering (Settings) is read and
+        written in the TSV, not changed — a number published "with it off" needs it off in the window.
+
+        The series: the queue must be idle (else "busy"); a load render (the weights come in; its time
+        is reported apart); a witness; the N renders; a witness again. The witness is the default prompt
+        at seed 42; the machine drifts by a few percent over an hour, and the two witnesses bound that
+        drift: a series whose witness moved by more than 13 % is not comparable to another. The Mac
+        is kept awake for the series. Each render:
+          wall_s       from the request to the PNG, on this command's clock (what we publish)
+          engine_s     the app's own "seconds" for the image
+          peak_GiB     the app's phys_footprint, read every 100 ms, the maximum (what we publish)
+          start_GiB    the footprint just before the request: what the app held already
+          swapouts     pages swapped out during the render (vm_stat's Swapouts); disk_read_GB the app's reads
+          md5          of the decoded 8-bit RGB pixels: same model, prompt, seed, size and settings must give
+                       the same md5 on every run, every day (a mismatch is a defect: report it)
+        beside the model, variant, steps, seed, Neural Engine, app version, chip, memory, macOS, power
+        source and thermal state. A render's prompt is encoded once and cached: with several renders on
+        one prompt the encoder runs only the first time; give several --prompt to include it each time.
+
+        Output: stdout, JSON lines — one {"type": "render", …} per render, then the verdict
+        {"ok": true, "summary": {"median_seconds", "witness_head_seconds", "witness_tail_seconds",
+        "witness_drift", "peak_gib", "swapouts", "bits_stable", "notes", …}, "tsv": "<path>"}.
+        stderr: the same, for a person. The TSV (default siliconed-measure-<date>-<model>-<size>.tsv in
+        the current folder) has one line per render, the witnesses and the load included.
+        --out keeps the PNGs there; otherwise they are deleted after they are hashed.
+        --tag labels the series in the TSV. After --, options go to "add" as they are (--steps, --lora,
+        --ane, --no-ane); not --wait, --out, --batch, --ref, --model, --preview.
+
+        For a comparison to mean something: the adapter plugged in, no other job on the Mac, the app
+        freshly opened for a memory figure (a peak read after other models ran includes what they left).
+
+        FAILURES: usage, busy (a render or an installation is running), model (unknown or not installed),
+        render (the render failed: its "error" and message), write. The rows measured before a failure stay in the TSV.
+        """,
+
         "errors": """
         THE ERROR CODES ("error" in a verdict with "ok": false)
 
@@ -776,6 +819,7 @@ package enum RemoteControlHelp {
       models                                   modèles installés, formats, LoRA, pas par défaut
       install ID [--standard|--compact|--light] montre dans l'app la licence et la place d'un modèle, à accepter là
       diagnose [--issue]                       mesure ce Mac (≈ 1 min, sans modèle) → le JSON du rapport
+      measure [options] [-- options de add]    temps et pic mémoire d'une série de rendus → un TSV et son résumé
       add [options] "<prompt>" [format] [seed] met une demande en file → son travail (t3)
       grid --x AXE [--y AXE] [options] "<prompt>" …
                                                une grille XY : un travail par case, puis une planche → sa grille (g2)
@@ -1335,6 +1379,49 @@ package enum RemoteControlHelp {
         null tant que cette combinaison n'a pas rendu une fois dans la session.
 
         Ni masque, ni inpainting : le prompt seul dit ce qui change.
+        """,
+
+        "measure": """
+        silicontrol measure [--model ID] [--size 512|1024|WxH] [--renders N] [--seed S] [--prompt TEXTE]…
+                            [--tsv FICHIER] [--out DOSSIER] [--settle SECONDES] [--tag TEXTE] [-- options de add]
+
+        Refait nos temps et nos pics chez vous, avec cette seule app : une série de rendus, chacun chronométré
+        de la demande au PNG, le pic mémoire de l'app échantillonné pendant qu'elle rend, les pixels hachés.
+        Défauts : z-image, 1024x1024, 3 rendus, graine 42, « a 30 year old woman posing in a library »,
+        15 s de repos d'abord. Les réglages de l'app restent ceux de l'app : Faster Rendering (Réglages) est lu
+        et écrit dans le TSV, jamais changé — un chiffre publié « éteint » demande de l'éteindre dans la fenêtre.
+
+        La série : la file doit être libre (sinon « busy ») ; un rendu de chargement (les poids entrent ; son temps
+        est donné à part) ; un témoin ; les N rendus ; un témoin encore. Le témoin est le prompt par défaut à la
+        graine 42 ; la machine dérive de quelques pour cent en une heure, et les deux témoins bornent cette
+        dérive : une série dont le témoin a bougé de plus de 13 % ne se compare pas à une autre. Le Mac reste
+        éveillé pendant la série. Pour chaque rendu :
+          wall_s       de la demande au PNG, sur l'horloge de cette commande (ce que nous publions)
+          engine_s     les « seconds » de l'app pour l'image
+          peak_GiB     le phys_footprint de l'app, lu toutes les 100 ms, le maximum (ce que nous publions)
+          start_GiB    l'empreinte juste avant la demande : ce que l'app tenait déjà
+          swapouts     pages écrites en swap pendant le rendu (Swapouts de vm_stat) ; disk_read_GB les lectures de l'app
+          md5          des pixels décodés en RGB 8 bits : même modèle, prompt, graine, format et réglages doivent
+                       donner le même md5 à chaque essai, chaque jour (un écart est un défaut : le signaler)
+        avec le modèle, la version, les pas, la graine, le Neural Engine, la version de l'app, la puce, la mémoire,
+        macOS, la source d'alimentation et l'état thermique. Le prompt d'un rendu est encodé une fois puis gardé :
+        avec plusieurs rendus du même prompt, l'encodeur ne tourne que la première fois ; plusieurs --prompt
+        l'incluent à chaque fois.
+
+        Sortie : stdout, des lignes JSON — une {"type": "render", …} par rendu, puis le verdict
+        {"ok": true, "summary": {"median_seconds", "witness_head_seconds", "witness_tail_seconds",
+        "witness_drift", "peak_gib", "swapouts", "bits_stable", "notes", …}, "tsv": "<chemin>"}.
+        stderr : la même chose, pour une personne. Le TSV (par défaut siliconed-measure-<date>-<modèle>-<format>.tsv
+        dans le dossier courant) a une ligne par rendu, témoins et chargement compris.
+        --out garde les PNG là ; sinon ils sont effacés une fois hachés.
+        --tag nomme la série dans le TSV. Après --, les options vont à « add » telles quelles (--steps, --lora,
+        --ane, --no-ane) ; pas --wait, --out, --batch, --ref, --model, --preview.
+
+        Pour qu'une comparaison veuille dire quelque chose : le secteur branché, aucun autre travail sur le Mac,
+        l'app fraîchement ouverte pour un chiffre de mémoire (un pic lu après d'autres modèles inclut ce qu'ils ont laissé).
+
+        ÉCHECS : usage, busy (un rendu ou une installation tourne), model (inconnu ou pas installé),
+        render (le rendu a échoué : son « error » et son message), write. Les lignes déjà mesurées restent dans le TSV.
         """,
 
         "errors": """

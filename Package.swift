@@ -29,8 +29,12 @@ let package = Package(
                           exclude: ["Localizable.xcstrings"]),
         // **`silicontrol`, the app's remote control**, shipped as
         // `Siliconed.app/Contents/Helpers/silicontrol`: a pipe to the running app's socket,
-        // Foundation only — it does not link the engine.
-        .executableTarget(name: "Silicontrol", dependencies: ["SilicontrolHelp"]),
+        // system frameworks only — it does not link the engine.
+        .executableTarget(name: "Silicontrol", dependencies: ["SilicontrolHelp", "Measurement"]),
+        // **What `silicontrol measure` reads and how a series goes**: the app's footprint (`proc_pid_rusage`),
+        // swap-outs, pixels (ImageIO), power source (IOKit) — system calls only, no engine, so that anyone
+        // with the app alone can repeat our timings and peaks (`docs/VERIFY.md`).
+        .target(name: "Measurement", linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("ImageIO")]),
         // **`siliconed`, the command line**: `siliconed check` runs every stage of every model against the
         // reference implementation's goldens (`docs/VERIFY.md`). The stages live in `Verification`, which the
         // maintainer's tool links too; the executable target is named apart because the file system does
@@ -46,7 +50,7 @@ let package = Package(
         // weights. A few tests do touch Metal — the GPU dequantization of synthetic 8-bit maps on
         // the Metal device (`GGUFTests`, `QuantizedMapTests`), an `MPSGraph` built to fail on
         // purpose (`TokenizerAndVAETests`) — on kilobytes, in milliseconds.
-        .testTarget(name: "SiliconedTests", dependencies: ["Siliconed", "SilicontrolHelp", "Verification"],
+        .testTarget(name: "SiliconedTests", dependencies: ["Siliconed", "SilicontrolHelp", "Verification", "Measurement"],
                     exclude: ["Fixtures"]),
     ]
 )
