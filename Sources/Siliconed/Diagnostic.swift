@@ -21,6 +21,9 @@ import Metal
 ///        │     both        GEMM.linear through Conductor at that share ─┘  does the cut pay here?
 ///        │     bf16 weight GEMM.linear(bf16:) (TensorGEMM, matmul2d)  + the copy's time, against the
 ///        │                 better of the two above + the widening's time ─────────────────────────▶ gemm_tensor
+///        │     bf16 weight and activation, the activation rounded just before the product
+///        │                 (TensorGEMM, matmul2d bfloat × bfloat → float), the rounding's pass in the time,
+///        │                 against the same reference + the widening ──────────────────────────────▶ gemm_bf16_act
 ///        │     int8 weight WeightProducts.int8Product (matmul2d float × int8, convrot on the activation),
 ///        │                 alone and beside the AMX on its columns, + the copy's time ─────────────▶ gemm_int8
 ///        │     Q8_0 weight the same call on scales per 32 rows (q · s into threadgroup memory),
@@ -77,7 +80,7 @@ import Metal
 /// app's build: an update measures again) — and whenever the user asks (« Measure This Mac »).
 /// It keeps the report in its preferences and hands it to `EngineSettings.load(from:map:)`; the rules
 /// (`CapacityRules.swift`, `decide`) turn it into `amx`, `amx_fraction`, `flash`, `head_split`,
-/// `gemm_tensor`, `gemm_int8`, `gemm_q8`. The command line, the checks and the close-out never designate a map: today's defaults.
+/// `gemm_tensor`, `gemm_bf16_act`, `gemm_int8`, `gemm_q8`. The command line, the checks and the close-out never designate a map: today's defaults.
 package enum Diagnostic {
     /// The JSON's version: the script that aggregates the reports reads it. **5** (14/10/2026): the
     /// capacity map; 4 and before rendered the installed models. `decisions` came into 5 later the same
@@ -90,7 +93,9 @@ package enum Diagnostic {
     /// `q8Coexecution`, `q8GPUColumns`), the `q8_0` and `q8_0 copy` widenings; the decisions add `q8`.
     /// **10** (22/10/2026): the Neural Engine beside the GPU (`products[].ane`, `aneGPUShare`, and `aneCuts` on
     /// the cuts' grid); the decisions add `ane`, `aneFraction` and `aneShares`.
-    package static let schema = 10
+    /// **11** (25/10/2026): the products on an activation rounded to bf16 (`products[].bf16Act`); the decisions
+    /// add `bf16Act`.
+    package static let schema = 11
     package static let repository = "https://github.com/gwenn-ha-dev/Siliconed"
 
     /// **The fp32 threshold**: the AMX check's (`siliconed-dev amx`), a row of an fp32 product or
@@ -228,6 +233,13 @@ package enum Diagnostic {
         /// `TensorGEMM` (`gemm_tensor`): the same product on the weight in bf16, the activations fp32;
         /// `nil` without Metal 4, or in a report of schema 5.
         package var tensor: Measure?
+        /// `gemm_bf16_act`: the same product on the weight in bf16 **and the activation rounded to bf16** just
+        /// before it (`TensorGEMM.linear(a:rounding:…)`, `matmul2d` `bfloat × bfloat → float`), the rounding's
+        /// pass included in the time; judged against the exact product of the *rounded* activation (the
+        /// check of the accumulation and of the kernel, as the half-precision figures of the fleet table —
+        /// what the rounding costs the image is the check's, against diffusers in bf16). `nil` without Metal 4,
+        /// or before schema 11.
+        package var bf16Act: Measure?
         /// `gemm_int8`: the product on a published int8 weight (convrot of 256, one scale), read as it is
         /// (`WeightProducts.int8Product`, the GPU alone); `nil` without Metal 4, or before schema 8.
         package var int8: Measure?
@@ -252,19 +264,20 @@ package enum Diagnostic {
 
         package init(model: String, product: String, m: Int, k: Int, n: Int, gpu: Measure, amx: Measure?,
                     gpuShare: Double?, coexecution: Measure?, coexecutionGPURows: Int?, tensor: Measure? = nil,
-                    int8: Measure? = nil, int8Coexecution: Measure? = nil, int8GPUColumns: Int? = nil,
+                    bf16Act: Measure? = nil, int8: Measure? = nil, int8Coexecution: Measure? = nil, int8GPUColumns: Int? = nil,
                     q8: Measure? = nil, q8Coexecution: Measure? = nil, q8GPUColumns: Int? = nil,
                     ane: Measure? = nil, aneGPUShare: Double? = nil) {
             self.model = model; self.product = product; self.m = m; self.k = k; self.n = n; self.gpu = gpu
             self.amx = amx; self.gpuShare = gpuShare.map { Diagnostic.significant($0, 3) }
             self.coexecution = coexecution; self.coexecutionGPURows = coexecutionGPURows; self.tensor = tensor
+            self.bf16Act = bf16Act
             self.int8 = int8; self.int8Coexecution = int8Coexecution; self.int8GPUColumns = int8GPUColumns
             self.q8 = q8; self.q8Coexecution = q8Coexecution; self.q8GPUColumns = q8GPUColumns
             self.ane = ane; self.aneGPUShare = aneGPUShare.map { Diagnostic.significant($0, 3) }
         }
 
         private enum CodingKeys: String, CodingKey {
-            case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor, int8, int8Coexecution, int8GPUColumns,
+            case model, product, m, k, n, gpu, amx, gpuShare, coexecution, coexecutionGPURows, tensor, bf16Act, int8, int8Coexecution, int8GPUColumns,
                  q8, q8Coexecution, q8GPUColumns, ane, aneGPUShare
         }
         package func encode(to encoder: any Encoder) throws {
@@ -275,6 +288,7 @@ package enum Diagnostic {
             try c.encode(coexecution, forKey: .coexecution); try c.encode(coexecutionGPURows, forKey: .coexecutionGPURows)
             try c.encode(tensor, forKey: .tensor)
             // Absent rather than `null`: the link of an issue carries the whole report (`issueURL`).
+            try c.encodeIfPresent(bf16Act, forKey: .bf16Act)
             try c.encodeIfPresent(int8, forKey: .int8)
             try c.encodeIfPresent(int8Coexecution, forKey: .int8Coexecution); try c.encodeIfPresent(int8GPUColumns, forKey: .int8GPUColumns)
             try c.encodeIfPresent(q8, forKey: .q8)
@@ -293,19 +307,34 @@ package enum Diagnostic {
         package var flash: Measure?
         /// The heads cut between the GPU and the CPU (`HeadSplitAttention`, its `cpuFraction`).
         package var headSplit: Measure?
+        /// What the head split's own run took, each part: the figures `HeadSplitAttention.balance` derives the
+        /// share of heads from; `nil` before schema 11 or without a split.
+        package var splitParts: SplitParts?
 
-        package init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
-                    headSplit: Measure?) {
-            self.model = model; self.heads = heads; self.headDim = headDim; self.sequence = sequence
-            self.graph = graph; self.flash = flash; self.headSplit = headSplit
+        /// **The two halves of one cut call**: `cpuHeads` heads on the CPU for `cpuSeconds`, the rest on the
+        /// GPU for `gpuSeconds` (each part's wall time, as `HeadSplitAttention.run` returns them).
+        package struct SplitParts: Codable, Sendable, Equatable {
+            package var cpuHeads: Int
+            package var gpuSeconds, cpuSeconds: Double
+            package init(cpuHeads: Int, gpuSeconds: Double, cpuSeconds: Double) {
+                self.cpuHeads = cpuHeads
+                self.gpuSeconds = Diagnostic.significant(gpuSeconds, 4); self.cpuSeconds = Diagnostic.significant(cpuSeconds, 4)
+            }
         }
 
-        private enum CodingKeys: String, CodingKey { case model, heads, headDim, sequence, graph, flash, headSplit }
+        package init(model: String, heads: Int, headDim: Int, sequence: Int, graph: Measure?, flash: Measure?,
+                    headSplit: Measure?, splitParts: SplitParts? = nil) {
+            self.model = model; self.heads = heads; self.headDim = headDim; self.sequence = sequence
+            self.graph = graph; self.flash = flash; self.headSplit = headSplit; self.splitParts = splitParts
+        }
+
+        private enum CodingKeys: String, CodingKey { case model, heads, headDim, sequence, graph, flash, headSplit, splitParts }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(model, forKey: .model); try c.encode(heads, forKey: .heads)
             try c.encode(headDim, forKey: .headDim); try c.encode(sequence, forKey: .sequence)
             try c.encode(graph, forKey: .graph); try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
+            try c.encodeIfPresent(splitParts, forKey: .splitParts)
         }
     }
 
@@ -466,7 +495,7 @@ package enum Diagnostic {
 
         /// Every measure of the report, in its order.
         package var measures: [Measure] {
-            products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution, $0.tensor, $0.int8, $0.int8Coexecution, $0.q8, $0.q8Coexecution].compactMap { $0 } }
+            products.flatMap { [$0.gpu] + [$0.amx, $0.coexecution, $0.tensor, $0.bf16Act, $0.int8, $0.int8Coexecution, $0.q8, $0.q8Coexecution].compactMap { $0 } }
                 + lowPrecision.compactMap(\.measure)
                 + attention.flatMap { [$0.graph, $0.flash, $0.headSplit].compactMap { $0 } }
                 + widening.map(\.cpu)

@@ -138,7 +138,7 @@ package final class Block {
         products = WeightProducts(gemm: gemm, artifact: artifact, reserve: weightReserve,
                                   capacity: shapes.dim * shapes.hidden, transposed: artifact.linearWeightsTransposed,
                                   lora: cacheLoRA, mid: pointers["loraMid"],
-                                  midFloats: shapes.sequence * (lora?.maxRank ?? 0))
+                                  midFloats: shapes.sequence * (lora?.maxRank ?? 0), roundsActivations: true)
         // There used to be four more slices here — `halfQ`, `halfK`, `halfV` and `sdpa` —, the
         // intermediate buffers of the CPU rearrangement around the SDPA. The transposition now living
         // in the graph, `q`, `k`, `v` go out as they are and the output comes back into

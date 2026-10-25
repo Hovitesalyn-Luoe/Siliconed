@@ -369,7 +369,7 @@ package final class QwenImage21DiT {
         let loraMid = r > 0 ? named["loraMid"] : nil
         products = WeightProducts(gemm: gemm, artifact: artifact, reserve: reserve, capacity: config.dim * config.hidden,
                                   transposed: true, lora: cacheLoRA, mid: loraMid,
-                                  midFloats: loraMid.map { sizes[$0]! / 4 } ?? 0, mergesLoRA: true)
+                                  midFloats: loraMid.map { sizes[$0]! / 4 } ?? 0, mergesLoRA: true, roundsActivations: true)
         QwenImage21Rope.write(into: freqs, positions: sequence.positions, axes: config.axes, theta: config.theta)
     }
 

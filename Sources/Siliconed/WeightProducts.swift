@@ -7,6 +7,8 @@ import Metal
 ///
 ///     name ─▶ the weight into the reserve, by the shortest path the settings allow
 ///              ├─ gemm_tensor, a bf16 weight   copied as it is (`Artifact.stage`)       ─▶ TensorGEMM
+///              │     gemm_bf16_act             the same, the activation rounded to bf16 first ─▶ TensorGEMM
+///              │                               (`roundsActivations`, `BFloatKernels`)
 ///              ├─ gemm_int8, a published int8  copied as it is, scale fp32 after it     ─▶ TensorGEMM, × s after the
 ///              │                                (convrot: x · R by chunks of rows in the reserve's tail)  sums
 ///              │     gemm_q8, a GGUF Q8_0       (scales per 32 rows: q · s in threadgroup memory)
@@ -33,6 +35,11 @@ import Metal
 ///     scales, then the rotated activation by as many rows as the rest holds (`int8Plan`);
 ///   - **an int8 weight's rotation goes to the activation**: `W = R · q · s` (`Widen.dequantizeRotated`)
 ///     gives `x · W = (x · R) · q · s` — `R` is applied to `x` in fp32, the integers are never touched;
+///   - **`gemm_bf16_act` rounds the operand of a product and nothing else** (`roundsActivations`, which a
+///     DiT sets and a text encoder does not): the caller's activation stays fp32 — the LoRA stack reads it —,
+///     the rounded copy lives in the reserve's tail beside the weight (`roundingPlan`), the sums and the
+///     output are fp32. Under `bf16ActivationMinimumRows` rows (the modulation, the embedders) the product
+///     keeps its fp32 operand: nothing to win there, and the most amplified error;
 ///   - **the timings keep their names** (`staging`, `widening`, `gemm wall`, `gemm GPU`, `lora weights`,
 ///     `lora wall`, `lora GPU`): the models add them to theirs, so a budget reads the same as before.
 package final class WeightProducts {
@@ -46,6 +53,8 @@ package final class WeightProducts {
     private let mid: UnsafeMutablePointer<Float>?
     private let midFloats: Int
     private let mergesLoRA: Bool
+    /// The operand of a product is rounded to bf16 where the settings and the machine allow it (`gemm_bf16_act`).
+    private let roundsActivations: Bool
 
     /// Per phase, accumulated since the last `resetTimings`.
     package private(set) var timings: [String: Double] = [:]
@@ -58,10 +67,10 @@ package final class WeightProducts {
     ///   - mergesLoRA: the stack may be merged into the widened weight where it costs fewer FLOPs.
     package init(gemm: GEMM, artifact: Artifact, reserve: UnsafeMutablePointer<Float>, capacity: Int,
                  transposed: Bool, lora: (any LoRAStacks)? = nil, mid: UnsafeMutablePointer<Float>? = nil,
-                 midFloats: Int = 0, mergesLoRA: Bool = false) {
+                 midFloats: Int = 0, mergesLoRA: Bool = false, roundsActivations: Bool = false) {
         self.gemm = gemm; self.artifact = artifact; self.reserve = reserve; self.capacity = capacity
         self.transposed = transposed; self.lora = lora; self.mid = mid; self.midFloats = midFloats
-        self.mergesLoRA = mergesLoRA
+        self.mergesLoRA = mergesLoRA; self.roundsActivations = roundsActivations
     }
 
     private func timed<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
@@ -96,7 +105,10 @@ package final class WeightProducts {
         var failure: String?
         timed("gemm wall") {
             switch path {
-            case .bf16:
+            case .bf16(let rounding?):
+                timings["gemm GPU", default: 0] += gemm.linear(a: a, rounding: (w, rounding.offset, rounding.rows), bf16: w,
+                                                              c: c, m: m, k: k, n: n, weightIsTransposed: transposed)
+            case .bf16(nil):
                 timings["gemm GPU", default: 0] += gemm.linear(a: a, bf16: w, c: c, m: m, k: k, n: n,
                                                               weightIsTransposed: transposed)
             case .int8(let plan):
@@ -122,8 +134,25 @@ package final class WeightProducts {
 
     /// How the weight lies in the reserve, hence which product reads it.
     private enum Path: Equatable {
-        case widened, bf16
+        case widened
+        /// A bf16 weight staged as published; its activation rounded into the reserve's tail, or fp32.
+        case bf16(Rounding?)
         case int8(Int8Plan)
+    }
+
+    /// Where the rounded activation lies in the reserve and how many rows at a time (a multiple of 64).
+    package struct Rounding: Equatable {
+        package let offset, rows: Int
+    }
+
+    /// **Where a bf16 activation fits beside a bf16 weight of `k · n` values** in a reserve of `capacity`
+    /// floats: after the weight's pages, `rows` rows of `k` bf16 values, or `nil` when fewer than 64 rows
+    /// would (the reserve is the model's, never grown for this path) or `k` is odd.
+    package static func roundingPlan(k: Int, n: Int, capacity: Int) -> Rounding? {
+        guard k % 2 == 0 else { return nil }
+        let offset = (2 * k * n + 16383) / 16384 * 16384
+        let rows = (capacity * 4 - offset) / (2 * k) / 64 * 64
+        return rows >= 64 ? Rounding(offset: offset, rows: rows) : nil
     }
 
     /// An int8 weight in the reserve: `q` at 0, its fp32 scales at `scalesOffset`, the AMX's last
@@ -135,6 +164,8 @@ package final class WeightProducts {
         package let group: Int?
         /// Scales per block of this many rows and column (GGUF Q8_0); `nil`: per column or tensor.
         package var block: Int? = nil
+        /// The activation rounded to bf16 (`gemm_bf16_act`) at this offset, `chunk` rows at a time; 0: fp32.
+        package var roundedOffset = 0
         package var layout: Widen.ScaleLayout {
             if let block { return .blocks(columns: 0, rows: block) }
             return perColumn ? .columns(0) : .tensor
@@ -145,12 +176,23 @@ package final class WeightProducts {
     /// `capacity` floats, or `nil` when fewer than 64 rows would: the reserve is the model's, never
     /// grown for this path.
     package static func int8Plan(k: Int, n: Int, capacity: Int, perColumn: Bool, group: Int?, amxColumns: Int,
-                                 block: Int? = nil) -> Int8Plan? {
+                                 block: Int? = nil, rounded: Bool = false) -> Int8Plan? {
         func page(_ bytes: Int) -> Int { (bytes + 16383) / 16384 * 16384 }
         let scales = block.map { (k + $0 - 1) / $0 * n } ?? (perColumn ? n : 1)
         let scalesOffset = page(k * n), sliceOffset = page(scalesOffset + scales * 4)
         let rotatedOffset = page(sliceOffset + k * amxColumns * 4)
         guard rotatedOffset <= capacity * 4 else { return nil }
+        if rounded {
+            // The rotated rows (fp32, only under a rotation) then the same rows rounded (bf16): 6 k bytes a row.
+            guard k % 2 == 0 else { return nil }
+            let rows = (capacity * 4 - rotatedOffset) / (k * (group == nil ? 2 : 6)) / 64 * 64
+            guard rows >= 64 else { return nil }
+            let roundedOffset = group == nil ? rotatedOffset : (rotatedOffset + rows * k * 4 + 16383) / 16384 * 16384
+            guard roundedOffset + rows * k * 2 <= capacity * 4 else { return nil }
+            return Int8Plan(scalesOffset: scalesOffset, sliceOffset: sliceOffset, rotatedOffset: rotatedOffset,
+                            chunk: rows, amxColumns: amxColumns, perColumn: perColumn, group: group, block: block,
+                            roundedOffset: roundedOffset)
+        }
         let rows = (capacity * 4 - rotatedOffset) / (k * 4) / 64 * 64
         guard group == nil || rows >= 64 else { return nil }
         return Int8Plan(scalesOffset: scalesOffset, sliceOffset: sliceOffset, rotatedOffset: rotatedOffset,
@@ -168,9 +210,12 @@ package final class WeightProducts {
     package static func int8Product(gemm: GEMM, plan: Int8Plan, reserve w: MTLBuffer, a: MTLBuffer, c: MTLBuffer,
                                     m: Int, k: Int, n: Int) -> (gpu: Double, widening: Double, status: Int32) {
         let rotation = plan.group.map { (group: $0, scratch: w, offset: plan.rotatedOffset, chunk: plan.chunk) }
+        let rounding = plan.roundedOffset > 0 ? (buffer: w, offset: plan.roundedOffset, rows: plan.chunk) : nil
+        if rounding != nil { GEMM.roundedProducts.withLock { $0 += 1 } }
         guard plan.amxColumns > 0, let conductor = gemm.conductor else {
             return (gemm.tensor!.linear(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset, perColumn: plan.perColumn,
-                                        block: plan.block, rotation: rotation, c: c, m: m, k: k, n: n), 0, 0)
+                                        block: plan.block, rotation: rotation, rounding: rounding,
+                                        c: c, m: m, k: k, n: n), 0, 0)
         }
         let g = n - plan.amxColumns
         let commands = gemm.tensor!.submit(a: a, int8: w, scales: w, scalesOffset: plan.scalesOffset, perColumn: plan.perColumn,
@@ -218,19 +263,27 @@ package final class WeightProducts {
         func expect(_ got: Int) throws {
             guard got == count else { throw Artifact.Failure.badHeader("\(name): \(got) values, \(count) expected") }
         }
-        if gemm.tensorBF16, let got = try timed("staging", {
-            try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * capacity)
-        }) {
-            try expect(got)
-            return .bf16
+        // The operand rounded to bf16 (`gemm_bf16_act`) where this product is tall enough to gain.
+        let rounds = roundsActivations && gemm.bf16Activations && m >= EngineSettings.effective.bf16ActivationMinimumRows
+        if gemm.tensorBF16 || rounds, let tensor = artifact.tensors[name], tensor.dtype == .bfloat16 {
+            let rounding = rounds ? Self.roundingPlan(k: count / n, n: n, capacity: capacity) : nil
+            if gemm.tensorBF16 || rounding != nil, let got = try timed("staging", {
+                try artifact.stage(name, into: UnsafeMutableRawPointer(reserve), capacity: 2 * capacity)
+            }) {
+                try expect(got)
+                return .bf16(rounding)
+            }
         }
         if transposed, let tensor = artifact.tensors[name], tensor.dtype == .int8,
            let scale = tensor.scale, tensor.shape == [count / n, n],
            scale.block == nil ? gemm.tensorInt8 && scale.shape.count <= 1 : gemm.tensorQ8 && scale.shape.count == 2 {
             let (k, perColumn, group) = (count / n, scale.shape.count == 1, tensor.rotation?.group)
-            let columns = amxColumns(k: k, n: n, m: m)
-            guard let plan = Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group,
-                                           amxColumns: columns, block: scale.block)
+            let roundsHere = rounds && EngineSettings.effective.bf16ActivationEightBit && (scale.block == nil || gemm.tensor?.roundsBlocks == true)
+            // Rounded, the GPU alone: the AMX reads the fp32 activation, one rounding for some columns only.
+            guard let plan = (roundsHere ? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group,
+                                                         amxColumns: 0, block: scale.block, rounded: true) : nil)
+                    ?? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group,
+                                     amxColumns: amxColumns(k: k, n: n, m: m), block: scale.block)
                     ?? Self.int8Plan(k: k, n: n, capacity: capacity, perColumn: perColumn, group: group, amxColumns: 0,
                                      block: scale.block)
             else { return try widen(name, count: count) }

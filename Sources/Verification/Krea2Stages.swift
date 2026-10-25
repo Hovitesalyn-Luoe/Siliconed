@@ -75,9 +75,9 @@ enum Krea2Stages {
     static let dit = Stage(
         model: model, name: "dit",
         proves: "one evaluation of the DiT at σ = 1, boundary by boundary, judged at the fp64 witness where it exists",
-        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine"],
-        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine, bf16 --size {size}", weights: ["DiT"],
-        rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine, against bf16's own error + 25 %"
+        sizes: ["512", "1024", "768x512"], options: ["--map", "--neural-engine", "--bf16-activations"],
+        oracle: "tools/oracle/krea2.py dit --size {size}; witness --size {size}; witness-step --size {size} --step 0; draw --size {size} --step 0 --jitter 1 2 3; with --neural-engine or --bf16-activations, bf16 --size {size}", weights: ["DiT"],
+        rule: "the rule, floor 5e-4, at the fp64 witness where it exists, clouds when the oracle has draws; model_out per latent plane at the witness; on a rectangle, the transposed golden must deviate; with --neural-engine or --bf16-activations, against bf16's own error + 25 %"
     ) { invocation in
         let report = Report(title: "\(model) dit \(invocation.size)")
         let stem = "krea2/goldens-krea2-dit-\(invocation.size)"
@@ -130,6 +130,7 @@ enum Krea2Stages {
             if let m = Judge.orientation(out, expected, height: height, width: width) { report.add(m) }
         }
         if invocation.neuralEngine { try NeuralEngineRun.account(report) }
+        if invocation.bf16Activations { try BF16ActivationRun.account(report) }
         return report
     }
 

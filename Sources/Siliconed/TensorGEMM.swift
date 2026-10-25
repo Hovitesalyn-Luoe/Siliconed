@@ -41,18 +41,32 @@ import Metal
 ///     weight widened, the reserve's size again. The scale is a pass of its own on the GPU's columns
 ///     (the cooperative tensor's index API is not on every compiler): one more rounding, as the widened
 ///     weight's own;
+///   - **`gemm_bf16_act`: the activation rounded to bf16 just before the product** (`BFloatKernels`, a
+///     second library compiled only when asked): `matmul2d` `bfloat × bfloat → float` (and `bfloat × int8_t`,
+///     `bfloat × float` for Q8_0), sums in fp32, output fp32. The operand is rounded to nearest-even into a
+///     scratch in the reserve's tail, a chunk of rows at a time — one rounding, of the operand and nothing
+///     else: the activation the caller holds stays fp32 (the LoRA stack, the residual and the next norm read
+///     it). P20 allows it (bf16 between two operations, fp32 accumulations); the map decides it by the
+///     measured throughput, and the check judges it against diffusers in bf16;
 ///   - **the rotation moves to the activation**: `W = R · q · s` along K (`Widen.dequantizeRotated`),
 ///     `x · W = (x · R) · q · s`, `R = H/√G` — fp32 butterflies on `x`, the integers never touched.
 package final class TensorGEMM {
     private let queue: MTLCommandQueue
+    func makeCommands() -> MTLCommandBuffer { queue.makeCommandBuffer()! }
     /// `[k, n]` weights (the forge's layout), then `[n, k]` (a published `nn.Linear`).
     private let byColumns, byRows: MTLComputePipelineState
     /// The int8 product, the scale's pass, the rotation of the activation (`linear(a:int8:…)`).
-    private let int8, scaleColumns, rotateGroups: MTLComputePipelineState
+    let int8, scaleColumns, rotateGroups: MTLComputePipelineState
     /// The product on scales per block of rows (GGUF Q8_0), `nil` when this macOS's compiler refuses
     /// a threadgroup operand: those weights are then widened, as before.
     private let blocks: MTLComputePipelineState?
     package var readsBlocks: Bool { blocks != nil }
+    /// The products on an activation rounded to bf16 (`gemm_bf16_act`), `nil` unless asked at `init` and
+    /// compiled.
+    let rounded: BFloatKernels?
+    package var roundsActivations: Bool { rounded != nil }
+    /// ... and the Q8_0 kernel on it compiled.
+    package var roundsBlocks: Bool { rounded?.blocks != nil }
 
     static let source = """
     #include <metal_stdlib>
@@ -178,7 +192,7 @@ package final class TensorGEMM {
 
     /// `nil` before macOS 26, on a device without Metal 4, or when this macOS's compiler refuses the
     /// kernel: the caller keeps the default path.
-    package init?(device: MTLDevice, queue: MTLCommandQueue) {
+    package init?(device: MTLDevice, queue: MTLCommandQueue, roundingActivations: Bool = false) {
         guard #available(macOS 26.0, *), device.supportsFamily(.metal4) else { return nil }
         let options = MTLCompileOptions()
         options.languageVersion = .version4_0
@@ -195,6 +209,12 @@ package final class TensorGEMM {
         self.queue = queue; self.byColumns = byColumns; self.byRows = byRows
         self.int8 = int8; self.scaleColumns = scaleColumns; self.rotateGroups = rotateGroups
         blocks = pipeline("linear_q8")
+        if roundingActivations {
+            guard let kernels = BFloatKernels(device: device, options: options) else { return nil }
+            rounded = kernels
+        } else {
+            rounded = nil
+        }
     }
 
     /// `C [m, n] = A [m, k] · W`, `A` and `C` fp32, `W` bf16 — `[k, n]` when `weightIsTransposed`
@@ -227,9 +247,9 @@ package final class TensorGEMM {
     /// GPU seconds.
     package func linear(a: MTLBuffer, int8 w: MTLBuffer, scales: MTLBuffer, scalesOffset: Int, perColumn: Bool,
                         block: Int? = nil, rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
-                        c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
+                        rounding: Rounding? = nil, c: MTLBuffer, m: Int, k: Int, n: Int) -> Double {
         let commands = submit(a: a, int8: w, scales: scales, scalesOffset: scalesOffset, perColumn: perColumn,
-                              block: block, rotation: rotation, c: c, m: m, k: k, n: n, columns: n)
+                              block: block, rotation: rotation, rounding: rounding, c: c, m: m, k: k, n: n, columns: n)
         commands.waitUntilCompleted()
         return Attention.verdict(commands, what: "matmul2d float × int8 \(m)×\(k)×\(n)")
     }
@@ -240,7 +260,12 @@ package final class TensorGEMM {
     /// the product — no rotation then (`Artifact` refuses one there).
     package func submit(a: MTLBuffer, int8 w: MTLBuffer, scales: MTLBuffer, scalesOffset: Int, perColumn: Bool,
                         block: Int? = nil, rotation: (group: Int, scratch: MTLBuffer, offset: Int, chunk: Int)?,
-                        c: MTLBuffer, m: Int, k: Int, n: Int, columns: Int) -> MTLCommandBuffer {
+                        rounding: Rounding? = nil, c: MTLBuffer, m: Int, k: Int, n: Int, columns: Int) -> MTLCommandBuffer {
+        if let rounding, let rounded = submitRounded(a: a, int8: w, scales: scales, scalesOffset: scalesOffset,
+                                                     perColumn: perColumn, block: block, rotation: rotation,
+                                                     rounding: rounding, c: c, m: m, k: k, n: n, columns: columns) {
+            return rounded
+        }
         let commands = queue.makeCommandBuffer()!
         let encoder = commands.makeComputeCommandEncoder()!
         var mkn = SIMD3<UInt32>(UInt32(m), UInt32(k), UInt32(n))

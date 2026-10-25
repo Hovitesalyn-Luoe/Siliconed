@@ -21,4 +21,9 @@ int amx_matmul(bool transA, bool transB, float alpha,
                const BNNSNDArrayDescriptor *C, void *_Nullable workspace,
                const BNNSFilterParameters *_Nullable params);
 
+// **The softmax's numerator and denominator in one pass** (NEON; `HeadSplitAttention.exponentiate`):
+// row[j] = exp(scale * row[j] + offset) in place, the sum of the row returned. `offset` is -scale * max, so
+// every argument is <= 0. Cephes' expf (relative error < 2e-7), fused multiply-adds, 8 fp32 partial sums.
+float amx_softmax_exponentiate(float *row, long count, float scale, float offset);
+
 #pragma clang assume_nonnull end

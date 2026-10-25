@@ -16,6 +16,8 @@ import Foundation
 ///        │  ANE cuts, the families' shapes       ρ = (1 − T*) / T* where its pair wins, 0 where the AMX's does ─▶ ane_shares
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen k·n)]
 ///        │                                         / Σ [t(bf16 weight) + t(copy k·n)]    ─▶ gemm_tensor
+///        │                                     g_m = Σ [t(fp32 path) + t(widen k·n)]
+///        │                                         / Σ [t(bf16 weight, bf16 activation) + t(copy k·n)]    ─▶ gemm_bf16_act
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen convrot k·n)]
 ///        │                                         / Σ [t(int8 weight) + t(copy k·n)]    ─▶ gemm_int8
 ///        │                                     g_m = Σ [t(fp32 path) + t(widen Q8_0 k·n)]
@@ -49,6 +51,16 @@ import Foundation
 ///     copies the weight instead (`Artifact.stage`) — both at the map's own CPU rates (`widening`
 ///     "bf16" and "bf16 copy"). It has no AMX: when it goes on, `amx` goes off in the settings (the
 ///     decision still says what co-execution measured);
+///   - **`gemm_bf16_act` against the same fp32 path, and rounding is its price**: the candidate is
+///     `matmul2d` `bfloat × bfloat → float` with the activation rounded just before (the rounding's pass is in
+///     its time), the weight copied as `gemm_tensor`'s. It is a branch of its own, not `gemm_tensor`'s: the
+///     two read the same weight, but this one changes the numbers (an operand rounded to bf16, P20 allows it,
+///     the check judges it against diffusers in bf16), and it is the only one that wins where `matmul2d`
+///     runs on a bf16 matrix unit and not on fp32 (M5 Pro: 15.3 TFLOP/s bf16 × bf16, 6.0 fp32 × bf16, the
+///     GPU's fp32 5.8–6.0). On a Mac without that unit it loses by the rounding (M1 Pro, ×0.5) and stays off.
+///     The AMX and the ANE are untouched in the settings: they serve the products the path leaves widened
+///     (the text encoder, a product under `bf16_act_min` rows). Only the bf16 weights are measured: the
+///     8-bit ones round only if `bf16_act_8bit` says so, which no map decides;
 ///   - **`gemm_int8` likewise, against what an int8 map's default path does**: the convrot widening
 ///     ("int8 convrot") then the fp32 path, against the bytes copied ("int8 copy") then the int8 product —
 ///     beside the AMX on its columns when the AMX stays on (`amx` on, `gemm_tensor` off), alone otherwise.
@@ -74,10 +86,12 @@ import Foundation
 ///     (`Block`), Qwen-Image-2.1's target only has the split. So flash goes on only if it also beats the
 ///     split where the split goes on — otherwise Z-Image would trade a faster path for a slower one;
 ///   - **what the map does not decide stays at its default**, by rule, not by omission:
-///       · the head split's `cpuFraction` (0.4): the map measures the split only at 0.4;
-///       · fp16 / bf16 *activations*: P20 (never under the published weights nor under bf16, sums in
-///         fp32) stands — the half-precision figures answer a fleet question, they choose
-///         nothing (`gemm_tensor` rounds nothing: its activations stay fp32);
+///       · the head split's `head_split_fraction` (0.4) moves only where the map's cut call (each part timed)
+///         predicts another share faster by more than the margin (`HeadSplitAttention.balance`);
+///       · fp16 *activations*: P20 (never under the published weights nor under bf16, sums in fp32)
+///         stands — the fp16 figures answer a fleet question, they choose nothing (`gemm_tensor` rounds
+///         nothing: its activations stay fp32; `gemm_bf16_act` rounds to bf16, and only to bf16);
+///       · `bf16_act_min` (256 rows) and `bf16_act_8bit`;
 ///       · `amx_quantum` (64 under the grid, MPS's row tile), `amx_min`, `parallel`: nothing measures them.
 extension Diagnostic {
     /// **One branch, decided**: on or off, and the figures behind it.
@@ -112,9 +126,14 @@ extension Diagnostic {
         package var flash: Decision
         /// The SDPA's heads cut between the GPU and the CPU from S = 1024 on (`head_split`).
         package var headSplit: Decision
+        /// The share of heads the CPU takes (`head_split_fraction`) when the cut is on and the report's figures
+        /// say another share than 0.4 beats it by more than the margin; `nil` otherwise (and before schema 11).
+        package var headSplitFraction: Double?
         /// The DiT's products on the bf16 weights (`gemm_tensor`, `TensorGEMM`); `nil` in a decision
         /// stored by a report of schema 5.
         package var tensor: Decision?
+        /// The DiT's products on an activation rounded to bf16 (`gemm_bf16_act`); `nil` before schema 11.
+        package var bf16Act: Decision?
         /// The products on the published int8 weights (`gemm_int8`); `nil` before schema 8.
         package var int8: Decision?
         /// The products on GGUF Q8_0 weights (`gemm_q8`); `nil` before schema 9.
@@ -129,17 +148,20 @@ extension Diagnostic {
 
         package init(margin: Double, amx: Decision, amxFraction: Double?, flash: Decision, headSplit: Decision,
                     tensor: Decision? = nil, amxShares: String? = nil, int8: Decision? = nil, q8: Decision? = nil,
-                    ane: Decision? = nil, aneFraction: Double? = nil, aneShares: String? = nil) {
+                    bf16Act: Decision? = nil, ane: Decision? = nil, aneFraction: Double? = nil, aneShares: String? = nil,
+                    headSplitFraction: Double? = nil) {
             self.margin = Diagnostic.significant(margin, 3); self.amx = amx
             self.amxFraction = amxFraction.map { Diagnostic.significant($0, 3) }
             self.amxShares = amxShares
             self.flash = flash; self.headSplit = headSplit; self.tensor = tensor; self.int8 = int8
+            self.bf16Act = bf16Act
             self.q8 = q8; self.ane = ane
             self.aneFraction = aneFraction.map { Diagnostic.significant($0, 3) }
             self.aneShares = aneShares
+            self.headSplitFraction = headSplitFraction.map { Diagnostic.significant($0, 3) }
         }
 
-        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, int8, q8, ane, aneFraction, aneShares }
+        private enum CodingKeys: String, CodingKey { case margin, amx, amxFraction, amxShares, flash, headSplit, tensor, bf16Act, int8, q8, ane, aneFraction, aneShares, headSplitFraction }
         package func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(margin, forKey: .margin); try c.encode(amx, forKey: .amx)
@@ -148,8 +170,10 @@ extension Diagnostic {
             try c.encode(flash, forKey: .flash); try c.encode(headSplit, forKey: .headSplit)
             try c.encode(tensor, forKey: .tensor); try c.encode(int8, forKey: .int8)
             try c.encode(q8, forKey: .q8)
+            try c.encodeIfPresent(bf16Act, forKey: .bf16Act)
             try c.encodeIfPresent(ane, forKey: .ane); try c.encodeIfPresent(aneFraction, forKey: .aneFraction)
             try c.encodeIfPresent(aneShares, forKey: .aneShares)
+            try c.encodeIfPresent(headSplitFraction, forKey: .headSplitFraction)
         }
 
         /// The settings they write, under `EngineSettings`' keys (those of `store/profil.json`).
@@ -158,7 +182,9 @@ extension Diagnostic {
             let aneOn = ane?.on == true && !tensorOn
             var values: [String: Any] = ["amx": amx.on && !tensorOn, "flash": flash.on, "head_split": headSplit.on,
                                          "gemm_tensor": tensorOn, "gemm_int8": int8?.on == true,
-                                         "gemm_q8": q8?.on == true, "gemm_ane": aneOn]
+                                         "gemm_q8": q8?.on == true, "gemm_ane": aneOn,
+                                         "gemm_bf16_act": bf16Act?.on == true]
+            if headSplit.on, let headSplitFraction { values["head_split_fraction"] = headSplitFraction }
             if aneOn, let aneFraction { values["ane_fraction"] = aneFraction }
             if aneOn, let aneShares { values["ane_shares"] = aneShares }
             if amx.on, !tensorOn, let amxFraction { values["amx_fraction"] = amxFraction }
@@ -276,6 +302,27 @@ extension Diagnostic {
         }
         let tensor = decision(passed: tensorPassed, gains: tensorGains)
 
+        // ── gemm_bf16_act: the same bf16 weight, the activation rounded, against the same fp32 path ──
+        // Absent from a map before schema 11 (no `bf16Act` measure): no decision, the branch off.
+        let bf16Act: Decision? = products.contains { $0.bf16Act != nil } ? {
+            let passed = !products.isEmpty && widen?.pass == true && copy?.pass == true
+                && products.allSatisfy { $0.bf16Act?.pass == true && fp32Path($0)?.pass == true }
+            let gains: [Double] = heights.compactMap { h in
+                let these = products.filter { $0.m == h }
+                guard !these.isEmpty else { return nil }
+                var (tReference, tCandidate) = (0.0, 0.0)
+                for p in these {
+                    guard let r = fp32Path(p)?.rate, let t = p.bf16Act?.rate, let w = widen?.rate, let c = copy?.rate,
+                          r > 0, t > 0, w > 0, c > 0 else { return .nan }
+                    let (flops, values) = (productFlops(p) * 1e-12, Double(p.k * p.n) * 1e-9)
+                    tReference += flops / r + values / w
+                    tCandidate += flops / t + values / c
+                }
+                return tReference / tCandidate
+            }
+            return decision(passed: passed, gains: gains)
+        }() : nil
+
         // ── gemm_int8 and gemm_q8: the 8-bit product against the widening + the fp32 path, preparations included ──
         // The AMX runs beside it when it stays on in the settings (`amx` on, `gemm_tensor` off).
         let amxRuns = amx.on && !tensor.on
@@ -314,6 +361,17 @@ extension Diagnostic {
         let splitPassed = !attention.isEmpty && graphPassed && attention.allSatisfy { $0.headSplit?.pass == true }
         let split = decision(passed: splitPassed, gains: gains(attention, size: \.sequence, flops: attentionFlops,
                                                                reference: \.graph, candidate: \.headSplit))
+        // The share of heads: from the largest size's cut call (both parts timed) and its graph alone.
+        var headSplitFraction: Double?
+        if split.on, let size = heights.last {
+            let these = attention.filter { $0.sequence == size }
+            let items = these.compactMap { a -> HeadSplitAttention.Balance? in
+                guard let graph = a.graph, graph.rate > 0, let parts = a.splitParts else { return nil }
+                return .init(heads: a.heads, graphSeconds: attentionFlops(a) / (graph.rate * 1e12), cpuHeads: parts.cpuHeads,
+                             gpuSeconds: parts.gpuSeconds, cpuSeconds: parts.cpuSeconds)
+            }
+            if items.count == these.count { headSplitFraction = HeadSplitAttention.balance(items, margin: margin) }
+        }
         var flash = decision(passed: flashPassed, gains: gains(attention, size: \.sequence, flops: attentionFlops,
                                                                reference: \.graph, candidate: \.flash))
         // Z-Image takes flash before the split: flash only where it is also the faster of the two.
@@ -325,8 +383,8 @@ extension Diagnostic {
         // ── ane_shares: the same, on the ANE's grid ──
         let aneShares = aneGrid?.description
         return Decisions(margin: margin, amx: amx, amxFraction: fraction, flash: flash, headSplit: split, tensor: tensor,
-                         amxShares: shares, int8: int8, q8: q8, ane: products.contains { $0.ane != nil } ? ane : nil,
-                         aneFraction: aneFraction, aneShares: aneShares)
+                         amxShares: shares, int8: int8, q8: q8, bf16Act: bf16Act, ane: products.contains { $0.ane != nil } ? ane : nil,
+                         aneFraction: aneFraction, aneShares: aneShares, headSplitFraction: headSplitFraction)
     }
 
     /// The rules applied to `report`'s measures (never to its stored `decisions`: the rules live in the code).

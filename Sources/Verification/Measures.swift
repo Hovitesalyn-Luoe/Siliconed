@@ -149,6 +149,30 @@ package enum NeuralEngineRun {
     }
 }
 
+/// **`--bf16-activations`: the DiT's products on an activation rounded to bf16**, the weights as published, the
+/// sums and the output fp32, every product of 256 rows or more (the engine's own rule). The strictest case of
+/// the map's setting: on any Mac, whatever its map says. Judged like the ANE's, against the reference run in
+/// bf16 (`HalfPrecisionReference`): invariant 3, no further from the fp64 witness than diffusers in bf16, + 25 %.
+package enum BF16ActivationRun {
+    package static func enable() throws {
+        setenv("SILICONED_GEMM_BF16_ACT", "1", 1)
+        setenv("SILICONED_BF16_ACT_MIN", "256", 1)
+        guard EngineSettings.effective.gemmBF16Activations else {
+            throw UsageError("--bf16-activations: the engine's settings were read before it")
+        }
+    }
+
+    /// How many products rounded their activation. None (no Metal 4, a refused compiler): skipped, since what
+    /// would be judged is the fp32 path against a looser bar.
+    package static func account(_ report: Report) throws {
+        let rounded = GEMM.roundedProducts.withLock { $0 }
+        guard rounded > 0 else {
+            throw Skip("--bf16-activations: no product rounded its activation on this Mac (Metal 4 missing, or the kernel refused)")
+        }
+        report.add(Judge.holds("bf16 activations", true, note: "\(rounded) products on a rounded operand"))
+    }
+}
+
 /// **Invariant 3 for a half-precision path** (the ANE's products in fp16): the reference that sets the
 /// bar is the reference run in bf16 on the golden's inputs, beside the golden as `witness-bf16-X`.
 /// `nil` when the engine's path is fp32, or the bf16 reference is missing (said: the fp32 rule applies).
@@ -156,12 +180,12 @@ package struct HalfPrecisionReference {
     let tensors: Safetensors
 
     package init?(goldens: Goldens, file: String) {
-        guard EngineSettings.effective.gemmANE else { return nil }
+        guard EngineSettings.effective.gemmANE || EngineSettings.effective.gemmBF16Activations else { return nil }
         // `witness-bf16-X`, or Qwen-Image-2.1's own name for it (`goldens-qwen21-dit-bf16-R`).
         let names = [file.replacingOccurrences(of: "goldens-", with: "witness-bf16-"),
                      file.replacingOccurrences(of: "-dit-", with: "-dit-bf16-")]
         guard let found = names.lazy.compactMap({ goldens.optional($0) }).first else {
-            print("the ANE path is on and no bf16 reference beside \(file): the fp32 rule applies")
+            print("a half-precision path is on and no bf16 reference beside \(file): the fp32 rule applies")
             return nil
         }
         tensors = found

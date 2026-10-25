@@ -15,7 +15,7 @@ import Synchronization
 ///        │
 ///        └─ heads [g, H)  CPU   per block of `rows` queries of one head, Q_b, K_h, V_h packed:    ─► spill [S, a·Dh]
 ///                                 scores = Q_b · K_hᵀ                  BNNSMatMul, 1 thread (AMX)
-///                                 p = exp(scale·s − scale·max s)       vDSP_maxv, vDSP_vsmsa, vvexpf
+///                                 p = exp(scale·s − scale·max s), Σp    vDSP_maxv, then `exponentiate` (one pass)
 ///                                 O_b = (P · V) / Σp                   BNNSMatMul, then vDSP_vsdiv on rows × Dh only
 ///        then, both engines done: spill → the CPU heads' columns of out
 ///
@@ -145,11 +145,74 @@ package final class HeadSplitAttention {
         }
     }
 
-    /// **The share of heads handed to the CPU, frozen: 12 of Z-Image's 30.** Not a setting:
-    /// a fraction decides the bits, and one version lives. It was swept in the engine at S = 4128 —
-    /// 18 GPU / 12 CPU ahead (155.7 → 95.9 ms) — and judged at threshold on every Z-Image
-    /// golden, then adopted. Thread count, by contrast, changes the speed and never the bits.
-    package static let cpuFraction = 0.4
+    /// **The share of heads handed to the CPU: 0.4, the M1 Pro's, unless the capacity map found another** (the
+    /// `head_split_fraction` setting, `balance`). Frozen, not servoed: a share decides which engine computes a
+    /// head, hence the bits. It was swept in the engine at S = 4128 — 12 of Z-Image's 30 heads, 18 GPU ahead
+    /// (155.7 → 95.9 ms) — and judged at threshold on every Z-Image golden, then adopted. Thread count, by
+    /// contrast, changes the speed and never the bits.
+    ///
+    /// **It does not depend on the sequence.** Swept again at 2,048 to 24,576 tokens (Anima's 16 heads, Z-Image's
+    /// 30): both sides cost `S²` per head — the GPU's `4·S²·Dh` FLOP at ~1.6 TFLOP/s, the CPU's the same through the
+    /// AMX plus `S²` exponentials —, so the ratio of the two per-head times, which sets the share, stays within
+    /// 1.7–2.4 and the best count of heads sits at 6 of 16 (5 at 12,288, ahead by 5 %) and 12 of 30 at every
+    /// length, the call time flat within a head either way. What moves with the length is the GPU's penalty
+    /// for the CPU running beside it (+5 % at 8,192 tokens, +15 % at 4,096, taken into `balance`).
+    package static var cpuFraction: Double { EngineSettings.effective.headSplitFraction }
+
+    /// The share the capacity map measures the cut at, and the default of `head_split_fraction`.
+    package static let referenceFraction = 0.4
+
+    /// **One attention's cut call, as the map measured it** (`Diagnostic.AttentionCapacity`).
+    package struct Balance: Sendable {
+        package var heads, group: Int
+        /// The whole call on the GPU alone, seconds.
+        package var graphSeconds: Double
+        /// The cut call's CPU heads and the two parts' wall times, run at the same time.
+        package var cpuHeads: Int
+        package var gpuSeconds, cpuSeconds: Double
+
+        package init(heads: Int, group: Int = 1, graphSeconds: Double, cpuHeads: Int, gpuSeconds: Double, cpuSeconds: Double) {
+            self.heads = heads; self.group = group; self.graphSeconds = graphSeconds
+            self.cpuHeads = cpuHeads; self.gpuSeconds = gpuSeconds; self.cpuSeconds = cpuSeconds
+        }
+
+        /// **The call's time at a share**, from the three figures. A GPU head costs `b₀ = graph / H` alone and
+        /// `b₀·(1 + κφ)` while the CPU takes a share φ (the contention for memory and power, fitted on the
+        /// measured point: κ = (gpu / (H − c) / b₀ − 1) / φ₀); a CPU head costs `τ = cpu / c`. The call ends
+        /// when both do: `max((H − c)·b₀·(1 + κφ), c·τ)` at `c` heads, the count `partition` gives.
+        /// `nil` if the figures are unusable.
+        package func seconds(fraction: Double) -> Double? {
+            let gpuHeads = heads - cpuHeads
+            guard heads > 0, cpuHeads > 0, gpuHeads > 0, graphSeconds > 0, gpuSeconds > 0, cpuSeconds > 0 else { return nil }
+            let b0 = graphSeconds / Double(heads), tau = cpuSeconds / Double(cpuHeads)
+            let share0 = Double(cpuHeads) / Double(heads)
+            let kappa = max(0, (gpuSeconds / Double(gpuHeads) / b0 - 1) / share0)
+            let c = Double(HeadSplitAttention.partition(heads: heads, fraction: fraction, group: group).cpu.count)
+            let phi = c / Double(heads)
+            return max((Double(heads) - c) * b0 * (1 + kappa * phi), c * tau)
+        }
+    }
+
+    /// **The share of heads the CPU should take on this machine**, from the map's attentions: the one among
+    /// `candidates` that minimizes the summed predicted time, if it beats the reference share's by more than
+    /// `margin` — otherwise `nil`, the reference stays (a gain inside the noise is not worth moving every
+    /// bit). Only the attention's cost shapes enter: the optimum does not depend on the sequence.
+    package static func balance(_ items: [Balance], margin: Double,
+                                candidates: [Double] = stride(from: 0.1, through: 0.7, by: 0.05).map { $0 }) -> Double? {
+        guard !items.isEmpty else { return nil }
+        func total(_ fraction: Double) -> Double? {
+            var sum = 0.0
+            for item in items { guard let t = item.seconds(fraction: fraction) else { return nil }; sum += t }
+            return sum
+        }
+        guard let reference = total(referenceFraction) else { return nil }
+        var best: (fraction: Double, seconds: Double)?
+        for fraction in candidates {
+            if let t = total(fraction), t < (best?.seconds ?? .infinity) { best = (fraction, t) }
+        }
+        guard let best, abs(best.fraction - referenceFraction) > 1e-9, reference / best.seconds > 1 + margin else { return nil }
+        return best.fraction
+    }
 
     /// - Parameter cpuFraction: the share of heads handed to the CPU; the product's is `cpuFraction`,
     ///   other values serve the `sdpa` check's sweep.
@@ -417,16 +480,12 @@ package final class HeadSplitAttention {
                  b: s.packedK, bRows: keys, bColumns: headDim, bStride: headDim, transposeB: true,
                  c: s.scores, cColumns: keys, cStride: keys)
         let scale = 1 / Float(headDim).squareRoot()
-        var count = Int32(keys)
         for r in 0..<item.rows {
             let row = s.scores + r * keys
             var maximum: Float = 0
             vDSP_maxv(row, 1, &maximum, vDSP_Length(keys))
-            var a = scale, b = -scale * maximum
-            // Fused, and left so: the softmax is already not torch's SDPA order (max, exp, sum, divide).
-            vDSP_vsmsa(row, 1, &a, &b, row, 1, vDSP_Length(keys))
-            vvexpf(row, row, &count)
-            vDSP_sve(row, 1, s.sums + r, vDSP_Length(keys))
+            // One pass over the row for the scale, the exponential and the sum (see `exponentiate`).
+            s.sums[r] = HeadSplitAttention.exponentiate(row, count: keys, scale: scale, maximum: maximum)
         }
         // O_b [rows, Dh] = P [rows, K] · V_h [K, Dh], then each row divided by its Σp
         multiply(s, a: s.scores, aRows: item.rows, aColumns: keys, aStride: keys,
@@ -435,6 +494,22 @@ package final class HeadSplitAttention {
         for r in 0..<item.rows {
             vDSP_vsdiv(o + r * spilledWidth, 1, s.sums + r, o + r * spilledWidth, 1, vDSP_Length(headDim))
         }
+    }
+
+    /// **The softmax's numerator and denominator in one pass**: `row[j] = exp(scale · (row[j] − maximum))` in place, and
+    /// the sum of the row returned (eight fp32 partial sums, added at the end). In C (`AMXLegacy`): the same code in Swift's SIMD types ran five times slower (the fused multiply-adds went through the scalar library). `maximum` is the row's, so every
+    /// argument is ≤ 0 and `exp` is in (0, 1].
+    ///
+    /// Four passes over a row (`vDSP_vsmsa`, `vvexpf`, `vDSP_sve` after the maximum) cost as much as the
+    /// products on the CPU — 10.5 ms of a head's 20 at 4,128 tokens —, and the softmax is the part of the
+    /// head that the AMX does not do: the faster it is, the more heads the P cores can take from the GPU.
+    /// Cephes' `expf` (`x = n·ln 2 + r`, |r| ≤ ln 2 / 2, a degree-7 polynomial on `r`, `2ⁿ` by the
+    /// exponent field), fused multiply-adds throughout, 4 lanes × 2. Its relative error is under 4·10⁻⁷ with the argument's own fp32 rounding (a few
+    /// ulp; `vvexpf`'s is one), which the sum's own fp32 rounding (~10⁻⁶ over 16,384 terms) and the GPU
+    /// heads' (5·10⁻⁶ of fp64) bury. Below `−87.3365` the argument is held there: `exp` is 1.2·10⁻³⁸ against a
+    /// sum of at least 1 (the maximum's own term), and no result is subnormal.
+    package static func exponentiate(_ row: UnsafeMutablePointer<Float>, count: Int, scale: Float, maximum: Float) -> Float {
+        amx_softmax_exponentiate(row, count, scale, -scale * maximum)
     }
 
     /// `C = A · op(B)` on one thread, row-major, with row strides. `B` is described as stored

@@ -117,7 +117,7 @@ package struct RenderCache: Sendable {
         // The Neural Engine computes in fp16: a K/V the DiT wrote with it is not one written without.
         let ane = neuralEngine && s.gemmANE ? " ane \(s.aneFraction) \(s.aneShares)" : ""
         return "amx \(s.amx) \(s.amxFraction) \(s.amxShares) \(s.amxQuantum) \(s.amxMinimumRows) "
-            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) parallel \(s.parallel)" + ane
+            + "frozen \(reproducible) flash \(s.flash) split \(s.headSplit) \(s.headSplitFraction) parallel \(s.parallel)" + ane
     }
 
     /// The key of a text stage's output: the module, the prompt, the images it sees.
