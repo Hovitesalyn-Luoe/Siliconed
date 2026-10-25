@@ -54,7 +54,7 @@ enum AnimaStages {
         let t5Ids = try T5Tokenizer(directory: try Library.processWide.component(.anima, "t5_tokenizer")).encode(prompt, maxLength: .max)
         report.add(Judge.integers("Qwen tokens", qwenIds, goldens.int32("qwen_ids")))
         report.add(Judge.integers("T5 tokens", t5Ids, goldens.int32("t5_ids")))
-        let encoder = try TextEncoder(artifact: try Artifact(path: Library.processWide.map("qwen3-0.6b-encoder.v0.silicon")),
+        let encoder = try TextEncoder(artifact: try Artifact(path: MapCheck.use(Library.processWide.map("qwen3-0.6b-encoder.v0.silicon"))),
                                       sequence: qwenIds.count)
         encoder.recordBoundaries = true
         let hidden = try encoder.encode(ids: qwenIds, realTokens: qwenIds.count)

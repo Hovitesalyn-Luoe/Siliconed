@@ -50,7 +50,7 @@ enum ZImageStages {
         options: ["--long"], oracle: "tools/oracle/z-image.py text [--long]", weights: ["text encoder"], rule: "the rule, floor 2e-4"
     ) { invocation in
         let report = Report(title: "z-image text\(invocation.long ? " --long" : "")")
-        let artifact = try Artifact(path: Library.processWide.map("qwen3-4b-encoder.v0.silicon"))
+        let artifact = try Artifact(path: MapCheck.use(Library.processWide.map("qwen3-4b-encoder.v0.silicon")))
         let goldens = try invocation.goldens.open(invocation.long ? "goldens-text-long.safetensors" : "goldens-text.safetensors")
         guard let truthIds = goldens.int32("input_ids"), let mask = goldens.int32("attention_mask") else {
             throw Skip("\(goldens.path): no input_ids or attention_mask")

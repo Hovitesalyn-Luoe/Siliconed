@@ -47,7 +47,7 @@ enum Krea2Stages {
         guard tokens.passed else { return report }
 
         let sockets = Krea2Text.sockets, width = 2560, t = validEntry.shape[0]
-        let hidden = try Krea2Text.hiddenStates(ids, encoder: Library.processWide.map("qwen3-vl-4b-encoder.v0.silicon"),
+        let hidden = try Krea2Text.hiddenStates(ids, encoder: MapCheck.use(Library.processWide.map("qwen3-vl-4b-encoder.v0.silicon")),
                                                 sockets: sockets)
         report.add(goldens, "Qwen3-VL taps", hidden, name: "hidden_valid", columns: width)
         // Each tap alone: a deviation that grows with depth shows here.
