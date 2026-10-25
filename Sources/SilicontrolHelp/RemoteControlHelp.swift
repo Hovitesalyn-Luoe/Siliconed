@@ -185,7 +185,7 @@ package enum RemoteControlHelp {
 
         id          → --model of « add »; "default": true = the one taken without --model
         variants    → the versions a publisher's model installs in, with their space on disk:
-                      "standard" (the publisher's weights, the default), "compact" (8-bit weights
+                      "standard" (the publisher's weights), "compact" (the default; 8-bit weights
                       published by third parties: smaller on disk, an image slightly different) and
                       "light" (the image model in 4 to 6 bits as a third party publishes it: the
                       smallest; another set of weights, an image that may compose differently).
@@ -230,7 +230,7 @@ package enum RemoteControlHelp {
           {"ok": true, "model": "z-image", "installed": true, "variant": "standard", "message": "already installed"}
         Then « silicontrol models » says "ready": true once the installation is done.
 
-        Without a flag, the version installed is kept (none installed: Standard, or Light on a Mac
+        Without a flag, the version installed is kept (none installed: Compact, or Light on a Mac
         of 8 GB — preselected, the user sees all three): a command that names no version never
         switches it.
         --standard  preselects the Standard version (the publisher's weights);
@@ -924,7 +924,7 @@ package enum RemoteControlHelp {
 
         id          → --model de « add » ; "default": true = celui pris sans --model
         variants    → les versions dans lesquelles s'installe un modèle d'éditeur, avec leur place sur
-                      le disque : "standard" (les poids de l'éditeur, le défaut), "compact" (poids
+                      le disque : "standard" (les poids de l'éditeur), "compact" (le défaut ; poids
                       8 bits publiés par des tiers : plus léger sur le disque, une image légèrement
                       différente) et "light" (le modèle d'image en 4 à 6 bits tel qu'un tiers le
                       publie : la plus petite ; un autre jeu de poids, une image qui peut se composer
@@ -969,7 +969,7 @@ package enum RemoteControlHelp {
           {"ok": true, "model": "z-image", "installed": true, "variant": "standard", "message": "already installed"}
         Ensuite « silicontrol models » dit "ready": true quand l'installation est finie.
 
-        Sans drapeau, la version installée est gardée (aucune installée : Standard, ou Légère sur
+        Sans drapeau, la version installée est gardée (aucune installée : Compact, ou Légère sur
         un Mac de 8 Go — présélectionnée, l'utilisateur voit les trois) : une commande qui ne nomme
         pas de version n'en change jamais.
         --standard  présélectionne la version Standard (les poids de l'éditeur) ;

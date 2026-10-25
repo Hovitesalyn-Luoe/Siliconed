@@ -121,7 +121,7 @@ extension AppState {
     /// **Offers to install a family**: the Models sheet opens on it, with its license and the place it
     /// takes on disk. Nothing is downloaded before « Accept and Install » (`acceptAndInstall`).
     /// `variant`: the version preselected in the panel — by default the one installed, else
-    /// `Family.preselectedVariant` (the publisher's weights unless the user picks another; the
+    /// `Family.preselectedVariant` (the Compact unless the user picks another; the
     /// Light preselected on a Mac of 8 GB, shown among the three).
     /// `baseDiT` false (what an imported model lacks) never changes the version: the one installed is
     /// imposed, Standard if none, whatever `variant` says (`Library.installPlan`).

@@ -62,11 +62,13 @@ package enum Family: String, CaseIterable, Sendable, Codable {
     package var variants: [Variant] { [.standard, .compact, .light] }
 
     /// **The version preselected before an installation** (the welcome cards, « Install… »): the
-    /// Standard (below the publisher's weights only by the user's choice) — except
-    /// on a Mac of 8 GB or less, where the Light is preselected. Preselected,
-    /// never imposed: the three versions are shown, and the user picks.
+    /// Compact, the one we recommend — as fast as the Standard on the Macs measured, half its disk,
+    /// the Neural Engine on by default — except on a Mac of 8 GB or less, where the Light is
+    /// preselected. Preselected, never imposed: the three versions are shown, and the user picks;
+    /// the publisher's weights stay one click away.
     package func preselectedVariant(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Variant {
-        physicalMemory <= Variant.lightMemory && variants.contains(.light) ? .light : .standard
+        if physicalMemory <= Variant.lightMemory && variants.contains(.light) { return .light }
+        return variants.contains(.compact) ? .compact : .standard
     }
 
     /// The DiT map of a version, in `store/`. The Standard's is `ditMap`; the others have their own

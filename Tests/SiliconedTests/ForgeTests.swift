@@ -508,14 +508,14 @@ final class ForgeTests: XCTestCase {
         XCTAssertEqual(b.occupancy().total, 0)
     }
 
-    /// **The Light is preselected on a Mac of 8 GB, the Standard elsewhere** — preselected, never
+    /// **The Light is preselected on a Mac of 8 GB, the Compact elsewhere** — preselected, never
     /// imposed: a family with one version is always Standard.
     func testTheLightIsPreselectedOnEightGigabytes() {
         let gib: UInt64 = 1 << 30
-        for f in [Family.zImage, .qwenImage21, .anima] {
+        for f in [Family.zImage, .qwenImage21, .anima, .krea2] {
             XCTAssertEqual(f.preselectedVariant(physicalMemory: 8 * gib), .light, f.name)
-            XCTAssertEqual(f.preselectedVariant(physicalMemory: 16 * gib), .standard, f.name)
-            XCTAssertEqual(f.preselectedVariant(physicalMemory: 12 * gib), .standard, f.name)
+            XCTAssertEqual(f.preselectedVariant(physicalMemory: 16 * gib), .compact, f.name)
+            XCTAssertEqual(f.preselectedVariant(physicalMemory: 12 * gib), .compact, f.name)
         }
         for f in Family.allCases where f.variants == [.standard] {
             XCTAssertEqual(f.preselectedVariant(physicalMemory: 8 * gib), .standard, f.name)

@@ -412,8 +412,8 @@ struct ModelManagement: View {
 }
 
 /// **Standard, Compact or Light**, before « Install… »: each version with its place
-/// on disk, and what the chosen one changes, in one line. The Standard is preselected
-/// (below the publisher's weights only by the user's choice), the Light on a Mac of 8 GB
+/// on disk, and what the chosen one changes, in one line. The Compact is preselected and marked
+/// recommended, the Light on a Mac of 8 GB
 /// (`Family.preselectedVariant`) — preselected, all three shown; the bits live in the tooltip.
 struct VersionChoice: View {
     let family: Family
@@ -423,8 +423,14 @@ struct VersionChoice: View {
         VStack(alignment: .leading, spacing: 6) {
             Picker("Version", selection: $variant) {
                 ForEach(family.variants, id: \.self) { v in
-                    let size = family.installedSize(v)
-                    Text("\(Self.name(v)) · \(Figures.disk(size.dit + size.encoder + size.components)) on disk").tag(v)
+                    let size = family.installedSize(v), disk = Figures.disk(size.dit + size.encoder + size.components)
+                    Group {
+                        if v == family.preselectedVariant() {
+                            Text("\(Self.name(v)) · \(disk) on disk · recommended")
+                        } else {
+                            Text("\(Self.name(v)) · \(disk) on disk")
+                        }
+                    }.tag(v)
                 }
             }
             .pickerStyle(.radioGroup)
