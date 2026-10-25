@@ -32,7 +32,7 @@ More about the app: [docs/APP.md](docs/APP.md).
 
 - **Fast, without cutting corners.** Z-Image Turbo at 1024² in 84.5 s on a MacBook Pro M1 Pro with 16 GB, in fp32, with the 8 evaluations its recipe calls for (by default the first three at half size). [All the numbers](docs/ENGINE.md#numbers).
 - **Large models on a 16 GB Mac.** 34 GB of model run on a 16 GB Mac: weights are read from disk as they are needed, and Siliconed never takes more than ¾ of the Mac's memory minus 2 GB. Each render works out what it needs before it starts; one beyond the budget is refused up front. [How it is measured](docs/ENGINE.md#memory-and-the-budget).
-- **Checked against the original models.** Every stage is compared, channel by channel, with the reference implementation (diffusers / transformers in fp32 on CPU), and what cannot be checked does not ship. Run the checks yourself: [VERIFY.md](VERIFY.md).
+- **Checked against the original models.** Every stage is compared, channel by channel, with the reference implementation (diffusers / transformers in fp32 on CPU), and what cannot be checked does not ship. Run the checks yourself: [VERIFY.md](docs/VERIFY.md).
 - **Tuned to your Mac.** Before the first render, in about a minute and without any model, it times its kernels on your chip and checks every result against the exact one; a kernel turns on only if it computed right and beat the default. [What it decided on an M1 Pro](docs/ENGINE.md#an-engine-measured-on-your-mac).
 - **Measured next to Draw Things** on the same Mac, with the method and every figure: [Next to Draw Things](docs/ENGINE.md#next-to-draw-things).
 
@@ -40,9 +40,9 @@ More about the app: [docs/APP.md](docs/APP.md).
 
 - [docs/APP.md](docs/APP.md): the app in detail: creating, editing, exploring, managing models, privacy.
 - [docs/ENGINE.md](docs/ENGINE.md): the engine: measuring the Mac, the Neural Engine, memory, numbers, Faster Rendering, Draw Things, the community diagnostic, verification, building from source.
-- [VERIFY.md](VERIFY.md): checking the results against the reference on your Mac.
+- [VERIFY.md](docs/VERIFY.md): checking the results against the reference on your Mac.
 - [docs/REMOTE-CONTROL.md](docs/REMOTE-CONTROL.md): `silicontrol`, protocol and internals.
-- [RELEASE-NOTES.md](RELEASE-NOTES.md): what changed in each version.
+- [RELEASE-NOTES.md](docs/RELEASE-NOTES.md): what changed in each version.
 - Issues: [diagnostic report, bug, idea](https://github.com/gwenn-ha-dev/Siliconed/issues/new/choose).
 
 ## Credits

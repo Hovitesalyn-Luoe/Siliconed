@@ -22,10 +22,10 @@
   et aussi vite ou plus — Krea 2 135,4–137,4 s au lieu de 144,6–144,9 s, Z-Image 83,4–84,0 s au lieu
   de 86,8–93,9 s, Qwen-Image-2.1 99,9–100,2 s au lieu de 103,6 s. L’image bouge d’un dixième de
   niveau en moyenne sur Z-Image et Qwen-Image-2.1 ; Krea 2 garde sa scène, son visage et sa lumière,
-  et ses plus fins détails bougent. Tous les chiffres : [Le Neural Engine](docs/ENGINE.fr.md#le-neural-engine).
+  et ses plus fins détails bougent. Tous les chiffres : [Le Neural Engine](ENGINE.fr.md#le-neural-engine).
 - **Huit bits contre huit bits** : Z-Image Compact en 1024², avec le rendu plus rapide et le Neural
   Engine (tous deux par défaut), rend en 81,1–83,2 s ; le `q8p` 8 bits par défaut de Draw Things,
-  en 135,0–144,2 s sur le même Mac ([À côté de Draw Things](docs/ENGINE.fr.md#à-côté-de-draw-things)).
+  en 135,0–144,2 s sur le même Mac ([À côté de Draw Things](ENGINE.fr.md#à-côté-de-draw-things)).
 - **Ce Mac est mesuré à nouveau** avant le premier rendu après la mise à jour, environ une minute,
   comme après chaque version : la mesure comprend désormais le Neural Engine, sur les produits
   propres à chaque modèle.

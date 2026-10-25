@@ -22,10 +22,10 @@ English · [Français](RELEASE-NOTES.fr.md)
   fast or faster — Krea 2 135.4–137.4 s instead of 144.6–144.9 s, Z-Image 83.4–84.0 s instead of
   86.8–93.9 s, Qwen-Image-2.1 99.9–100.2 s instead of 103.6 s. The image moves by a tenth of a
   level on average on Z-Image and Qwen-Image-2.1; Krea 2 keeps its scene, face and light, and its
-  finest details move. Every figure: [The Neural Engine](docs/ENGINE.md#the-neural-engine).
+  finest details move. Every figure: [The Neural Engine](ENGINE.md#the-neural-engine).
 - **Eight bits against eight bits**: Z-Image Compact at 1024², with Faster Rendering and the Neural
   Engine (both by default), renders in 81.1–83.2 s; Draw Things' default 8-bit `q8p`, 135.0–144.2 s
-  on the same Mac ([Next to Draw Things](docs/ENGINE.md#next-to-draw-things)).
+  on the same Mac ([Next to Draw Things](ENGINE.md#next-to-draw-things)).
 - **This Mac is measured again** before the first render after the update, about a minute, as after
   every version: the measure now includes the Neural Engine, on each model's own products.
 - **The remote control**: `silicontrol add --ane` or `--no-ane`, like a click on the tag;

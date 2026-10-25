@@ -1,4 +1,4 @@
-# The kernels' half of VERIFY.md, as a reader would run it: the reference's goldens written by torch on
+# The kernels' half of docs/VERIFY.md, as a reader would run it: the reference's goldens written by torch on
 # the runner's CPU, then `siliconed check kernels` judged against them. No model weights.
 # Installing torch takes minutes, so it runs only when what it checks changes, or on demand.
 # The runner's GPU is virtual: a GPU stage that finds no Metal device says so and is skipped (exit 2).

@@ -32,7 +32,7 @@ Pour en savoir plus sur l'app : [docs/APP.fr.md](docs/APP.fr.md).
 
 - **Rapide, sans rogner.** Z-Image Turbo en 1024² en 84,5 s sur un MacBook Pro M1 Pro de 16 Go, en fp32, avec les 8 évaluations que demande sa recette (par défaut, les trois premières en demi-taille). [Tous les chiffres](docs/ENGINE.fr.md#les-chiffres).
 - **De gros modèles sur un Mac de 16 Go.** 34 Go de modèle tournent sur un Mac de 16 Go : les poids sont lus sur le disque au moment où ils servent, et Siliconed ne prend jamais plus que les ¾ de la mémoire du Mac moins 2 Go. Chaque rendu calcule ce qu'il lui faut avant de commencer ; au-delà du budget, il est refusé d'emblée. [Comment c'est mesuré](docs/ENGINE.fr.md#la-mémoire-et-le-budget).
-- **Vérifié contre les modèles d'origine.** Chaque étage est comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur CPU), et ce qui ne se vérifie pas n'est pas livré. Refaites les contrôles chez vous : [VERIFY.fr.md](VERIFY.fr.md).
+- **Vérifié contre les modèles d'origine.** Chaque étage est comparé, canal par canal, à l'implémentation de référence (diffusers / transformers en fp32 sur CPU), et ce qui ne se vérifie pas n'est pas livré. Refaites les contrôles chez vous : [VERIFY.fr.md](docs/VERIFY.fr.md).
 - **Réglé pour votre Mac.** Avant le premier rendu, en une minute environ et sans aucun modèle, il chronomètre ses noyaux sur votre puce et vérifie chaque résultat contre le résultat exact ; un noyau ne s'allume que s'il a calculé juste et battu le défaut. [Ce qu'il a décidé sur un M1 Pro](docs/ENGINE.fr.md#un-moteur-mesuré-sur-votre-mac).
 - **Mesuré à côté de Draw Things** sur le même Mac, avec la méthode et tous les chiffres : [À côté de Draw Things](docs/ENGINE.fr.md#à-côté-de-draw-things).
 
@@ -40,9 +40,9 @@ Pour en savoir plus sur l'app : [docs/APP.fr.md](docs/APP.fr.md).
 
 - [docs/APP.fr.md](docs/APP.fr.md) : l'app en détail : créer, éditer, explorer, gérer les modèles, vie privée.
 - [docs/ENGINE.fr.md](docs/ENGINE.fr.md) : le moteur : la mesure du Mac, le Neural Engine, la mémoire, les chiffres, le rendu plus rapide, Draw Things, le diagnostic communautaire, la vérification, la construction depuis les sources.
-- [VERIFY.fr.md](VERIFY.fr.md) : vérifier les résultats contre la référence sur votre Mac.
+- [VERIFY.fr.md](docs/VERIFY.fr.md) : vérifier les résultats contre la référence sur votre Mac.
 - [docs/REMOTE-CONTROL.fr.md](docs/REMOTE-CONTROL.fr.md) : `silicontrol`, protocole et fonctionnement interne.
-- [RELEASE-NOTES.fr.md](RELEASE-NOTES.fr.md) : ce qui change à chaque version.
+- [RELEASE-NOTES.fr.md](docs/RELEASE-NOTES.fr.md) : ce qui change à chaque version.
 - Les issues : [rapport de diagnostic, bug, idée](https://github.com/gwenn-ha-dev/Siliconed/issues/new/choose) (en anglais).
 
 ## Crédits

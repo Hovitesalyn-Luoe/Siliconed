@@ -32,7 +32,7 @@ let package = Package(
         // Foundation only — it does not link the engine.
         .executableTarget(name: "Silicontrol", dependencies: ["SilicontrolHelp"]),
         // **`siliconed`, the command line**: `siliconed check` runs every stage of every model against the
-        // reference implementation's goldens (`VERIFY.md`). The stages live in `Verification`, which the
+        // reference implementation's goldens (`docs/VERIFY.md`). The stages live in `Verification`, which the
         // maintainer's tool links too; the executable target is named apart because the file system does
         // not tell `Siliconed` from `siliconed`.
         .target(name: "Verification", dependencies: ["Siliconed", "AMXLegacy"],

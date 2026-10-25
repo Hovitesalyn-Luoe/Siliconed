@@ -7,7 +7,7 @@
 #                                       the app's menu links it into the PATH; `silicontrol help`
 #                                       is the complete reference
 #     Contents/Helpers/siliconed        `siliconed check`: the engine checked against the reference's goldens
-#                                       (VERIFY.md) — the very binary the app renders with, no Xcode needed
+#                                       (docs/VERIFY.md) — the very binary the app renders with, no Xcode needed
 #     Contents/Helpers/siliconed-dev    the maintainer's command line, when its sources are present
 #     Contents/Resources/               the phrases (en, fr, de, es, it), the icon, the library's resource bundle
 #

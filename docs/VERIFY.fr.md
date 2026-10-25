@@ -1,16 +1,16 @@
-English · [Français](VERIFY.fr.md)
+[English](VERIFY.md) · Français
 
-# Verifying Siliconed
+# Vérifier Siliconed
 
-Siliconed claims that each stage of each model it ships computes what the reference implementation computes. **This page shows how to check that claim yourself**, on your Mac, without trusting our figures.
+Siliconed affirme que chaque étage de chaque modèle qu'il livre calcule ce que calcule l'implémentation de référence. **Cette page montre comment le vérifier soi-même**, sur son Mac, sans nous croire sur parole.
 
-The reference is the publisher's own: [diffusers](https://github.com/huggingface/diffusers) and [transformers](https://github.com/huggingface/transformers), in float32 on the CPU, with the published weights. Python scripts in this repository run it and freeze its answers into *goldens*. `siliconed check` runs the engine on the same inputs and judges it against them, stage by stage: text encoder, denoiser, sampler, decoder.
+La référence est celle de l'éditeur : [diffusers](https://github.com/huggingface/diffusers) et [transformers](https://github.com/huggingface/transformers), en float32 sur le CPU, avec les poids publiés. Des scripts Python de ce dépôt l'exécutent et figent ses réponses en *goldens*. `siliconed check` fait tourner le moteur sur les mêmes entrées et le juge contre elles, étage par étage : encodeur de texte, débruiteur, échantillonneur, décodeur.
 
-What is **not** claimed: the same bits as the reference, or as another Mac. The engine computes in another order on another device; it is judged on how close it comes to the exact value (the [rule](#the-rule) below), not on its bits.
+Ce qui n'est **pas** affirmé : les mêmes bits que la référence, ni qu'un autre Mac. Le moteur calcule dans un autre ordre sur un autre processeur ; il est jugé sur sa distance à la valeur exacte (la [règle](#la-règle) plus bas), pas sur ses bits.
 
-## Setting up
+## Mise en place
 
-You need the app (0.15 or later), Python 3.12, and this repository at the app's version (Siliconed → About shows it). `siliconed` ships inside the app: it is the very engine the app renders with, and it runs without Xcode.
+Il faut l'app (0.15 ou suivante), Python 3.12, et ce dépôt à la version de l'app (Siliconed → À propos l'affiche). `siliconed` est livré dans l'app : c'est le moteur même avec lequel l'app rend, et il tourne sans Xcode.
 
 ```sh
 alias siliconed=/Applications/Siliconed.app/Contents/Helpers/siliconed
@@ -18,20 +18,20 @@ git clone --branch v0.15 https://github.com/gwenn-ha-dev/Siliconed && cd Silicon
 python3.12 -m venv oracle-env && oracle-env/bin/pip install -r tools/oracle/requirements.txt
 ```
 
-To check your own build instead: `swift build -c release --product siliconed` (Xcode 26), then `.build/release/siliconed` in place of the alias.
+Pour vérifier plutôt votre propre compilation : `swift build -c release --product siliconed` (Xcode 26), puis `.build/release/siliconed` à la place de l'alias.
 
-Each stage prints its measures, then one verdict line: `✓`, `✗`, or `—` (skipped, and why). The exit code says the same: 0 passed, 1 failed, 2 skipped, 64 a usage error. Goldens go to `./goldens`, for the scripts and the checks alike, unless `--goldens DIR` or `SILICONED_GOLDENS` says otherwise.
+Chaque étape affiche ses mesures, puis une ligne de verdict : `✓`, `✗`, ou `—` (sautée, avec la raison). Le code de sortie dit la même chose : 0 réussi, 1 échoué, 2 sauté, 64 erreur d'usage. Les goldens vont dans `./goldens`, pour les scripts comme pour les contrôles, sauf si `--goldens DIR` ou `SILICONED_GOLDENS` en dit autrement.
 
-## 1 · The kernels: five minutes, no weights
+## 1 · Les noyaux : cinq minutes, sans poids
 
-The numerical kernels (RoPE tables, resampling, the GPU's element-wise operations, attention, the split of a matrix product between GPU and AMX) are checked without any model.
+Les noyaux numériques (tables RoPE, rééchantillonnage, opérations élément par élément du GPU, attention, partage d'un produit matriciel entre GPU et AMX) se vérifient sans aucun modèle.
 
 ```sh
 oracle-env/bin/python tools/oracle/kernels.py all
 siliconed check kernels
 ```
 
-On our MacBook Pro M1 Pro:
+Sur notre MacBook Pro M1 Pro :
 
 ```
 ✓ kernels widen · 7 measures
@@ -44,18 +44,18 @@ On our MacBook Pro M1 Pro:
 ✓ kernels resample · 6 measures
 ```
 
-The [kernels workflow](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/kernels.yml) runs these two commands on GitHub's Macs each time the engine or its checks change. Its GPU is virtual, so the GPU stages are skipped there; the CPU ones are judged.
+Le [workflow kernels](https://github.com/gwenn-ha-dev/Siliconed/actions/workflows/kernels.yml) lance ces deux commandes sur les Mac de GitHub chaque fois que le moteur ou ses contrôles changent. Son GPU est virtuel : les étapes GPU y sont sautées, celles du CPU jugées.
 
-## 2 · One whole model: Anima, ten minutes and 5 GB
+## 2 · Un modèle entier : Anima, dix minutes et 5 Go
 
-Anima is the lightest model to check end to end. Install it in the app first (Standard): `siliconed check` reads the weights the app installed, never the ones the oracle downloads. Then:
+Anima est le modèle le plus léger à vérifier de bout en bout. L'installer d'abord dans l'app (Standard) : `siliconed check` lit les poids que l'app a installés, jamais ceux que télécharge l'oracle. Puis :
 
 ```sh
-oracle-env/bin/python tools/oracle/anima.py all     # downloads 5 GB of reference weights once, then 7 min
-siliconed check anima                               # every stage at every size: 3 min
+oracle-env/bin/python tools/oracle/anima.py all     # télécharge une fois 5 Go de poids de référence, puis 7 min
+siliconed check anima                               # chaque étape à chaque taille : 3 min
 ```
 
-On our MacBook Pro M1 Pro:
+Sur notre MacBook Pro M1 Pro :
 
 ```
 ✓ anima tokenizer · 1 measure
@@ -70,77 +70,77 @@ On our MacBook Pro M1 Pro:
 ✓ anima vae 768x512 · 2 measures · nearest its threshold: image RGB 3.66e-07 of 1.28e-06
 ```
 
-Your figures will differ in the last digits: the reference itself rounds differently on another CPU. The verdicts should not. A stage can also be run alone, `siliconed check anima dit --size 1024`; `siliconed check list` names them all.
+Vos chiffres différeront sur les derniers chiffres : la référence elle-même arrondit autrement sur un autre processeur. Les verdicts, non. Une étape se lance aussi seule, `siliconed check anima dit --size 1024` ; `siliconed check list` les nomme toutes.
 
-## 3 · Every model
+## 3 · Tous les modèles
 
-The same two commands, for each model: `tools/oracle/<script> all`, then `siliconed check <model>`.
+Les deux mêmes commandes, pour chaque modèle : `tools/oracle/<script> all`, puis `siliconed check <modèle>`.
 
-| Model | Script | Download | Oracle, every stage | Its heaviest stage | Check |
+| Modèle | Script | Téléchargement | Oracle, toutes les étapes | Son étape la plus lourde | Contrôle |
 |---|---|---|---|---|---|
-| Z-Image | `z-image.py` | 31 GB | 39 min | the 1024² trajectory: 14 min, 13.3 GB | 7 min |
-| Qwen-Image-2.1 | `qwen-image-2.1.py` | 30 GB | 27 min | the fp64 decoder witness: 43 s, 15.5 GB | 10 min |
-| Anima | `anima.py` | 5 GB | 7 min | the 1024² decoder: 1 min, 20.8 GB | 3 min |
-| Krea 2 | `krea2.py` | 33 GB | 1 h 45 min | the eight fp64 step witnesses at 1024²: 44 min, 11 GB | 16 min |
+| Z-Image | `z-image.py` | 31 Go | 39 min | la trajectoire 1024² : 14 min, 13,3 Go | 7 min |
+| Qwen-Image-2.1 | `qwen-image-2.1.py` | 30 Go | 27 min | le témoin fp64 du décodeur : 43 s, 15,5 Go | 10 min |
+| Anima | `anima.py` | 5 Go | 7 min | le décodeur 1024² : 1 min, 20,8 Go | 3 min |
+| Krea 2 | `krea2.py` | 33 Go | 1 h 45 min | les huit témoins fp64 des pas à 1024² : 44 min, 11 Go | 16 min |
 
-On a MacBook Pro M1 Pro, 16 GB, wall time. The download comes on top of the app's own weights. The oracle streams the denoiser block by block in float32 (Krea 2's is 48 GB at that precision), so a 16 GB Mac runs every script; a stage whose peak passes the machine's memory (the 1024² decoders) runs in swap and takes longer.
+Sur un MacBook Pro M1 Pro, 16 Go, temps écoulé. Le téléchargement vient en plus des poids de l'app. L'oracle fait passer le débruiteur bloc par bloc en float32 (celui de Krea 2 pèse 48 Go à cette précision), si bien qu'un Mac de 16 Go exécute chaque script ; une étape dont le pic dépasse la mémoire de la machine (les décodeurs 1024²) tourne en swap et prend plus longtemps.
 
-Two Krea 2 measures pass with little to spare on our Mac: the velocity `v_2` of the 512² trajectory (5.08e-4 for an allowance of 5.14e-4) and `block0_attn_out` of the 1024² denoiser (3.53e-3 for 3.59e-3). The allowance is computed from your reference's own error, so it moves with your CPU's rounding, and these two may fail by a hair on another Mac. The rule is not loosened for them. If they fail on yours, an issue with the output of `siliconed check` helps us find which layer carries the gap.
+Deux mesures de Krea 2 passent de peu sur notre Mac : la vitesse `v_2` de la trajectoire en 512² (5,08e-4 pour une tolérance de 5,14e-4) et `block0_attn_out` du débruiteur en 1024² (3,53e-3 pour 3,59e-3). La tolérance se calcule sur l'écart de votre propre référence, elle suit donc les arrondis de votre processeur, et ces deux mesures peuvent échouer d'un cheveu sur un autre Mac. La règle n'est pas desserrée pour elles. Si elles échouent chez vous, une issue avec la sortie de `siliconed check` nous aide à trouver la couche qui porte l'écart.
 
-## Are your goldens ours?
+## Vos goldens sont-ils les nôtres ?
 
-We do not publish the goldens (several gigabytes, and weights whose licences forbid it). We publish their fingerprints: shape, type and statistics of every tensor.
+Nous ne publions pas les goldens (plusieurs gigaoctets, et des poids dont les licences l'interdisent). Nous publions leurs empreintes : forme, type et statistiques de chaque tenseur.
 
 ```sh
 oracle-env/bin/python tools/oracle/fingerprints.py compare
 ```
 
-Integers (token identifiers, masks) must match exactly. Floats are compared within a tolerance (1e-3 on norms), not bit for bit: PyTorch on the CPU does not promise the same float32 bits from one machine to another, and two honest runs of the reference differ by rounding. That rounding is far below what the checks judge.
+Les entiers (identifiants de tokens, masques) doivent concorder exactement. Les flottants se comparent avec une tolérance (1e-3 sur les normes), pas au bit près : PyTorch sur le CPU ne promet pas les mêmes bits float32 d'une machine à l'autre, et deux exécutions honnêtes de la référence diffèrent d'un arrondi. Cet arrondi est très en dessous de ce que jugent les contrôles.
 
-## The rule
+## La règle
 
-A stage's figure is the **relative error per channel**: for each channel (the last axis of a tensor, or each plane of a latent), the L2 norm of the difference over the L2 norm of the reference. The worst channel is reported, never an average: a fault confined to one channel would vanish in a global figure. The same rule judges every boundary of every model:
+Le chiffre d'une étape est l'**écart relatif par canal** : pour chaque canal (le dernier axe d'un tenseur, ou chaque plan d'un latent), la norme L2 de la différence sur la norme L2 de la référence. On donne le pire canal, jamais une moyenne : une faute confinée à un canal disparaîtrait dans un chiffre global. La même règle juge chaque frontière de chaque modèle :
 
-    without a witness:   error(engine, reference)  ≤ 5e-4
-    with a witness:      error(engine, witness)    ≤ max(floor, 1.25 · error(reference, witness))
+    sans témoin :   écart(moteur, référence)  ≤ 5e-4
+    avec témoin :   écart(moteur, témoin)     ≤ max(plancher, 1,25 · écart(référence, témoin))
 
-The *witness* is the same computation in float64. Where it exists, it decides: float32 has its own rounding error, and on an ill-conditioned boundary the reference itself can be 4e-3 away from the exact value; the engine may then be no further from the exact value than the reference is, plus 25 %.
+Le *témoin* est le même calcul en float64. Là où il existe, il tranche : le float32 a sa propre erreur d'arrondi, et sur une frontière mal conditionnée la référence elle-même peut être à 4e-3 de la valeur exacte ; le moteur peut alors en être aussi loin que la référence, plus 25 %.
 
-Each stage's line in `check list` gives its own rule. An identity (tokens, schedules) is judged bit for bit. A few stages have a tighter floor. A rectangle is checked against its transpose, which must fail, so that a swapped height and width cannot pass.
+La ligne de chaque étape dans `check list` donne sa règle. Une identité (tokens, plannings) se juge au bit près. Quelques étapes ont un plancher plus serré. Un rectangle se contrôle aussi contre sa transposée, qui doit échouer, pour qu'une hauteur et une largeur inversées ne passent pas.
 
-Krea 2's denoiser has a few boundaries so ill-conditioned that a change of one unit in the last place of the input moves the output by more than the rule allows, the reference included. There, a measure that fails at the witness is judged by *clouds*: the reference and the engine are both run on inputs moved by one ulp, and the engine's median error must stay within 1.25 times the reference's worst. These are the stages whose rule says "clouds when the oracle has draws".
+Le débruiteur de Krea 2 a quelques frontières si mal conditionnées qu'un changement d'une unité sur le dernier chiffre de l'entrée déplace la sortie de plus que la règle ne permet, référence comprise. Là, une mesure qui échoue au témoin est jugée par *nuages* : la référence et le moteur tournent tous deux sur des entrées décalées d'un ulp, et l'écart médian du moteur doit rester sous 1,25 fois le pire de la référence. Ce sont les étapes dont la règle dit « clouds when the oracle has draws ».
 
-## Beyond `all`
+## Au-delà de `all`
 
-Two checks need goldens that `all` does not write, each from one more script stage. `siliconed check <model>` leaves them out; they run stage by stage.
+Deux contrôles demandent des goldens que `all` n'écrit pas, chacun par une étape de script de plus. `siliconed check <modèle>` les laisse de côté ; ils se lancent étape par étape.
 
-**Long prompts.** The app reads up to 1,024 tokens of prompt and refuses a longer one; the reference pipelines cut at 512 by default. `text --long` checks the stretch between the two: the script reads `tools/oracle/inputs/long-prompt.txt` (844 tokens for the Qwen tokenizers, 954 for Anima's T5) with the reference's sequence length raised so that none of it is cut, and the check reads the same prompt the way the app admits it.
+**Les prompts longs.** L'app lit jusqu'à 1 024 tokens de prompt et refuse au-delà ; les pipelines de référence coupent à 512 par défaut. `text --long` vérifie l'entre-deux : le script lit `tools/oracle/inputs/long-prompt.txt` (844 tokens pour les tokenizers Qwen, 954 pour le T5 d'Anima), la longueur de séquence de la référence relevée pour que rien n'en soit coupé, et le contrôle lit le même prompt comme l'app l'admet.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py text --long
 siliconed check z-image text --long
 ```
 
-**The Neural Engine.** The app can share the denoiser's matrix products with the Mac's Neural Engine, which computes in fp16 ([ENGINE](docs/ENGINE.md#the-neural-engine)). `--neural-engine` checks that path: every widened product of the DiT with 512 rows or more gives half its rows to the ANE, the same split on every Mac and more than any map gives (a render leaves products under 1,024 rows to the GPU), and the stage is judged against the reference run in bf16 on the same inputs, the engine allowed bf16's own error plus 25 %. The verdict says how many products the ANE computed; on a Mac where it computes none, the stage is skipped. The `dit` stages of the four models take it.
+**Le Neural Engine.** L'app peut partager les produits matriciels du débruiteur avec le Neural Engine du Mac, qui calcule en fp16 ([ENGINE](ENGINE.fr.md#le-neural-engine)). `--neural-engine` vérifie ce chemin : chaque produit élargi du DiT d'au moins 512 lignes donne la moitié de ses lignes à l'ANE, le même partage sur tous les Mac et plus qu'aucune carte n'en donne (un rendu laisse au GPU les produits de moins de 1 024 lignes), et l'étape est jugée contre la référence calculée en bf16 sur les mêmes entrées, le moteur ayant droit à l'écart propre au bf16 plus 25 %. Le verdict dit combien de produits l'ANE a calculés ; sur un Mac où il n'en calcule aucun, l'étape est sautée. Les étapes `dit` des quatre modèles l'acceptent.
 
 ```sh
 oracle-env/bin/python tools/oracle/z-image.py bf16 --size 1024
 siliconed check z-image dit --size 1024 --neural-engine
 ```
 
-**Activations rounded to bf16.** Where this Mac's map turns it on, the DiT's products take their activation rounded to bf16 just before the product (the weights as published, the sums and the output in fp32). `--bf16-activations` checks that path on any Mac, for every product of 256 rows or more, and judges the stage like the Neural Engine's: against the reference run in bf16, the engine allowed bf16's own error plus 25 %. The verdict says how many products rounded their operand. The `dit` stages of the four models take it.
+**Activations arrondies en bf16.** Là où la carte de ce Mac l'allume, les produits du DiT prennent leur activation arrondie en bf16 juste avant le produit (les poids tels que publiés, les sommes et la sortie en fp32). `--bf16-activations` vérifie ce chemin sur n'importe quel Mac, pour chaque produit de 256 lignes ou plus, et juge l'étape comme celle du Neural Engine : contre la référence calculée en bf16, l'écart permis étant celui du bf16 plus 25 %. Le verdict dit combien de produits ont arrondi leur opérande. Les étapes `dit` des quatre modèles l'acceptent.
 
 ```sh
 siliconed check z-image dit --size 512 --bf16-activations
 ```
 
-Qwen-Image-2.1's editing, with one and two reference pictures, is part of its `all` and of `siliconed check qwen-image-2.1`; one stage alone is `siliconed check qwen-image-2.1 dit --edit 2`. Its Neural Engine bar is written by `qwen-image-2.1.py bf16 --edit N`.
+L'édition de Qwen-Image-2.1, avec une et deux images de référence, fait partie de son `all` et de `siliconed check qwen-image-2.1` ; une étape seule, c'est `siliconed check qwen-image-2.1 dit --edit 2`. Sa barre sous le Neural Engine s'écrit par `qwen-image-2.1.py bf16 --edit N`.
 
-LoRAs are not covered here: they are files you choose, not part of what Siliconed ships.
+Les LoRA ne sont pas couvertes ici : ce sont des fichiers que vous choisissez, pas une part de ce que Siliconed livre.
 
-## Every stage
+## Toutes les étapes
 
-The output of `siliconed check list --markdown`. `{size}` is 512, 1024 or a rectangle such as 768x512; the stages that take no size are checked at the reference's own.
+La sortie de `siliconed check list --markdown`, telle que la commande l'écrit, en anglais. `{size}` vaut 512, 1024 ou un rectangle comme 768x512 ; les étapes sans taille se contrôlent à celle de la référence.
 
 | Stage | Proves | Rule | Oracle | Weights |
 |---|---|---|---|---|
