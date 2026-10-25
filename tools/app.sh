@@ -9,7 +9,7 @@
 #     Contents/Helpers/siliconed        `siliconed check`: the engine checked against the reference's goldens
 #                                       (docs/VERIFY.md) — the very binary the app renders with, no Xcode needed
 #     Contents/Helpers/siliconed-dev    the maintainer's command line, when its sources are present
-#     Contents/Resources/               the phrases (en, fr, de, es, it), the icon, the library's resource bundle
+#     Contents/Resources/               the phrases (en, fr, de, es, it) and the icon
 #
 # The models live in the app's space (`~/Library/Application Support/Siliconed/`), which it fills
 # itself: nothing from the repository is read. The phrases: `tools/translations.sh` synchronizes

@@ -41,7 +41,7 @@ package enum Probes {
     package static func bundle(of pid: pid_t) -> (version: String, identifier: String)? {
         var buffer = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        var url = URL(fileURLWithPath: String(cString: buffer))
+        var url = URL(fileURLWithPath: string(from: buffer))
         while url.path != "/" {
             if url.pathExtension == "app", let info = Bundle(path: url.path)?.infoDictionary {
                 let short = info["CFBundleShortVersionString"] as? String ?? "?"
@@ -115,7 +115,12 @@ package enum Probes {
         guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: size)
         guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
-        return String(cString: buffer)
+        return string(from: buffer)
+    }
+
+    /// The text of a NUL-terminated C buffer.
+    private static func string(from buffer: [CChar]) -> String {
+        String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     package struct Host: Sendable, Equatable {
