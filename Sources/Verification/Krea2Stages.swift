@@ -51,8 +51,15 @@ enum Krea2Stages {
                                                 sockets: sockets)
         report.add(goldens, "Qwen3-VL taps", hidden, name: "hidden_valid", columns: width)
         // Each tap alone: a deviation that grows with depth shows here.
+        let taps: Int = sockets.count
         let tap = { (values: UnsafeBufferPointer<Float>, slot: Int) -> [Float] in
-            (0..<t).flatMap { row in values[((row * sockets.count + slot) * width)..<((row * sockets.count + slot + 1) * width)] }
+            var picked: [Float] = []
+            picked.reserveCapacity(t * width)
+            for row in 0..<t {
+                let start: Int = (row * taps + slot) * width
+                picked.append(contentsOf: values[start..<(start + width)])
+            }
+            return picked
         }
         for slot in [0, 5, 11] {
             let oracle = tap(oracleHidden, slot)

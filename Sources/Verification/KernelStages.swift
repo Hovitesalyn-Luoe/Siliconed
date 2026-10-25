@@ -126,7 +126,10 @@ enum KernelStages {
             let ab = buffer(a), bb = buffer(b)
             _ = gpu.swiglu((ab, 0), (bb, 0), count: n)
             judge("swiglu", cpu: cpu, gpu: read(ab, n),
-                  exact: (0..<n).map { Double(a[$0]) / (1 + exp(-Double(a[$0]))) * Double(b[$0]) })
+                  exact: (0..<n).map { (i: Int) -> Double in
+                      let x = Double(a[i]), y = Double(b[i])
+                      return x / (1 + exp(-x)) * y
+                  })
         }
         do {
             var cpu = b, scratch = [Float](repeating: 0, count: n)
@@ -135,7 +138,10 @@ enum KernelStages {
             } } }
             let xb = buffer(b), gb = buffer(a)
             _ = gpu.carries((xb, 0), (gb, 0), count: n)
-            judge("gate", cpu: cpu, gpu: read(xb, n), exact: (0..<n).map { Double(b[$0]) / (1 + exp(-Double(a[$0]))) })
+            judge("gate", cpu: cpu, gpu: read(xb, n), exact: (0..<n).map { (i: Int) -> Double in
+                let g = Double(a[i])
+                return Double(b[i]) / (1 + exp(-g))
+            })
         }
         // The gated residual: rows of 6 144 at the residual's scale, with ×50 spikes.
         let (rows, d) = (512, 6144)
