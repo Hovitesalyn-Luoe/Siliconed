@@ -4,7 +4,7 @@ import Foundation
 ///
 /// This file holds the engine and what it renders; the chain itself — modules, wires, `render` —
 /// is in `Chain.swift`, `EngineRender.swift` and `Modules.swift`. It first pulled the chain out of the CLI's
-/// `renderCommand`, where it lived mixed in with `print` calls, to make it an object any caller can
+/// render command, where it lived mixed in with `print` calls, to make it an object any caller can
 /// hold: the CLI, the app (`SiliconedApp`), a server if one is ever needed.
 ///
 /// Three rules govern it, and each answers a flaw the CLI path had by nature.

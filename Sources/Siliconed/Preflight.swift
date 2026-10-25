@@ -168,7 +168,7 @@ extension Library {
 /// queue already serializes renders (`Engine.file`); between processes — the app and the CLI, two
 /// libraries, two users — an advisory `flock` on `RenderLock.machine`, taken without waiting: the
 /// second one is refused (`renderAlreadyRunning`) instead of swapping both. The CLI also asks the
-/// app whether its queue is busy (`appBusy`); this lock is what the engine itself holds.
+/// app whether its queue is busy; this lock is what the engine itself holds.
 ///
 /// The kernel releases it when the process dies: a crash never leaves the machine locked.
 package final class RenderLock {

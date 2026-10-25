@@ -72,8 +72,6 @@ package final class Tokenizer {
     private let addedByFirst: [Unicode.Scalar: [(scalars: [Unicode.Scalar], id: Int)]]
     private let addedIdentifiers: [Int: String]
 
-    package let vocabularySize: Int
-    package let addedTokenCount: Int
     private let normalizeNFC: Bool
 
     // MARK: - Reading
@@ -206,8 +204,6 @@ package final class Tokenizer {
         self.splitter = try NSRegularExpression(pattern: pattern)
         self.addedByFirst = byFirst
         self.addedIdentifiers = identifiers
-        self.vocabularySize = vocabulary.count + identifiers.count
-        self.addedTokenCount = identifiers.count
     }
 
     /// What the two tables map, from the file's counts — released with the tokenizer.
