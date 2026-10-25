@@ -436,11 +436,16 @@ package final class Artifact {
     /// `blocks` are the tail's blocks in file order, each a run of contiguous tensors; `slots`
     /// staging buffers of the largest block are allocated (anonymous memory: measured, not assumed).
     /// Idempotent for the same blocks and buffers.
-    package func streamTail(blocks: [[String]], slots: Int) throws {
+    ///
+    /// `sequential`: the blocks are **units in the order the engine consumes them** (`stagingUnits`), each
+    /// released by the engine as soon as it is widened (`dropFromCache`); the stream then reads ahead by
+    /// itself and its buffers hold `buffer` bytes — the largest tensor's run (`largestRun`) — instead of
+    /// the largest layer.
+    package func streamTail(blocks: [[String]], slots: Int, sequential: Bool = false, buffer: Int? = nil) throws {
         guard !blocks.isEmpty, slots > 0 else { stream = nil; return }
         if let stream, stream.blocks == blocks, stream.slotCount == slots { return }
         stream = nil
-        stream = try TailStream(artifact: self, blocks: blocks, slots: slots)
+        stream = try TailStream(artifact: self, blocks: blocks, slots: slots, sequential: sequential, buffer: buffer)
     }
     package private(set) var stream: TailStream?
 
@@ -491,6 +496,7 @@ package final class Artifact {
         guard let tensor = tensors[name], let source = pointer(name) else {
             throw Failure.badHeader("\(name) missing from the artifact")
         }
+        defer { spent(name) }
         guard tensor.count <= capacity else {
             throw Failure.inFile(path, .doesNotFit(name: name, count: tensor.count, capacity: capacity))
         }
@@ -521,6 +527,12 @@ package final class Artifact {
         return tensor.count
     }
 
+    /// **A tensor of a sequence of units is spent once the engine has copied it**: its buffer goes back and the
+    /// stream reads the next unit (`TailStream`). A tensor read twice in an evaluation is staged twice.
+    private func spent(_ name: String) {
+        if let stream, stream.sequential { _ = stream.release([name]) }
+    }
+
     /// **A bf16 weight copied as it is** into `destination` (`TensorGEMM`), or `nil` when the tensor is
     /// not bf16 — an fp32, fp16, 8-bit or packed weight takes `materialize`, the default path.
     /// `capacity` counts bf16 values: the reserve's fp32 floats × 2.
@@ -529,6 +541,7 @@ package final class Artifact {
             throw Failure.badHeader("\(name) missing from the artifact")
         }
         guard tensor.dtype == .bfloat16 else { return nil }
+        defer { spent(name) }
         guard tensor.count <= capacity else {
             throw Failure.inFile(path, .doesNotFit(name: name, count: tensor.count, capacity: capacity))
         }
@@ -543,6 +556,7 @@ package final class Artifact {
         guard let tensor = tensors[name], let source = pointer(name), tensor.dtype == .int8, let scale = tensor.scale else {
             throw Failure.badHeader("\(name): not a scaled int8 tensor")
         }
+        defer { spent(name) }
         // Two bytes at a time over the cores; an odd count copies its last byte alone.
         Widen.copyBfloat16(source: source, destination: destination, count: tensor.count / 2)
         if tensor.count % 2 == 1 {
@@ -681,5 +695,75 @@ extension Artifact {
             }
             return stagingRun(runs, page: page, fileSize: fileSize).map { $0.end - $0.start }
         }
+    }
+}
+
+// ── sizing: a stream of units, from the map's table ──────────────────────────────────────────
+
+extension Artifact {
+    /// **What one tensor occupies in a staging buffer**: from its offset to its end rounded up to the page,
+    /// never past the file. Tensors start on a page, so this is a whole number of pages but for the file's last.
+    package static func stagingLength(offset: Int, bytes: Int, page: Int, fileSize: Int) -> Int {
+        min((offset + bytes + page - 1) / page * page, fileSize) - offset
+    }
+
+    /// The staging length of a named tensor (`stagingLength`); 0 for one the map does not have.
+    package func stagingLength(of name: String) -> Int {
+        tensors[name].map { Self.stagingLength(offset: $0.offset, bytes: $0.bytes, page: page, fileSize: size) } ?? 0
+    }
+
+    /// **The visits of a stream over these layers**: each layer's `names`, in the order the engine uses them
+    /// (a name that is used several times appears several times), cut into runs of consecutive uses whose
+    /// distinct tensors' staging lengths add up to at most `cap` (a tensor longer than it is a visit alone).
+    /// A visit never spans two layers, so a layer whose last call is missed frees its buffers at its end.
+    /// Names the map does not have are left out. The same cut serves the stream and the memory need.
+    package func stagingUnits(layers: [[String]], cap: Int) -> [[String]] {
+        layers.flatMap { layer -> [[String]] in
+            var units: [[String]] = [], current: [String] = [], inside = Set<String>(), sum = 0
+            for name in layer where tensors[name] != nil {
+                let length = inside.contains(name) ? 0 : stagingLength(of: name)
+                if !current.isEmpty, sum + length > cap {
+                    units.append(current); current = []; inside = []; sum = 0
+                }
+                if inside.insert(name).inserted { sum += stagingLength(of: name) }
+                current.append(name)
+            }
+            if !current.isEmpty { units.append(current) }
+            return units
+        }
+    }
+
+    /// **A layer's tensors in the order its code widens them** — the order a stream reads them in: those of
+    /// `suffixes` (after `prefix`) present in `names`, then any other, in file order, so that none is left out.
+    package static func inConsumptionOrder(_ names: [String], prefix: String, suffixes: [String]) -> [String] {
+        let wanted = suffixes.map { prefix + $0 }, present = Set(names)
+        return wanted.filter(present.contains) + names.filter { !wanted.contains($0) }
+    }
+
+    /// **Streams a tail by units** (`TailStream`, sequential): the layers `released...` of `layers`, each in
+    /// the order of `suffixes`, in `TailStream.unitSlots` buffers of the largest tensor's size.
+    package func streamUnits(layers: [[String]], from released: Int, prefix: (Int) -> String, suffixes: [String]) throws {
+        try streamUnits(ordered: (released..<layers.count).map {
+            Artifact.inConsumptionOrder(layers[$0], prefix: prefix($0), suffixes: suffixes)
+        })
+    }
+
+    /// `streamUnits` for layers whose uses the caller has listed itself, repeats included.
+    package func streamUnits(ordered streamed: [[String]]) throws {
+        let cap = streamed.joined().map { stagingLength(of: $0) }.max() ?? 0
+        try streamTail(blocks: stagingUnits(layers: streamed, cap: cap), slots: TailStream.unitSlots,
+                       sequential: true, buffer: cap)
+    }
+
+    /// **The largest tensor's staging length** among the tensors whose name starts with one of the prefixes —
+    /// from the header alone (the memory need) — the size of a stream's buffer. 0 without a tensor table.
+    package static func largestRun(header: [String: Any], prefixes: [String], fileSize: Int) -> Int {
+        guard let table = header["tensors"] as? [String: [String: Any]],
+              let page = header["page"] as? Int, page > 0 else { return 0 }
+        return table.compactMap { name, entry -> Int? in
+            guard prefixes.contains(where: { name.hasPrefix($0) }), let offset = entry["offset"] as? Int,
+                  let bytes = entry["bytes"] as? Int else { return nil }
+            return stagingLength(offset: offset, bytes: bytes, page: page, fileSize: fileSize)
+        }.max() ?? 0
     }
 }

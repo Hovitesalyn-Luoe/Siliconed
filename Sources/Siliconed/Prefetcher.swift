@@ -138,42 +138,96 @@ package final class Prefetcher {
 /// the largest block, allocated once, reused at every evaluation. A block requested while no slot
 /// is free waits for the next request; read with no slot free at all, it goes through the map:
 /// slower, never wrong.
+///
+/// **A block is a visit, not necessarily a layer.** Given as the layer's tensors in file order, a block
+/// is read whole and requested by name (the first mode). Given as **visits in the order the engine
+/// consumes them** (`sequential`; `Artifact.stagingUnits`) — a few tensors up to the largest one, which
+/// is the buffer's size —, the stream drives itself: whenever a buffer is given back (`release`, the
+/// engine's call as soon as it has widened a tensor), it reads the next visit of the sequence, wrapping
+/// from the last to the first for the next evaluation. The buffers then hold the largest tensor, not
+/// the largest layer, and the read of the next visit still overlaps the computation of the current one.
+/// A tensor the engine uses several times in a row of the sequence (a layer's weights for each group of
+/// rows, the MLP's for each chunk) appears in as many visits, and is read as many times: a visit is
+/// complete when each of its names has been released as many times as it appears.
 package final class TailStream {
     package let blocks: [[String]]
     package let slotBytes: Int
     /// The staging buffers allocated.
     package var slotCount: Int { slots.count }
+    /// The tensors served from the map because no buffer was free when the engine asked: a sequence that
+    /// is not the engine's shows here (it costs page cache, never a wrong weight).
+    package private(set) var fallbacks = 0
+    /// The visits read on demand rather than ahead: the engine asked for a visit the stream had not reached.
+    package private(set) var demanded = 0
+    /// A sequence of visits (see above): the engine's widening of a tensor releases it (`Artifact.materialize`).
+    package let sequential: Bool
+    /// **The buffers of a sequence**: the visit the engine widens from and two read ahead. Three, not two:
+    /// a visit can be short (a norm, a table), and the read of the next one must not wait for it.
+    package static let unitSlots = 3
 
+    private enum State { case pending, staged, complete }
     private struct Staged { let slot: Int; let group: DispatchGroup }
+    /// A visit's reads: `runs` in the file, laid back to back in its buffer; where each distinct name is;
+    /// how many times the visit uses it.
+    private struct Visit {
+        let runs: [(start: Int, end: Int)]
+        let offsets: [String: Int]
+        let uses: [String: Int]
+    }
     private let descriptor: Int32
     private let slots: [UnsafeMutableRawPointer]
     private var free: [Int]
-    private var staged: [String: Staged] = [:]
-    private var held: [Int: Int] = [:]                      // slot → names not yet released
-    private let blockOf: [String: Int]
-    private let spans: [(start: Int, end: Int)]             // per block, in the file
+    private var staged: [Int: Staged] = [:]                 // visit → its buffer
+    private var state: [State]
+    private var left: [[String: Int]]                       // visit → uses still to come
+    private var done: Set<String> = []                      // released since their visit was last read
+    private let visits: [Visit]
+    private let visitsOf: [String: [Int]]                   // name → the visits that use it, ascending
+    private var frontier = 0                                // the first visit the engine has not completed
+    private var cursor = 0                                  // sequential: the next visit to read ahead
     private let mapped: Int                                 // the map's base address, for the fallback copy
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "siliconed.tail", attributes: .concurrent)
     private let reads = DispatchGroup()
-    /// Measured: four lanes, slices of 64 MiB.
-    private static let lanes = 4, piece = 64 << 20
+    /// Measured: four lanes, slices of 64 MiB; a run under 4 MiB is one read.
+    private static let lanes = 4, piece = 64 << 20, smallest = 4 << 20
 
-    init(artifact: Artifact, blocks: [[String]], slots count: Int) throws {
+    /// - Parameter buffer: the buffers' size, for a sequence of visits (`nil`: the largest visit).
+    init(artifact: Artifact, blocks: [[String]], slots count: Int, sequential: Bool = false, buffer: Int? = nil) throws {
         self.blocks = blocks
+        self.sequential = sequential
         let page = artifact.page
-        var blockOf: [String: Int] = [:], spans: [(start: Int, end: Int)] = []
+        var visits: [Visit] = [], visitsOf: [String: [Int]] = [:]
         for (b, names) in blocks.enumerated() {
-            let tensors = names.compactMap { artifact.tensors[$0] }
-            guard tensors.count == names.count, !tensors.isEmpty else {
+            var uses: [String: Int] = [:]
+            for name in names { uses[name, default: 0] += 1 }
+            let distinct = Array(uses.keys)
+            let tensors = distinct.compactMap { artifact.tensors[$0] }
+            guard tensors.count == distinct.count, !tensors.isEmpty else {
                 throw Artifact.Failure.badHeader("streamed block \(b): tensor missing from the map")
             }
-            spans.append(Artifact.stagingRun(tensors.map { ($0.offset, $0.bytes) }, page: page, fileSize: artifact.size)!)
-            for name in names { blockOf[name] = b }
+            // Runs: each tensor's, page-rounded; those that touch are one read (a layer in file order is one).
+            let sorted = zip(distinct, tensors).sorted { $0.1.offset < $1.1.offset }
+            var runs: [(start: Int, end: Int)] = [], placed: [String: Int] = [:], used = 0
+            for (name, t) in sorted {
+                let end = min((t.offset + t.bytes + page - 1) / page * page, artifact.size)
+                if let last = runs.last, t.offset <= last.end {
+                    placed[name] = used - (last.end - t.offset)
+                    if end > last.end { used += end - last.end; runs[runs.count - 1].end = end }
+                } else {
+                    placed[name] = used
+                    runs.append((t.offset, end)); used += end - t.offset
+                }
+            }
+            visits.append(Visit(runs: runs, offsets: placed, uses: uses))
+            for name in distinct { visitsOf[name, default: []].append(b) }
         }
-        self.blockOf = blockOf
-        self.spans = spans
-        let slotBytes = spans.map { $0.end - $0.start }.max()!
+        self.visits = visits
+        self.visitsOf = visitsOf
+        state = Array(repeating: .pending, count: visits.count)
+        left = visits.map(\.uses)
+        let bytes = visits.map { $0.runs.reduce(0) { $0 + $1.end - $1.start } }
+        let slotBytes = max(buffer ?? 0, bytes.max()!)
         self.slotBytes = slotBytes
         mapped = Int(bitPattern: artifact.mappedPointer(artifact.order[0])!) - artifact.tensors[artifact.order[0]]!.offset
         // Mapped, not `malloc`ed: `munmap` hands the pages back at once, where malloc's large-block
@@ -201,8 +255,27 @@ package final class TailStream {
 
     deinit {
         reads.wait()
+        if fallbacks > 0 {
+            Warnings.emit("⚠ the weight stream served \(fallbacks) tensor(s) through the page cache: the engine left its order")
+        }
         close(descriptor)
         for slot in slots { munmap(slot, slotBytes) }
+    }
+
+    /// Under the lock: the visit of the sequence that uses `name` next — the first from the frontier on, in
+    /// the sequence's order, that is not complete and still has a use of it to come.
+    private func visit(of name: String) -> Int? {
+        guard let list = visitsOf[name] else { return nil }
+        let from = list.firstIndex { $0 >= frontier } ?? 0
+        for k in 0..<list.count {
+            let b = list[(from + k) % list.count]
+            switch state[b] {
+            case .complete: continue
+            case .pending: return b
+            case .staged: if left[b][name, default: 0] > 0 { return b }
+            }
+        }
+        return nil
     }
 
     /// Starts reading the blocks these names belong to, without waiting.
@@ -210,84 +283,123 @@ package final class TailStream {
     /// A block that finds no free slot is **not** paged in instead: it is staged by a later request
     /// (the next layer's, once a slot is released) or, at the latest, when the engine reads it.
     /// So the returned set is every streamed name, staged or deferred — none of them is the map's.
+    /// A sequence of visits ignores the names' order: it reads on from where it is (`advance`).
     func stage(_ names: [String]) -> Set<String> {
         lock.lock(); defer { lock.unlock() }
         var out: Set<String> = []
-        for name in names where blockOf[name] != nil {
+        for name in names where visitsOf[name] != nil {
             out.insert(name)
-            if staged[name] == nil, let slot = free.popLast() { start(block: blockOf[name]!, in: slot) }
+            if !sequential, let b = visit(of: name), state[b] == .pending, let slot = free.popLast() { start(visit: b, in: slot) }
         }
+        if sequential { advance() }
         return out
     }
 
-    /// Under the lock: the block's reads, in `lanes` page-aligned pieces.
-    private func start(block b: Int, in slot: Int) {
+    /// Under the lock, sequential: the free buffers read the visits that come next, skipping those already read.
+    private func advance() {
+        var tried = 0
+        while !free.isEmpty, tried < visits.count {
+            let b = cursor
+            cursor = (cursor + 1) % visits.count
+            tried += 1
+            if state[b] == .pending { start(visit: b, in: free.removeLast()) }
+        }
+    }
+
+    /// Under the lock: the visit's reads, each run in `lanes` page-aligned pieces.
+    private func start(visit b: Int, in slot: Int) {
         let group = DispatchGroup()
-        let (start, end) = spans[b], base = Int(bitPattern: slots[slot])
+        let base = Int(bitPattern: slots[slot])
         let fd = descriptor, mapped = self.mapped
-        let lane = ((end - start) / Self.lanes + (1 << 14) - 1) / (1 << 14) * (1 << 14)
-        var first = start
-        while first < end {
-            let last = min(first + lane, end), from = first
-            queue.async(group: group) {
-                var offset = from
-                while offset < last {
-                    let length = min(Self.piece, last - offset)
-                    let destination = UnsafeMutableRawPointer(bitPattern: base + offset - start)!
-                    var done = 0
-                    while done < length {
-                        let n = pread(fd, destination + done, length - done, off_t(offset + done))
-                        if n <= 0 {
-                            // A failed read must not become a wrong weight: the map has the bytes.
-                            memcpy(destination + done, UnsafeRawPointer(bitPattern: mapped + offset + done)!,
-                                   length - done)
-                            break
+        var placed = 0
+        for (start, end) in visits[b].runs {
+            let into = base + placed
+            placed += end - start
+            let lane = max(((end - start) / Self.lanes + (1 << 14) - 1) / (1 << 14) * (1 << 14), Self.smallest)
+            var first = start
+            while first < end {
+                let last = min(first + lane, end), from = first
+                queue.async(group: group) {
+                    var offset = from
+                    while offset < last {
+                        let length = min(Self.piece, last - offset)
+                        let destination = UnsafeMutableRawPointer(bitPattern: into + offset - start)!
+                        var done = 0
+                        while done < length {
+                            let n = pread(fd, destination + done, length - done, off_t(offset + done))
+                            if n <= 0 {
+                                // A failed read must not become a wrong weight: the map has the bytes.
+                                memcpy(destination + done, UnsafeRawPointer(bitPattern: mapped + offset + done)!,
+                                       length - done)
+                                break
+                            }
+                            done += n
                         }
-                        done += n
+                        offset += length
                     }
-                    offset += length
                 }
+                first = last
             }
-            first = last
         }
         reads.enter()
         group.notify(queue: queue) { [reads] in reads.leave() }
-        for member in blocks[b] { staged[member] = Staged(slot: slot, group: group) }
-        held[slot] = blocks[b].count
+        staged[b] = Staged(slot: slot, group: group)
+        state[b] = .staged
+        left[b] = visits[b].uses
+        done.subtract(visits[b].uses.keys)
     }
 
     /// The staged copy of a tensor once its block is read, or `nil` if it is not staged.
     func pointer(_ name: String, offset: Int) -> UnsafeRawPointer? {
-        guard let b = blockOf[name] else { return nil }
         lock.lock()
-        if staged[name] == nil {
+        guard visitsOf[name] != nil else { lock.unlock(); return nil }
+        var found = visit(of: name)
+        if let b = found, state[b] == .pending {
             // Not requested ahead (or no slot was free then): staged now, or read from the map.
-            if let slot = free.popLast() { start(block: b, in: slot) }
+            if let slot = free.popLast() {
+                start(visit: b, in: slot)
+                demanded += 1
+                if sequential { cursor = (b + 1) % visits.count }
+            } else { found = nil }
         }
-        let entry = staged[name]
+        guard let b = found, let entry = staged[b] else { fallbacks += 1; lock.unlock(); return nil }
+        let place = visits[b].offsets[name]!
         lock.unlock()
-        guard let entry else { return nil }
         entry.group.wait()
-        return UnsafeRawPointer(slots[entry.slot]) + (offset - spans[b].start)
+        return UnsafeRawPointer(slots[entry.slot]) + place
     }
 
-    /// The engine is done with these names: a slot whose names are all released is free again.
+    /// The engine is done with these names: a visit whose uses are all released frees its buffer — and, in a
+    /// sequence, the next visit is read at once.
     /// Returns `true` if every name was staged (nothing left for the map to drop).
     func release(_ names: [String]) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var all = true
         for name in names {
-            guard let entry = staged.removeValue(forKey: name) else { all = false; continue }
-            held[entry.slot, default: 1] -= 1
-            if held[entry.slot] == 0 {
-                held[entry.slot] = nil
+            guard visitsOf[name] != nil else { all = false; continue }
+            guard let b = visit(of: name), state[b] == .staged, left[b][name, default: 0] > 0 else {
+                // Released already (a layer's last call after its tensors' own): nothing to do.
+                if !done.contains(name) { all = false }
+                continue
+            }
+            left[b][name]! -= 1
+            done.insert(name)
+            if left[b].values.allSatisfy({ $0 == 0 }) {
+                let entry = staged.removeValue(forKey: b)!
+                state[b] = .complete
                 entry.group.wait()
                 free.append(entry.slot)
+                while state[frontier] == .complete {
+                    frontier = (frontier + 1) % visits.count
+                    // A whole evaluation is complete: the next one starts from the first visit.
+                    if frontier == 0 { for v in visits.indices where state[v] == .complete { state[v] = .pending } }
+                }
+                if sequential { advance() }
             }
         }
         return all
     }
 
     /// Whether the name belongs to the streamed tail (staged or not).
-    package func contains(_ name: String) -> Bool { blockOf[name] != nil }
+    package func contains(_ name: String) -> Bool { visitsOf[name] != nil }
 }

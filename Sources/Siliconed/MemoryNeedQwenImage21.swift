@@ -77,6 +77,8 @@ package struct QwenImage21Maps: Sendable {
     package let vision: Qwen3VLVision.Config
     /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): what a staging block holds.
     package let ditLayerStaging: Int
+    /// The largest tensor's staging run in the DiT's map (`Artifact.largestRun`): what one buffer of its stream holds.
+    package let ditUnitStaging: Int
     /// The largest layer's staging run in the encoder's map: what one of its buffers holds.
     package let encoderLayerStaging: Int
     /// What the tokenizer's two tables map (`Tokenizer.tableBytes`).
@@ -94,10 +96,12 @@ package struct QwenImage21Maps: Sendable {
         let ditConfig = QwenImage21DiT.Config(header: dit)
         let ditStaging = Artifact.stagingBytes(header: dit, prefixes: (0..<ditConfig.layers).map(QwenImage21DiT.layerPrefix),
                                                fileSize: ditSize)
-        let encoderStaging = Artifact.stagingBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig),
+        let encoderStaging = Artifact.largestRun(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig),
                                                    fileSize: encoderSize)
         guard ditStaging > 0, encoderStaging > 0 else { return nil }
         self.dit = ditConfig; self.encoder = encoderConfig; self.vision = vision
+        ditUnitStaging = Artifact.largestRun(header: dit, prefixes: (0..<ditConfig.layers).map(QwenImage21DiT.layerPrefix),
+                                             fileSize: ditSize)
         ditLayerStaging = ditStaging; encoderLayerStaging = encoderStaging; self.tokenizerTables = tokenizerTables
         encoderRotationScratch = Widen.rotationScratchBytes(header: encoder)
         ditRotationScratch = Widen.rotationScratchBytes(header: dit, prefixes: (0..<ditConfig.layers).map(QwenImage21DiT.layerPrefix))
@@ -307,7 +311,7 @@ package struct QwenImage21Need {
             Term("K/V arena", p > 0 && storage == .memory ? QwenImage21DiT.cacheArenaBytes(config: dit, prefix: p) : 0),
             // The map's staging blocks: only with the K/V in memory (`QwenImage21DiT.body`).
             Term("map staging", storage == .memory && request.tail.fraction > 0
-                ? request.tail.slots * maps.ditLayerStaging : 0),
+                ? TailStream.unitSlots * maps.ditUnitStaging : 0),
             Term("DiT rotation scratch", maps.ditRotationScratch),
         ]
         // Two slots of the user's stack, on the 7 Linears of a block (`StreamedLoRA`), and, with more

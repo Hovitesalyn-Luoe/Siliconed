@@ -170,7 +170,12 @@ package final class Krea2DiT {
         x = slot("x"); normed = slot("normed")
         q = slot("q"); k = slot("k"); v = slot("v")
         gate = slot("gate"); merged = slot("merged"); o = slot("o")
-        h1 = slot("h1"); h2 = slot("h2")
+        // h1 is laid over the attention's scratch, dead by the SwiGLU (`Krea2DiT.slices`): q, k, v, gate and
+        // merged are adjacent in the arena and hold more floats per row than h1 does.
+        h1 = q; h2 = slot("h2")
+        guard UnsafeMutableRawPointer(h1 + maxRows * config.hidden) <= UnsafeMutableRawPointer(o) else {
+            throw Artifact.Failure.badHeader("Krea 2: h1 does not fit over the attention's scratch")
+        }
         modulationSlot = slot("modulation")
         reserve = slot("reserve")
         tokens = slot("tokens")
@@ -197,6 +202,13 @@ package final class Krea2DiT {
     package var arenaCapacity: Int { arena.capacity }
     /// The LoRA cache's arena, `0` without a stack — what the tests compare with `CacheLoRA.bytes`.
     package var loraCacheCapacity: Int { cacheLoRA?.capacity ?? 0 }
+
+    /// **A layer's tensors in the order `block` widens them** — the order its stream reads them in
+    /// (`Artifact.streamUnits`); a tensor widened is released at once, and the next unit read ahead.
+    package static let consumptionOrder = ["scale_shift_table", "norm1.weight", "attn.to_q.weight", "attn.to_k.weight",
+                                           "attn.to_v.weight", "attn.to_gate.weight", "attn.norm_q.weight",
+                                           "attn.norm_k.weight", "attn.to_out.0.weight", "norm2.weight",
+                                           "ff.gate.weight", "ff.up.weight", "ff.down.weight"]
 
     // MARK: - the modules a LoRA adapts
 
@@ -271,7 +283,12 @@ package final class Krea2DiT {
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: Krea2DiT.layerPrefix($0)) }
         let (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks,
                                                    fraction: Krea2DiT.generationTail)
-        try artifact.streamTail(blocks: slots == 0 ? [] : Array(layerBlocks[released...]), slots: slots)
+        if slots == 0 {
+            try artifact.streamTail(blocks: [], slots: 0)
+        } else {
+            try artifact.streamUnits(layers: layerBlocks, from: released, prefix: Krea2DiT.layerPrefix,
+                                     suffixes: Krea2DiT.consumptionOrder)
+        }
         prefetcher.request(layerBlocks[0])
 
         // ── the timestep: temb [d], then the shared modulation temb_mod [6d] ─────────────────
@@ -400,7 +417,7 @@ package final class Krea2DiT {
         try modulatedNorm(prefix + "norm2.weight", x, rows: n, scale: m + 3 * d, shift: m + 4 * d)
         try linearGPU(prefix + "ff.gate.weight", a: normed, into: h1, m: n, k: d, n: hh)
         try linearGPU(prefix + "ff.up.weight", a: normed, into: h2, m: n, k: d, n: hh)
-        let (h1b, h2b) = (try slice(h1), try slice(h2))
+        let (h1b, h2b) = (try slice(h1, floats: maxRows * hh), try slice(h2))
         timed("swiglu") { ownTimings["elementwise GPU", default: 0] += elementwise.swiglu((h1b, 0), (h2b, 0), count: n * hh) }
         try linearGPU(prefix + "ff.down.weight", a: h1, into: o, m: n, k: hh, n: d)
         if let tag { record(tag + "ff_out", o, n * d) }
@@ -414,10 +431,11 @@ package final class Krea2DiT {
 
     /// A slice of the arena seen from the GPU — wrapped **at its reserved size** (wrappers are
     /// memoized by address, see `linearGPU`): the modulation block, or a slice of rows.
-    private func slice(_ p: UnsafeMutablePointer<Float>) throws -> MTLBuffer {
+    private func slice(_ p: UnsafeMutablePointer<Float>, floats given: Int? = nil) throws -> MTLBuffer {
         let d = config.dim
         let floats: Int
         switch p {
+        case _ where given != nil: floats = given!
         case modulationSlot: floats = 6 * d
         case k, v: floats = maxRows * config.kvWidth
         case h1, h2: floats = maxRows * config.hidden

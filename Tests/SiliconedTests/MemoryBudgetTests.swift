@@ -172,17 +172,18 @@ final class MemoryBudgetTests: XCTestCase {
         let request = self.request(1024, 1024, references: 3)
         let floor = MemoryNeed.of(request.lean)!.peak
         let fastest = MemoryNeed.of(request)!.peak
-        XCTAssertLessThan(floor, fastest)
+        // The encoder's buffers are the largest tensor's now: they no longer raise an edit's peak.
+        XCTAssertLessThanOrEqual(floor, fastest)
         let roomy = MemoryPlan.choose(request, ceiling: 16 << 30)
         XCTAssertEqual(roomy.request.encoderSlots, MemoryPlan.encoderSlots)
         XCTAssertFalse(roomy.request.minimumBands)
         XCTAssertEqual(roomy.need?.peak, fastest)
         XCTAssertEqual(roomy.floor, floor)
         XCTAssertFalse(roomy.lean)
-        // At the floor, what raises the peak goes (an edit's text phase holds it: the encoder's
-        // buffers); what does not raise it stays — a band in a phase below the peak is free.
+        // At the floor, what raises the peak goes; what does not raise it stays — a band in a phase below
+        // the peak is free, and so are the encoder's three small buffers.
         let tight = MemoryPlan.choose(request, ceiling: floor)
-        XCTAssertEqual(tight.request.encoderSlots, 0)
+        XCTAssertEqual(tight.request.encoderSlots, MemoryPlan.encoderSlots)
         XCTAssertEqual(tight.need?.peak, floor)
         for ceiling in stride(from: floor, through: fastest, by: max(1, (fastest - floor) / 17)) {
             let plan = MemoryPlan.choose(request, ceiling: ceiling)
@@ -247,8 +248,7 @@ final class MemoryBudgetTests: XCTestCase {
         func comfort(_ w: Int, _ h: Int, references: Int = 0) -> Int { MemoryNeed.of(request(w, h, references: references))!.peak }
         for (w, h) in [(1024, 1024), (832, 1216), (1024, 1536)] {
             XCTAssertLessThanOrEqual(floor(w, h), comfort(w, h), "\(w)×\(h)")
-            // The lean plan drops the encoder's buffers: an edit, whose text phase holds its peak, needs less.
-            XCTAssertLessThan(floor(w, h, references: 3), comfort(w, h, references: 3))
+            XCTAssertLessThanOrEqual(floor(w, h, references: 3), comfort(w, h, references: 3))
         }
         XCTAssertEqual(floor(832, 1216), floor(1216, 832))
     }

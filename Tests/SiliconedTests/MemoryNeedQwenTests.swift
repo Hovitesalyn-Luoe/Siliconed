@@ -75,7 +75,9 @@ final class MemoryNeedQwenTests: XCTestCase {
         let block = 4 * 4096 * 4096 * 2 + 3 * 4096 * 12_288 * 2 + 2 * 16384
         XCTAssertEqual(block, 436_240_384)
         XCTAssertEqual(need.maps.ditLayerStaging, block)
-        let staging = 2 * block
+        // The stream's buffers hold the largest tensor (a 4 096 × 12 288 weight, 100 663 296 bytes in bf16), three of them.
+        XCTAssertEqual(need.maps.ditUnitStaging, 4096 * 12_288 * 2)
+        let staging = TailStream.unitSlots * need.maps.ditUnitStaging
         let module = { (k: Int, n: Int) in (k, n, 32) }
         let lora = 2 * StreamedLoRA.layout([
             "attn.to_q": module(4096, 4096), "attn.to_k": module(4096, 4096), "attn.to_v": module(4096, 4096),
@@ -223,7 +225,9 @@ final class MemoryNeedQwenTests: XCTestCase {
     func testTheNeedGrowsWithTheReferences() {
         let refs: [(width: Int, height: Int)] = [(1024, 1024), (1024, 1024), (1024, 1024)]
         let peaks = (0...3).map { Self.need(Self.request(1024, 1024, references: Array(refs.prefix($0)))).peak }
-        XCTAssertEqual(peaks, peaks.sorted()); XCTAssertEqual(Set(peaks).count, 4)
+        // From one reference on: an edit streams nothing, and its encoder's buffers are the largest tensor's now,
+        // not a layer's — a generation (no reference) holds the map's staging units and can lie above a first edit.
+        XCTAssertEqual(Array(peaks.dropFirst()), peaks.dropFirst().sorted()); XCTAssertEqual(Set(peaks).count, 4)
         // Each phase too, the decoding aside (it never sees the references).
         for kind in [MemoryNeed.Phase.Kind.text, .denoising] {
             let own = (0...3).map { Self.phase(Self.need(Self.request(1024, 1024, references: Array(refs.prefix($0)))), kind)!.own }
@@ -443,7 +447,7 @@ final class MemoryNeedQwenTests: XCTestCase {
         let a = Self.need(generation)
         let b = Self.need(MemoryFixtures.qwenRequest(1024, 1024, tokens: 27, maps: int8))
         XCTAssertEqual(Self.phase(a, .denoising)!.bytes("map staging") - Self.phase(b, .denoising)!.bytes("map staging"),
-                       2 * (bf16.ditLayerStaging - int8.ditLayerStaging))
+                       TailStream.unitSlots * (bf16.ditUnitStaging - int8.ditUnitStaging))
     }
 
     /// **Maps that do not parse make no maps** — and no need: the render is refused, never planned on 0.

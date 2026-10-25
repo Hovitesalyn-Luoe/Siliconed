@@ -74,7 +74,7 @@ extension MemoryNeed {
         /// encoder's config does not parse or its map has no tensor table.
         package init?(dit: [String: Any], encoder: [String: Any], encoderSize: Int = .max) {
             guard let config = try? TextEncoder.Config(header: encoder) else { return nil }
-            let staging = Artifact.stagingBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(config),
+            let staging = Artifact.largestRun(header: encoder, prefixes: TextEncoder.layerPrefixes(config),
                                                 fileSize: encoderSize)
             guard staging > 0 else { return nil }
             self.dit = AnimaDiT.Config(header: dit); self.encoder = config; encoderLayerStaging = staging

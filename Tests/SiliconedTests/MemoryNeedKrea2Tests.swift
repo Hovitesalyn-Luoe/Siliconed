@@ -110,9 +110,9 @@ final class MemoryNeedKrea2Tests: XCTestCase {
         let config = MemoryFixtures.krea2Maps().dit
         let (s, t, d, h, kv) = (4096, 25, 6144, 16_384, 1536)
         let n = s + t
-        let dit = pages(Array(repeating: n * d, count: 6) + [n * kv, n * kv, n * h, n * h, 6 * d, d * h, s * 64, s * 64, n * 128])
+        let dit = pages(Array(repeating: n * d, count: 6) + [n * kv, n * kv, n * h, 6 * d, d * h, s * 64, s * 64, n * 128])
         XCTAssertEqual(Krea2DiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128, maxText: t, rank: 0), dit)
-        XCTAssertEqual(dit, 1_605_533_696)
+        XCTAssertEqual(dit, 1_335_459_840)   // h1 lies over the attention's scratch: 270 MB less
         let r = 12 * t
         let fusion = pages([r * 2560, r * 6144, r * 2560, r * 2560, r * 2560, r * 2560, r * 6144, r * 6144,
                             r * 6912, r * 6912, r * 6912, 6144 * 6144])
@@ -135,7 +135,7 @@ final class MemoryNeedKrea2Tests: XCTestCase {
             XCTAssertEqual(n.phases[1].bytes("fusion arena"), Krea2TextFusion.arenaBytes(outDim: 6144, maxTokens: 25, rank: 0))
             XCTAssertEqual(n.phases[2].bytes("DiT arena"),
                            Krea2DiT.arenaBytes(config: maps.dit, latentHeight: h / 8, latentWidth: w / 8, maxText: 25, rank: 0))
-            XCTAssertEqual(n.phases[2].bytes("map staging"), 2 * maps.ditLayerStaging)
+            XCTAssertEqual(n.phases[2].bytes("map staging"), TailStream.unitSlots * maps.ditUnitStaging)
             let plan = AnimaVAE.plan(latentHeight: h / 8, latentWidth: w / 8)
             XCTAssertEqual(n.phases[3].bytes("Qwen-Image decoder"), plan.registers + plan.workspace + plan.host + plan.outside)
             // The taps, the fused text, the modulation table (50 σ at most) and the latent cross every phase.
@@ -158,7 +158,7 @@ final class MemoryNeedKrea2Tests: XCTestCase {
         for bytes in [1, 0] {
             let other = need(1024, 1024, maps: MemoryFixtures.krea2Maps(ditBytesPerValue: bytes, encoderBytesPerValue: 1))
             let maps = MemoryFixtures.krea2Maps(ditBytesPerValue: bytes, encoderBytesPerValue: 1)
-            XCTAssertEqual(other.phases[2].bytes("map staging"), 2 * maps.ditLayerStaging)
+            XCTAssertEqual(other.phases[2].bytes("map staging"), TailStream.unitSlots * maps.ditUnitStaging)
             XCTAssertEqual(other.phases[2].bytes - other.phases[2].bytes("map staging") - other.phases[2].bytes("modulation"),
                            standard.phases[2].bytes - standard.phases[2].bytes("map staging") - standard.phases[2].bytes("modulation"))
             XCTAssertLessThan(other.phases[0].bytes, standard.phases[0].bytes)
@@ -213,12 +213,11 @@ final class MemoryNeedKrea2Tests: XCTestCase {
         header = ["tensors": ["time_embed.linear_1.weight": ["dtype": "float32"], "time_embed.linear_2.weight": ["dtype": "float32"],
                               "time_mod_proj.weight": ["dtype": "float32"]]]
         XCTAssertEqual(Krea2DiT.timestepWidening(header: header, config: maps.dit), 0)
-        // Alive before any attention: charged only past the SDPA and the GEMM it never sits beside.
+        // Alive before any evaluation, the arena not yet written: the phase is the larger of the two moments.
         let n = need(512, 512)
-        let running = n.phases[2].terms.filter { $0.name.hasPrefix("DiT SDPA") || $0.name.hasPrefix("DiT GEMM")
-            || $0.name.hasPrefix("DiT conductor") }.reduce(0) { $0 + $1.bytes }
         let tabulation = Krea2DiT.tabulationBytes(config: maps.dit, count: Request.maximumSteps) + maps.timestepWidening
-        XCTAssertEqual(n.phases[2].bytes("modulation tabulation"), max(0, tabulation - running))
+        let others = n.phases[2].terms.filter { !$0.name.hasPrefix("modulation tabulation") }.reduce(0) { $0 + $1.bytes }
+        XCTAssertEqual(n.phases[2].bytes("modulation tabulation"), max(0, tabulation - others))
     }
 
     /// **The text follows the prompt, not 512**: the encoder's rows are the template's 34, the prompt

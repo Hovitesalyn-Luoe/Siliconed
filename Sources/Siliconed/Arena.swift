@@ -131,6 +131,7 @@ package final class Arena {
         }
         self.base = allocated
         self.capacity = rounded
+        owner = nil
         Arena.liveCount.add(1, ordering: .relaxed)
     }
 
@@ -142,7 +143,18 @@ package final class Arena {
     package static var live: Int { liveCount.load(ordering: .relaxed) }
     private static let liveCount = Atomic<Int>(0)
 
+    /// **Another set of slices over the same memory**: for scratch that two users never hold at the same
+    /// time (Z-Image's image refiners, caption refiners and layers). Its own slice table and cursor, the
+    /// owner's pages — mapped once, unmapped with the owner, which the view keeps alive.
+    package init(sharing owner: Arena) {
+        base = owner.base
+        capacity = owner.capacity
+        self.owner = owner
+    }
+    private let owner: Arena?
+
     deinit {
+        guard owner == nil else { return }
         munmap(base, capacity)
         Arena.liveCount.subtract(1, ordering: .relaxed)
     }

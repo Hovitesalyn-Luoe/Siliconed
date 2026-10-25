@@ -127,7 +127,13 @@ package final class Block {
         }
         normed = pointers["normed"]!; qkv = pointers["qkv"]!
         qHeads = pointers["q"]!; kHeads = pointers["k"]!; vHeads = pointers["v"]!; merged = pointers["merged"]!
-        hidden1 = pointers["h1"]!; hidden3 = pointers["h3"]!
+        // `h1` lies over the attention's scratch, dead by the feed-forward: `q`, `k`, `v` and `merged` are
+        // adjacent in the arena and hold more floats per row than `h1` (`Block.slices`).
+        hidden1 = qHeads; hidden3 = pointers["h3"]!
+        guard UnsafeMutableRawPointer(hidden1 + shapes.sequence * shapes.hidden)
+                <= UnsafeMutableRawPointer(merged + shapes.sequence * shapes.dim) else {
+            throw Artifact.Failure.badHeader("a block's h1 does not fit over its attention's scratch")
+        }
         scratch = pointers["scratch"]!; weightReserve = pointers["reserve"]!; modulationSlot = pointers["modulation"]!
         products = WeightProducts(gemm: gemm, artifact: artifact, reserve: weightReserve,
                                   capacity: shapes.dim * shapes.hidden, transposed: artifact.linearWeightsTransposed,
@@ -140,8 +146,8 @@ package final class Block {
     }
 
     /// **A block's slices, in floats, in the order `init` reserves them** — one source with
-    /// `DiT.blockArenaBytes`: six `s×d` (`normed`, `qkv`, `q`, `k`, `v`, `merged`), two `s×h` (`h1`,
-    /// `h3`), the `d×h` weight reserve (the largest weight of a block: `w1`, `w2`, `w3`), `4d` of scratch
+    /// `DiT.blockArenaBytes`: six `s×d` (`normed`, `qkv`, `q`, `k`, `v`, `merged`), one `s×h` (`h3`; `h1`
+    /// lies over `q`…`merged`, dead by the feed-forward), the `d×h` weight reserve (the largest weight of a block: `w1`, `w2`, `w3`), `4d` of scratch
     /// (the norm weights, `d`, and the modulation's LoRA, `4d`), `4d` of modulation and, under a LoRA
     /// stack of cumulative rank `r`, the `mid [s, r]` slice (sized for the widest module it touches).
     /// Each is written whole by an evaluation at the sizing length. There used to be an `x` slice
@@ -150,7 +156,7 @@ package final class Block {
     package static func slices(_ shapes: Shapes, loraRank r: Int) -> [(name: String, count: Int)] {
         let s = shapes.sequence, d = shapes.dim, h = shapes.hidden
         return [("normed", s * d), ("qkv", s * d), ("q", s * d), ("k", s * d), ("v", s * d), ("merged", s * d),
-                ("h1", s * h), ("h3", s * h), ("scratch", 4 * d), ("reserve", d * h), ("modulation", 4 * d)]
+                ("h3", s * h), ("scratch", 4 * d), ("reserve", d * h), ("modulation", 4 * d)]
             + (r > 0 ? [("loraMid", s * r)] : [])
     }
 

@@ -70,6 +70,9 @@ extension MemoryNeed {
         package let encoder: TextEncoder.Config
         /// The largest layer's staging run in the DiT's map (`Artifact.stagingBytes`): a staging block.
         package let ditLayerStaging: Int
+        /// The largest tensor's staging run in the DiT's map (`Artifact.largestRun`): what one of the stream's
+        /// buffers holds (`TailStream.unitSlots` of them).
+        package let ditUnitStaging: Int
         /// The largest encoder layer's staging run: what one of its buffers holds.
         package let encoderLayerStaging: Int
         /// The largest timestep weight the tabulation widens (`Krea2Exact.linears`: a weight not
@@ -81,15 +84,18 @@ extension MemoryNeed {
 
         /// From the headers — pure: the tests hand it headers written in memory. `nil` when the
         /// encoder's config does not parse or a map has no tensor table.
-        package init?(dit: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
+        package init?(dit dit_: [String: Any], ditSize: Int = .max, encoder: [String: Any], encoderSize: Int = .max) {
+            let dit = dit_
             guard let encoderConfig = try? TextEncoder.Config(header: encoder) else { return nil }
             let config = Krea2DiT.Config(header: dit)
             let ditStaging = Artifact.stagingBytes(header: dit, prefixes: (0..<config.layers).map(Krea2DiT.layerPrefix),
                                                    fileSize: ditSize)
-            let encoderStaging = Artifact.stagingBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig),
+            let encoderStaging = Artifact.largestRun(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig),
                                                        fileSize: encoderSize)
             guard ditStaging > 0, encoderStaging > 0 else { return nil }
             self.dit = config; self.encoder = encoderConfig
+            ditUnitStaging = Artifact.largestRun(header: dit_, prefixes: (0..<config.layers).map(Krea2DiT.layerPrefix),
+                                                 fileSize: ditSize)
             ditLayerStaging = ditStaging; encoderLayerStaging = encoderStaging
             timestepWidening = Krea2DiT.timestepWidening(header: dit, config: config)
             encoderRotationScratch = Widen.rotationScratchBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(encoderConfig))
@@ -189,7 +195,7 @@ extension MemoryNeed {
         var terms = [
             Term("DiT arena", Krea2DiT.arenaBytes(config: dit, latentHeight: latentHeight, latentWidth: latentWidth,
                                                   maxText: t, rank: rank)),
-            Term("map staging", streamed ? request.tail.slots * maps.ditLayerStaging : 0),
+            Term("map staging", streamed ? TailStream.unitSlots * maps.ditUnitStaging : 0),
             Term("LoRA cache", rank > 0 ? CacheLoRA.arenaBytes(CacheLoRA.bytes(modules: modules.map { ($0.k, $0.n, rank) })) : 0),
             Term("LoRA down staging", request.loraRanks.count > 1
                 ? LoRA.downBytes(k: modules.map(\.k).max() ?? 0, rank: request.loraRanks.max() ?? 0) : 0),
@@ -204,11 +210,15 @@ extension MemoryNeed {
             // The image's rows are exact; the sequence's follow the prompt's bound.
             + gemm("DiT", products: [(s, dit.channels, d), (s, d, dit.channels)],
                    bounded: [(n, d, d), (n, d, kv), (n, d, hidden), (n, hidden, d)], rank: rank, ane: request.neuralEngine)
-        let runningBytes = running.reduce(0) { $0 + $1.bytes }
-        let tabulation = Krea2DiT.tabulationBytes(config: dit, count: Siliconed.Request.maximumSteps, rank: rank)
-            + maps.timestepWidening
         terms += running
-        terms.append(Term("modulation tabulation beyond the attention", max(0, tabulation - runningBytes)))
+        // The tabulation runs right after the DiT is built and before its first evaluation: the arena is
+        // mapped and not yet written (an untouched page is not resident) and the stream does not exist
+        // yet. It is a moment of its own — the tabulation, the widened timestep weight, what a LoRA keeps —
+        // and the phase is the larger of the two, not their sum.
+        let tabulating = Krea2DiT.tabulationBytes(config: dit, count: Siliconed.Request.maximumSteps, rank: rank)
+            + maps.timestepWidening + terms.filter { $0.name.hasPrefix("LoRA") }.reduce(0) { $0 + $1.bytes }
+        terms.append(Term("modulation tabulation beyond the evaluation",
+                          max(0, tabulating - terms.reduce(0) { $0 + $1.bytes })))
         let denoising = Phase(kind: .denoising, terms: terms)
 
         // ── decoding: the decoder's two heaps and the image it returns; the latent it reads crosses ──
@@ -254,7 +264,7 @@ extension Krea2DiT {
     package static func slices(config: Config, imageTokens s: Int, maxText: Int, rank: Int) -> [(name: String, count: Int)] {
         let n = s + maxText, d = config.dim, h = config.hidden, kv = config.kvWidth
         return [("x", n * d), ("normed", n * d), ("q", n * d), ("k", n * kv), ("v", n * kv), ("gate", n * d),
-                ("merged", n * d), ("o", n * d), ("h1", n * h), ("h2", n * h), ("modulation", 6 * d), ("reserve", d * h),
+                ("merged", n * d), ("o", n * d), ("h2", n * h), ("modulation", 6 * d), ("reserve", d * h),
                 ("tokens", s * config.channels), ("projected", s * config.channels), ("freqs", n * config.headDim)]
             + (rank > 0 ? [("loraMid", n * rank)] : [])
     }

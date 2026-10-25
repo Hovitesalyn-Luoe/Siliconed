@@ -60,6 +60,8 @@ extension MemoryNeed {
         package let encoderSize: Int
         /// `Artifact.stagingSpans` of each DiT layer alone, by index.
         private let ditLayerStaging: [Int?]
+        /// `Artifact.largestRun` of each DiT layer alone: what a stream's buffer holds if that layer is streamed.
+        private let ditLayerRun: [Int]
         /// `Artifact.stagingBytes` of the encoder's layers (0 when its config does not parse).
         package let encoderLayerStaging: Int
         /// What widening the DiT's largest int8 convrot weight allocates outside every arena
@@ -70,14 +72,19 @@ extension MemoryNeed {
             self.dit = dit; self.ditSize = ditSize; self.encoder = encoder; self.encoderSize = encoderSize
             ditLayerStaging = Artifact.stagingSpans(header: dit, prefixes: (0..<DiT.Config(header: dit).layers).map(DiT.layerPrefix),
                                                     fileSize: ditSize)
+            ditLayerRun = (0..<DiT.Config(header: dit).layers).map {
+                Artifact.largestRun(header: dit, prefixes: [DiT.layerPrefix($0)], fileSize: ditSize)
+            }
             encoderLayerStaging = (try? TextEncoder.Config(header: encoder)).map { config in
-                Artifact.stagingBytes(header: encoder, prefixes: TextEncoder.layerPrefixes(config), fileSize: encoderSize)
+                Artifact.largestRun(header: encoder, prefixes: TextEncoder.layerPrefixes(config), fileSize: encoderSize)
             } ?? 0
             ditRotationScratch = Widen.rotationScratchBytes(header: dit)
         }
 
         /// `Artifact.stagingBytes` of the DiT's `layers`: the largest of each layer's span.
         package func ditStaging(_ layers: Range<Int>) -> Int { ditLayerStaging[layers].compactMap { $0 }.max() ?? 0 }
+        /// What one buffer of the DiT's stream holds over `layers`: the largest tensor's run (`Artifact.largestRun`).
+        package func ditUnitStaging(_ layers: Range<Int>) -> Int { ditLayerRun[layers].max() ?? 0 }
 
         /// The maps this card renders with: its own DiT (an imported one) or the library's installed
         /// version (Standard, Compact or Light), and that version's encoder. `nil` when they are not
@@ -166,7 +173,7 @@ extension MemoryNeed {
         let capPadded = DiT.capPadded(tokens, config: dit)
         let released = request.tail.released(layers: dit.layers)
         let buffers = released < dit.layers ? request.tail.slots : 0
-        let staging = buffers == 0 ? 0 : buffers * maps.ditStaging(released..<dit.layers)
+        let staging = buffers == 0 ? 0 : TailStream.unitSlots * maps.ditUnitStaging(released..<dit.layers)
         // The attentions alive at the peak: one per block at its full length (image refiners at the
         // image's tokens, layers at the unified sequence, context refiners at the padded caption) —
         // cut by heads where `HeadSplitAttention.applies`, MPSGraph otherwise.

@@ -119,6 +119,21 @@ package final class QwenImage21DiT {
     /// A layer's tensors in the map: what a staging block holds (`MemoryPlan.ditTail`, `QwenImage21Maps`).
     package static func layerPrefix(_ layer: Int) -> String { "transformer_blocks.\(layer)." }
 
+    /// **The tensors of one layer pass over `rows` rows, in the order `layerPass` widens them**, each as many
+    /// times as it does: the attention's, then the MLP's three for each of its chunks (`mlpRows`). A pass
+    /// that only keeps the conditions' keys and values (`keysOnly`, the prefill's last layer) stops after them.
+    package static func consumption(prefix: String, rows: Int, mlpRows: Int, keysOnly: Bool) -> [String] {
+        var uses = (keysOnly ? ["attn.to_k.weight", "attn.to_v.weight", "attn.norm_k.weight"]
+                    : ["attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight", "attn.norm_q.weight", "attn.norm_k.weight",
+                       "attn.to_out.0.weight"]).map { prefix + $0 }
+        if !keysOnly {
+            for _ in 0..<((rows + mlpRows - 1) / mlpRows) {
+                uses += ["img_mlp.gate_layer.weight", "img_mlp.proj.weight", "img_mlp.out.weight"].map { prefix + $0 }
+            }
+        }
+        return uses
+    }
+
     /// The rows of one MLP chunk for `scratch` rows: the fewest equal chunks whose two buffers fit
     /// `budget` — `ceil(scratch / chunks)`, at least one row.
     package static func mlpRows(scratch: Int, hidden: Int, budget: Int = mlpBudget) -> Int {
@@ -489,7 +504,27 @@ package final class QwenImage21DiT {
         } else {
             MemoryPlan.noteOnce("map tail none (edit: K/V in a file)")
         }
-        try artifact.streamTail(blocks: slots == 0 ? [] : Array(layerBlocks[released...]), slots: slots)
+        if slots == 0 {
+            try artifact.streamTail(blocks: [], slots: 0)
+        } else {
+            // The uses of every layer, in the engine's order and as many times as it makes them — a prefill
+            // group, the MLP's chunks — in buffers of the largest tensor (`Artifact.streamUnits`).
+            let prefill = kind == .prefill || fused
+            try artifact.streamUnits(ordered: (released..<config.layers).map { layer in
+                let prefix = QwenImage21DiT.layerPrefix(layer)
+                var uses: [String] = []
+                if prefill {
+                    for group in groups {
+                        uses += QwenImage21DiT.consumption(prefix: prefix, rows: group.end - group.start, mlpRows: mlpRows,
+                                                           keysOnly: layer == config.layers - 1)
+                    }
+                }
+                if kind != .prefill {
+                    uses += QwenImage21DiT.consumption(prefix: prefix, rows: n, mlpRows: mlpRows, keysOnly: false)
+                }
+                return uses
+            })
+        }
         // Requested once the stream exists: requested before, a streamed block 0 would be paged in
         // through the cache, then read again by the stream.
         prefetcher.request(prefetcher.namesOfBlock(prefix: "transformer_blocks.0."))

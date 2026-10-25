@@ -177,7 +177,11 @@ package final class AnimaDiT {
         x = try slot("x"); normed = try slot("normed")
         q = try slot("q"); k = try slot("k"); v = try slot("v")
         merged = try slot("merged"); o = try slot("o")
-        h1 = try slot("h1"); reserve = try slot("reserve")
+        // `h1` lies over `q`…`merged`, dead by the feed-forward (adjacent in the arena, `4d = h` floats a row).
+        h1 = q; reserve = try slot("reserve")
+        guard UnsafeMutableRawPointer(h1 + imageTokens * config.hidden) <= UnsafeMutableRawPointer(o) else {
+            throw Artifact.Failure.badHeader("Anima: h1 does not fit over the attention's scratch")
+        }
         tokens = try slot("tokens"); projected = try slot("projected")
         freqs = try slot("freqs")
         text = try slot("text")
@@ -815,7 +819,7 @@ extension AnimaDiT {
         let exact = exactProducts(config: config)
         var slices: [(name: String, bytes: Int)] = [
             ("x", s * d * f), ("normed", s * d * f), ("q", s * d * f), ("k", s * d * f), ("v", s * d * f),
-            ("merged", s * d * f), ("o", s * d * f), ("h1", s * h * f), ("reserve", d * h * f),
+            ("merged", s * d * f), ("o", s * d * f), ("reserve", d * h * f),
             ("tokens", s * inDim * f), ("projected", s * outDim * f), ("freqs", s * config.headDim * f),
             ("text", t * config.textDim * f), ("textK", config.layers * t * d * f), ("textV", config.layers * t * d * f),
             ("scaleOne", 2 * d * f), ("exactW", exact.map { $0.k * $0.n }.max()! * w),

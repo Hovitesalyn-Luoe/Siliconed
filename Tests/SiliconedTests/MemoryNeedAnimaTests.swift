@@ -89,12 +89,12 @@ final class MemoryNeedAnimaTests: XCTestCase {
         let config = MemoryFixtures.animaMaps().dit
         let (s, d, h, t) = (4096, 2048, 8192, 512)
         func pages(_ bytes: [Int]) -> Int { bytes.reduce(0) { $0 + Arena.capacity(for: $1) } }
-        let floats = [Array(repeating: s * d, count: 7), [s * h, d * h, s * 68, s * 64, s * 128, t * 1024, 28 * t * d, 28 * t * d,
+        let floats = [Array(repeating: s * d, count: 7), [d * h, s * 68, s * 64, s * 128, t * 1024, 28 * t * d, 28 * t * d,
                                      2 * d]].flatMap { $0 }
         let expected = pages(floats.map { $0 * 4 } + [3 * d * d * 8])
         XCTAssertEqual(AnimaDiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128, textLength: 512, lora: nil),
                        expected)
-        XCTAssertEqual(expected, 778_125_312)
+        XCTAssertEqual(expected, 643_907_584)   // h1 lies over q…merged: 134 MB less
     }
 
     /// **The modulation table** (`AnimaDiT.tabulate`): per σ, `temb` 3d, `embedded` d, the 84 sublayers'

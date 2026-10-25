@@ -85,10 +85,10 @@ final class FormatTableTests: XCTestCase {
     func testTheMinimumMacOfEachCell() {
         let expected: [String: [Int?]] = [
             // 1024², 1024×1536, 1536², 2048², 2048×3072
-            "z-image": [8, 8, 16, 16, 24],
+            "z-image": [8, 8, 8, 16, 18],
             "qwen-image-2.1": [8, 8, 8, 8, 16],
             "anima": [8, 8, 8, 16, nil],
-            "krea2": [8, 16, 16, 16, 16],
+            "krea2": [8, 8, 8, 16, 16],
         ]
         for card in Self.cards {
             let got = Self.formats.map { (w, h) -> Int? in

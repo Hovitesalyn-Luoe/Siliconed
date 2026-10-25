@@ -206,9 +206,16 @@ package final class TextEncoder {
     /// through its staging buffers (`encode`), and the memory need sizes them on (`Artifact.stagingBytes`).
     package static func layerPrefixes(_ config: Config) -> [String] { (0..<config.layers).map { "layers.\($0)." } }
 
-    /// The staging buffers the encoder streams its layers through, for the plan's `granted` (0 to 4):
-    /// never more than the layers in flight, `layersAhead + 1`.
-    package static func stagingSlots(granted: Int) -> Int { min(layersAhead + 1, granted) }
+    /// **A layer's tensors in the order `encode` widens them** — the order its stream reads them in.
+    package static let consumptionOrder = ["input_layernorm.weight", "self_attn.q_proj.weight", "self_attn.k_proj.weight",
+                                           "self_attn.v_proj.weight", "self_attn.q_norm.weight", "self_attn.k_norm.weight",
+                                           "self_attn.o_proj.weight", "post_attention_layernorm.weight",
+                                           "mlp.gate_proj.weight", "mlp.up_proj.weight", "mlp.down_proj.weight"]
+
+    /// The staging buffers the encoder streams through, for the plan's `granted` (0, or the reference's 4):
+    /// the stream's units (`TailStream.unitSlots`), each the size of the map's largest tensor
+    /// (`Artifact.largestRun`) — none when the plan grants none: every layer then goes through the map.
+    package static func stagingSlots(granted: Int) -> Int { granted > 0 ? TailStream.unitSlots : 0 }
 
     /// The arena this encoder mapped — what the tests compare with `arenaBytes`.
     package var arenaCapacity: Int { arena.capacity }
@@ -424,8 +431,14 @@ package final class TextEncoder {
         // gives the buffers (`MemoryPlan.encoderSlots`: 4, or none = every layer through the map); the layers
         // requested ahead stay three — a block with no free buffer waits for one (`TailStream.stage`).
         let layerBlocks = TextEncoder.layerPrefixes(config).prefix(stopAfter).map { prefetcher.namesOfBlock(prefix: $0) }
-        try artifact.streamTail(blocks: layerBlocks,
-                                slots: TextEncoder.stagingSlots(granted: MemoryPlan.encoderSlots(artifact: artifact, layerBlocks: layerBlocks)))
+        let granted = TextEncoder.stagingSlots(granted: MemoryPlan.encoderSlots(artifact: artifact, layerBlocks: layerBlocks))
+        if granted == 0 {
+            try artifact.streamTail(blocks: [], slots: 0)
+        } else {
+            // Units in the order a layer is widened, the largest tensor's size each (`Artifact.streamUnits`).
+            try artifact.streamUnits(layers: layerBlocks, from: 0, prefix: { "layers.\($0)." },
+                                     suffixes: TextEncoder.consumptionOrder)
+        }
         for l in 0..<min(ahead, config.layers) { prefetcher.request(prefetcher.namesOfBlock(prefix: "layers.\(l).")) }
         for layer in 0..<min(stopAfter, config.layers) {
             try cancellation.check()   // between two layers, never inside one (see `Cancellation`)

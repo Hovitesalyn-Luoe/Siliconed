@@ -156,10 +156,12 @@ package final class DiT {
                                   transposed: artifact.linearWeightsTransposed, lora: cacheLoRA, mid: mid,
                                   midFloats: ownSizes["loraMid"] ?? 0)
         let config = self.config   // a local: the closure below must not capture a half-built `self`
-        let arenas = try [imagePadded, capPadded, sequence].map {
-            try Arena(capacity: DiT.blockArenaBytes(sequence: $0, config: config, loraRank: r))
-        }
-        blockArenas = arenas
+        // **One arena for the three sets of blocks**: the image refiners, the caption refiners and the layers
+        // run one after the other and each writes its scratch whole before reading it, so they share the
+        // pages — the largest set's, not the sum (`blocksArenaBytes`).
+        let shared = try Arena(capacity: DiT.blocksArenaBytes(image: imagePadded, cap: capPadded, config: config, loraRank: r))
+        let arenas = [shared, Arena(sharing: shared), Arena(sharing: shared)]
+        blockArenas = [shared]
         imageBlock = try Block(artifact: artifact,
                                shapes: .init(sequence: imagePadded, dim: d, heads: config.heads, hidden: h),
                                eps: config.eps, gemm: gemm, elementwise: elementwise,
@@ -179,7 +181,7 @@ package final class DiT {
         self.cacheLoRA = cacheLoRA
     }
 
-    /// The bytes this DiT's four arenas and its LoRA cache hold — what the tests compare with
+    /// The bytes this DiT's two arenas and its LoRA cache hold — what the tests compare with
     /// `MemoryNeed`'s formula.
     package var arenaCapacity: Int { arena.capacity + blockArenas.reduce(0) { $0 + $1.capacity } }
     package var cacheLoRACapacity: Int { cacheLoRA?.capacity ?? 0 }
@@ -208,7 +210,7 @@ package final class DiT {
 
         // The tail of the map is read beside the page cache and handed back as it is computed, so
         // that the head stays cached for the next evaluation (`Prefetcher.firstReleasedLayer`).
-        // How much, and with how many staging buffers (~0.36 GB each, anonymous), the plan chosen in B
+        // How much, and with how many staging buffers (units of a few tensors, the largest one's size each: `TailStream`), the plan chosen in B
         // says (`MemoryPlan.ditTail`): a head of what B leaves, at most half; none on the leanest; the
         // whole map cached when B holds it. Which bytes go through the cache, never the bytes.
         // **Decided before the evaluation's first request**: the refiners ask for
@@ -218,7 +220,11 @@ package final class DiT {
         // renders with the tail and its buffers without swap (measured: 3 774 MB, 0 swapout).
         let layerBlocks = (0..<config.layers).map { prefetcher.namesOfBlock(prefix: DiT.layerPrefix($0)) }
         let (released, slots) = MemoryPlan.ditTail(artifact: artifact, layerBlocks: layerBlocks)
-        try artifact.streamTail(blocks: slots == 0 ? [] : Array(layerBlocks[released...]), slots: slots)
+        if slots == 0 {
+            try artifact.streamTail(blocks: [], slots: 0)
+        } else {
+            try artifact.streamUnits(layers: layerBlocks, from: released, prefix: DiT.layerPrefix, suffixes: DiT.consumptionOrder)
+        }
 
         // The front end first: while the step embedding is computed, the disk brings in
         // the embedders and the refiners.
@@ -478,16 +484,20 @@ extension DiT {
                                          loraRank: loraRank).map { $0.count * 4 })
     }
 
-    /// **The four arenas a DiT maps** — its own, then the image, caption and unified blocks' — each as
-    /// `Arena` rounds it: `arenaCapacity` of the DiT built on these shapes, to the byte.
+    /// **The blocks' shared arena**: the largest of the image, caption and unified blocks' (`blockArenaBytes`).
+    package static func blocksArenaBytes(image: Int, cap: Int, config: Config, loraRank: Int) -> Int {
+        [image, cap, image + cap].map { blockArenaBytes(sequence: $0, config: config, loraRank: loraRank) }.max()!
+    }
+
+    /// **The two arenas a DiT maps** — its own, and the blocks' shared one (the image, caption and unified
+    /// blocks take turns in it) — each as `Arena` rounds it: `arenaCapacity` of the DiT built on these shapes,
+    /// to the byte.
     package static func arenaBytes(config: Config, latentHeight: Int, latentWidth: Int,
                                    capLength: Int, loraRank: Int) -> Int {
         let image = imagePadded(latentHeight: latentHeight, latentWidth: latentWidth, config: config)
         let cap = capPadded(capLength, config: config)
         return Arena.capacity(for: ownArenaBytes(imageTokens: image, capPadded: cap, config: config, loraRank: loraRank))
-            + [image, cap, image + cap].reduce(0) {
-                $0 + Arena.capacity(for: blockArenaBytes(sequence: $1, config: config, loraRank: loraRank))
-            }
+            + Arena.capacity(for: blocksArenaBytes(image: image, cap: cap, config: config, loraRank: loraRank))
     }
 
     /// A block's `Linear`s a stack adapts (`Block`), `(k, n)` as the map lays them out: `to_q`, `to_k`, `to_v`,
@@ -545,7 +555,16 @@ extension DiT {
         return false
     }
 
+    /// **A layer's tensors in the order `Block.forward` widens them** — the order its stream reads them in
+    /// (`Artifact.streamUnits`): the modulation, the attention's norms and projections, the feed-forward.
+    package static let consumptionOrder = ["adaLN_modulation.0.weight", "adaLN_modulation.0.bias", "attention_norm1.weight",
+                                           "attention.to_q.weight", "attention.to_k.weight", "attention.to_v.weight",
+                                           "attention.norm_q.weight", "attention.norm_k.weight",
+                                           "attention.to_out.0.weight", "attention_norm2.weight", "ffn_norm1.weight",
+                                           "feed_forward.w1.weight", "feed_forward.w3.weight", "feed_forward.w2.weight",
+                                           "ffn_norm2.weight"]
+
     /// The names of a DiT layer's tensors are `layers.<i>.…`: the tail's staging buffers are sized on
-    /// the largest of them (`Artifact.stagingBytes`).
+    /// the largest of them (`Artifact.largestRun`).
     package static func layerPrefix(_ layer: Int) -> String { "layers.\(layer)." }
 }

@@ -93,10 +93,10 @@ final class MemoryNeedTests: XCTestCase {
         let config = DiT.Config(header: [:])
         let (d, h, image, cap) = (3840, 10240, 4096, 64), s = image + cap
         func pages(_ floats: [Int]) -> Int { floats.reduce(0) { $0 + Arena.capacity(for: $1 * 4) } }
-        func block(_ s: Int) -> Int { pages(Array(repeating: s * d, count: 6) + [s * h, s * h, 4 * d, d * h, 4 * d]) }
+        func block(_ s: Int) -> Int { pages(Array(repeating: s * d, count: 6) + [s * h, 4 * d, d * h, 4 * d]) }
         let own = pages([2560 * d, 256, 1024, image * 64, image * d, cap * 2560, cap * d, s * 128, s * d, d, s * d, s * 64])
         XCTAssertEqual(DiT.arenaBytes(config: config, latentHeight: 128, latentWidth: 128, capLength: 50, loraRank: 0),
-                       own + block(image) + block(cap) + block(s))
+                       own + max(block(image), block(cap), block(s)))   // the blocks take turns in one arena
     }
 
     func testTheStagingBufferIsTheFormula() throws {
@@ -169,7 +169,10 @@ final class MemoryNeedTests: XCTestCase {
             XCTAssertEqual(try need(w, h, tokens: bound + 500).peak, byTokens[4])
             let byRank = try [[], [16], [64], [64, 32]].map { try need(w, h, ranks: $0).peak }
             XCTAssertEqual(byRank, byRank.sorted())
-            XCTAssertLessThan(byRank[0], byRank[1])
+            // The decoding can be the peak now that the blocks share one arena: the denoising itself grows.
+            XCTAssertLessThanOrEqual(byRank[0], byRank[1])
+            let denoising = try [[], [16]].map { phase(try need(w, h, ranks: $0), .denoising)!.bytes }
+            XCTAssertLessThan(denoising[0], denoising[1])
         }
         // An img2img start: the larger the image handed, the larger the need.
         let starts = try [(512, 512), (1024, 1024), (2048, 2048)].map { try need(1024, 1024, references: [$0]).peak }
@@ -189,7 +192,8 @@ final class MemoryNeedTests: XCTestCase {
             var plan = Self.zRequest(width: w, height: h, promptTokens: 50)
             plan.tail = .none
             let noTail = try XCTUnwrap(MemoryNeed.zImage(plan, maps: Self.zImageMaps()))
-            XCTAssertEqual(own(all, .denoising) - own(noTail, .denoising), 2 * bf16Layer)
+            // Three buffers of the layer's largest tensor (w1: 3 840 × 10 240 in bf16), not two of a layer.
+            XCTAssertEqual(own(all, .denoising) - own(noTail, .denoising), TailStream.unitSlots * 78_643_200)
             // The lean plan: the whole map through the same two buffers, no encoder buffer, small bands.
             let lean = try XCTUnwrap(MemoryNeed.zImage(plan.lean, maps: Self.zImageMaps()))
             XCTAssertLessThanOrEqual(lean.peak, all.peak)
@@ -206,7 +210,7 @@ final class MemoryNeedTests: XCTestCase {
         let encoder = try TextEncoder.Config(header: maps.encoder)
         for tokens in [1, 50, 400] {
             let text = try XCTUnwrap(phase(try need(1024, 1024, tokens: tokens), .text))
-            let layer = Artifact.stagingBytes(header: maps.encoder, prefixes: TextEncoder.layerPrefixes(encoder), fileSize: .max)
+            let layer = Artifact.largestRun(header: maps.encoder, prefixes: TextEncoder.layerPrefixes(encoder), fileSize: .max)
             let (h, a, kv, i) = (encoder.hidden, encoder.attentionWidth, encoder.kvWidth, encoder.intermediate)
             XCTAssertEqual(text.bytes, TextEncoder.arenaBytes(config: encoder, sequence: tokens)
                             + TextEncoder.stagingSlots(granted: MemoryPlan.encoderSlots) * layer
@@ -225,8 +229,8 @@ final class MemoryNeedTests: XCTestCase {
         let maps = Self.zImageMaps()
         let dit = DiT.Config(header: maps.dit)
         let released = MemoryPlan.Tail(fraction: 0.5, slots: 2).released(layers: dit.layers)
-        let staging = 2 * Artifact.stagingBytes(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
-                                                fileSize: maps.ditSize)
+        let staging = TailStream.unitSlots * Artifact.largestRun(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
+                                                                 fileSize: maps.ditSize)
         let gpuHeads = HeadSplitAttention.partition(heads: dit.heads, fraction: HeadSplitAttention.cpuFraction).gpu.count
         for (w, h) in [(512, 512), (1024, 1024), (1024, 1536)] {
             let n = try need(w, h)
@@ -371,8 +375,8 @@ final class MemoryNeedTests: XCTestCase {
     func testAnEightBitMapNeedsSmallerBuffers() throws {
         let bf16 = try need(1024, 1024), int8 = try need(1024, 1024, maps: Self.zImageMaps(bytesPerValue: 1))
         let saved = own(bf16, .denoising) - own(int8, .denoising)
-        XCTAssertGreaterThan(saved, 300_000_000)    // 2 buffers × ~181 MB
-        XCTAssertLessThan(saved, 400_000_000)
+        XCTAssertGreaterThan(saved, TailStream.unitSlots * 38_000_000)   // 3 buffers of the largest tensor (w1): half the bytes
+        XCTAssertLessThan(saved, TailStream.unitSlots * 40_000_000)
         XCTAssertLessThan(own(int8, .text), own(bf16, .text))
     }
 
@@ -425,10 +429,13 @@ final class MemoryNeedTests: XCTestCase {
             XCTAssertEqual(maps.ditStaging(released..<dit.layers),
                            Artifact.stagingBytes(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
                                                  fileSize: maps.ditSize), "tail from \(released)")
+            XCTAssertEqual(maps.ditUnitStaging(released..<dit.layers),
+                           Artifact.largestRun(header: maps.dit, prefixes: (released..<dit.layers).map(DiT.layerPrefix),
+                                               fileSize: maps.ditSize), "tail from \(released)")
         }
         let encoder = try TextEncoder.Config(header: maps.encoder)
         XCTAssertEqual(maps.encoderLayerStaging,
-                       Artifact.stagingBytes(header: maps.encoder, prefixes: TextEncoder.layerPrefixes(encoder),
+                       Artifact.largestRun(header: maps.encoder, prefixes: TextEncoder.layerPrefixes(encoder),
                                              fileSize: maps.encoderSize))
 
         // Hot: the product's worst case (1024×1536, three references), both families, both plans.
