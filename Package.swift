@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "Siliconed",
-    platforms: [.macOS(.v15)],   // MPSGraph.scaledDotProductAttention : macOS 15+
+    platforms: [.macOS("26.0")],   // MPSGraph.scaledDotProductAttention : macOS 15+ (Liquid Glass needs the macOS 26 SDK)
     products: [
         .executable(name: "SiliconedApp", targets: ["SiliconedApp"]),
         .executable(name: "silicontrol", targets: ["Silicontrol"]),
