@@ -24,7 +24,7 @@
 set -e
 cd "${0:A:h}/.."
 # The languages the app ships besides English, the source: one list, read by `tools/app.sh` too.
-languages=(fr de es it)
+languages=(fr de es it zh-Hans)
 catalog=Sources/SiliconedApp/Localizable.xcstrings
 module=""
 # The freshest build that has both modules the app imports.
